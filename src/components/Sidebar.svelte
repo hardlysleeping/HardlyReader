@@ -1,10 +1,23 @@
 <script lang="ts">
   import { READING_LIST, STATE_STARRED } from "../api/freshrss";
-  import { reader } from "../state/reader.svelte";
+  import {
+    LongPressTracker,
+    anchorForRect,
+    armsLongPress,
+    isMenuKey,
+  } from "../lib/contextmenu";
+  import { reader, type CategoryGroup } from "../state/reader.svelte";
 
   let { onNavigate }: { onNavigate?: () => void } = $props();
 
   let collapsed = $state<Record<string, boolean>>({});
+
+  /**
+   * Set when a long press has opened the menu, so the click that the browser
+   * still sends on lift does not also open the category stream.
+   */
+  let swallowClick = false;
+  let press: LongPressTracker | null = null;
 
   function toggle(id: string) {
     collapsed = { ...collapsed, [id]: !collapsed[id] };
@@ -13,6 +26,59 @@
   async function open(streamId: string, title: string) {
     await reader.openStream(streamId, title);
     onNavigate?.();
+  }
+
+  function openCategory(category: CategoryGroup) {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    void open(category.id, category.label);
+  }
+
+  /**
+   * Right-click. Without the extension there is nothing to offer, so the native
+   * menu is left alone rather than replaced by a dead one.
+   */
+  function onContextMenu(event: MouseEvent, category: CategoryGroup) {
+    if (!reader.hiddenAvailable) return;
+    event.preventDefault();
+    reader.openCategoryMenu(category.label, { x: event.clientX, y: event.clientY });
+  }
+
+  /** Shift+F10 and the context-menu key: same menu, anchored to the row. */
+  function onKeydown(event: KeyboardEvent, category: CategoryGroup) {
+    if (!reader.hiddenAvailable || !isMenuKey(event)) return;
+    event.preventDefault();
+    const anchor = anchorForRect((event.currentTarget as HTMLElement).getBoundingClientRect());
+    reader.openCategoryMenu(category.label, anchor);
+  }
+
+  function onPointerDown(event: PointerEvent, category: CategoryGroup) {
+    if (!reader.hiddenAvailable || !armsLongPress(event.pointerType)) return;
+    swallowClick = false;
+    press?.cancel();
+    press = new LongPressTracker((point) => {
+      swallowClick = true;
+      reader.openCategoryMenu(category.label, point);
+    });
+    press.start({
+      pointerType: event.pointerType,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+  }
+
+  function onPointerMove(event: PointerEvent) {
+    press?.move({
+      pointerType: event.pointerType,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+  }
+
+  function cancelPress() {
+    press?.cancel();
   }
 </script>
 
@@ -42,8 +108,15 @@
         <button
           class="row group-title"
           class:active={reader.activeStream === category.id}
-          onclick={() => open(category.id, category.label)}
-          oncontextmenu={(event) => event.preventDefault()}
+          onclick={() => openCategory(category)}
+          oncontextmenu={(event) => onContextMenu(event, category)}
+          onkeydown={(event) => onKeydown(event, category)}
+          onpointerdown={(event) => onPointerDown(event, category)}
+          onpointermove={onPointerMove}
+          onpointerup={cancelPress}
+          onpointercancel={cancelPress}
+          onpointerleave={cancelPress}
+          aria-haspopup={reader.hiddenAvailable ? "menu" : undefined}
         >
           <span class="chevron" class:closed={collapsed[category.id]} aria-hidden="true">▾</span>
           <span class="label">{category.label}</span>
