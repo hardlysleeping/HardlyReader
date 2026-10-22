@@ -10,9 +10,9 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 
 | # | Commit | Status | Notes |
 |---|---|---|---|
-| 1 | App shell: Svelte 5 + TS + Vite + Tauri 2, Linux dev works | wip | SvelteKit template stripped to plain Svelte+Vite |
-| 2 | FreshRSS auth: GReader `ClientLogin`, reuse GoogleLogin token | todo | |
-| 3 | Reader data: categories, subscriptions, articles, read/unread, star | todo | |
+| 1 | App shell: Svelte 5 + TS + Vite + Tauri 2, Linux dev works | done | SvelteKit template stripped to plain Svelte+Vite; `c6d1002` |
+| 2 | FreshRSS auth: GReader `ClientLogin`, reuse GoogleLogin token | done | API password only; token in localStorage; http plugin scope needs `http://*:*` |
+| 3 | Reader data: categories, subscriptions, articles, read/unread, star | next | JSON endpoints require `?output=json` or they 501 |
 | 4 | Basic UI: sidebar, article list, reader, responsive | todo | |
 
 ## P0 — HiddenCategories bridge
@@ -48,3 +48,15 @@ into the app. All PHPUnit and Docker tests pass.
 ## Not building yet
 
 Favorites, Sidebar Indent, NewsBlur, local RSS, offline articles, iOS, Android, background sync.
+
+## Local development
+
+`tests/integration/compose.yml` runs an ephemeral FreshRSS 1.30.1 on
+`http://127.0.0.1:18080` with user `itest` / API password `itest-api-password`.
+
+```bash
+docker compose -f tests/integration/compose.yml up -d
+docker compose -f tests/integration/compose.yml down -v
+```
+
+Never point this at the live instance; the harness is disposable by design.
