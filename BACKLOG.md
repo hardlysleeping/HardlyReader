@@ -12,7 +12,7 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 |---|---|---|---|
 | 1 | App shell: Svelte 5 + TS + Vite + Tauri 2, Linux dev works | done | SvelteKit template stripped to plain Svelte+Vite; `c6d1002` |
 | 2 | FreshRSS auth: GReader `ClientLogin`, reuse GoogleLogin token | done | API password only; token in localStorage; http plugin scope needs `http://*:*` |
-| 3 | Reader data: categories, subscriptions, articles, read/unread, star | done | `withQuery()` applies `output=json` centrally; `editTag` fetches a write token per call; 19/19 smoke checks |
+| 3 | Reader data: categories, subscriptions, articles, read/unread, star | done | `withQuery()` applies `output=json` centrally; `editTag` fetches a write token per call; `subscribe`/`unsubscribe` post `subscription/edit` with the `feed/<url>` id form (`feed:<url>` answers 200 and does nothing); 26/26 smoke checks |
 | 4 | Basic UI: sidebar, article list, reader, responsive | done | Three-pane ≥1200, two-pane 840–1199, drawer ≤839; DOMPurify strips scripts/handlers/iframes from real feed HTML; `6845887` |
 
 ## P0 — HiddenCategories bridge
@@ -74,7 +74,9 @@ Smoke suite against the running harness (real endpoints, real writes):
 node --experimental-strip-types tests/smoke/api.mjs
 ```
 
-It round-trips read and star on one item and restores it, so repeated runs stay stable.
+It round-trips read and star on one item, and subscribe/unsubscribe on one feed, restoring both,
+so repeated runs stay stable. The subscribe check needs outbound network from the harness, because
+FreshRSS fetches the feed itself; `HARDLYREAD_FEED_URL=""` skips it.
 
 Unit tests (no server, no network, no GUI):
 
