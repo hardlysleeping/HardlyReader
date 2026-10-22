@@ -12,8 +12,8 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 |---|---|---|---|
 | 1 | App shell: Svelte 5 + TS + Vite + Tauri 2, Linux dev works | done | SvelteKit template stripped to plain Svelte+Vite; `c6d1002` |
 | 2 | FreshRSS auth: GReader `ClientLogin`, reuse GoogleLogin token | done | API password only; token in localStorage; http plugin scope needs `http://*:*` |
-| 3 | Reader data: categories, subscriptions, articles, read/unread, star | next | JSON endpoints require `?output=json` or they 501 |
-| 4 | Basic UI: sidebar, article list, reader, responsive | todo | |
+| 3 | Reader data: categories, subscriptions, articles, read/unread, star | done | `withQuery()` applies `output=json` centrally; `editTag` fetches a write token per call; 19/19 smoke checks |
+| 4 | Basic UI: sidebar, article list, reader, responsive | next | |
 
 ## P0 — HiddenCategories bridge
 
@@ -58,5 +58,13 @@ Favorites, Sidebar Indent, NewsBlur, local RSS, offline articles, iOS, Android, 
 docker compose -f tests/integration/compose.yml up -d
 docker compose -f tests/integration/compose.yml down -v
 ```
+
+Smoke suite against the running harness (real endpoints, real writes):
+
+```bash
+node --experimental-strip-types tests/smoke/api.mjs
+```
+
+It round-trips read and star on one item and restores it, so repeated runs stay stable.
 
 Never point this at the live instance; the harness is disposable by design.
