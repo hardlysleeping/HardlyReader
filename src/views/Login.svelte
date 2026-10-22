@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { AuthError, clientLogin, HttpError, normalizeServerUrl } from "../api/freshrss";
   import type { Session } from "../api/freshrss";
-  import { tauriTransport } from "../api/freshrss";
+  import { transport } from "../api/transport";
 
   interface Props {
     initialServerUrl?: string;
@@ -27,7 +27,7 @@
     busy = true;
 
     try {
-      const session = await clientLogin(tauriTransport, {
+      const session = await clientLogin(transport, {
         serverUrl: normalizeServerUrl(serverUrl),
         email: email.trim(),
         apiPassword,

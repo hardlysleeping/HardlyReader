@@ -13,7 +13,7 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 | 1 | App shell: Svelte 5 + TS + Vite + Tauri 2, Linux dev works | done | SvelteKit template stripped to plain Svelte+Vite; `c6d1002` |
 | 2 | FreshRSS auth: GReader `ClientLogin`, reuse GoogleLogin token | done | API password only; token in localStorage; http plugin scope needs `http://*:*` |
 | 3 | Reader data: categories, subscriptions, articles, read/unread, star | done | `withQuery()` applies `output=json` centrally; `editTag` fetches a write token per call; 19/19 smoke checks |
-| 4 | Basic UI: sidebar, article list, reader, responsive | next | |
+| 4 | Basic UI: sidebar, article list, reader, responsive | done | Three-pane ≥1200, two-pane 840–1199, drawer ≤839; DOMPurify strips scripts/handlers/iframes from real feed HTML; `6845887` |
 
 ## P0 — HiddenCategories bridge
 
@@ -64,6 +64,10 @@ Smoke suite against the running harness (real endpoints, real writes):
 ```bash
 node --experimental-strip-types tests/smoke/api.mjs
 ```
+
+Browser development (`pnpm dev` only): FreshRSS sends no CORS headers, so `/freshrss`
+is proxied to the harness and the app is reached at `http://127.0.0.1:1420` with
+server URL `http://127.0.0.1:1420/freshrss`. The Tauri build never uses this proxy.
 
 It round-trips read and star on one item and restores it, so repeated runs stay stable.
 

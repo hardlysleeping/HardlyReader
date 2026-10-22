@@ -1,11 +1,8 @@
 /** HTTP transport shape. Injected so the API layer can be exercised outside the
- * Tauri webview (tests, scripts) without pulling in the plugin. */
+ * Tauri webview (tests, scripts) without pulling in the plugin.
+ *
+ * The concrete transport for each runtime lives in `./transport`. */
 export type Transport = (input: string, init?: RequestInit) => Promise<Response>;
-
-export const tauriTransport: Transport = async (input, init) => {
-  const { fetch } = await import("@tauri-apps/plugin-http");
-  return fetch(input, init);
-};
 
 export class AuthError extends Error {
   constructor(message = "Authentication failed") {
