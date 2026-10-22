@@ -12,3 +12,5 @@ src-tauri/target
 /build
 /.phpunit.cache
 extensions/xExtension-HardlyRead/.phpunit.cache
+tests/integration/artifacts/
+.worktrees/

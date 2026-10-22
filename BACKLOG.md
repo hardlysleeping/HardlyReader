@@ -36,7 +36,7 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 | # | Commit | Status | Notes |
 |---|---|---|---|
 | 11 | PHPUnit: GET state, PUT category, PUT view; 200/401/404/409/423 | todo | |
-| 12 | PHP CI matrix + combined summary | todo | Version range decision recorded in plan §6.6 |
+| 12 | PHP CI matrix + combined summary | wip | `.github/workflows/tests.yml` written; 8.2/8.3/8.4 per §6.6; first GitHub run pending |
 | 13 | Docker E2E against real FreshRSS container | todo | Upload FreshRSS logs on failure |
 
 ## P2 — Release
