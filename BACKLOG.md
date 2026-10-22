@@ -39,6 +39,15 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 | 12 | PHP CI matrix + combined summary | todo | Version range decision recorded in plan §6.6 |
 | 13 | Docker E2E against real FreshRSS container | todo | Upload FreshRSS logs on failure |
 
+## P2 — Release
+
+| # | Task | Status | Notes |
+|---|---|---|---|
+| 14 | Publish to public GitHub — **only after the MVP is done** | todo | `github.com/hardlysleeping/hardlyreader`; no personal data in files *or* history; plan §8.1 |
+
+Gate: the "Done when" section below must actually pass first. Full history is scanned before the first
+push — a force-push does not purge old commits, and this account cannot delete repos.
+
 ## Done when
 
 Launch the Linux app, log in, see real FreshRSS content, right-click a category, Hide, it disappears
@@ -65,10 +74,10 @@ Smoke suite against the running harness (real endpoints, real writes):
 node --experimental-strip-types tests/smoke/api.mjs
 ```
 
+It round-trips read and star on one item and restores it, so repeated runs stay stable.
+
 Browser development (`pnpm dev` only): FreshRSS sends no CORS headers, so `/freshrss`
 is proxied to the harness and the app is reached at `http://127.0.0.1:1420` with
 server URL `http://127.0.0.1:1420/freshrss`. The Tauri build never uses this proxy.
-
-It round-trips read and star on one item and restores it, so repeated runs stay stable.
 
 Never point this at the live instance; the harness is disposable by design.
