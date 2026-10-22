@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  What a bare `vendor/bin/phpunit` (and the CI workflow) picks up from the
+  repository root.
+
+  The suite itself lives with the extension, which is outside FreshRSS's own
+  tests/ tree and therefore invisible to FreshRSS's phpunit config. Two configs
+  exist on purpose:
+
+    phpunit.xml.dist                                  ← bare `phpunit`, CI
+    extensions/xExtension-HardlyRead/phpunit.xml      ← the extension's own suite
+
+  Both must list the same testsuite; change one, change the other.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
+         bootstrap="extensions/xExtension-HardlyRead/tests/bootstrap.php"
+         cacheDirectory=".phpunit.cache"
+         colors="true"
+         failOnWarning="true"
+         failOnRisky="true"
+         beStrictAboutOutputDuringTests="true">
+
+    <testsuites>
+        <testsuite name="HardlyRead API router">
+            <directory suffix="Test.php">extensions/xExtension-HardlyRead/tests</directory>
+        </testsuite>
+    </testsuites>
+
+    <source>
+        <include>
+            <directory suffix=".php">extensions/xExtension-HardlyRead/lib</directory>
+        </include>
+    </source>
+</phpunit>

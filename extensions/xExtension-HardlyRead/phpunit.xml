@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The extension owns its suite: FreshRSS's own tests/*.phpunit.xml only collects
+  FreshRSS tests, and this directory is not inside it.
+
+  Run from the repository root:
+    vendor/bin/phpunit -c extensions/xExtension-HardlyRead/phpunit.xml
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         cacheDirectory=".phpunit.cache"
+         colors="true"
+         failOnWarning="true"
+         failOnRisky="true"
+         beStrictAboutOutputDuringTests="true">
+
+    <testsuites>
+        <testsuite name="HardlyRead API router">
+            <directory suffix="Test.php">tests</directory>
+        </testsuite>
+    </testsuites>
+
+    <source>
+        <include>
+            <directory suffix=".php">lib</directory>
+        </include>
+    </source>
+</phpunit>
