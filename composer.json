@@ -1,0 +1,21 @@
+{
+    "name": "hardlyread/hardlyread",
+    "description": "HardlyReader: a FreshRSS client with a Hidden Categories bridge. PHPUnit lives here because the extension ships inside this repository and ships without a vendor directory.",
+    "type": "project",
+    "private": true,
+    "require": {
+        "php": ">=8.2"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "config": {
+        "platform": {
+            "php": "8.2.0"
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "phpunit -c extensions/xExtension-HardlyRead/phpunit.xml"
+    }
+}
