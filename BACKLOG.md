@@ -26,7 +26,7 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 
 | # | Commit | Status | Notes |
 |---|---|---|---|
-| 7 | Read `/v1/state`, map categories to numeric IDs, apply hidden state | todo | |
+| 7 | Read `/v1/state`, map categories to numeric IDs, apply hidden state | todo | `src/api/hardlyread.ts` + sidebar filtering landed; 74 unit checks. Integration against a running extension still unverified |
 | 8 | Hide/unhide UI: right-click desktop, long-press mobile | todo | |
 | 9 | Optimistic sync: server state + pending mutations = UI state | todo | No toggle API; always send explicit state |
 | 10 | Hidden view modes: hidden / revealed / only | todo | HiddenCategories owns Strict/Light behaviour |
@@ -75,6 +75,17 @@ node --experimental-strip-types tests/smoke/api.mjs
 ```
 
 It round-trips read and star on one item and restores it, so repeated runs stay stable.
+
+Unit tests (no server, no network, no GUI):
+
+```bash
+node --experimental-strip-types --import ./tests/unit/register-ts.mjs tests/unit/hardlyread-api.mjs
+node --experimental-strip-types --import ./tests/unit/register-ts.mjs tests/unit/reader-state.mjs
+```
+
+`register-ts.mjs` lets Node resolve the extensionless relative imports Vite
+handles; `reader-state.mjs` compiles the runes module with `svelte/compiler`
+because Node cannot import `$state` directly.
 
 Browser development (`pnpm dev` only): FreshRSS sends no CORS headers, so `/freshrss`
 is proxied to the harness and the app is reached at `http://127.0.0.1:1420` with

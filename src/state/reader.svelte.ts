@@ -16,7 +16,15 @@ import {
   type Subscription,
   type Tag,
 } from "../api/freshrss";
+import {
+  categoryIdForLabel,
+  getState as getHiddenState,
+  unavailableState,
+  type HiddenCategoriesState,
+  type HiddenView,
+} from "../api/hardlyread";
 import { transport } from "../api/transport";
+import { effectiveView, visibleGroups } from "./hidden";
 
 export const PAGE_SIZE = 50;
 
@@ -53,11 +61,41 @@ export class ReaderState {
   busyItems = new SvelteMap<string, boolean>();
   error = $state<string | null>(null);
 
+  /**
+   * Hidden Categories state from the HardlyRead v1 API.
+   *
+   * Starts as "not available" and stays that way when the extension is absent,
+   * which is what every ordinary FreshRSS install looks like.
+   */
+  hiddenCategories = $state<HiddenCategoriesState>(unavailableState());
+  /** Why the state could not be read. Kept apart from `error`: no extension is
+   * a normal install, not a failure worth a banner. */
+  hiddenError = $state<string | null>(null);
+
+  /** The view the extension is actually applying. */
+  get hiddenView(): HiddenView {
+    return effectiveView(this.hiddenCategories);
+  }
+
+  get hiddenAvailable(): boolean {
+    return this.hiddenCategories.available;
+  }
+
+  /** The numeric FreshRSS id behind a GReader label, or null if unknown. */
+  categoryId(labelOrStreamId: string): number | null {
+    return categoryIdForLabel(this.hiddenCategories, labelOrStreamId);
+  }
+
   get selected(): StreamItem | null {
     return this.items.find((item) => item.id === this.selectedId) ?? null;
   }
 
-  get categories(): CategoryGroup[] {
+  /**
+   * Every category the server reported, unfiltered. Hidden ones are still in
+   * here: GReader cannot tell "hidden" from "deleted", so the extension state
+   * is the only way to know, and `categories` applies it.
+   */
+  get allCategories(): CategoryGroup[] {
     const groups = new Map<string, CategoryGroup>();
     for (const feed of this.subscriptions) {
       const cats = feed.categories?.length
@@ -81,6 +119,11 @@ export class ReaderState {
         feeds: [...group.feeds].sort((a, b) => a.title.localeCompare(b.title)),
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  /** The sidebar's categories, with the hidden-categories view applied. */
+  get categories(): CategoryGroup[] {
+    return visibleGroups(this.allCategories, this.hiddenCategories);
   }
 
   countFor(id: string): number {
@@ -108,6 +151,8 @@ export class ReaderState {
     this.items = [];
     this.selectedId = null;
     this.continuation = undefined;
+    this.hiddenCategories = unavailableState();
+    this.hiddenError = null;
   }
 
   async loadSidebar(): Promise<void> {
@@ -117,12 +162,32 @@ export class ReaderState {
         listSubscriptions(transport, this.session),
         listTags(transport, this.session),
         getUnreadCounts(transport, this.session),
+        // Never throws; an install without the extension is not an error.
+        this.loadHiddenState(),
       ]);
       this.subscriptions = subscriptions;
       this.tags = tags;
       this.setCounts(counts);
     } catch (error) {
       this.error = message(error);
+    }
+  }
+
+  /**
+   * Reads hidden-categories state.
+   *
+   * Deliberately does not touch `error`: a missing extension, a 409 or a 401
+   * here must not take over the sidebar, and the GReader calls already report
+   * a dead token.
+   */
+  async loadHiddenState(): Promise<void> {
+    if (!this.session) return;
+    try {
+      this.hiddenCategories = await getHiddenState(transport, this.session);
+      this.hiddenError = null;
+    } catch (error) {
+      this.hiddenCategories = unavailableState();
+      this.hiddenError = message(error);
     }
   }
 
