@@ -13,30 +13,30 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 | 1 | App shell: Svelte 5 + TS + Vite + Tauri 2, Linux dev works | done | SvelteKit template stripped to plain Svelte+Vite; `c6d1002` |
 | 2 | FreshRSS auth: GReader `ClientLogin`, reuse GoogleLogin token | done | API password only; token in localStorage; http plugin scope needs `http://*:*` |
 | 3 | Reader data: categories, subscriptions, articles, read/unread, star | done | `withQuery()` applies `output=json` centrally; `editTag` fetches a write token per call; `subscribe`/`unsubscribe` post `subscription/edit` with the `feed/<url>` id form (`feed:<url>` answers 200 and does nothing); 26/26 smoke checks |
-| 4 | Basic UI: sidebar, article list, reader, responsive | done | Three-pane ≥1200, two-pane 840–1199, drawer ≤839; DOMPurify strips scripts/handlers/iframes from real feed HTML; `6845887` |
+| 4 | Basic UI: sidebar, article list, reader, responsive | done | Three-pane ≥1200, two-pane 840–1199, drawer ≤839; DOMPurify strips scripts/handlers/iframes from real feed HTML; `78c7345` |
 
 ## P0 — HiddenCategories bridge
 
 | # | Commit | Status | Notes |
 |---|---|---|---|
-| 5 | `setCategoryHidden(int, bool)` + `changeView(string)` only | todo | Reuse existing logic; no sweep/Strict internals exposed |
-| 6 | `xExtension-HardlyRead`: ApiMisc, 3 routes, GoogleLogin auth | todo | 401 / 404 / 409 / 423 |
+| 5 | `setCategoryHidden(int, bool)` + `changeView(string)` only | blocked | Plan §5.1/§5.2 give the bodies; the deployed VPS copy is the source of truth, and editing it needs the owner's explicit permission. Additive-to-behaviour: the inline block is replaced by a call, so there is one path, not two |
+| 6 | `xExtension-HardlyRead`: ApiMisc, 3 routes, GoogleLogin auth | done | 600 lines; 51 tests / 166 assertions green on PHP 8.2, 8.3 and 8.4. `Minz_HookType::ApiMisc`, `enableByList($list,$type)`, `checkUsername()` and every extension accessor it calls (`store`, `categories`, `effectiveView`, `hiddenIds`, `mode`, `view`, `isLocked`) verified public against the deployed FreshRSS 1.30.1; `2a26529` |
 
 ## P1 — App integration
 
 | # | Commit | Status | Notes |
 |---|---|---|---|
-| 7 | Read `/v1/state`, map categories to numeric IDs, apply hidden state | todo | `src/api/hardlyread.ts` + sidebar filtering landed; 74 unit checks. Integration against a running extension still unverified |
-| 8 | Hide/unhide UI: right-click desktop, long-press mobile | wip | `src/components/CategoryMenu.svelte` + `src/lib/contextmenu.ts`; also Shift+F10 / context-menu key. 140 unit checks in three new files. Visual check pending — no GUI was launched |
-| 9 | Optimistic sync: server state + pending mutations = UI state | wip | `src/state/hidden-write.ts`: optimistic commit, then server state; 409/423 reconcile with the returned state, stateless failures roll back with a banner. One write at a time per app |
-| 10 | Hidden view modes: hidden / revealed / only | wip | The menu's View group writes `/hidden-categories/view`; HiddenCategories owns Strict/Light behaviour |
+| 7 | Read `/v1/state`, map categories to numeric IDs, apply hidden state | done | `src/api/hardlyread.ts`; state shape matches plan §3 (`available`, `mode`, `view`, `effectiveView`, `hiddenIds`, `locked`, `categories[]`); 57 unit checks. **Not** exercised against a running extension — nothing implements §5 yet; `85951c9` |
+| 8 | Hide/unhide UI: right-click desktop, long-press mobile | done | `CategoryMenu.svelte` + `lib/contextmenu.ts`; desktop contextmenu, 500 ms long-press, Shift+F10 and the context-menu key; 81 unit checks. Rendering, focus rings, long-press timing and the drawer-transform positioning argued from code and CSS, never observed; `58b4427` |
+| 9 | Optimistic sync: server state + pending mutations = UI state | done | `src/state/hidden-write.ts`: optimistic commit then server state; 409/423 reconcile with the returned state, stateless failures roll back with a banner; 59 unit checks through the real client with a recording fetch; `58b4427` |
+| 10 | Hidden view modes: hidden / revealed / only | done | Menu's View group writes `PUT /v1/hidden-categories/view`; HiddenCategories still owns Strict/Light. 423 when locked; `58b4427` |
 
 ## P1 — Tests
 
 | # | Commit | Status | Notes |
 |---|---|---|---|
-| 11 | PHPUnit: GET state, PUT category, PUT view; 200/401/404/409/423 | todo | |
-| 12 | PHP CI matrix + combined summary | wip | `.github/workflows/tests.yml` written; 8.2/8.3/8.4 per §6.6; first GitHub run pending |
+| 11 | PHPUnit: GET state, PUT category, PUT view; 200/401/404/409/423 | done | 51 tests / 166 assertions, green on PHP 8.2, 8.3, 8.4. Covers auth-before-routing, 404 (unknown route/version/empty/trailing), 405 with `Allow`, 400 (zero, non-numeric, malformed, non-boolean), 409 (`hidden_categories_unavailable`, `extension_incompatible`), 423 locked, convergence carrying authoritative state. Fakes only — no FreshRSS in the loop; `a5dc943` |
+| 12 | PHP CI matrix + combined summary | wip | `.github/workflows/tests.yml`, three jobs, matrix 8.2/8.3/8.4 per §6.6; parses as YAML and the scripts pass `bash -n`. **Never executed on a GitHub runner** — `actionlint` is still not installed; `c77f09c` |
 | 13 | Docker E2E against real FreshRSS container | todo | Upload FreshRSS logs on failure |
 
 ## P2 — Release
@@ -47,6 +47,17 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 
 Gate: the "Done when" section below must actually pass first. Full history is scanned before the first
 push — a force-push does not purge old commits, and this account cannot delete repos.
+
+## Verified, and not
+
+Measured on the merged tree (`d119590`): svelte-check 0 errors / 0 warnings, `vite build` clean,
+214 unit checks across five suites, PHPUnit 51/51 on PHP 8.2 + 8.3 + 8.4, and 26/26 live smoke
+checks against the disposable harness including subscribe/unsubscribe round-trips.
+
+Not measured: anything involving Hidden Categories at runtime. The adapter answers
+`409 extension_incompatible` on `PUT` until row 5 adds the two methods, so the hide round-trip —
+app, extension and FreshRSS web UI agreeing — has never run. Native WebKit rendering, long-press
+timing on a touchscreen and the GitHub Actions run are likewise unobserved.
 
 ## Done when
 
