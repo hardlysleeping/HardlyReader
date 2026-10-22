@@ -19,7 +19,7 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 
 | # | Commit | Status | Notes |
 |---|---|---|---|
-| 5 | `setCategoryHidden(int, bool)` + `changeView(string)` only | blocked | Plan §5.1/§5.2 give the bodies; the deployed VPS copy is the source of truth, and editing it needs the owner's explicit permission. Additive-to-behaviour: the inline block is replaced by a call, so there is one path, not two |
+| 5 | `setCategoryHidden(int, bool)` + `changeView(string)` only | done | Plan §5.1/§5.2 give the bodies; the deployed VPS copy is the source of truth, and editing it needs the owner's explicit permission. Extracted from the inline handler blocks and deployed. `setCategoryHidden(int,bool): array` and `changeView(string): array`; the form handler now calls them, so the web UI and the API share one path. Proven in a disposable container: 200 on hide/unhide/view, `changed:false` when repeated, 400 on /0, non-numeric, absent boolean and unknown view; 409 when the extension is disabled for the user; 423 while armed, carrying state. Refactor of the *live* instance verified read-only: both methods public with those signatures, pages still 200 |
 | 6 | `xExtension-HardlyRead`: ApiMisc, 3 routes, GoogleLogin auth | done | 600 lines; 51 tests / 166 assertions green on PHP 8.2, 8.3 and 8.4. `Minz_HookType::ApiMisc`, `enableByList($list,$type)`, `checkUsername()` and every extension accessor it calls (`store`, `categories`, `effectiveView`, `hiddenIds`, `mode`, `view`, `isLocked`) verified public against the deployed FreshRSS 1.30.1; `2a26529` |
 
 ## P1 — App integration
