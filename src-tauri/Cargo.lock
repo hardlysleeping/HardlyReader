@@ -1521,7 +1521,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hardlyread"
+name = "hardlyreader"
 version = "0.1.0"
 dependencies = [
  "serde",

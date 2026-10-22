@@ -2,7 +2,7 @@
   import { reader } from "../state/reader.svelte";
 
   let {
-    title = "Hardly Read",
+    title = "HardlyReader",
     subtitle = "",
     onsignout,
     ontogglesidebar,

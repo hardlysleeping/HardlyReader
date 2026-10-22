@@ -1,6 +1,6 @@
 import type { Session } from "./freshrss";
 
-const STORAGE_KEY = "hardlyread.session";
+const STORAGE_KEY = "hardlyreader.session";
 
 /**
  * Session persistence. localStorage is enough while the only stored value is a
