@@ -3,6 +3,7 @@
 
   import type { Session, UserInfo } from "../api/freshrss";
   import ArticleList from "../components/ArticleList.svelte";
+  import CategoryMenu from "../components/CategoryMenu.svelte";
   import Header from "../components/Header.svelte";
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
@@ -17,6 +18,11 @@
   let sidebarOpen = $state(false);
 
   const reading = $derived(reader.selectedId !== null);
+  const menu = $derived.by(() => {
+    const point = reader.menu;
+    const model = reader.menuModel;
+    return point === null || model === null ? null : { x: point.x, y: point.y, model };
+  });
 
   onMount(() => {
     void reader.start(session);
@@ -52,6 +58,17 @@
       onclick={() => (sidebarOpen = false)}
     ></button>
   </div>
+
+  {#if menu}
+    <CategoryMenu
+      x={menu.x}
+      y={menu.y}
+      model={menu.model}
+      busy={reader.hiddenBusy}
+      onselect={(action) => void reader.applyMenuAction(action)}
+      onclose={() => reader.closeCategoryMenu()}
+    />
+  {/if}
 </div>
 
 <style>

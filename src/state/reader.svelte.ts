@@ -19,12 +19,16 @@ import {
 import {
   categoryIdForLabel,
   getState as getHiddenState,
+  setCategoryHidden as apiSetCategoryHidden,
+  setView as apiSetView,
   unavailableState,
   type HiddenCategoriesState,
   type HiddenView,
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
+import { categoryMenu, type MenuAction, type MenuModel, type Point } from "../lib/contextmenu";
 import { effectiveView, visibleGroups } from "./hidden";
+import { applyHiddenWrite, withCategoryHidden, withView, type HiddenWriteOutcome } from "./hidden-write";
 
 export const PAGE_SIZE = 50;
 
@@ -72,6 +76,24 @@ export class ReaderState {
    * a normal install, not a failure worth a banner. */
   hiddenError = $state<string | null>(null);
 
+  /** True while a hide/show/view write is in flight. */
+  hiddenBusy = $state(false);
+
+  /**
+   * The open category menu, anchored at a viewport point.
+   *
+   * It lives here rather than in the sidebar because a `position: fixed` menu
+   * inside the sidebar would be positioned against that element on narrow
+   * layouts, where the sidebar is a transformed drawer. The shell renders it.
+   */
+  menu = $state<{ x: number; y: number; label: string } | null>(null);
+
+  /** The items to draw for the open menu, or null when none is open. */
+  get menuModel(): MenuModel | null {
+    if (this.menu === null) return null;
+    return categoryMenu(this.hiddenCategories, this.menu.label);
+  }
+
   /** The view the extension is actually applying. */
   get hiddenView(): HiddenView {
     return effectiveView(this.hiddenCategories);
@@ -84,6 +106,76 @@ export class ReaderState {
   /** The numeric FreshRSS id behind a GReader label, or null if unknown. */
   categoryId(labelOrStreamId: string): number | null {
     return categoryIdForLabel(this.hiddenCategories, labelOrStreamId);
+  }
+
+  /** Opens the menu for a category row. Does nothing without the extension. */
+  openCategoryMenu(label: string, point: Point): void {
+    if (!this.hiddenAvailable) return;
+    this.menu = { x: point.x, y: point.y, label };
+  }
+
+  closeCategoryMenu(): void {
+    this.menu = null;
+  }
+
+  /**
+   * Runs one menu item and closes the menu.
+   *
+   * The menu closes before the write so the row's new state is visible without
+   * anything on top of it — the change is optimistic either way.
+   */
+  async applyMenuAction(action: MenuAction): Promise<HiddenWriteOutcome | null> {
+    const label = this.menu?.label;
+    this.menu = null;
+    if (label === undefined) return null;
+    return action.type === "hidden"
+      ? this.setCategoryHidden(label, action.hidden)
+      : this.setHiddenView(action.view);
+  }
+
+  /** Hides or shows one category: optimistically, then against the server. */
+  async setCategoryHidden(label: string, hidden: boolean): Promise<HiddenWriteOutcome | null> {
+    const session = this.session;
+    const id = this.categoryId(label);
+    if (session === null || id === null || this.hiddenBusy) return null;
+
+    this.hiddenBusy = true;
+    try {
+      const outcome = await applyHiddenWrite(
+        this.hiddenCategories,
+        withCategoryHidden(this.hiddenCategories, id, hidden),
+        (next) => {
+          this.hiddenCategories = next;
+        },
+        () => apiSetCategoryHidden(transport, session, id, hidden),
+      );
+      this.settleHidden(outcome);
+      return outcome;
+    } finally {
+      this.hiddenBusy = false;
+    }
+  }
+
+  /** Switches the hidden-categories view: optimistically, then against the server. */
+  async setHiddenView(view: HiddenView): Promise<HiddenWriteOutcome | null> {
+    const session = this.session;
+    if (session === null || !this.hiddenAvailable || this.hiddenBusy) return null;
+
+    this.hiddenBusy = true;
+    try {
+      const outcome = await applyHiddenWrite(
+        this.hiddenCategories,
+        withView(this.hiddenCategories, view),
+        (next) => {
+          this.hiddenCategories = next;
+        },
+        () => apiSetView(transport, session, view),
+      );
+      this.settleHidden(outcome);
+      return outcome;
+    } finally {
+      this.hiddenBusy = false;
+    }
   }
 
   get selected(): StreamItem | null {
@@ -153,6 +245,8 @@ export class ReaderState {
     this.continuation = undefined;
     this.hiddenCategories = unavailableState();
     this.hiddenError = null;
+    this.hiddenBusy = false;
+    this.menu = null;
   }
 
   async loadSidebar(): Promise<void> {
@@ -330,6 +424,17 @@ export class ReaderState {
     } finally {
       this.busyItems.delete(item.id);
     }
+  }
+
+  /**
+   * Surfaces the failures the user has to know about.
+   *
+   * A reconciled write says nothing: the state it returned is already drawn, so
+   * the row moving is the message. A stateless failure rolled nothing back for
+   * a reason, and that reason belongs in the banner.
+   */
+  private settleHidden(outcome: HiddenWriteOutcome): void {
+    if (outcome.kind === "failed") this.error = outcome.message;
   }
 
   dismissError(): void {

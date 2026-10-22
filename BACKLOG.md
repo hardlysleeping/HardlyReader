@@ -27,9 +27,9 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 | # | Commit | Status | Notes |
 |---|---|---|---|
 | 7 | Read `/v1/state`, map categories to numeric IDs, apply hidden state | todo | `src/api/hardlyread.ts` + sidebar filtering landed; 74 unit checks. Integration against a running extension still unverified |
-| 8 | Hide/unhide UI: right-click desktop, long-press mobile | todo | |
-| 9 | Optimistic sync: server state + pending mutations = UI state | todo | No toggle API; always send explicit state |
-| 10 | Hidden view modes: hidden / revealed / only | todo | HiddenCategories owns Strict/Light behaviour |
+| 8 | Hide/unhide UI: right-click desktop, long-press mobile | wip | `src/components/CategoryMenu.svelte` + `src/lib/contextmenu.ts`; also Shift+F10 / context-menu key. 140 unit checks in three new files. Visual check pending — no GUI was launched |
+| 9 | Optimistic sync: server state + pending mutations = UI state | wip | `src/state/hidden-write.ts`: optimistic commit, then server state; 409/423 reconcile with the returned state, stateless failures roll back with a banner. One write at a time per app |
+| 10 | Hidden view modes: hidden / revealed / only | wip | The menu's View group writes `/hidden-categories/view`; HiddenCategories owns Strict/Light behaviour |
 
 ## P1 — Tests
 
@@ -81,11 +81,18 @@ Unit tests (no server, no network, no GUI):
 ```bash
 node --experimental-strip-types --import ./tests/unit/register-ts.mjs tests/unit/hardlyread-api.mjs
 node --experimental-strip-types --import ./tests/unit/register-ts.mjs tests/unit/reader-state.mjs
+node --experimental-strip-types --import ./tests/unit/register-ts.mjs tests/unit/context-menu.mjs
+node --experimental-strip-types --import ./tests/unit/register-ts.mjs tests/unit/hidden-write.mjs
+node --experimental-strip-types --import ./tests/unit/register-ts.mjs tests/unit/menu-render.mjs
 ```
 
 `register-ts.mjs` lets Node resolve the extensionless relative imports Vite
-handles; `reader-state.mjs` compiles the runes module with `svelte/compiler`
-because Node cannot import `$state` directly.
+handles; `reader-state.mjs` and `hidden-write.mjs` compile the runes module with
+`svelte/compiler` because Node cannot import `$state` directly. `hidden-write.mjs`
+replaces `globalThis.fetch` with a recorder, so the write path runs through the
+real client and transport without dialling anything. `menu-render.mjs` renders
+`CategoryMenu.svelte` on Svelte's server target and checks the markup string;
+documented events, focus and layout remain a visual check.
 
 Browser development (`pnpm dev` only): FreshRSS sends no CORS headers, so `/freshrss`
 is proxied to the harness and the app is reached at `http://127.0.0.1:1420` with
