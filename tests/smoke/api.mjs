@@ -15,6 +15,7 @@ import {
   STATE_STARRED,
   clientLogin,
   editTag,
+  feedStreamId,
   getStreamContents,
   getUnreadCounts,
   getWriteToken,
@@ -22,12 +23,16 @@ import {
   isStarred,
   listSubscriptions,
   listTags,
+  subscribe,
+  unsubscribe,
   userInfo,
 } from "../../src/api/freshrss.ts";
 
 const BASE = process.env.HARDLYREAD_SERVER ?? "http://127.0.0.1:18080";
 const USER = process.env.HARDLYREAD_USER ?? "itest";
 const PASS = process.env.HARDLYREAD_API_PASSWORD ?? "itest-api-password";
+/** Feed used for the subscribe round-trip; set to "" to skip it. */
+const FEED_URL = process.env.HARDLYREAD_FEED_URL ?? "https://news.ycombinator.com/rss";
 
 const transport = (input, init) => fetch(input, init);
 
@@ -141,6 +146,58 @@ await editTag(transport, session, {
   add: wasStarred ? [STATE_STARRED] : [],
   remove: wasStarred ? [] : [STATE_STARRED],
 });
+
+// Subscribe / unsubscribe round-trip.
+// FreshRSS fetches the feed itself, so this check needs outbound network from
+// the harness. Everything it adds is removed again, so runs stay repeatable.
+if (FEED_URL === "") {
+  console.log("SKIP  subscribe round-trip (HARDLYREAD_FEED_URL is empty)");
+} else {
+  const feedId = feedStreamId(FEED_URL);
+  const findFeed = async () =>
+    (await listSubscriptions(transport, session)).find(
+      (feed) => feed.id === feedId || feed.url === FEED_URL,
+    );
+
+  // Drop a subscription left behind by an interrupted run.
+  const leftover = await findFeed();
+  if (leftover) {
+    await unsubscribe(transport, session, leftover.id);
+  }
+
+  // `feed:<url>` is answered with 200/OK and changes nothing; only `feed/<url>`
+  // subscribes. Pin both halves so a regression to the colon form fails here.
+  const colon = await transport(`${BASE}/api/greader.php/reader/api/0/subscription/edit`, {
+    method: "POST",
+    headers: {
+      Authorization: `GoogleLogin auth=${session.token}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      T: writeToken,
+      ac: "subscribe",
+      s: `feed:${FEED_URL}`,
+    }).toString(),
+  });
+  check("`feed:<url>` answers 200 like a success", colon.status === 200, `HTTP ${colon.status}`);
+  check("`feed:<url>` leaves the subscription list alone", !(await findFeed()));
+
+  await subscribe(transport, session, FEED_URL, "HardlyRead smoke feed");
+  const added = await findFeed();
+  check("subscribe adds the feed", Boolean(added), added?.id ?? "missing");
+  check("subscribe applies the title", added?.title === "HardlyRead smoke feed", added?.title);
+
+  await unsubscribe(transport, session, feedId);
+  check("unsubscribe by URL removes the feed", !(await findFeed()));
+
+  await subscribe(transport, session, FEED_URL);
+  const readded = await findFeed();
+  check("subscribe without a title re-adds the feed", Boolean(readded), readded?.id ?? "missing");
+  if (readded) {
+    await unsubscribe(transport, session, readded.id);
+    check("unsubscribe by numeric id removes the feed", !(await findFeed()));
+  }
+}
 
 // A bad write token must be rejected.
 let tokenRejected = false;

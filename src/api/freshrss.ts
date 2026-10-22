@@ -338,6 +338,114 @@ export async function editTag(
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * Subscriptions
+ *
+ * FreshRSS accepts subscription ids in two shapes and only one of them works:
+ * `feed/<url>` (or `feed/<numeric id>`) subscribes, while `feed:<url>` is
+ * answered with HTTP 200 / `OK` and changes nothing — a silent no-op that looks
+ * like success. Every subscription id built here therefore uses the slash form.
+ *
+ * A successful POST is also not proof of a change on its own: FreshRSS answers
+ * `OK` to edits it ignored. Callers that need certainty re-read
+ * `listSubscriptions`.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Stream id for a feed URL, e.g. `feed/https://example.com/rss.xml`.
+ *
+ * The URL itself is left unescaped — `URLSearchParams` does the encoding when
+ * the request body is built, and the separators inside the id must survive as
+ * literal characters on the wire.
+ */
+export function feedStreamId(feedUrl: string): string {
+  return `feed/${feedUrl}`;
+}
+
+/** POSTs to a write endpoint with a freshly issued write token. */
+async function postWithWriteToken(
+  transport: Transport,
+  session: Session,
+  path: string,
+  params: URLSearchParams,
+  failureLabel: string,
+): Promise<void> {
+  const writeToken = await getWriteToken(transport, session);
+  params.set("T", writeToken);
+
+  const response = await transport(greaderUrl(session.serverUrl, path), {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(session.token),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params.toString(),
+  });
+
+  if (response.status === 401) {
+    throw new AuthError("Write token rejected by server");
+  }
+  if (!response.ok) {
+    throw new HttpError(response.status, `${failureLabel} failed (HTTP ${response.status})`);
+  }
+}
+
+/**
+ * Adds a feed.
+ *
+ * `title` overrides the title FreshRSS derives from the feed; omit it to keep
+ * the feed's own. Rejects with `HttpError` 400 when the feed is already
+ * subscribed or when FreshRSS cannot fetch and parse the URL.
+ */
+export async function subscribe(
+  transport: Transport,
+  session: Session,
+  feedUrl: string,
+  title?: string,
+): Promise<void> {
+  const params = new URLSearchParams({
+    ac: "subscribe",
+    s: feedStreamId(feedUrl),
+  });
+  if (title !== undefined && title !== "") {
+    params.set("t", title);
+  }
+
+  await postWithWriteToken(
+    transport,
+    session,
+    "/reader/api/0/subscription/edit",
+    params,
+    "subscribe",
+  );
+}
+
+/**
+ * Removes a subscription.
+ *
+ * `streamId` is an id from {@link listSubscriptions}, either `feed/<url>` or
+ * `feed/<numeric id>`. Rejects with `HttpError` 400 when no such feed is
+ * subscribed.
+ */
+export async function unsubscribe(
+  transport: Transport,
+  session: Session,
+  streamId: string,
+): Promise<void> {
+  const params = new URLSearchParams({
+    ac: "unsubscribe",
+    s: streamId,
+  });
+
+  await postWithWriteToken(
+    transport,
+    session,
+    "/reader/api/0/subscription/edit",
+    params,
+    "unsubscribe",
+  );
+}
+
 export function isRead(item: StreamItem): boolean {
   return item.categories?.includes(STATE_READ) ?? false;
 }
