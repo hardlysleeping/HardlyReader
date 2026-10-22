@@ -29,7 +29,7 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 | 7 | Read `/v1/state`, map categories to numeric IDs, apply hidden state | done | `src/api/hardlyread.ts`; state shape matches plan §3 (`available`, `mode`, `view`, `effectiveView`, `hiddenIds`, `locked`, `categories[]`); 57 unit checks. **Not** exercised against a running extension — nothing implements §5 yet; `85951c9` |
 | 8 | Hide/unhide UI: right-click desktop, long-press mobile | done | `CategoryMenu.svelte` + `lib/contextmenu.ts`; desktop contextmenu, 500 ms long-press, Shift+F10 and the context-menu key; 81 unit checks. Rendering, focus rings, long-press timing and the drawer-transform positioning argued from code and CSS, never observed; `58b4427` |
 | 9 | Optimistic sync: server state + pending mutations = UI state | done | `src/state/hidden-write.ts`: optimistic commit then server state; 409/423 reconcile with the returned state, stateless failures roll back with a banner; 59 unit checks through the real client with a recording fetch; `58b4427` |
-| 10 | Hidden view modes: hidden / revealed / only | done | Menu's View group writes `PUT /v1/hidden-categories/view`; HiddenCategories still owns Strict/Light. 423 when locked; `58b4427` |
+| 10 | Hidden view modes: hidden / revealed / only | done | Menu's View group writes `PUT /v1/hidden-categories/view`; HiddenCategories still owns Strict/Light. 423 when locked; `58b4427`. A persistent control in the header cycles the three views, because hiding the last category with feeds emptied the sidebar and the row menu was the only way back — a dead end |
 
 ## P1 — Tests
 
@@ -54,7 +54,10 @@ Measured on the merged tree (`d119590`): svelte-check 0 errors / 0 warnings, `vi
 214 unit checks across five suites, PHPUnit 51/51 on PHP 8.2 + 8.3 + 8.4, and 26/26 live smoke
 checks against the disposable harness including subscribe/unsubscribe round-trips.
 
-Not measured: anything involving Hidden Categories at runtime. The adapter answers
+Measured through the UI against the harness (browser, real HTTP): right-click a category → Hide removes it and its feeds,
+the server's `hiddenIds` agrees, `Show` restores it, and the header control cycles Hidden → Revealed → Only → Hidden.
+
+Not measured: anything involving Hidden Categories against the *live* instance. The adapter answers
 `409 extension_incompatible` on `PUT` until row 5 adds the two methods, so the hide round-trip —
 app, extension and FreshRSS web UI agreeing — has never run. Native WebKit rendering, long-press
 timing on a touchscreen and the GitHub Actions run are likewise unobserved.
