@@ -454,13 +454,29 @@ const hiddenState = api.parseState({
 });
 
 {
-  // The row menu says Pin; whether the pin lands on the server or on this
-  // device is the reader's business, so the model only needs the current state.
+  // One mark, one item. With the extension absent the model falls back to the
+  // local mark, and the wording still comes from the theme's vocabulary.
   const menu = categoryMenu(hiddenState, "Comics", false);
-  check("a category row offers Pin", menu.pin?.label === "Pin", String(menu.pin?.label));
-  check("...enabled", menu.pin?.disabled === false);
+  check("a category row offers its mark", menu.favorite?.label === "Pin", String(menu.favorite?.label));
+  check("...enabled", menu.favorite?.disabled === false);
   check("...and no note", menu.note === null, String(menu.note));
-  check("a pinned row offers Unpin", categoryMenu(hiddenState, "Comics", true).pin?.label === "Unpin");
+  check("...and nothing else that marks it", menu.pin === null);
+  check("a marked row offers Unpin", categoryMenu(hiddenState, "Comics", true).favorite?.label === "Unpin");
+  check(
+    "with no extension the mark writes locally",
+    categoryMenu(hiddenState, "Comics", false).favorite?.action.type === "pin",
+  );
+
+  // With Favorite Categories there, the same item writes the favourite.
+  const synced = categoryMenu(hiddenState, "Comics", false, false);
+  check("the synced mark keeps the same wording", synced.favorite?.label === "Pin");
+  check("...but is a server favourite", synced.favorite?.action.type === "favorite");
+  check("...and is the only mark offered", synced.pin === null);
+  check(
+    "the favourites vocabulary renames it, marker and all",
+    categoryMenu(hiddenState, "Comics", false, false, "favourites").favorite?.label === "Favourite" &&
+      categoryMenu(hiddenState, "Comics", false, false, "favourites").favorite?.glyph === "★",
+  );
 }
 
 {
@@ -710,47 +726,44 @@ try {
   }
 
   {
-    // A pin and a favourite are different facts. Pinning is this device's own
-    // state even when Favorite Categories is installed: it must never become a
-    // write to the extension, or "pin" is just a second name for "favourite"
-    // and the app writes to an extension it is meant to run without.
+    // Favorite Categories is installed, so marking a category is one act: it
+    // writes the extension's favourite and the sidebar treats that as the mark.
+    // Nothing is stored on this device, because there is nothing separate to
+    // store — a favourite and a pin are the same fact about a category.
     const reader = fresh();
     reply = () => ({ status: 200, body: { ok: true, changed: true, favorites: favoritesBody({ ids: [7], categories: [{ id: 3, name: "Comics", favorite: false }, { id: 7, name: "Art", favorite: true }] }) } });
     reader.openCategoryMenu("Art", { x: 0, y: 0 });
-    check("the menu offers Favourite on its own", reader.menuModel?.favorite?.label === "Favourite");
-    check("the menu still offers Pin", reader.menuModel?.pin?.label === "Pin");
+    check("the menu offers one mark, not two", reader.menuModel?.favorite?.label === "Pin" && reader.menuModel?.pin === null);
+    check("...and it is the synced one", reader.menuModel?.favorite?.action.type === "favorite");
 
     await reader.applyMenuAction({ type: "pin", pinned: true });
-    check("a pin sends nothing to the server", calls.length === 0, `${calls.length} request(s)`);
-    check("Art is pinned", reader.isCategoryPinned("Art") === true);
-    check("the pin is kept on this device", reader.localPins.categories.includes("Art"));
-    check("pinned categories sort first", reader.categories.map((g) => g.label).join(",") === "Art,Technology", reader.categories.map((g) => g.label).join(","));
-
-    reader.openCategoryMenu("Art", { x: 0, y: 0 });
-    await reader.applyMenuAction({ type: "favorite", favorite: true });
     check(
-      "favouriting writes the favourite on the server",
+      "marking a category writes the favourite on the server",
       calls.length === 1 && calls[0].url.endsWith("/v1/favorites/7") && calls[0].body === '{"favorite":true}',
       calls.map((c) => c.url).join(","),
     );
-    check("being a favourite does not pin it", reader.isFavorite("Art") === true);
-    check(
-      "favourites sort above pins and the rest",
-      reader.categories.map((g) => g.label).join(",") === "Art,Technology",
-      reader.categories.map((g) => g.label).join(","),
-    );
+    check("the category is marked", reader.isCategoryPinned("Art") === true);
+    check("...through the server, not a local pin", !reader.localPins.categories.includes("Art"));
+    check("...and the extension agrees", reader.isFavorite("Art") === true);
+    check("marked categories sort first", reader.categories.map((g) => g.label).join(",") === "Art,Technology", reader.categories.map((g) => g.label).join(","));
+    check("the marked count is the favourite count", reader.pinnedCount >= 1, String(reader.pinnedCount));
+
+    reader.openCategoryMenu("Art", { x: 0, y: 0 });
+    check("the marked row offers Unpin", reader.menuModel?.favorite?.label === "Unpin");
+    await reader.applyMenuAction({ type: "favorite", favorite: false });
+    check("unmarking writes the other direction", calls.length === 2 && calls[1].body === '{"favorite":false}', calls.map((c) => c.body).join(","));
   }
 
   {
     // Local pins: no extension, no request, the pin still works on this device.
     const reader = fresh();
     reader.favorites = unavailableFavorites();
-    check("with no favourites extension there is no Favourite item", reader.menuModel?.favorite === null || reader.menuModel === null);
     reader.openCategoryMenu("Technology", { x: 0, y: 0 });
-    check("the category menu opens without the favourites extension", reader.menu !== null && reader.menuModel?.pin?.disabled === false);
+    check("the category menu opens without the favourites extension", reader.menu !== null && reader.menuModel?.favorite?.disabled === false);
+    check("...offering the same mark, kept here", reader.menuModel?.favorite?.action.type === "pin");
     await reader.applyMenuAction({ type: "pin", pinned: true });
-    check("a local pin sends nothing", calls.length === 0, `${calls.length} request(s)`);
-    check("Technology is pinned locally", reader.isCategoryPinned("Technology") && reader.localPins.categories.includes("Technology"));
+    check("a local mark sends nothing", calls.length === 0, `${calls.length} request(s)`);
+    check("Technology is marked locally", reader.isCategoryPinned("Technology") && reader.localPins.categories.includes("Technology"));
     check("pinned categories sort first", reader.categories[0].label === "Technology", reader.categories.map((g) => g.label).join(","));
 
     await reader.cyclePinView();

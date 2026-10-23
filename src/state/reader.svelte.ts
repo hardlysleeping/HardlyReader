@@ -309,22 +309,22 @@ export class ReaderState {
     return id !== null && this.favorites.ids.includes(id);
   }
 
-  /**
-   * Pins are this device's own state, always.
-   *
-   * They used to live in Favorite Categories when it was available, which made
-   * a pin a second name for a favourite and wrote to an extension the app is
-   * supposed to run without. A pin now only decides what floats to the top and
-   * whether an item survives the hidden filter; being a favourite is a
-   * separate, server-synced fact.
-   */
   /** Whether this category is hidden, per the extension's own state. */
   isCategoryHidden(label: string): boolean {
     return isHiddenCategory(this.hiddenCategories, label);
   }
 
+  /**
+   * Whether a category carries the mark — the one mark a category has.
+   *
+   * "Favourite" and "pinned" are not two facts: the extension's favourite is
+   * the same thing the sidebar floats to the top and draws with a blue sticker,
+   * and the theme only renames it. Where it is stored depends on the server:
+   * Favorite Categories keeps it, and with that extension absent the same mark
+   * is kept here so the sidebar still works.
+   */
   isCategoryPinned(label: string): boolean {
-    return this.localPins.categories.includes(label);
+    return this.favorites.available ? this.isFavorite(label) : this.localPins.categories.includes(label);
   }
 
   isFeedPinned(streamId: string): boolean {
@@ -340,7 +340,7 @@ export class ReaderState {
     return this.favorites.available ? this.favorites.view : this.localPins.view;
   }
 
-  /** How many categories are pinned, for the status strip. */
+  /** How many categories carry the mark, for the status strip. */
   get pinnedCount(): number {
     return this.allCategories.filter((group) => this.isCategoryPinned(group.label)).length +
       this.localPins.feeds.length;
@@ -359,8 +359,18 @@ export class ReaderState {
     return this.hiddenCategories.available && this.hiddenCategories.locked;
   }
 
-  /** Pins or unpins a category on this device. Never touches the server. */
-  setCategoryPinned(label: string, pinned: boolean): void {
+  /**
+   * Marks or unmarks a category.
+   *
+   * One state, written where it can be seen: through Favorite Categories when
+   * it is installed, so the FreshRSS website shows the same thing, and on this
+   * device when it is not.
+   */
+  async setCategoryPinned(label: string, pinned: boolean): Promise<void> {
+    if (this.favorites.available) {
+      await this.setCategoryFavorite(label, pinned);
+      return;
+    }
     this.updateLocalPins({ categories: withPinned(this.localPins.categories, label, pinned) });
   }
 
@@ -569,8 +579,11 @@ export class ReaderState {
         return target.kind === "category" ? this.setCategoryHidden(target.label, action.hidden) : null;
       case "pin":
         this.menu = null;
-        if (target.kind === "category") this.setCategoryPinned(target.label, action.pinned);
-        else this.setFeedPinned(target.id, action.pinned);
+        if (target.kind === "category") {
+          await this.setCategoryPinned(target.label, action.pinned);
+          return null;
+        }
+        this.setFeedPinned(target.id, action.pinned);
         return null;
       case "favorite":
         this.menu = null;
@@ -900,7 +913,6 @@ export class ReaderState {
       this.pinView,
       (label) => this.isCategoryPinned(label),
       (id) => this.isFeedPinned(id),
-      (label) => this.isFavorite(label),
     );
   }
 

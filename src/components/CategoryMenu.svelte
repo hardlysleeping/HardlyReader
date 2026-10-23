@@ -176,7 +176,7 @@
       disabled={favorite.disabled || busy}
       onclick={() => onselect(favorite.action)}
     >
-      <span class="pin-glyph" aria-hidden="true">📌</span>
+      <span class="pin-glyph" aria-hidden="true">{favorite.glyph ?? "📌"}</span>
       <span class="option">{favorite.label}</span>
     </button>
   {/if}

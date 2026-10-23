@@ -250,13 +250,13 @@ function state(overrides = {}) {
   const menu = categoryMenu(state(), "Uncategorized", false);
   check("an unknown category cannot be toggled", menu.toggle.disabled === true);
   check("...and the note says why", /no id/.test(menu.note ?? ""), String(menu.note));
-  check("...but it can still be pinned", menu.pin.disabled === false);
+  check("...but it can still be marked", menu.favorite.disabled === false);
 }
 
 {
   const menu = categoryMenu(parseState({ available: false }), "Technology", false);
   check("without Hidden Categories there is no hide item at all", menu.toggle === null);
-  check("...pinning is still offered, because pins fall back to this device", menu.pin !== null && menu.pin.disabled === false);
+  check("...the mark is still offered, kept on this device", menu.favorite !== null && menu.favorite.disabled === false && menu.favorite.action.type === "pin");
   check("...and nothing complains about a missing extension", menu.note === null, String(menu.note));
 }
 
@@ -265,9 +265,9 @@ function state(overrides = {}) {
   // defeats hiding them. They live on the sidebar band.
   const menu = categoryMenu(state(), "Technology", false);
   check("a category menu offers no view entries", !("views" in menu));
-  check("an unpinned category offers Pin", menu.pin.label === "Pin" && menu.pin.action.pinned === true);
-  check("a pinned category offers Unpin", categoryMenu(state(), "Technology", true).pin.label === "Unpin");
-  check("Unpin asks for pinned:false", categoryMenu(state(), "Technology", true).pin.action.pinned === false);
+  check("an unmarked category offers Pin", menu.favorite.label === "Pin" && menu.favorite.action.pinned === true);
+  check("a marked category offers Unpin", categoryMenu(state(), "Technology", true).favorite.label === "Unpin");
+  check("Unpin asks for pinned:false", categoryMenu(state(), "Technology", true).favorite.action.pinned === false);
 }
 
 {
