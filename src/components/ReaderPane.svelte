@@ -366,10 +366,24 @@
   }
 
   .content {
-    font-size: 15px;
-    line-height: 1.65;
+    /* Size, leading, indent and alignment all come from one place: the
+       custom properties set on the pane container. */
+    font-size: calc(15px * var(--read-scale, 1));
+    line-height: var(--read-leading, 1.65);
+    text-align: var(--read-align, left);
     color: var(--text);
     overflow-wrap: anywhere;
+  }
+
+  /* Indent the first line only, and never on a list item or a blockquote,
+     where it would read as a layout bug rather than a typographic choice. */
+  .content :global(p) {
+    text-indent: var(--read-indent, 0);
+  }
+
+  .content :global(li p),
+  .content :global(blockquote p) {
+    text-indent: 0;
   }
 
   .content :global(img) {

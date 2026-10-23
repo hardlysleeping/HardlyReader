@@ -3,6 +3,7 @@
 
   import { syncDescription, syncReadout } from "../lib/sync-progress";
   import { reader } from "../state/reader.svelte";
+  import ReadingControls from "./ReadingControls.svelte";
   import ThemePanel from "./ThemePanel.svelte";
 
   let {
@@ -41,6 +42,7 @@
   <div class="spacer"></div>
 
   {@render controls?.()}
+  <ReadingControls />
   <ThemePanel />
 
   <!-- The count and the percentage for as long as the sync lasts. The bar for
