@@ -50,6 +50,19 @@
     }
   }
 
+  /**
+   * Opening the panel asks the server again.
+   *
+   * Whether a passcode exists and whether the curtain is already down are
+   * server facts that change from the website, or when a server's extension is
+   * updated after this app started. Trusting the state read at sign-in is how
+   * the panel ends up inviting you to set a passcode you already have.
+   */
+  function openLockPanel(): void {
+    lockOpen = !lockOpen;
+    if (lockOpen) void reader.loadHiddenState();
+  }
+
   async function lockNow() {
     await reader.lockHidden();
     if (reader.hiddenLocked) lockOpen = false;
@@ -102,7 +115,7 @@
     <button
       class="ctl lock"
       class:on={locked}
-      onclick={() => (lockOpen = !lockOpen)}
+      onclick={openLockPanel}
       disabled={!reader.hiddenAvailable}
       aria-expanded={lockOpen}
       title={locked ? "Locked" : "Unlocked"}

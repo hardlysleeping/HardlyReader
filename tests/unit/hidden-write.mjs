@@ -258,7 +258,31 @@ const generated = join(GEN_DIR, "reader.mjs");
 writeFileSync(generated, buildReaderModule());
 
 try {
-  const { ReaderState } = await import(pathToFileURL(generated).href);
+  const { ReaderState, lockFailure } = await import(pathToFileURL(generated).href);
+
+  /* ---------------------------------------------------------------------------
+   * Why a lock failed
+   * ------------------------------------------------------------------------- */
+
+  {
+    // The server's own words for an old extension are "Unknown route.", which
+    // reads as the app being broken. Name the actual problem instead.
+    check(
+      "an old server is named as the cause, not as an unknown route",
+      lockFailure(new ApiError(404, "route_not_found", "Unknown route.")).includes("extension"),
+      lockFailure(new ApiError(404, "route_not_found", "Unknown route.")),
+    );
+    check(
+      "a 409 keeps the server's own explanation",
+      lockFailure(new ApiError(409, "passcode_required", "Set a passcode before locking")) ===
+        "Set a passcode before locking",
+    );
+    check(
+      "an unknown failure does not pretend nothing happened",
+      lockFailure(new Error("socket hang up")) === "Could not lock. Nothing was changed.",
+    );
+  }
+
 
   const labels = (groups) => groups.map((group) => group.label).join(",");
   const subscription = (id, title, label) => ({
