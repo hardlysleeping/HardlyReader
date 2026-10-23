@@ -1,5 +1,6 @@
 import { SvelteMap } from "svelte/reactivity";
 
+import { addFeedsMessage, parseFeedUrls, type AddFeedsResult } from "../lib/add-feeds";
 import { landingItem, step } from "../lib/reading-order";
 import { attemptOrder } from "../lib/stream-cycle";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
@@ -244,6 +245,8 @@ export class ReaderState {
 
   /** True while a subscribe or unsubscribe is in flight. */
   feedBusy = $state(false);
+  /** How far a bulk add has got, so the form can say "Adding 3/12…". */
+  feedProgress = $state<{ done: number; total: number } | null>(null);
   /** Why the last add-feed attempt failed, in the server's words. */
   addFeedError = $state<string | null>(null);
 
@@ -1093,25 +1096,50 @@ export class ReaderState {
    * carries it.
    */
   async addFeed(url: string): Promise<boolean> {
+    const result = await this.addFeeds(url);
+    return result.added.length > 0;
+  }
+
+  /**
+   * Subscribes to every URL in a pasted block, one per line.
+   *
+   * Sequential rather than parallel on purpose: FreshRSS handles a burst of
+   * subscribes badly, and the sidebar is reloaded once at the end instead of
+   * once per feed. A failure does not stop the run — the point of pasting a list
+   * is to get as many of them in as possible, and the ones that failed are
+   * reported with the server's own words so they can be fixed and retried
+   * without re-entering the rest.
+   */
+  async addFeeds(input: string): Promise<AddFeedsResult> {
     const session = this.session;
-    const feedUrl = url.trim();
-    if (session === null || this.feedBusy) return false;
-    if (feedUrl === "") {
+    if (session === null || this.feedBusy) return { added: [], failed: [] };
+
+    const urls = parseFeedUrls(input);
+    if (urls.length === 0) {
       this.addFeedError = "Enter a feed URL first.";
-      return false;
+      return { added: [], failed: [] };
     }
 
     this.feedBusy = true;
     this.addFeedError = null;
+    this.feedProgress = { done: 0, total: urls.length };
+    const result: AddFeedsResult = { added: [], failed: [] };
     try {
-      await subscribe(transport, session, feedUrl);
-      await this.loadSidebar();
-      return true;
-    } catch (error) {
-      this.addFeedError = message(error);
-      return false;
+      for (const url of urls) {
+        try {
+          await subscribe(transport, session, url);
+          result.added.push(url);
+        } catch (error) {
+          result.failed.push({ url, error: message(error) });
+        }
+        this.feedProgress = { done: result.added.length + result.failed.length, total: urls.length };
+      }
+      if (result.added.length > 0) await this.loadSidebar();
+      this.addFeedError = addFeedsMessage(result);
+      return result;
     } finally {
       this.feedBusy = false;
+      this.feedProgress = null;
     }
   }
 

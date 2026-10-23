@@ -58,7 +58,8 @@ function buildReadingModule() {
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
-    .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")));
+    .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
+    .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
   const out = join(GEN_DIR, "reading.mjs");
   writeFileSync(out, code);
@@ -134,7 +135,8 @@ function buildReaderModule() {
     .replaceAll('"./write"', JSON.stringify(absolute("src/state/write.ts")))
     .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")))
     .replaceAll('"./pins"', JSON.stringify(absolute("src/state/pins.ts")))
-    .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")));
+    .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")))
+    .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")));
 }
 
 function subscription(id, title, label) {
@@ -427,7 +429,53 @@ try {
       const armedForLater = armed;
       r.closeReader();
       check("leaving the post cancels its timer", armed === null, String(armedForLater?.ms));
-    } finally {
+
+      {
+    // A pasted list: each distinct URL is sent once, in order, and the sidebar is
+    // reloaded once at the end rather than once per feed.
+    const edits = [];
+    let listCalls = 0;
+    globalThis.fetch = async (url, init) => {
+      const text = decodeURIComponent(String(url));
+      if (text.includes("/subscription/list")) {
+        listCalls += 1;
+        return new Response(JSON.stringify({ subscriptions: [subscription("feed/1", "First", "Tech")] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (text.includes("/subscription/edit")) {
+        const body = decodeURIComponent(String(init?.body ?? ""));
+        edits.push(body);
+        if (body.includes("broken.example")) {
+          return new Response("Could not reach the feed.", { status: 400 });
+        }
+        return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+      return new Response("write-token", { status: 200, headers: { "Content-Type": "text/plain" } });
+    };
+
+    const r = new ReaderState();
+    r.session = { serverUrl: "https://example.invalid", token: "token", username: "user" };
+    const result = await r.addFeeds(
+      "https://a.example/1\nhttps://b.example/2\nhttps://broken.example/3\nhttps://A.example/1\n",
+    );
+
+    check("a pasted list adds every feed that works", result.added.length === 2, result.added.join(" "));
+    check("...reports the one that did not", result.failed.length === 1, result.failed[0]?.url ?? "");
+    check("...does not send the duplicate twice", edits.length === 3, `${edits.length} requests`);
+    check("...keeps the pasted order", /a\.example/.test(edits[0]) && /broken\.example/.test(edits[2]));
+    check("...reloads the sidebar once, not once per feed", listCalls === 1, `${listCalls} list calls`);
+    check("...releases the busy flag", r.feedBusy === false);
+    check("...clears the progress readout", r.feedProgress === null);
+    check(
+      "...names the failure in the server's words",
+      /Added 2, 1 feed failed — https:\/\/broken\.example\/3: .*Could not reach the feed\./.test(r.addFeedError ?? ""),
+      r.addFeedError ?? "(none)",
+    );
+}
+
+} finally {
       globalThis.setTimeout = realSetTimeout;
       globalThis.clearTimeout = realClearTimeout;
       reading.autoMarkRead = false;

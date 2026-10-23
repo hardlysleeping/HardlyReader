@@ -8,6 +8,7 @@
     armsLongPress,
     isMenuKey,
   } from "../lib/contextmenu";
+  import { parseFeedUrls } from "../lib/add-feeds";
   import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
   import { chrome } from "../state/chrome.svelte";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
@@ -177,10 +178,46 @@
     reader.clearAddFeedError();
   }
 
-  async function submitFeed(event: SubmitEvent) {
+  /**
+   * The add field grows only when it has something to hold.
+   *
+   * A one-line field is what adding a feed usually is; a textarea that is always
+   * four rows tall would turn the commonest case into a form. It becomes a box
+   * when there is a second line in it, and stays one line otherwise.
+   */
+  let feedBox = $state<HTMLTextAreaElement | null>(null);
+  const feedLines = $derived(parseFeedUrls(feedUrl).length);
+
+  function fitFeedBox(): void {
+    if (feedBox === null) return;
+    feedBox.style.height = "auto";
+    const needed = Math.min(feedBox.scrollHeight, 128);
+    feedBox.style.height = `${needed}px`;
+  }
+
+  $effect(() => {
+    feedUrl;
+    fitFeedBox();
+  });
+
+  /**
+   * Enter adds when there is one feed in the box, and starts a new line when
+   * there are several — so a list can be typed as well as pasted. Shift+Enter
+   * always opens a line, which is the way in for the first extra feed.
+   */
+  function onFeedKey(event: KeyboardEvent): void {
+    if (event.key !== "Enter" || event.isComposing) return;
+    if (event.shiftKey || feedUrl.includes("\n")) return;
     event.preventDefault();
-    const added = await reader.addFeed(feedUrl);
-    if (added) cancelAdding();
+    void submitFeed();
+  }
+
+  async function submitFeed(event?: SubmitEvent) {
+    event?.preventDefault();
+    const result = await reader.addFeeds(feedUrl);
+    // Kept open when anything failed: the failures are in the message, and the
+    // text is still there to correct rather than retype.
+    if (result.added.length > 0 && result.failed.length === 0) cancelAdding();
   }
 </script>
 
@@ -441,19 +478,33 @@
   <div class="add">
     {#if adding}
       <form onsubmit={submitFeed}>
-        <label class="visually-hidden" for="feed-url">Feed URL</label>
-        <input
+        <label class="visually-hidden" for="feed-url">Feed URL, one per line</label>
+        <textarea
           id="feed-url"
-          type="url"
           class="url"
+          class:grow={feedLines > 1}
+          rows="1"
           placeholder="https://example.com/feed.xml"
           bind:value={feedUrl}
+          bind:this={feedBox}
           disabled={reader.feedBusy}
           autocomplete="off"
-        />
+          autocapitalize="off"
+          spellcheck="false"
+          inputmode="url"
+          onkeydown={onFeedKey}
+        ></textarea>
         <div class="add-actions">
           <button type="submit" class="submit" disabled={reader.feedBusy}>
-            {reader.feedBusy ? "Adding…" : "Add"}
+            {#if reader.feedProgress}
+              Adding {reader.feedProgress.done}/{reader.feedProgress.total}…
+            {:else if reader.feedBusy}
+              Adding…
+            {:else if feedLines > 1}
+              Add {feedLines}
+            {:else}
+              Add
+            {/if}
           </button>
           <button type="button" class="cancel" onclick={cancelAdding} disabled={reader.feedBusy}>
             Cancel
@@ -1003,8 +1054,12 @@
     color: var(--text);
   }
 
+  /* One line by default; the height is set from the content by `fitFeedBox`,
+     so the box grows with a pasted list and never leaves a blank row behind. */
   .url {
+    display: block;
     width: 100%;
+    min-height: 28px;
     padding: 6px 8px;
     border: 1px solid var(--border);
     border-radius: 7px;
@@ -1012,6 +1067,23 @@
     color: var(--text);
     font: inherit;
     font-size: 12px;
+    line-height: 16px;
+    resize: none;
+    overflow-y: auto;
+  }
+
+  .url.grow {
+    /* A list is being built: give the field a floor before it has scrolled. */
+    min-height: 44px;
+  }
+
+  .url:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .url:disabled {
+    opacity: 0.6;
   }
 
   .add-actions {
