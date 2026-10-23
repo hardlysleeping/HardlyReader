@@ -121,7 +121,7 @@ Never point this at the live instance; the harness is disposable by design.
 | # | Item | State | Evidence |
 |---|---|---|---|
 | 15 | FavoriteCategories: extract `setCategoryFavorite()`, `changeView()` | **done locally** | Mirror `557f373` + `f5ece2c`. **NOT deployed**: the authoritative VPS copy has neither method (md5 `bf656ec7`, 0 matches), so the favourites routes return 409 on the live instance until it is deployed |
-| 16 | Adapter v1.1: favourites + sidebar-indent state and routes | done | `b404f3f`, status mapping `3a90a5a`, merge `1192140`. PHPUnit 96 tests / 311 assertions |
+| 16 | Adapter v1.1: favourites + sidebar-indent state and routes | done and deployed | `b404f3f`, status mapping `3a90a5a`, merge `1192140`. PHPUnit 96 tests / 311 assertions. Live deploy hash `06b64c8a`, route still 401 unauthenticated, seven enabled extensions preserved |
 | 17 | App v1.1: star, favourites view cycle, indent, add/remove feed | done | branch `b6ae3b9`, merge `a354b46`. svelte-check 0/0, build clean, 377 unit checks across 6 files |
 | 18 | Verify v1.1 against a real container | done (API) | `GET /v1/state` returns `favorites{available,view,ids,categories}` and `sidebarIndent{available,px:24}`; favourite on/off round-trips with `changed:false` on repeat; `PUT /v1/favorites/view` cycles all/only/without; 400 for id 0, bad view and non-boolean, 404 for an unknown category. Hidden categories still correct in the same state payload |
 
@@ -136,4 +136,9 @@ host. Pointing the browser app straight at a different origin fails CORS before 
 native build is unaffected because its HTTP plugin ignores CORS. A PWA release needs the adapter's CORS
 headers or a same-origin deployment.
 
-Still not measured: any v1.1 path on the live instance.
+Live after deployment: `extension.php` and `lib/HardlyReadApi.php` hashes match this repo, PHP lint clean on
+1.30.1 / PHP 8.4.26, `/v1/state` 401 unauthenticated, `/i/` 200, and reflection shows Favorite Categories,
+Hidden Categories and Sidebar Indent all exposing the public methods the adapter calls. Revert commands and
+backups are recorded in `docs/live-deployment.md`.
+
+Still not measured: an authenticated v1.1 call on the live instance — it needs the owner's API password.
