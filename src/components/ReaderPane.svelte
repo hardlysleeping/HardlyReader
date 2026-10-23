@@ -7,7 +7,16 @@
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
 
-  let { onClose }: { onClose?: () => void } = $props();
+  /**
+   * `onLock` is the curtain in one press: the caller sends you home and locks,
+   * in that order, so the jump never waits on the server. It is passed only in
+   * the one-column layout, where the band — and its lock — is not on screen
+   * while you are reading.
+   */
+  let { onClose, onLock }: { onClose?: () => void; onLock?: () => void } = $props();
+
+  /** Locking needs something to lock with; without a passcode, say so instead. */
+  const canLock = $derived(reader.hiddenAvailable && reader.hiddenHasPasscode && !reader.hiddenLocked);
 
   let scroller = $state<HTMLElement | null>(null);
   /** Wheel travel accumulated at the bottom, in pixels, against the pull curve. */
@@ -230,6 +239,19 @@
           ↗
         </button>
       {/if}
+      {#if onLock && canLock}
+        <button
+          class="icon lock"
+          aria-label="Lock hidden categories and go to feeds"
+          title="Lock hidden categories and go to feeds"
+          onclick={() => onLock?.()}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="5" y="11" width="14" height="10" rx="2" />
+            <path d="M8 11V8a4 4 0 0 1 7.5-2" />
+          </svg>
+        </button>
+      {/if}
     </header>
 
     <article bind:this={scroller} data-scroll="article" {onscroll} {onwheel}>
@@ -372,6 +394,21 @@
 
   .star.on {
     color: var(--star);
+  }
+
+  /* The same padlock the band draws, so the curtain has one shape in the app. */
+  .lock svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .lock:hover {
+    color: var(--tone-lock-closed);
   }
 
   .flow.on {
