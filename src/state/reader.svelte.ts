@@ -64,7 +64,7 @@ import {
   type PinView,
 } from "./pins";
 import { pruneStreams, readCached, scopeKey, writeCached } from "./persist";
-import { applyHiddenWrite, withCategoryHidden, withView, type HiddenWriteOutcome } from "./hidden-write";
+import { withCategoryHidden, withView, type HiddenWriteOutcome } from "./hidden-write";
 import type { WriteOutcome } from "./write";
 
 export const PAGE_SIZE = 50;
@@ -148,6 +148,25 @@ export class ReaderState {
 
   /** True while a hide/show/view write is in flight. */
   hiddenBusy = $state(false);
+
+  /**
+   * Writes are queued instead of dropped.
+   *
+   * A hide in Strict mode rewrites the priority of every feed in the category,
+   * which on a large account takes seconds. The old code refused any second
+   * intent while the first was in flight, so the click that would bring the
+   * categories back was silently discarded and the reply for the first click
+   * repainted the older state — the categories stayed hidden until the user
+   * clicked again after the write finished. Now every intent is drawn at once
+   * and sent in order, and a token per target makes the newest intent own the
+   * screen: a stale reply is discarded rather than drawn.
+   */
+  private hiddenViewToken = 0;
+  private readonly hiddenIdTokens = new Map<number, number>();
+  private hiddenChain: Promise<unknown> = Promise.resolve();
+  /** Bumped on every intent, so a pending catch-up can tell it is stale. */
+  private hiddenWriteGen = 0;
+  private hiddenCatchUp: ReturnType<typeof setTimeout> | null = null;
 
   /** Last lock/unlock message, so a wrong passcode is visible rather than silent. */
   lockNotice = $state<string | null>(null);
@@ -491,6 +510,9 @@ export class ReaderState {
       const result = await apiLockHidden(transport, session);
       this.hiddenCategories = result.hiddenCategories;
       this.lockNotice = null;
+      // Locking hides categories server-side too, so the feed list can change.
+      this.hiddenWriteGen += 1;
+      this.scheduleHiddenCatchUp();
     } catch (error) {
       this.hiddenCategories = previous;
       this.lockNotice =
@@ -549,49 +571,142 @@ export class ReaderState {
     }
   }
 
-  /** Hides or shows one category: optimistically, then against the server. */
+  /** Hides or shows one category: drawn now, sent in order. */
   async setCategoryHidden(label: string, hidden: boolean): Promise<HiddenWriteOutcome | null> {
     const session = this.session;
     const id = this.categoryId(label);
-    if (session === null || id === null || this.hiddenBusy) return null;
+    if (session === null || id === null || !this.hiddenAvailable) return null;
 
-    this.hiddenBusy = true;
-    try {
-      const outcome = await applyHiddenWrite(
-        this.hiddenCategories,
-        withCategoryHidden(this.hiddenCategories, id, hidden),
-        (next) => {
-          this.hiddenCategories = next;
-        },
-        () => apiSetCategoryHidden(transport, session, id, hidden),
-      );
-      this.settleHidden(outcome);
-      return outcome;
-    } finally {
-      this.hiddenBusy = false;
-    }
+    const previous = this.hiddenCategories;
+    const optimistic = withCategoryHidden(previous, id, hidden);
+    if (optimistic === previous) return null;
+    this.hiddenCategories = optimistic;
+
+    const token = (this.hiddenIdTokens.get(id) ?? 0) + 1;
+    this.hiddenIdTokens.set(id, token);
+    this.hiddenWriteGen += 1;
+
+    return this.enqueueHidden(async () => {
+      try {
+        const result = await apiSetCategoryHidden(transport, session, id, hidden);
+        // A newer intent for this category owns the screen; its own reply will
+        // settle it, so this one is only good for the error text.
+        if (token === this.hiddenIdTokens.get(id)) this.commitHidden(result.hiddenCategories);
+        return { kind: "applied", changed: result.changed, state: result.hiddenCategories };
+      } catch (error) {
+        return this.failHidden(error, token === this.hiddenIdTokens.get(id), previous);
+      }
+    });
   }
 
-  /** Switches the hidden-categories view: optimistically, then against the server. */
+  /** Switches the hidden-categories view: drawn now, sent in order. */
   async setHiddenView(view: HiddenView): Promise<HiddenWriteOutcome | null> {
     const session = this.session;
-    if (session === null || !this.hiddenAvailable || this.hiddenBusy) return null;
+    if (session === null || !this.hiddenAvailable || this.hiddenCategories.locked) return null;
 
-    this.hiddenBusy = true;
-    try {
-      const outcome = await applyHiddenWrite(
-        this.hiddenCategories,
-        withView(this.hiddenCategories, view),
-        (next) => {
-          this.hiddenCategories = next;
-        },
-        () => apiSetView(transport, session, view),
-      );
-      this.settleHidden(outcome);
-      return outcome;
-    } finally {
-      this.hiddenBusy = false;
+    const previous = this.hiddenCategories;
+    this.hiddenCategories = withView(previous, view);
+    const token = ++this.hiddenViewToken;
+    this.hiddenWriteGen += 1;
+
+    return this.enqueueHidden(async () => {
+      try {
+        const result = await apiSetView(transport, session, view);
+        if (token === this.hiddenViewToken) this.commitHidden(result.hiddenCategories);
+        return { kind: "applied", changed: result.changed, state: result.hiddenCategories };
+      } catch (error) {
+        return this.failHidden(error, token === this.hiddenViewToken, previous);
+      }
+    });
+  }
+
+  /** Runs hidden writes one at a time, in the order they were asked for. */
+  private enqueueHidden<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.hiddenChain.then(task, task);
+    this.hiddenChain = run.then(
+      () => this.scheduleHiddenCatchUp(),
+      () => this.scheduleHiddenCatchUp(),
+    );
+    return run;
+  }
+
+  /**
+   * Reloads the sidebar once the hidden writes have drained.
+   *
+   * In Strict mode the extension hides a category by dropping the priority of
+   * every feed in it, and the GReader subscription list then stops reporting
+   * those feeds. The local rows we drew optimistically are all we have until
+   * the server's list is read again, so a "Show" would leave the category with
+   * no feeds under it — looking like the unhide had not worked. Light mode only
+   * sets the view, so nothing needs re-reading there.
+   *
+   * Debounced, and skipped if another intent arrived meanwhile: the reply for
+   * the newer intent is authoritative and reloading on top of it would fight
+   * the optimistic draw.
+   */
+  private scheduleHiddenCatchUp(): void {
+    if (!this.hiddenAvailable || this.hiddenCategories.mode !== "strict") return;
+    if (this.hiddenCatchUp !== null) clearTimeout(this.hiddenCatchUp);
+    const generation = this.hiddenWriteGen;
+    this.hiddenCatchUp = setTimeout(() => {
+      this.hiddenCatchUp = null;
+      if (generation !== this.hiddenWriteGen) {
+        this.scheduleHiddenCatchUp();
+        return;
+      }
+      void this.loadSidebar();
+    }, 250);
+  }
+
+  /**
+   * Draws a state the server just returned.
+   *
+   * A reply that predates a lock is not allowed to undo it: `locked` is sticky
+   * until an explicit unlock answers.
+   */
+  private commitHidden(state: HiddenCategoriesState): void {
+    this.hiddenCategories =
+      this.hiddenCategories.locked && !state.locked ? { ...state, locked: true } : state;
+  }
+
+  /**
+   * The failure half of a hidden write.
+   *
+   * When a newer intent has already replaced this one, the optimistic state for
+   * that newer intent is what the user is looking at, so nothing is drawn — the
+   * newer write is still queued and will settle it. Otherwise a failure that
+   * carries state reconciles to it, and a stateless failure restores the state
+   * from before this write.
+   */
+  private failHidden(
+    error: unknown,
+    current: boolean,
+    previous: HiddenCategoriesState,
+  ): HiddenWriteOutcome {
+    if (!current) {
+      return { kind: "failed", message: "", state: this.hiddenCategories };
     }
+
+    if (error instanceof ApiError) {
+      if (error.state !== null) {
+        this.commitHidden(error.state);
+        return {
+          kind: "reconciled",
+          status: error.status,
+          code: error.code,
+          message: error.message,
+          state: error.state,
+        };
+      }
+      this.hiddenCategories = previous;
+      this.error = error.message;
+      return { kind: "failed", message: error.message, state: previous };
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    this.hiddenCategories = previous;
+    this.error = message;
+    return { kind: "failed", message, state: previous };
   }
 
   /**
@@ -1253,10 +1368,6 @@ export class ReaderState {
    * the row moving is the message. A stateless failure rolled nothing back for
    * a reason, and that reason belongs in the banner.
    */
-  private settleHidden(outcome: HiddenWriteOutcome): void {
-    if (outcome.kind === "failed") this.error = outcome.message;
-  }
-
   /** The same rule for favorites: reconcile silently, report a real failure. */
   private settleFavorites(outcome: FavoritesWriteOutcome): void {
     if (outcome.kind === "failed") this.error = outcome.message;
