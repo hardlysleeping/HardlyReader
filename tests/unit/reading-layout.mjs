@@ -6,7 +6,6 @@ import {
   LEADING_LABELS,
   LEADING_ORDER,
   LAYOUT_INITIAL,
-  PARAGRAPH_INDENT,
   ROW_SCALE,
   TEXT_ALIGNS,
   TEXT_SCALE,
@@ -122,19 +121,21 @@ check("the variables carry the numbers the panes read", () => {
     textScale: 1.2,
     rowScale: 0.9,
     leading: "loose",
-    indent: true,
     align: "center",
   });
   assert.equal(vars["--read-scale"], "1.2");
   assert.equal(vars["--row-scale"], "0.9");
   assert.equal(vars["--read-leading"], String(LEADINGS.loose));
-  assert.equal(vars["--read-indent"], PARAGRAPH_INDENT);
+  assert.equal("--read-indent" in vars, false, "paragraphs are not indented any more");
   assert.equal(vars["--read-align"], "center");
 });
 
-check("indent off is a zero, not an absent property", () => {
-  const vars = readingVars({ ...LAYOUT_INITIAL, indent: false });
-  assert.equal(vars["--read-indent"], "0");
+check("nothing sets a paragraph indent any more", () => {
+  // The setting is gone rather than defaulted off: a stored `indentParagraphs`
+  // from an older build is ignored on load, so a first-line indent cannot come
+  // back without a control to turn it off again.
+  const vars = readingVars({ ...LAYOUT_INITIAL });
+  assert.equal("--read-indent" in vars, false);
 });
 
 check("a bad leading or alignment in memory still yields usable CSS", () => {
@@ -142,7 +143,6 @@ check("a bad leading or alignment in memory still yields usable CSS", () => {
     textScale: 99,
     rowScale: -1,
     leading: "sideways",
-    indent: false,
     align: "justify",
   });
   assert.equal(vars["--read-scale"], "1.5");
@@ -151,10 +151,11 @@ check("a bad leading or alignment in memory still yields usable CSS", () => {
   assert.equal(vars["--read-align"], ALIGN_INITIAL);
 });
 
-check("the style string is six declarations", () => {
+check("the style string is five declarations", () => {
   const style = readingStyle({ ...LAYOUT_INITIAL });
-  assert.equal(style.split(";").length, 6);
+  assert.equal(style.split(";").length, 5);
   assert.ok(style.startsWith("--read-scale:1;"));
+  assert.equal(style.includes("--read-indent"), false, "paragraph indent is gone");
 });
 
 check("the picture has a size of its own, separate from the row", () => {
@@ -236,7 +237,6 @@ check("the readout agrees with the stylesheet's arithmetic", () => {
 check("defaults are recognised, so Reset can be disabled", () => {
   assert.equal(isDefaultLayout({ ...LAYOUT_INITIAL }), true);
   assert.equal(isDefaultLayout({ ...LAYOUT_INITIAL, textScale: 1.1 }), false);
-  assert.equal(isDefaultLayout({ ...LAYOUT_INITIAL, indent: true }), false);
   assert.equal(isDefaultLayout({ ...LAYOUT_INITIAL, align: "right" }), false);
   assert.equal(
     isDefaultLayout({ ...LAYOUT_INITIAL, textScale: 99 }),

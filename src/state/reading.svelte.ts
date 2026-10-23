@@ -11,7 +11,6 @@ import { clampDwellSeconds, DWELL_SECONDS_DEFAULT } from "../lib/dwell";
 import {
   ALIGN_INITIAL,
   ARTICLE_IMAGE_INITIAL,
-  INDENT_INITIAL,
   LEADING_INITIAL,
   ROW_SCALE,
   TEXT_SCALE,
@@ -94,9 +93,6 @@ class ReadingState {
   /** Line spacing in articles. */
   leading = $state<Leading>(LEADING_INITIAL);
 
-  /** First-line indent for article paragraphs. */
-  indentParagraphs = $state(INDENT_INITIAL);
-
   /** Which way article text hangs. */
   textAlign = $state<TextAlign>(ALIGN_INITIAL);
 
@@ -137,7 +133,6 @@ class ReadingState {
         textScale?: unknown;
         rowScale?: unknown;
         leading?: unknown;
-        indentParagraphs?: unknown;
         textAlign?: unknown;
         thumbScale?: unknown;
         thumbSide?: unknown;
@@ -157,7 +152,6 @@ class ReadingState {
       this.textScale = clampScale(saved.textScale, TEXT_SCALE);
       this.rowScale = clampScale(saved.rowScale, ROW_SCALE);
       if (isLeading(saved.leading)) this.leading = saved.leading;
-      if (typeof saved.indentParagraphs === "boolean") this.indentParagraphs = saved.indentParagraphs;
       if (isTextAlign(saved.textAlign)) this.textAlign = saved.textAlign;
       this.thumbScale = clampScale(saved.thumbScale, THUMB_SCALE);
       if (isThumbSide(saved.thumbSide)) this.thumbSide = saved.thumbSide;
@@ -264,17 +258,12 @@ class ReadingState {
     this.save();
   }
 
-  toggleIndentParagraphs(): void {
-    this.indentParagraphs = !this.indentParagraphs;
-    this.save();
-  }
 
   /** Back to 100%, normal spacing, no indent, left. Picture side is a position, not a size, so it stays. */
   resetReadingLayout(): void {
     this.textScale = TEXT_SCALE.initial;
     this.rowScale = ROW_SCALE.initial;
     this.leading = LEADING_INITIAL;
-    this.indentParagraphs = INDENT_INITIAL;
     this.textAlign = ALIGN_INITIAL;
     this.thumbScale = THUMB_SCALE.initial;
     this.articleImage = ARTICLE_IMAGE_INITIAL;
@@ -296,7 +285,6 @@ class ReadingState {
           textScale: this.textScale,
           rowScale: this.rowScale,
           leading: this.leading,
-          indentParagraphs: this.indentParagraphs,
           textAlign: this.textAlign,
           thumbScale: this.thumbScale,
           thumbSide: this.thumbSide,

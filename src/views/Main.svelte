@@ -244,7 +244,6 @@
       textScale: reading.textScale,
       rowScale: reading.rowScale,
       leading: reading.leading,
-      indent: reading.indentParagraphs,
       align: reading.textAlign,
       thumbScale: reading.thumbScale,
     }),

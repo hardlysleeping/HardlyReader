@@ -4,7 +4,7 @@
    *
    * Two buttons that are used often enough to deserve a click — smaller text,
    * bigger text — and one that opens everything else: list size, line spacing,
-   * paragraph indent, which edge the text hangs from, and where a post's
+   * which edge the text hangs from, and where a post's
    * picture sits and how big it is.
    *
    * All of it is one setting for every post and every feed. Sizing per post
@@ -54,7 +54,6 @@
       textScale: reading.textScale,
       rowScale: reading.rowScale,
       leading: reading.leading,
-      indent: reading.indentParagraphs,
       align: reading.textAlign,
       thumbScale: reading.thumbScale,
       thumbSide: reading.thumbSide,
@@ -226,18 +225,6 @@
           </button>
         {/each}
       </div>
-    </div>
-
-    <div class="row">
-      <span class="key">Paragraph indent</span>
-      <button
-        class="toggle"
-        class:on={reading.indentParagraphs}
-        aria-pressed={reading.indentParagraphs}
-        onclick={() => reading.toggleIndentParagraphs()}
-      >
-        {reading.indentParagraphs ? "On" : "Off"}
-      </button>
     </div>
 
     <!-- Read state is a reading preference like any other, so it lives here with
