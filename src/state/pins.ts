@@ -1,11 +1,11 @@
 /**
  * Pins: what the user wants at the top of the sidebar.
  *
- * A marked category is one thing. When Favorite Categories is enabled the mark
+ * A marked category is one thing. When Pinned Categories is enabled the mark
  * is the extension's favourite, so the FreshRSS web sidebar agrees with this
  * app; without it the same mark is kept in this app's local storage, because
  * there is nowhere else for it to live. Only the storage differs. Feeds have no server-side home for
- * a pin — `priority` already belongs to Hidden and Favorite Categories — so feed
+ * a pin — `priority` already belongs to Hidden and Pinned Categories — so feed
  * pins are always local.
  *
  * Everything here is pure, so ordering and filtering are testable without a
@@ -17,7 +17,7 @@ export type PinView = "all" | "only" | "without";
 
 export const PIN_VIEW_CYCLE: readonly PinView[] = ["all", "only", "without"];
 
-/** The favourites extension's own words for its three states. */
+/** The pin filter's three states, in the words the extension uses. */
 export const PIN_VIEW_LABELS: Record<PinView, string> = {
   all: "Mixed",
   only: "Pinned",

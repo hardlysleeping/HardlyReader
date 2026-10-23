@@ -86,7 +86,7 @@ export interface FavoriteCategory {
 }
 
 export interface FavoritesState {
-  /** False when Favorite Categories is not installed or not enabled. Every
+  /** False when Pinned Categories is not installed or not enabled. Every
    * other field is then a default and must not be trusted. */
   available: boolean;
   view: FavoriteView;

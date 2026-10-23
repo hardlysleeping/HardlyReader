@@ -44,7 +44,7 @@
   /* Chosen by the theme; these defaults match DEFAULT_THEME. */
   --accent: #0078e0;
   --tone-hidden: #e5484d;
-  --tone-favourite: #0078e0;
+  --tone-pinned: #0078e0;
   --tone-lock-open: #e6b93f;
   --tone-lock-closed: #f08c2e;
   --tone-unlock: #3fbf6f;

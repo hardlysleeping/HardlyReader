@@ -26,8 +26,15 @@ class HardlyReadExtension extends Minz_Extension
 	/** Registry key of the state-owning extension: metadata `name`, not entrypoint. */
 	private const HIDDEN_EXTENSION = 'Hidden Categories';
 
-	/** Registry key of the favorites extension. */
-	private const FAVORITES_EXTENSION = 'Favorite Categories';
+	/**
+	 * Registry keys of the pin-keeping extension, newest first.
+	 *
+	 * The extension was renamed "Pinned Categories" in 1.4 and called "Favorite
+	 * Categories" before that. FreshRSS keys enablement by the metadata name, so
+	 * which key is live depends on the version installed — try both rather than
+	 * pinning this app to one of them.
+	 */
+	private const FAVORITES_EXTENSIONS = ['Pinned Categories', 'Favorite Categories'];
 
 	/** Registry key of the read-only indent extension. */
 	private const INDENT_EXTENSION = 'Sidebar Feed Indent';
@@ -66,7 +73,7 @@ class HardlyReadExtension extends Minz_Extension
 			$api = new HardlyReadApi(
 				authenticate: fn (string $authorization): ?string => $this->authenticateGoogleLogin($authorization),
 				loadHiddenCategories: fn (string $username): ?object => $this->loadHiddenCategories($username),
-				loadFavorites: fn (string $username): ?object => $this->loadUserExtension($username, self::FAVORITES_EXTENSION),
+				loadFavorites: fn (string $username): ?object => $this->loadAnyUserExtension($username, self::FAVORITES_EXTENSIONS),
 				loadSidebarIndent: fn (string $username): ?object => $this->loadUserExtension($username, self::INDENT_EXTENSION),
 			);
 
@@ -220,6 +227,17 @@ class HardlyReadExtension extends Minz_Extension
 	 * Nothing here assumes an extension is installed or enabled: an absent or
 	 * disabled one returns null, which the router reports as `available: false`.
 	 */
+	private function loadAnyUserExtension(string $username, array $names): ?object
+	{
+		foreach ($names as $name) {
+			$extension = $this->loadUserExtension($username, $name);
+			if ($extension !== null) {
+				return $extension;
+			}
+		}
+		return null;
+	}
+
 	private function loadUserExtension(string $username, string $name): ?object
 	{
 		if ($username === '' || !FreshRSS_Context::hasUserConf()) {

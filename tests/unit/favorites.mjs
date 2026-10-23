@@ -499,10 +499,11 @@ const hiddenState = api.parseState({
   check("the synced mark keeps the same wording", synced.favorite?.label === "Pin");
   check("...but is a server favourite", synced.favorite?.action.type === "favorite");
   check("...and is the only mark offered", synced.pin === null);
+  check("there is one mark and one word for it", synced.favorite?.glyph === "📌");
   check(
-    "the favourites vocabulary renames it, marker and all",
-    categoryMenu(hiddenState, "Comics", false, false, "favourites").favorite?.label === "Favourite" &&
-      categoryMenu(hiddenState, "Comics", false, false, "favourites").favorite?.glyph === "★",
+    "no vocabulary argument can bring the star back",
+    categoryMenu(hiddenState, "Comics", false, false).favorite?.label === "Pin" &&
+      categoryMenu(hiddenState, "Comics", false, false).favorite?.glyph === "📌",
   );
 }
 

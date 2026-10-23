@@ -2,7 +2,7 @@
  * Colours and words the user owns.
  *
  * The accents are not decoration: the tone tells you what a control *is* — red
- * is hidden, blue is favourite/pin, yellow and orange are the lock, green is
+ * is hidden, blue is pinned, yellow and orange are the lock, green is
  * sync — so the
  * meaningful ones are separately settable rather than derived from one hue.
  * `accent` is the fourth: the colour of focus, selection and "chosen" states.
@@ -14,8 +14,6 @@
  */
 
 export type ThemeMode = "dark" | "light" | "system";
-export type Marker = "pin" | "star";
-export type Vocabulary = "pinned" | "favourites";
 
 export interface Theme {
   /** `system` follows the OS; the other two pin it. */
@@ -31,17 +29,14 @@ export interface Theme {
    */
   accentEdges: boolean;
   hidden: string;
-  favourite: string;
+  /** The pinned mark: one blue, because there is one mark. */
+  pinned: string;
   lockOpen: string;
   lockClosed: string;
   /** The unlock confirmation: green, the opposite of the red that hides. */
   unlock: string;
   /** The sync control: its glyph, its ring and its progress fill. */
   sync: string;
-  /** Glyph for a pinned row. */
-  marker: Marker;
-  /** What a pin is called: the app's own word, or the extension's. */
-  vocabulary: Vocabulary;
 }
 
 export const DEFAULT_THEME: Theme = {
@@ -49,13 +44,11 @@ export const DEFAULT_THEME: Theme = {
   accent: "#0078e0",
   accentEdges: true,
   hidden: "#e5484d",
-  favourite: "#0078e0",
+  pinned: "#0078e0",
   lockOpen: "#e6b93f",
   lockClosed: "#f08c2e",
   unlock: "#3fbf6f",
   sync: "#28a06b",
-  marker: "pin",
-  vocabulary: "pinned",
 };
 
 export const THEME_KEY = "hardlyreader.theme.v1";
@@ -85,13 +78,12 @@ export function parseTheme(raw: unknown): Theme {
     accent: colour(saved.accent, DEFAULT_THEME.accent),
     accentEdges: typeof saved.accentEdges === "boolean" ? saved.accentEdges : DEFAULT_THEME.accentEdges,
     hidden: colour(saved.hidden, DEFAULT_THEME.hidden),
-    favourite: colour(saved.favourite, DEFAULT_THEME.favourite),
+    // Pins used to be called favourites and the key changed with the word.
+    pinned: colour(saved.pinned ?? saved.favourite, DEFAULT_THEME.pinned),
     lockOpen: colour(saved.lockOpen, DEFAULT_THEME.lockOpen),
     lockClosed: colour(saved.lockClosed, DEFAULT_THEME.lockClosed),
     unlock: colour(saved.unlock, DEFAULT_THEME.unlock),
     sync: colour(saved.sync, DEFAULT_THEME.sync),
-    marker: saved.marker === "star" ? "star" : "pin",
-    vocabulary: saved.vocabulary === "favourites" ? "favourites" : "pinned",
   };
 }
 
@@ -106,7 +98,7 @@ export function themeVariables(theme: Theme): Record<string, string> {
   return {
     "--accent": theme.accent,
     "--tone-hidden": theme.hidden,
-    "--tone-favourite": theme.favourite,
+    "--tone-pinned": theme.pinned,
     "--tone-lock-open": theme.lockOpen,
     "--tone-lock-closed": theme.lockClosed,
     "--tone-unlock": theme.unlock,
@@ -120,13 +112,11 @@ export function themeVariables(theme: Theme): Record<string, string> {
   };
 }
 
-/** The SVG path for the row marker. */
-export const MARKER_PATH: Record<Marker, string> = {
-  // A push pin, drawn rather than the emoji, so it takes the theme's colour.
-  pin: "M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8",
-  // The same five points the starred list already uses.
-  star: "M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.4l6.1-.8z",
-};
+/**
+ * The SVG path for the pinned mark: a push pin, drawn rather than the emoji so
+ * it takes the theme's colour. There is one mark, so there is one path.
+ */
+export const MARKER_PATH = "M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8";
 
 export interface Words {
   /** Footer count, e.g. "Pinned 3". */
@@ -137,8 +127,6 @@ export interface Words {
   remove: string;
 }
 
-export function pinWords(vocabulary: Vocabulary): Words {
-  return vocabulary === "favourites"
-    ? { count: "Favourites", add: "Favourite", remove: "Unfavourite" }
-    : { count: "Pinned", add: "Pin", remove: "Unpin" };
+export function pinWords(): Words {
+  return { count: "Pinned", add: "Pin", remove: "Unpin" };
 }

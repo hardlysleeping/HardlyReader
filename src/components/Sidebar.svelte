@@ -42,7 +42,7 @@
     else chrome.restoreBand();
   });
 
-  const words = $derived(pinWords(theme.current.vocabulary));
+  const words = pinWords();
 
   /** Something typed: the sidebar shows results instead of the tree. */
   const searching = $derived(search.query.trim() !== "");
@@ -593,14 +593,8 @@
             <path d="M6 9l6 6 6-6" />
           </svg>
           {#if pinned}
-            <svg
-              class="pin"
-              class:star={theme.current.marker === "star"}
-              viewBox="0 0 24 24"
-              role="img"
-              aria-label={words.count}
-            >
-              <path d={MARKER_PATH[theme.current.marker]} />
+            <svg class="pin" viewBox="0 0 24 24" role="img" aria-label={words.count}>
+              <path d={MARKER_PATH} />
             </svg>
           {/if}
           <span class="label">{category.label}</span>
@@ -637,14 +631,8 @@
             title={feed.title}
           >
             {#if reader.isFeedPinned(feed.id)}
-              <svg
-                class="pin"
-                class:star={theme.current.marker === "star"}
-                viewBox="0 0 24 24"
-                role="img"
-                aria-label={words.count}
-              >
-                <path d={MARKER_PATH[theme.current.marker]} />
+              <svg class="pin" viewBox="0 0 24 24" role="img" aria-label={words.count}>
+                <path d={MARKER_PATH} />
               </svg>
             {/if}
             {#if iconFor(feed) !== undefined && !brokenIcons[feed.id]}
@@ -817,19 +805,14 @@
     opacity: 0.9;
   }
 
-  /* The pin is an open stroke drawing, the star a closed shape: the same slot
-     needs opposite fill/stroke so neither reads as the outline of the other. */
+  /* The pin is drawn as a stroke, so it takes the theme's colour without
+     needing a fill of its own. */
   .pin path {
     fill: none;
-    stroke: var(--tone-favourite);
+    stroke: var(--tone-pinned);
     stroke-width: 2;
     stroke-linejoin: round;
     stroke-linecap: round;
-  }
-
-  .pin.star path {
-    fill: var(--tone-favourite);
-    stroke: none;
   }
 
   /* The counts sit on the line under the list and never scroll: it is the
@@ -949,17 +932,17 @@
      rather than one loud one, so a pinned row is obvious without shouting. */
   .group-title.pinned,
   .feed.pinned {
-    outline: 1px solid color-mix(in srgb, var(--tone-favourite) 45%, transparent);
+    outline: 1px solid color-mix(in srgb, var(--tone-pinned) 45%, transparent);
     outline-offset: -1px;
     border-radius: 5px;
     box-shadow:
-      inset 0 -2px 0 color-mix(in srgb, var(--tone-favourite) 60%, transparent),
-      0 0 9px color-mix(in srgb, var(--tone-favourite) 18%, transparent);
+      inset 0 -2px 0 color-mix(in srgb, var(--tone-pinned) 60%, transparent),
+      0 0 9px color-mix(in srgb, var(--tone-pinned) 18%, transparent);
   }
 
   .group-title.pinned .label,
   .feed.pinned .label {
-    color: color-mix(in srgb, var(--tone-favourite) 70%, var(--text));
+    color: color-mix(in srgb, var(--tone-pinned) 70%, var(--text));
   }
 
   /* Hidden: red, the same red as the band's hidden control. Only ever visible
@@ -978,14 +961,14 @@
     height: 11px;
     fill: none;
     transition: fill 160ms ease, stroke 160ms ease, opacity 160ms ease;
-    stroke: var(--tone-favourite);
+    stroke: var(--tone-pinned);
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
 
   .feed.pinned .label {
-    color: color-mix(in srgb, var(--tone-favourite) 65%, var(--text-dim));
+    color: color-mix(in srgb, var(--tone-pinned) 65%, var(--text-dim));
   }
 
   /* The control strip's caret, a size up so it reads at a glance in a dense
@@ -1156,7 +1139,7 @@
     white-space: nowrap;
   }
 
-  /* Search sits at the top of the sidebar, above the hidden/favourites band: it
+  /* Search sits at the top of the sidebar, above the hidden/pinned band: it
      filters the whole tree below it, band included, so it belongs first. One quiet field — the magnifier and
      the mode mark live inside it, so there is no button beside the input. */
   .find {

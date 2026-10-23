@@ -129,7 +129,7 @@
   <!-- The caret is a bar across the top of the band, and it is always here —
        locked, collapsed, or neither. It used to be replaced by the unlock form
        while locked, which left no way to fold the band exactly when you might
-       want to. What a lock hides is the pin/favourites area, not the way to
+       want to. What a lock hides is the pinned area, not the way to
        fold things. The arrow points up while the controls are showing (hide
        them) and down while they are hidden (bring them back), so the direction
        always describes what a click will do. -->
@@ -218,10 +218,10 @@
       class:on={pinView !== "all"}
       onclick={cyclePins}
       disabled={reader.favoritesBusy}
-      title={`Favourites: ${PIN_VIEW_LABELS[pinView]} — click for ${
+      title={`Pinned: ${PIN_VIEW_LABELS[pinView]} — click for ${
       PIN_VIEW_LABELS[nextPinView(pinView)]
-      }${reader.favorites.available ? "" : " (Favorite Categories is not enabled)"}`}
-      aria-label={`Favourites: ${PIN_VIEW_LABELS[pinView]}`}
+      }${reader.favorites.available ? "" : " (Pinned Categories is not enabled)"}`}
+      aria-label={`Pinned: ${PIN_VIEW_LABELS[pinView]}`}
       >
       <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
@@ -527,7 +527,7 @@
   }
 
   .ctl.pin {
-    --tone: var(--tone-favourite);
+    --tone: var(--tone-pinned);
   }
 
   /* Lock reads as a state at a glance: yellow while open, orange once locked.
