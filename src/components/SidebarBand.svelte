@@ -14,7 +14,47 @@
 
   let lockOpen = $state(false);
   let code = $state("");
-  let changing = $state(false);
+
+  /**
+   * The band answers a lock and an unlock with one small pulse of its own
+   * colour — red going down, green coming back — rather than a light thrown
+   * across the window. It is the band that changed, so the band is what
+   * answers.
+   */
+  let pulse = $state<"lock" | "unlock" | null>(null);
+
+  /** Whether the controls are being pulled out right now (see `.opening`). */
+  let opening = $state(false);
+  let reveal = $state<HTMLElement | undefined>(undefined);
+  /** Natural height of the controls, so the expand can overshoot and settle. */
+  let bandH = $state(0);
+
+  let wasLocked = reader.hiddenLocked;
+  let wasCollapsed = chrome.bandCollapsed;
+
+  $effect(() => {
+    const lockedNow = reader.hiddenLocked;
+    if (lockedNow !== wasLocked) {
+      wasLocked = lockedNow;
+      pulse = lockedNow ? "lock" : "unlock";
+    }
+  });
+
+  $effect(() => {
+    const collapsedNow = chrome.bandCollapsed;
+    if (collapsedNow !== wasCollapsed) {
+      wasCollapsed = collapsedNow;
+      // Only the way out gets the spring: closing by hand should feel like
+      // putting something away, not like it is fighting back.
+      if (!collapsedNow) opening = true;
+    }
+  });
+
+  $effect(() => {
+    if (chrome.bandCollapsed || reveal === undefined) return;
+    const measured = reveal.scrollHeight;
+    if (measured > 0 && measured !== bandH) bandH = measured;
+  });
 
   const hiddenView = $derived(reader.hiddenView);
   const nextHidden = $derived(HIDDEN_CYCLE[(HIDDEN_CYCLE.indexOf(hiddenView) + 1) % HIDDEN_CYCLE.length]);
@@ -30,10 +70,31 @@
     void reader.cyclePinView();
   }
 
+  /**
+   * Locking is one press.
+   *
+   * The curtain is the point of the control: a confirmation step makes the
+   * moment it is needed the moment it is slowest. If the extension has no
+   * passcode yet there is nothing to lock *with*, so that is the only case that
+   * opens a form, and it says so.
+   */
+  async function lockNow(event: MouseEvent): Promise<void> {
+    if (!reader.hiddenHasPasscode) {
+      lockOpen = true;
+      void reader.loadHiddenState();
+      return;
+    }
+    await reader.lockHidden();
+    // Locking does not fold the band from here: the band itself folds on the
+    // lock transition (see Sidebar), which also restores the fold state the user
+    // chose when the curtain comes back up. This only closes the panel.
+    if (reader.hiddenLocked) lockOpen = false;
+  }
+
   async function submitUnlock(event: SubmitEvent) {
     event.preventDefault();
     if (code === "" || reader.hiddenBusy) return;
-    const ok = await reader.unlockHidden(code, pointOf(event));
+    const ok = await reader.unlockHidden(code);
     if (ok) {
       code = "";
       lockOpen = false;
@@ -46,34 +107,10 @@
     const ok = await reader.setHiddenPasscode(code);
     if (ok) {
       code = "";
-      changing = false;
+      lockOpen = false;
     }
   }
 
-  /**
-   * Opening the panel asks the server again.
-   *
-   * Whether a passcode exists and whether the curtain is already down are
-   * server facts that change from the website, or when a server's extension is
-   * updated after this app started. Trusting the state read at sign-in is how
-   * the panel ends up inviting you to set a passcode you already have.
-   */
-  /** Where the click was, so the confirmation light leaves from there. */
-  function pointOf(event: MouseEvent | SubmitEvent): { x: number; y: number } | null {
-    const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
-    if (!rect) return null;
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-  }
-
-  function openLockPanel(): void {
-    lockOpen = !lockOpen;
-    if (lockOpen) void reader.loadHiddenState();
-  }
-
-  async function lockNow(event: MouseEvent) {
-    await reader.lockHidden();
-    if (reader.hiddenLocked) lockOpen = false;
-  }
 </script>
 
 <!-- The caret is a bar across the top of the band, not a button in the corner:
@@ -81,130 +118,146 @@
      under it. The arrow points up while they are showing (hide them) and down
      while they are hidden (bring them back), so the direction always describes
      what a click will do. -->
-<div class="bandbox" class:collapsed={chrome.bandCollapsed} class:locked={reader.hiddenLocked}>
+<div class="bandbox" class:collapsed={chrome.bandCollapsed} class:locked={locked}>
+  {#if pulse}
+    <span
+      class="pulse {pulse}"
+      aria-hidden="true"
+      onanimationend={() => (pulse = null)}
+    ></span>
+  {/if}
+  <!-- The caret is a bar across the top of the band, and it is always here —
+       locked, collapsed, or neither. It used to be replaced by the unlock form
+       while locked, which left no way to fold the band exactly when you might
+       want to. What a lock hides is the pin/favourites area, not the way to
+       fold things. The arrow points up while the controls are showing (hide
+       them) and down while they are hidden (bring them back), so the direction
+       always describes what a click will do. -->
   <button
     class="bar"
     onclick={() => chrome.toggleBand()}
     aria-expanded={!chrome.bandCollapsed}
-    aria-label={chrome.bandCollapsed ? "Show sidebar controls" : "Hide sidebar controls"}
-    title={chrome.bandCollapsed ? "Show controls" : "Hide controls"}
-  >
+    aria-label={chrome.bandCollapsed ? "Expand sidebar controls" : "Collapse sidebar controls"}
+    title={chrome.bandCollapsed ? "Expand" : "Collapse"}
+    >
     <svg class="caret" class:up={!chrome.bandCollapsed} viewBox="0 0 24 24" aria-hidden="true">
       <path d="M6 9l6 6 6-6" />
     </svg>
   </button>
-
   {#if !chrome.bandCollapsed}
-    <div class="band">
-    <button
+    <div
+      class="reveal"
+      class:opening
+      bind:this={reveal}
+      style="--band-h: {bandH}px"
+      onanimationend={() => (opening = false)}
+    >
+    {#if locked}
+      <form class="unlockbar" onsubmit={submitUnlock} aria-label="Locked">
+      <svg class="key" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+      </svg>
+      <input
+      id="unlock-code"
+      type="password"
+      inputmode="numeric"
+      maxlength="6"
+      autocomplete="off"
+      placeholder="Passcode"
+      aria-label="Passcode to unlock hidden categories"
+      bind:value={code}
+      />
+      <button type="submit" class="go" disabled={reader.hiddenBusy || code === ""}>Unlock</button>
+      </form>
+      {#if reader.lockNotice}
+        <p class="notice" role="status">{reader.lockNotice}</p>
+      {/if}
+    {/if}
+  {#if !locked}
+      <div class="band">
+      <button
       class="ctl hidden"
       class:on={hiddenView !== "hidden"}
       onclick={cycleHidden}
-      disabled={!reader.hiddenAvailable || locked}
-      title={reader.hiddenAvailable
-        ? locked
-          ? "Locked"
-          : `${HIDDEN_LABELS[hiddenView]} — click for ${HIDDEN_LABELS[nextHidden]}`
-        : "Hidden Categories is not enabled on this server"}
-      aria-label={`Hidden categories: ${HIDDEN_LABELS[hiddenView]}`}
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        {#if hiddenView === "hidden"}
-          <path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3.1 4.2M6.6 6.6C4.3 8 2.7 10.2 2 12c1 2.5 5 7 10 7a9.9 9.9 0 0 0 5.4-1.6" />
-        {:else}
-          <path d="M2 12c1-2.5 5-7 10-7s9 4.5 10 7c-1 2.5-5 7-10 7S3 14.5 2 12z" />
-          <circle cx="12" cy="12" r="3" />
-        {/if}
-      </svg>
-      {#if !locked}<span class="lbl">{HIDDEN_LABELS[hiddenView]}</span>{/if}
-    </button>
-
-    <button
-      class="ctl lock"
-      class:on={locked}
-      onclick={openLockPanel}
       disabled={!reader.hiddenAvailable}
-      aria-expanded={lockOpen}
-      title={locked ? "Locked" : "Unlocked"}
-      aria-label={locked ? "Hidden categories are locked" : "Hidden categories are unlocked"}
-    >
+      title={reader.hiddenAvailable
+      ? `${HIDDEN_LABELS[hiddenView]} — click for ${HIDDEN_LABELS[nextHidden]}`
+      : "Hidden Categories is not enabled on this server"}
+      aria-label={`Hidden categories: ${HIDDEN_LABELS[hiddenView]}`}
+      >
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="5" y="11" width="14" height="10" rx="2" />
-        {#if locked}
-          <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-        {:else}
-          <path d="M8 11V8a4 4 0 0 1 7.5-2" />
-        {/if}
+      {#if hiddenView === "hidden"}
+      <path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3.1 4.2M6.6 6.6C4.3 8 2.7 10.2 2 12c1 2.5 5 7 10 7a9.9 9.9 0 0 0 5.4-1.6" />
+      {:else}
+      <path d="M2 12c1-2.5 5-7 10-7s9 4.5 10 7c-1 2.5-5 7-10 7S3 14.5 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+      {/if}
       </svg>
-    </button>
+      <span class="lbl">{HIDDEN_LABELS[hiddenView]}</span>
+      </button>
 
-    <button
+      <!-- One press locks. Nothing to confirm: the curtain is the point. -->
+      <button
+      class="ctl lock"
+      onclick={lockNow}
+      disabled={!reader.hiddenAvailable}
+      title={reader.hiddenHasPasscode
+      ? "Lock hidden categories"
+      : "Set a passcode first"}
+      aria-label="Lock hidden categories"
+      >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 7.5-2" />
+      </svg>
+      </button>
+
+      <button
       class="ctl pin"
       class:on={pinView !== "all"}
       onclick={cyclePins}
       disabled={reader.favoritesBusy}
       title={`Favourites: ${PIN_VIEW_LABELS[pinView]} — click for ${
-        PIN_VIEW_LABELS[nextPinView(pinView)]
+      PIN_VIEW_LABELS[nextPinView(pinView)]
       }${reader.favorites.available ? "" : " (Favorite Categories is not enabled)"}`}
       aria-label={`Favourites: ${PIN_VIEW_LABELS[pinView]}`}
-    >
+      >
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
+      <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
       </svg>
-      {#if !locked}<span class="lbl">{PIN_VIEW_LABELS[pinView]}</span>{/if}
-    </button>
-  </div>
+      <span class="lbl">{PIN_VIEW_LABELS[pinView]}</span>
+      </button>
+      </div>
+    {/if}
+    </div>
   {/if}
 </div>
 
-  {#if lockOpen}
-    <div class="lockpanel" role="region" aria-label="Lock">
-      {#if locked}
-        <form class="code" onsubmit={submitUnlock}>
-          <label for="unlock-code">Passcode</label>
-          <input
-            id="unlock-code"
-            type="password"
-            inputmode="numeric"
-            maxlength="6"
-            autocomplete="off"
-            bind:value={code}
-          />
-          <button type="submit" class="primary" disabled={reader.hiddenBusy || code === ""}>Unlock</button>
-        </form>
-      {:else if reader.hiddenHasPasscode && !changing}
-        <div class="row">
-          <button class="primary" onclick={lockNow} disabled={reader.hiddenBusy}>Lock now</button>
-          <button onclick={() => ((changing = true), (code = ""))}>Change passcode</button>
-        </div>
-      {:else}
-        <form class="code" onsubmit={submitCode}>
-          <label for="set-code">
-            {reader.hiddenHasPasscode ? "New passcode" : "Set a passcode to enable locking"}
-          </label>
-          <input
-            id="set-code"
-            type="password"
-            inputmode="numeric"
-            maxlength="6"
-            autocomplete="off"
-            bind:value={code}
-          />
-          <button type="submit" class="primary" disabled={reader.hiddenBusy}>Save</button>
-          {#if reader.hiddenHasPasscode}
-            <button type="button" onclick={() => ((changing = false), (code = ""))}>Cancel</button>
-          {/if}
-        </form>
-        {#if !reader.hiddenHasPasscode}
-          <p class="hint">One to six digits. Clearing the passcode turns locking off.</p>
-        {/if}
-      {/if}
-      {#if reader.lockNotice}
-        <p class="notice" role="status">{reader.lockNotice}</p>
-      {/if}
-      <button class="close" onclick={() => ((lockOpen = false), (changing = false), (code = ""))}>Close</button>
-    </div>
-  {/if}
+{#if lockOpen && !locked}
+  <!-- Only reachable when the extension has no passcode: there is nothing to
+       lock with, so the way to get one is set here. An existing passcode is
+       changed on the extension's own page, as on the website. -->
+  <div class="lockpanel" role="region" aria-label="Set a passcode">
+    <form class="code" onsubmit={submitCode}>
+      <label for="set-code">Set a passcode to enable locking</label>
+      <input
+        id="set-code"
+        type="password"
+        inputmode="numeric"
+        maxlength="6"
+        autocomplete="off"
+        bind:value={code}
+      />
+      <button type="submit" class="primary" disabled={reader.hiddenBusy}>Save</button>
+      <button type="button" onclick={() => ((lockOpen = false), (code = ""))}>Cancel</button>
+    </form>
+    <p class="hint">One to six digits. Clearing the passcode turns locking off.</p>
+    {#if reader.lockNotice}
+      <p class="notice" role="status">{reader.lockNotice}</p>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .lockpanel .code {
@@ -232,12 +285,7 @@
     letter-spacing: 0.15em;
   }
 
-  .lockpanel .row {
-    display: flex;
-    gap: 6px;
-  }
-
-  .lockpanel .primary {
+    .lockpanel .primary {
     border-color: var(--accent);
     color: var(--accent);
   }
@@ -254,10 +302,158 @@
     color: var(--danger, #e06c75);
   }
 
+  /* Locked: the band is one row, and that row is the way back in. Sized to sit
+     where the three controls were so the sidebar does not jump. */
+  .unlockbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 2px 0;
+  }
+
+  .unlockbar .key {
+    flex: 0 0 auto;
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: var(--tone-lock-closed);
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .unlockbar input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 5px 7px;
+    border: 1px solid color-mix(in srgb, var(--tone-lock-closed) 45%, transparent);
+    border-radius: 7px;
+    background: var(--sunken, #171717);
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+  }
+
+  .unlockbar input::placeholder {
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  .unlockbar input:focus-visible {
+    outline: 2px solid var(--tone-lock-closed);
+    outline-offset: 1px;
+  }
+
+  .unlockbar .go {
+    flex: 0 0 auto;
+    padding: 5px 9px;
+    border: 1px solid color-mix(in srgb, var(--tone-lock-closed) 55%, transparent);
+    border-radius: 7px;
+    background: none;
+    color: var(--tone-lock-closed);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .unlockbar .go:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .bandbox .notice {
+    margin: 5px 0 0;
+    font-size: 11px;
+    color: var(--danger, #e06c75);
+  }
+
   /* No box: the band is three separate cut-outs on the sidebar's own
      background, so nothing is drawn around them but their own outline. */
   .bandbox {
+    position: relative;
     margin: 0 8px 6px;
+  }
+
+  /* Lock and unlock answer here: a thin ring that grows a hair and fades on the
+     band's own edge. Red for the curtain going down, green for it coming back —
+     the same two colours the controls already use, so nothing new is taught.
+     Nothing is drawn over the window, and it is over in a third of a second. */
+  .pulse {
+    position: absolute;
+    inset: -2px;
+    border-radius: 12px;
+    pointer-events: none;
+    animation: band-pulse 360ms ease-out both;
+  }
+
+  .pulse.lock {
+    --pulse-tone: var(--tone-hidden, #e5484d);
+  }
+
+  .pulse.unlock {
+    --pulse-tone: var(--tone-unlock, #3fbf6f);
+  }
+
+  @keyframes band-pulse {
+    0% {
+      opacity: 1;
+      box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--pulse-tone) 75%, transparent),
+        0 0 8px color-mix(in srgb, var(--pulse-tone) 26%, transparent);
+    }
+    100% {
+      opacity: 0;
+      box-shadow:
+        inset 0 0 0 3px color-mix(in srgb, var(--pulse-tone) 0%, transparent),
+        0 0 16px color-mix(in srgb, var(--pulse-tone) 0%, transparent);
+    }
+  }
+
+  /* The controls are pulled out from under the bar: clipped while they move,
+     overshooting their own height and a couple of percent of scale before they
+     settle. Quick — a quarter of a second — and the overshoot is small enough
+     that it reads as weight, not as a bounce. */
+  .reveal {
+    overflow: hidden;
+  }
+
+  .reveal.opening {
+    animation: band-unfold 260ms cubic-bezier(0.22, 0.8, 0.3, 1) both;
+    transform-origin: top center;
+  }
+
+  @keyframes band-unfold {
+    0% {
+      max-height: 0;
+      opacity: 0;
+      transform: translateY(-3px) scaleY(0.92);
+    }
+    58% {
+      max-height: calc(var(--band-h, 80px) + 7px);
+      opacity: 1;
+      transform: translateY(1px) scaleY(1.035);
+    }
+    82% {
+      max-height: var(--band-h, 80px);
+      transform: translateY(0) scaleY(0.995);
+    }
+    100% {
+      max-height: var(--band-h, 80px);
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pulse {
+      animation: none;
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pulse-tone) 45%, transparent);
+    }
+
+    .reveal.opening {
+      animation: none;
+    }
   }
 
   /* Full-width caret bar: the handle for the whole band, in both states. Kept
@@ -349,11 +545,7 @@
     min-width: 44px;
   }
 
-  .ctl.lock.on {
-    --tone: var(--tone-lock-closed);
-  }
-
-  .ctl:hover:not(:disabled) {
+    .ctl:hover:not(:disabled) {
     border-color: var(--tone);
     background: color-mix(in srgb, var(--tone) 14%, transparent);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--tone) 22%, transparent);
@@ -416,12 +608,4 @@
     margin: 0 0 6px;
   }
 
-  .close {
-    border: 0;
-    background: none;
-    color: var(--accent);
-    font: inherit;
-    padding: 0;
-    cursor: pointer;
-  }
 </style>

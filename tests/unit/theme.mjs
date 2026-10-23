@@ -66,8 +66,12 @@ check("hidden maps to --tone-hidden", vars["--tone-hidden"] === "#00ff00");
 check("favourite maps to --tone-favourite", vars["--tone-favourite"] === "#0000ff");
 check("open lock maps to --tone-lock-open", vars["--tone-lock-open"] === "#ffff00");
 check("locked lock maps to --tone-lock-closed", vars["--tone-lock-closed"] === "#ff00ff");
+check("unlock maps to --tone-unlock", vars["--tone-unlock"] === DEFAULT_THEME.unlock);
 check("sync maps to --tone-sync", vars["--tone-sync"] === DEFAULT_THEME.sync);
-check("exactly the six chosen colours are written", Object.keys(vars).length === 6, String(Object.keys(vars).length));
+// Green is the unlock colour, and it is green by default: it answers the red
+// that hides things, so a theme that never touched it must still not be yellow.
+check("the default unlock tone is green", DEFAULT_THEME.unlock === "#3fbf6f", DEFAULT_THEME.unlock);
+check("exactly the seven chosen colours are written", Object.keys(vars).length === 7, String(Object.keys(vars).length));
 check("no undefined values", Object.values(vars).every((v) => typeof v === "string" && v.startsWith("#")));
 
 check("pin wording is the app's own", pinWords("pinned").add === "Pin" && pinWords("pinned").count === "Pinned");

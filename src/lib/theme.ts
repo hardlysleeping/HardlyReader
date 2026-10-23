@@ -26,6 +26,8 @@ export interface Theme {
   favourite: string;
   lockOpen: string;
   lockClosed: string;
+  /** The unlock confirmation: green, the opposite of the red that hides. */
+  unlock: string;
   /** The sync control: its glyph, its ring and its progress fill. */
   sync: string;
   /** Glyph for a pinned row. */
@@ -41,6 +43,7 @@ export const DEFAULT_THEME: Theme = {
   favourite: "#0078e0",
   lockOpen: "#e6b93f",
   lockClosed: "#f08c2e",
+  unlock: "#3fbf6f",
   sync: "#28a06b",
   marker: "pin",
   vocabulary: "pinned",
@@ -75,6 +78,7 @@ export function parseTheme(raw: unknown): Theme {
     favourite: colour(saved.favourite, DEFAULT_THEME.favourite),
     lockOpen: colour(saved.lockOpen, DEFAULT_THEME.lockOpen),
     lockClosed: colour(saved.lockClosed, DEFAULT_THEME.lockClosed),
+    unlock: colour(saved.unlock, DEFAULT_THEME.unlock),
     sync: colour(saved.sync, DEFAULT_THEME.sync),
     marker: saved.marker === "star" ? "star" : "pin",
     vocabulary: saved.vocabulary === "favourites" ? "favourites" : "pinned",
@@ -95,6 +99,7 @@ export function themeVariables(theme: Theme): Record<string, string> {
     "--tone-favourite": theme.favourite,
     "--tone-lock-open": theme.lockOpen,
     "--tone-lock-closed": theme.lockClosed,
+    "--tone-unlock": theme.unlock,
     "--tone-sync": theme.sync,
   };
 }

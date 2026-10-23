@@ -23,18 +23,17 @@ check("a flood lives about half a second", () => {
 });
 
 check("each kind has its own tone, all valid CSS", () => {
-  const kinds = ["hidden", "revealed", "pin", "unpin", "sync", "unlock"];
+  const kinds = ["hidden", "revealed", "pin", "unpin", "sync"];
   const tones = kinds.map((kind) => floodTone(kind));
   for (const tone of tones) assert.ok(tone.startsWith("var(--"), tone);
   assert.equal(new Set(tones).size, kinds.length - 1, "pin and revealed may share the accent");
   assert.ok(floodTone("hidden").includes("tone-hidden"));
   assert.ok(floodTone("sync").includes("tone-sync"));
-  assert.ok(floodTone("unlock").includes("tone-lock-open"));
 });
 
 check("locking has no glow at all", () => {
-  // The kind is gone from the union, so nothing can ask for one: the shutter
-  // over the band is the feedback, and light escaping a lock says the opposite.
+  // The kind is gone from the union, so nothing can ask for one: the band's own
+  // pulse is the feedback, and light escaping a lock says the opposite.
   assert.equal(floodStrength("lock"), undefined, "no tone, no strength, nothing to draw");
   assert.equal(floodTone("lock"), undefined);
 });
@@ -43,20 +42,19 @@ check("a kind with no strength draws nothing, even when pushed by hand", () => {
   assert.equal(pushFlood([], "lock", { x: 5, y: 5 }, 1, VIEW).length, 0);
 });
 
-check("unlocking is the quiet one, at a third", () => {
-  assert.equal(floodStrength("unlock"), 0.32);
+check("unlocking draws nothing: the band answers in place", () => {
+  assert.equal(floodStrength("unlock"), undefined, "the band pulses, the window does not");
   for (const kind of ["hidden", "revealed", "pin", "unpin", "sync"]) {
     assert.equal(floodStrength(kind), 1, `${kind} keeps the full glow`);
   }
-  const unlock = pushFlood([], "unlock", { x: 10, y: 10 }, 9, VIEW)[0];
-  assert.equal(unlock.strength, 0.32);
+  assert.equal(pushFlood([], "unlock", { x: 10, y: 10 }, 9, VIEW).length, 0, "no flood to measure");
   const hide = pushFlood([], "hidden", { x: 10, y: 10 }, 10, VIEW)[0];
   assert.equal(hide.strength, 1);
 });
 
 check("a strength outside 0-1 is clamped", () => {
-  assert.equal(pushFlood([], "unlock", { x: 1, y: 1 }, 1, VIEW, 4)[0].strength, 1);
-  assert.equal(pushFlood([], "unlock", { x: 1, y: 1 }, 2, VIEW, -3)[0].strength, 0);
+  assert.equal(pushFlood([], "hidden", { x: 1, y: 1 }, 1, VIEW, 4)[0].strength, 1);
+  assert.equal(pushFlood([], "hidden", { x: 1, y: 1 }, 2, VIEW, -3)[0].strength, 0);
 });
 
 check("a click starts the flood where it happened", () => {
@@ -79,7 +77,7 @@ check("without a click, a sync arrives top right", () => {
 });
 
 check("anything else without a click lands centre screen", () => {
-  assert.deepEqual(fallbackOrigin("unlock", VIEW), { x: 600, y: 400 });
+  assert.deepEqual(fallbackOrigin("pin", VIEW), { x: 600, y: 400 });
 });
 
 check("the queue is bounded, oldest dropped first", () => {

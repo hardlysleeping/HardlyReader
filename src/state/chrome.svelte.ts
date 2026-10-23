@@ -35,6 +35,22 @@ class ChromeState {
     this.indentOpen = readIndentOpen(browserStorage());
   }
 
+  /**
+   * Shuts the band without touching the stored preference.
+   *
+   * A lock is a moment, not a choice: folding the band because the curtain went
+   * down must not overwrite the fold state the user set for themselves, or
+   * unlocking would leave them in a layout they never picked.
+   */
+  collapseBandForLock(): void {
+    if (!this.bandCollapsed) this.bandCollapsed = true;
+  }
+
+  /** Back to the fold state the user actually chose. */
+  restoreBand(): void {
+    this.bandCollapsed = readBandCollapsed(browserStorage());
+  }
+
   toggleIndentOpen(): void {
     this.indentOpen = !this.indentOpen;
     writeIndentOpen(browserStorage(), this.indentOpen);
