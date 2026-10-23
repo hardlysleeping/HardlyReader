@@ -413,6 +413,10 @@
     <span class="right"><ThemeToggle /></span>
   </div>
 
+  <!-- Everything that can grow scrolls here and nowhere else: the search field,
+       the band and the indent strip stay put above, the counts and the add/OPML
+       block stay put below. The list is the only thing with a length. -->
+  <div class="scroll">
   {#if searching}
     <div class="section">
       {#if hits.length === 0}
@@ -573,6 +577,7 @@
   {#if reader.subscriptions.length === 0 && !reader.loadingList}
     <p class="empty">No feeds yet.</p>
   {/if}
+  </div>
 
   <div class="status" aria-live="polite">
     {#if reader.hiddenAvailable && !reader.hiddenLocked && reader.hiddenCount > 0}
@@ -690,15 +695,19 @@
     stroke: none;
   }
 
+  /* The counts sit on the line under the list and never scroll: it is the
+     boundary, and it belongs to the panel rather than to the tree. */
   .status {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 10px;
-    margin: 14px 16px 0;
-    padding-top: 10px;
-    border-top: 1px solid var(--border);
-    font-size: 11.5px;
+    gap: 2px 10px;
+    flex: none;
+    margin: 0;
+    padding: 5px 12px 4px;
+    border-top: 1px solid var(--border-soft);
+    font-size: 11px;
+    line-height: 1.35;
     color: var(--text-dim);
   }
 
@@ -720,12 +729,27 @@
     text-transform: uppercase;
   }
 
+  /* A frame, not a page: the nav itself never scrolls, so nothing can carry the
+     add field or the counts off the top of the panel. */
   .sidebar {
+    display: flex;
+    flex-direction: column;
     height: 100%;
-    overflow-y: auto;
-    padding: 8px 0 24px;
+    overflow: hidden;
+    padding: 0;
     background: var(--surface);
     border-right: 1px solid var(--border);
+  }
+
+  /* The one scrollable part: the tree. `min-height: 0` is what lets a flex child
+     shrink below its content so this actually scrolls instead of pushing the
+     footer out. */
+  .scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: 2px;
   }
 
   .section + .section {
@@ -908,11 +932,12 @@
      the mode mark live inside it, so there is no button beside the input. */
   .find {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 6px;
-    margin: 8px 12px 4px;
+    margin: 6px 12px 3px;
     padding: 0 6px 0 9px;
-    height: 30px;
+    height: 28px;
     border: 1px solid var(--border-soft);
     border-radius: 9px;
     background: var(--bg);
@@ -1184,13 +1209,16 @@
     color: var(--muted);
   }
 
+  /* Compact, because it is furniture: two rows and a file name, no scroll, and
+     every pixel it takes comes straight out of the tree. */
   .add {
-    padding: 14px 12px 0;
+    flex: none;
+    padding: 5px 12px 8px;
   }
 
   .add-open {
     width: 100%;
-    padding: 6px 8px;
+    padding: 5px 8px;
     border: 1px dashed var(--border);
     border-radius: 7px;
     background: none;
@@ -1309,10 +1337,10 @@
   /* OPML sits under the add field as a second way in for a feed list. Both
      controls are the same quiet weight as "+ Add feed" above them. */
   .opml {
-    margin-top: 6px;
+    margin-top: 4px;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
   }
 
   .opml-row {
@@ -1326,7 +1354,7 @@
     align-items: center;
     justify-content: center;
     gap: 5px;
-    height: 26px;
+    height: 24px;
     padding: 0 9px;
     border: 1px solid var(--border-soft);
     border-radius: 7px;
