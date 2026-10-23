@@ -400,7 +400,7 @@
     gap: 4px;
     height: 34px;
     padding: 0 8px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--edge);
     background: var(--surface);
     font-size: 12px;
     color: var(--muted);

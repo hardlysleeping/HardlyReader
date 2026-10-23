@@ -151,7 +151,7 @@
     height: 42px;
     flex: 0 0 42px;
     padding: 0 10px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--edge);
     background: var(--surface);
   }
 

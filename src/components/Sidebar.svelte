@@ -705,7 +705,7 @@
     flex: none;
     margin: 0;
     padding: 5px 12px 4px;
-    border-top: 1px solid var(--border-soft);
+    border-top: 1px solid var(--edge-soft);
     font-size: 11px;
     line-height: 1.35;
     color: var(--text-dim);
@@ -738,7 +738,7 @@
     overflow: hidden;
     padding: 0;
     background: var(--surface);
-    border-right: 1px solid var(--border);
+    border-right: 1px solid var(--edge);
   }
 
   /* The one scrollable part: the tree. `min-height: 0` is what lets a flex child
