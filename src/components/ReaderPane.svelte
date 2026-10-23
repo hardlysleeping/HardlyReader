@@ -363,7 +363,7 @@
     gap: 4px;
     height: 40px;
     padding: 0 10px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--edge-soft);
     background: var(--surface);
   }
 

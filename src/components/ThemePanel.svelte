@@ -93,6 +93,27 @@
       </label>
     {/each}
 
+    <!-- The lines between panes are the one place the accent appears without
+         being asked: on, they take a quarter of it; off, they are the plain
+         border this app used to have. -->
+    <div class="row">
+      <span class="key">Separators</span>
+      <div class="seg" role="group" aria-label="Pane separators">
+        <button
+          class="segbtn"
+          class:on={theme.current.accentEdges}
+          aria-pressed={theme.current.accentEdges}
+          title="Tint the lines between panes with the accent"
+          onclick={() => theme.set("accentEdges", true)}>Accent</button>
+        <button
+          class="segbtn"
+          class:on={!theme.current.accentEdges}
+          aria-pressed={!theme.current.accentEdges}
+          title="Plain borders — how this app looked before"
+          onclick={() => theme.set("accentEdges", false)}>Plain</button>
+      </div>
+    </div>
+
     <div class="row">
       <span class="key">Marker</span>
       <div class="seg" role="group" aria-label="Marker">

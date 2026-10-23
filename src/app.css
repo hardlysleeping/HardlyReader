@@ -51,6 +51,10 @@
 
   --tone-sync: #28a06b;
 
+  /* Overridden by the theme when the accent is allowed to tint the pane lines. */
+  --edge: var(--border);
+  --edge-soft: var(--border-soft);
+
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --accent-text: var(--accent);
 
@@ -76,16 +80,19 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #17171a;
-  --surface: #1f1f23;
-  --bg-alt: #1f1f23;
-  --border: #33333a;
-  --border-soft: #26262b;
-  --hover: #25252b;
-  --text: #e7e7ea;
-  --text-dim: #c2c2cb;
-  --muted: #9a9aa4;
-  --star: #e8b93c;
+  /* Dark mode is meant to be dark: the panels sit on near-black so the text has
+     somewhere to be brighter than, and the borders are lighter than the gaps
+     between them so a divider is a line rather than a smudge. */
+  --bg: #0c0c0e;
+  --surface: #131316;
+  --bg-alt: #131316;
+  --border: #3a3a44;
+  --border-soft: #212128;
+  --hover: #1e1e24;
+  --text: #f4f4f7;
+  --text-dim: #d2d2da;
+  --muted: #9b9ba6;
+  --star: #f2bf3c;
   color-scheme: dark;
 }
 

@@ -22,6 +22,14 @@ export interface Theme {
   mode: ThemeMode;
   /** Focus rings, selected rows, the "on" state of a filter. */
   accent: string;
+  /**
+   * Whether the lines between panes take a little of the accent.
+   *
+   * On, because a window with three panes is four grey lines and the accent is
+   * the only thing that says they belong to one chosen theme. Off restores the
+   * plain borders for anyone who wants the panels to disappear into each other.
+   */
+  accentEdges: boolean;
   hidden: string;
   favourite: string;
   lockOpen: string;
@@ -39,6 +47,7 @@ export interface Theme {
 export const DEFAULT_THEME: Theme = {
   mode: "system",
   accent: "#0078e0",
+  accentEdges: true,
   hidden: "#e5484d",
   favourite: "#0078e0",
   lockOpen: "#e6b93f",
@@ -74,6 +83,7 @@ export function parseTheme(raw: unknown): Theme {
   return {
     mode: THEME_MODES.includes(saved.mode as ThemeMode) ? (saved.mode as ThemeMode) : DEFAULT_THEME.mode,
     accent: colour(saved.accent, DEFAULT_THEME.accent),
+    accentEdges: typeof saved.accentEdges === "boolean" ? saved.accentEdges : DEFAULT_THEME.accentEdges,
     hidden: colour(saved.hidden, DEFAULT_THEME.hidden),
     favourite: colour(saved.favourite, DEFAULT_THEME.favourite),
     lockOpen: colour(saved.lockOpen, DEFAULT_THEME.lockOpen),
@@ -101,6 +111,12 @@ export function themeVariables(theme: Theme): Record<string, string> {
     "--tone-lock-closed": theme.lockClosed,
     "--tone-unlock": theme.unlock,
     "--tone-sync": theme.sync,
+    // Derived here rather than in CSS because it is a choice, not a shade:
+    // `var(--border)` follows the mode, and the mix has to land on top of it.
+    "--edge": theme.accentEdges ? "color-mix(in srgb, var(--accent) 24%, var(--border))" : "var(--border)",
+    "--edge-soft": theme.accentEdges
+      ? "color-mix(in srgb, var(--accent) 15%, var(--border-soft))"
+      : "var(--border-soft)",
   };
 }
 

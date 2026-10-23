@@ -71,8 +71,27 @@ check("sync maps to --tone-sync", vars["--tone-sync"] === DEFAULT_THEME.sync);
 // Green is the unlock colour, and it is green by default: it answers the red
 // that hides things, so a theme that never touched it must still not be yellow.
 check("the default unlock tone is green", DEFAULT_THEME.unlock === "#3fbf6f", DEFAULT_THEME.unlock);
-check("exactly the seven chosen colours are written", Object.keys(vars).length === 7, String(Object.keys(vars).length));
-check("no undefined values", Object.values(vars).every((v) => typeof v === "string" && v.startsWith("#")));
+check("the pane lines are the accent mixed into the border", () => {
+  assert.match(vars["--edge"], /color-mix/);
+  assert.match(vars["--edge"], /var\(--accent\)/);
+  assert.match(vars["--edge-soft"], /var\(--accent\)/);
+});
+check("turning them off leaves the plain borders", () => {
+  const plain = themeVariables({ ...DEFAULT_THEME, accentEdges: false });
+  assert.equal(plain["--edge"], "var(--border)");
+  assert.equal(plain["--edge-soft"], "var(--border-soft)");
+});
+check("accent separators are on unless turned off", () => {
+  assert.equal(DEFAULT_THEME.accentEdges, true);
+  assert.equal(parseTheme({}).accentEdges, true);
+  assert.equal(parseTheme({ accentEdges: false }).accentEdges, false);
+  assert.equal(parseTheme({ accentEdges: "no" }).accentEdges, true, "junk keeps the default");
+});
+check("exactly the nine chosen colours are written", Object.keys(vars).length === 9, String(Object.keys(vars).length));
+check("no undefined values", () =>
+  Object.entries(vars).every(([name, value]) =>
+    typeof value === "string" && value.length > 0 && (name.startsWith("--edge") || value.startsWith("#")),
+  ));
 
 check("pin wording is the app's own", pinWords("pinned").add === "Pin" && pinWords("pinned").count === "Pinned");
 check("favourites wording uses the extension's words", pinWords("favourites").add === "Favourite" && pinWords("favourites").count === "Favourites");

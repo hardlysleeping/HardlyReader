@@ -224,7 +224,7 @@
     min-width: 0;
     height: 100%;
     background: var(--bg);
-    border-right: 1px solid var(--border);
+    border-right: 1px solid var(--edge);
   }
 
   .list-header {
@@ -234,7 +234,7 @@
     flex-wrap: wrap;
     gap: 8px 12px;
     padding: 14px 16px 10px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--edge-soft);
   }
 
   h1 {
