@@ -752,10 +752,15 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Feed rows take the server's indent on top of the base inset; category rows
-     do not, because that is the hierarchy the indent exists to express. */
+  /* Feed rows take the server's indent on top of a small base inset. The base
+     used to be 34px — a full caret column's width — which pushed the first
+     child's icon 46px into a 250px sidebar and its name to ~70px, so the tree
+     read as though it started in the middle of the panel. Children now begin
+     near the edge (8px + the extension's indent) and are told apart from their
+     category by size, weight and colour rather than by a deep column. Category
+     rows still take no indent: that is the hierarchy the indent expresses. */
   .feed {
-    padding-left: calc(34px + var(--feed-indent, 12px));
+    padding-left: calc(8px + var(--feed-indent, 12px));
     font-size: 12.5px;
     color: var(--text-dim);
   }
