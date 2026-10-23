@@ -344,6 +344,9 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
+    /* clip, not hidden: hidden would make this a scroll container and take the
+       scrolling away from the panes inside it. */
+    overflow-x: clip;
   }
 
   .panes {

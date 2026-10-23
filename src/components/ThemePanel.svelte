@@ -45,6 +45,12 @@
 
   let tab = $state<TabId>("colours");
 
+  /** Opened from the compact menu, where the gear has no room to sit. */
+  export function openSettings() {
+    tab = "colours";
+    open = true;
+  }
+
   /**
    * Arrow keys move between tabs, as a tab strip is expected to. Selection
    * follows focus here because every panel is one click away anyway — no
