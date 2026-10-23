@@ -2,12 +2,22 @@
   import type { StreamItem } from "../api/freshrss";
   import { isRead, isStarred } from "../api/freshrss";
   import { plainPreview, relativeTime } from "../lib/format";
+  import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
   import { reader } from "../state/reader.svelte";
+  import { reading } from "../state/reading.svelte";
 
   let { onOpen }: { onOpen?: () => void } = $props();
 
   function summary(item: StreamItem): string {
     return plainPreview(item.summary?.content ?? item.content?.content, 160);
+  }
+
+  /**
+   * The filter is global on purpose: it is how you are reading, so it follows
+   * you into every feed rather than being re-set on each one.
+   */
+  function setFilter(filter: ArticleFilter) {
+    reading.setArticleFilter(filter);
   }
 
   function open(item: StreamItem) {
@@ -18,14 +28,31 @@
 
 <section class="list" aria-label={reader.activeTitle}>
   <header class="list-header">
-    <h1>{reader.activeTitle}</h1>
-    <span class="meta">
-      {#if reader.loadingList}
-        Loading…
-      {:else}
-        {reader.items.length} item{reader.items.length === 1 ? "" : "s"}
-      {/if}
-    </span>
+    <div class="headline">
+      <h1>{reader.activeTitle}</h1>
+      <span class="meta">
+        {#if reader.loadingList}
+          Loading…
+        {:else if reading.articleFilter === "all"}
+          {reader.listItems.length} item{reader.listItems.length === 1 ? "" : "s"}
+        {:else}
+          {reader.listItems.length} of {reader.items.length}
+        {/if}
+      </span>
+    </div>
+    <div class="filters" role="group" aria-label="Show posts">
+      {#each ARTICLE_FILTERS as filter (filter)}
+        <button
+          class="filter"
+          class:on={reading.articleFilter === filter}
+          aria-pressed={reading.articleFilter === filter}
+          title={`Show ${ARTICLE_FILTER_LABELS[filter].toLowerCase()} posts in every feed`}
+          onclick={() => setFilter(filter)}
+        >
+          {ARTICLE_FILTER_LABELS[filter]}
+        </button>
+      {/each}
+    </div>
   </header>
 
   <div class="items">
@@ -40,7 +67,7 @@
         {/each}
       </div>
     {/if}
-    {#each reader.items as item (item.id)}
+    {#each reader.listItems as item (item.id)}
       <button
         class="item"
         class:selected={reader.selectedId === item.id}
@@ -60,8 +87,14 @@
       </button>
     {/each}
 
-    {#if !reader.loadingList && reader.items.length === 0}
-      <p class="empty">Nothing here.</p>
+    {#if !reader.loadingList && reader.listItems.length === 0}
+      <p class="empty">
+        {#if reader.items.length > 0}
+          Nothing matches “{ARTICLE_FILTER_LABELS[reading.articleFilter]}”.
+        {:else}
+          Nothing here.
+        {/if}
+      </p>
     {/if}
 
     {#if reader.continuation}
@@ -73,6 +106,49 @@
 </section>
 
 <style>
+  .headline {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .filters {
+    display: flex;
+    gap: 4px;
+    flex: 0 0 auto;
+  }
+
+  /* Cut-out pills, matching the band: outline until chosen, filled when on. */
+  .filter {
+    padding: 3px 8px;
+    border: 1px solid color-mix(in srgb, var(--accent, #0078e0) 45%, transparent);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease, transform 0.08s ease;
+  }
+
+  .filter:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent, #0078e0) 14%, transparent);
+  }
+
+  .filter:active {
+    transform: scale(0.95);
+  }
+
+  .filter.on {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent, #0078e0) 26%, transparent);
+    border-color: var(--accent, #0078e0);
+  }
+
   .skeleton {
     display: flex;
     flex-direction: column;
@@ -119,7 +195,8 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     padding: 14px 16px 10px;
     border-bottom: 1px solid var(--border);
   }

@@ -42,6 +42,28 @@ function absolute(relativePath) {
  * file does not sit next to the original. `svelte/reactivity` stays bare and
  * resolves from the project's node_modules.
  */
+/**
+ * The reading preferences are a runes module too, and the reader imports them,
+ * so they need the same treatment: compiled to plain ESM and pointed at from an
+ * absolute path.
+ */
+function buildReadingModule() {
+  const source = readFileSync(join(ROOT, "src/state/reading.svelte.ts"), "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    fileName: "reading.svelte.ts",
+  });
+  const compiled = compileModule(outputText, { generate: "client", filename: "reading.svelte.ts" });
+  const code = compiled.js.code.replaceAll(
+    '"../lib/article-filter"',
+    JSON.stringify(absolute("src/lib/article-filter.ts")),
+  );
+  mkdirSync(GEN_DIR, { recursive: true });
+  const out = join(GEN_DIR, "reading.mjs");
+  writeFileSync(out, code);
+  return pathToFileURL(out).href;
+}
+
 function buildReaderModule() {
   const source = readFileSync(join(ROOT, "src/state/reader.svelte.ts"), "utf8");
   const { outputText } = ts.transpileModule(source, {
@@ -55,6 +77,8 @@ function buildReaderModule() {
     .replaceAll('"../api/hardlyread"', JSON.stringify(absolute("src/api/hardlyread.ts")))
     .replaceAll('"../api/transport"', JSON.stringify(absolute("src/api/transport.ts")))
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
+    .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
+    .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
     .replaceAll('"./hidden-write"', JSON.stringify(absolute("src/state/hidden-write.ts")))
     .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
