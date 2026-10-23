@@ -16,6 +16,32 @@
 export const AUTO_MARK_MS = 3000;
 
 /**
+ * The same delay as a setting.
+ *
+ * Three seconds is the default because it is long enough to see a headline go
+ * past without it counting, and short enough that stopping on a post marks it
+ * without a pause. The bounds exist so the number stays usable: under a second
+ * would mark posts you merely flipped past, and over a minute would never fire
+ * before you moved on.
+ */
+export const DWELL_SECONDS_DEFAULT = 3;
+export const DWELL_SECONDS_MIN = 1;
+export const DWELL_SECONDS_MAX = 30;
+
+export function clampDwellSeconds(value: unknown): number {
+  if (value === null || value === undefined || value === "") return DWELL_SECONDS_DEFAULT;
+  const seconds = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(seconds)) return DWELL_SECONDS_DEFAULT;
+  const rounded = Math.round(seconds);
+  return Math.min(Math.max(rounded, DWELL_SECONDS_MIN), DWELL_SECONDS_MAX);
+}
+
+/** Milliseconds for a configured number of seconds, clamped the same way. */
+export function dwellMs(seconds: number): number {
+  return clampDwellSeconds(seconds) * 1000;
+}
+
+/**
  * Whether the dwell timer should be armed for this article.
  *
  * Off by default: nothing is marked anything until the reader asks for it. An

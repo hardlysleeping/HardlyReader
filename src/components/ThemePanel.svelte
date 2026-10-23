@@ -9,6 +9,8 @@
    */
   import type { ThemeMode } from "../lib/theme";
   import { THEME_MODES, THEME_MODE_LABELS } from "../lib/theme";
+  import { DWELL_SECONDS_MAX, DWELL_SECONDS_MIN } from "../lib/dwell";
+  import { reading } from "../state/reading.svelte";
   import { theme } from "../state/theme.svelte";
 
   let open = $state(false);
@@ -39,8 +41,8 @@
     style="--dot: {theme.current.accent}"
     aria-haspopup="dialog"
     aria-expanded={open}
-    aria-label="Colours and wording"
-    title="Colours and wording"
+    aria-label="Options"
+    title="Options"
     onclick={() => (open = !open)}
   >
     <span class="dot" aria-hidden="true"></span>
@@ -57,7 +59,7 @@
 </div>
 
 {#if open}
-  <div class="panel" role="dialog" aria-label="Theme">
+  <div class="panel" role="dialog" aria-label="Options">
     <div class="row">
       <span class="key">Appearance</span>
       <div class="seg" role="group" aria-label="Appearance">
@@ -104,6 +106,26 @@
         <button class="segbtn" class:on={theme.current.vocabulary === "favourites"} aria-pressed={theme.current.vocabulary === "favourites"} onclick={() => theme.set("vocabulary", "favourites")}>Favourites</button>
       </div>
     </div>
+
+    <div class="row">
+      <span class="key">Mark read after</span>
+      <span class="pick">
+        <input
+          class="range"
+          type="range"
+          min={DWELL_SECONDS_MIN}
+          max={DWELL_SECONDS_MAX}
+          step="1"
+          value={reading.autoMarkSeconds}
+          aria-label="Seconds a post stays open before it is marked read"
+          oninput={(event) => reading.setAutoMarkSeconds(Number(event.currentTarget.value))}
+        />
+        <code>{reading.autoMarkSeconds}s</code>
+      </span>
+    </div>
+    <p class="hint">
+      How long a post must stay open before it counts as read — only while the ⏱ button in the reader is on.
+    </p>
 
     <div class="row end">
       <button class="reset" onclick={() => theme.reset()}>Reset colours</button>
@@ -191,6 +213,18 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .range {
+    width: 108px;
+    accent-color: var(--accent);
+  }
+
+  .hint {
+    margin: 0 0 2px;
+    font-size: 10.5px;
+    line-height: 1.35;
+    color: var(--muted);
   }
 
   input[type="color"] {

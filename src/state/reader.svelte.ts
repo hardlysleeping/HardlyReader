@@ -2,7 +2,7 @@ import { SvelteMap } from "svelte/reactivity";
 
 import { landingItem, step } from "../lib/reading-order";
 import { attemptOrder } from "../lib/stream-cycle";
-import { AUTO_MARK_MS, shouldArmDwell, successorId } from "../lib/dwell";
+import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
 import { theme } from "./theme.svelte";
 
 import {
@@ -1452,7 +1452,7 @@ export class ReaderState {
     this.dwellTimer = setTimeout(() => {
       this.dwellTimer = null;
       void this.markAfterDwell(item);
-    }, AUTO_MARK_MS);
+    }, dwellMs(reading.autoMarkSeconds));
   }
 
   private clearDwell(): void {
@@ -1465,25 +1465,18 @@ export class ReaderState {
   /**
    * Re-check the timer against the current settings and post.
    *
-   * Called when the preference is toggled: switching it on starts the clock for
-   * the post already open, switching it off takes the clock away without
-   * marking anything.
+   * Restarts rather than nudges: switching the preference on starts the clock
+   * for the post already open, switching it off takes the clock away without
+   * marking anything, and changing the delay re-times the post in hand instead
+   * of waiting for the next one.
    */
   syncDwell(): void {
     const item = this.selected;
-    if (!item) {
+    if (!item || !reading.autoMarkRead || isRead(item)) {
       this.clearDwell();
       return;
     }
-    if (!reading.autoMarkRead) {
-      this.clearDwell();
-      return;
-    }
-    if (isRead(item)) {
-      this.clearDwell();
-      return;
-    }
-    if (this.dwellTimer === null) this.armDwell(item);
+    this.armDwell(item);
   }
 
   /** The dwell elapsed: mark read, and step off the post if the view drops it. */

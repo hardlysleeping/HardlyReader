@@ -183,10 +183,10 @@
         class="icon auto"
         class:on={reading.autoMarkRead}
         aria-pressed={reading.autoMarkRead}
-        aria-label="Mark read after three seconds on a post"
+        aria-label={`Mark read after ${reading.autoMarkSeconds} seconds on a post`}
         title={reading.autoMarkRead
-          ? "Posts are marked read after three seconds on screen — click to keep them unread until you say so"
-          : "Posts stay unread however far you scroll — click to mark read after three seconds on screen"}
+          ? `Posts are marked read after ${reading.autoMarkSeconds} seconds on screen — click to keep them unread until you say so`
+          : `Posts stay unread however far you scroll — click to mark read after ${reading.autoMarkSeconds} seconds on screen`}
         onclick={() => reading.toggleAutoMarkRead()}
       >⏱</button>
       <button

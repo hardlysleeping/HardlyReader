@@ -54,10 +54,9 @@ function buildReadingModule() {
     fileName: "reading.svelte.ts",
   });
   const compiled = compileModule(outputText, { generate: "client", filename: "reading.svelte.ts" });
-  const code = compiled.js.code.replaceAll(
-    '"../lib/article-filter"',
-    JSON.stringify(absolute("src/lib/article-filter.ts")),
-  );
+  const code = compiled.js.code
+    .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
+    .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
   const out = join(GEN_DIR, "reading.mjs");
   writeFileSync(out, code);
@@ -379,7 +378,16 @@ try {
 
       reading.autoMarkRead = true;
       r.select(open);
-      check("opening a post arms a three-second timer", armed?.ms === 3000, String(armed?.ms));
+      check("opening a post arms a three-second timer by default", armed?.ms === 3000, String(armed?.ms));
+
+      reading.setAutoMarkSeconds(9);
+      r.select(open);
+      check("the configured delay is the one used", armed?.ms === 9000, String(armed?.ms));
+      check("the preference is remembered", reading.autoMarkSeconds === 9, String(reading.autoMarkSeconds));
+      reading.setAutoMarkSeconds(300);
+      check("an out-of-range delay is clamped", reading.autoMarkSeconds === 30, String(reading.autoMarkSeconds));
+      reading.setAutoMarkSeconds(3);
+      r.select(open);
       const before = seen.filter((url) => url.includes("edit-tag")).length;
       armed.fn();
       await new Promise((resolve) => realSetTimeout(resolve, 20));
