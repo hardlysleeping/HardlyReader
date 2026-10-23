@@ -37,7 +37,7 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 |---|---|---|---|
 | 11 | PHPUnit: GET state, PUT category, PUT view; 200/401/404/409/423 | done | 51 tests / 166 assertions, green on PHP 8.2, 8.3, 8.4. Covers auth-before-routing, 404 (unknown route/version/empty/trailing), 405 with `Allow`, 400 (zero, non-numeric, malformed, non-boolean), 409 (`hidden_categories_unavailable`, `extension_incompatible`), 423 locked, convergence carrying authoritative state. Fakes only — no FreshRSS in the loop; `a5dc943` |
 | 12 | PHP CI matrix + combined summary | wip | `.github/workflows/tests.yml`, three jobs, matrix 8.2/8.3/8.4 per §6.6; parses as YAML and the scripts pass `bash -n`. **Never executed on a GitHub runner** — `actionlint` is still not installed; `c77f09c` |
-| 13 | Docker E2E against real FreshRSS container | todo | Upload FreshRSS logs on failure |
+| 13 | Docker E2E against real FreshRSS container | done | `tests/integration/run.sh`: own compose project (`hardlyread-e2e`) on port 18081, so it never touches the developer's 18080; installs both extensions, seeds fixed fixture categories, waits on `cli/health.php`, restarts the web server so opcache picks the new config up, runs 52 wire-level checks (`tests/integration/e2e.mjs`) and cross-checks the extension's own store. Diagnostics land in `tests/integration/artifacts/` on failure; `KEEP_CONTAINERS_ON_FAILURE=1` leaves the stack up. 52/52 green locally, twice, plus a verified failure path. **Not run on a GitHub runner**, and CI needs a Hidden Categories checkout (`HARDLYREAD_HIDDEN_CATEGORIES_DIR`) because the published copy predates `setCategoryHidden()`/`changeView()` |
 
 ## P2 — Release
 
@@ -81,6 +81,29 @@ Favorites, Sidebar Indent, NewsBlur, local RSS, offline articles, iOS, Android, 
 docker compose -f tests/integration/compose.yml up -d
 docker compose -f tests/integration/compose.yml down -v
 ```
+
+Full E2E in one command. It uses its own compose project and port, so it does
+not disturb the harness above (or its 18080):
+
+```bash
+tests/integration/run.sh
+```
+
+It installs Hardly Read and Hidden Categories into a disposable container, seeds
+three fixed categories (`101`–`103`), waits on `cli/health.php`, restarts the web
+server so opcache sees the new config, and then drives the v1 API over real HTTP:
+auth before routing, 400/404/405, hide/unhide and idempotence, the view cycle,
+and absent collaborators answering 409 rather than 500. At the end it reads the
+extension's own store back, so the adapter cannot pass by agreeing with itself.
+
+`HARDLYREAD_HIDDEN_CATEGORIES_DIR` must name a checkout that has
+`setCategoryHidden()` and `changeView()` (default
+`~/apps/freshrss/extensions-src/xExtension-HiddenCategories`).
+`HARDLYREAD_E2E_PORT` (default 18081) and `HARDLYREAD_E2E_PROJECT` (default
+`hardlyread-e2e`) move the run out of the way of anything else. Every failure
+collects FreshRSS and compose logs plus the extension's store into
+`tests/integration/artifacts/` (gitignored) before teardown;
+`KEEP_CONTAINERS_ON_FAILURE=1` leaves the stack up instead.
 
 Smoke suite against the running harness (real endpoints, real writes):
 
