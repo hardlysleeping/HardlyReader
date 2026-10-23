@@ -547,6 +547,29 @@ final class HardlyReadApi
 	 * Locks the curtain. Refuses when no passcode exists, because the extension
 	 * would then have no way back in.
 	 */
+	/**
+	 * The object that actually holds the curtain controls.
+	 *
+	 * Hidden Categories keeps lock(), unlock() and setPasscode() on its store,
+	 * and not every build forwards them from the extension object handed to
+	 * this API. Demanding one shape made the app answer "does not implement
+	 * lock()" on a server that can lock perfectly well, so resolve to whichever
+	 * object has the method.
+	 */
+	private function curtain(object $hidden, string $method): ?object
+	{
+		if (method_exists($hidden, $method)) {
+			return $hidden;
+		}
+		if (method_exists($hidden, 'store')) {
+			$store = $hidden->store();
+			if (is_object($store) && method_exists($store, $method)) {
+				return $store;
+			}
+		}
+		return null;
+	}
+
 	private function lockHidden(string $username): HardlyReadApiResponse
 	{
 		$hidden = ($this->loadHiddenCategories)($username);
@@ -554,11 +577,12 @@ final class HardlyReadApi
 			return self::error(409, 'hidden_categories_unavailable', 'Hidden Categories is not enabled for this user.');
 		}
 		/** @var object $hidden */
-		if (!method_exists($hidden, 'lock')) {
+		$curtain = $this->curtain($hidden, 'lock');
+		if ($curtain === null) {
 			return self::error(409, 'extension_incompatible', 'Hidden Categories does not implement lock().');
 		}
 
-		$result = $hidden->lock();
+		$result = $curtain->lock();
 		$result = is_array($result) ? $result : [];
 		if (($result['ok'] ?? false) !== true) {
 			return self::error(
@@ -591,11 +615,12 @@ final class HardlyReadApi
 			return self::error(409, 'hidden_categories_unavailable', 'Hidden Categories is not enabled for this user.');
 		}
 		/** @var object $hidden */
-		if (!method_exists($hidden, 'unlock')) {
+		$curtain = $this->curtain($hidden, 'unlock');
+		if ($curtain === null) {
 			return self::error(409, 'extension_incompatible', 'Hidden Categories does not implement unlock().');
 		}
 
-		$result = $hidden->unlock($passcode);
+		$result = $curtain->unlock($passcode);
 		$result = is_array($result) ? $result : [];
 		if (($result['ok'] ?? false) !== true) {
 			// 403, not 401: the request is authenticated, the code was wrong.
@@ -627,11 +652,12 @@ final class HardlyReadApi
 			return self::error(409, 'hidden_categories_unavailable', 'Hidden Categories is not enabled for this user.');
 		}
 		/** @var object $hidden */
-		if (!method_exists($hidden, 'setPasscode')) {
+		$curtain = $this->curtain($hidden, 'setPasscode');
+		if ($curtain === null) {
 			return self::error(409, 'extension_incompatible', 'Hidden Categories does not implement setPasscode().');
 		}
 
-		$result = $hidden->setPasscode($body['passcode']);
+		$result = $curtain->setPasscode($body['passcode']);
 		$result = is_array($result) ? $result : [];
 		if (($result['ok'] ?? false) !== true) {
 			return self::error(
