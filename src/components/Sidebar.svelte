@@ -7,6 +7,7 @@
     armsLongPress,
     isMenuKey,
   } from "../lib/contextmenu";
+  import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
 
   let { onNavigate }: { onNavigate?: () => void } = $props();
@@ -15,6 +16,16 @@
   /** The add-feed form: closed until asked for, so the sidebar stays a list. */
   let adding = $state(false);
   let feedUrl = $state("");
+
+  /**
+   * Feed ids whose icon failed to load. A dead icon falls back to the letter
+   * tile instead of leaving a broken-image gap in the list.
+   */
+  let brokenIcons = $state<Record<string, boolean>>({});
+
+  function iconFor(feed: Subscription): string | undefined {
+    return feedIconSrc(feed.iconUrl, reader.session?.serverUrl ?? "");
+  }
 
   /**
    * Set when a long press has opened the menu, so the click that the browser
@@ -206,6 +217,20 @@
             title={feed.title}
           >
             {#if reader.isFeedPinned(feed.id)}<span class="pin" aria-label="Pinned">📌</span>{/if}
+            {#if iconFor(feed) !== undefined && !brokenIcons[feed.id]}
+              <img
+                class="icon"
+                src={iconFor(feed)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onerror={() => (brokenIcons = { ...brokenIcons, [feed.id]: true })}
+              />
+            {:else}
+              <span class="icon letter" style="--hue: {feedHue(feed.title)}" aria-hidden="true"
+                >{feedInitial(feed.title)}</span
+              >
+            {/if}
             <span class="label">{feed.title}</span>
             {#if reader.countFor(feed.id) > 0}
               <span class="count">{reader.countFor(feed.id)}</span>
@@ -494,5 +519,24 @@
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+  /* Feed icons: cached image when FreshRSS has one, deterministic letter tile
+     otherwise, so no row is ever a broken image. */
+  .icon {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    object-fit: contain;
+  }
+
+  .icon.letter {
+    display: grid;
+    place-items: center;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    background: hsl(var(--hue) 32% 26%);
+    color: hsl(var(--hue) 45% 82%);
   }
 </style>

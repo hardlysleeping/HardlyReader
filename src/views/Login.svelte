@@ -15,6 +15,7 @@
   let email = $state("");
   let apiPassword = $state("");
   let busy = $state(false);
+  let showPassword = $state(false);
   let error = $state<string | null>(null);
 
   async function submit(event: SubmitEvent) {
@@ -75,7 +76,23 @@
 
     <label>
       <span>API password</span>
-      <input type="password" bind:value={apiPassword} autocomplete="current-password" required />
+      <div class="field">
+        <input
+          type={showPassword ? "text" : "password"}
+          bind:value={apiPassword}
+          autocomplete="current-password"
+          required
+        />
+        <button
+          type="button"
+          class="reveal"
+          aria-pressed={showPassword}
+          aria-label={showPassword ? "Hide API password" : "Show API password"}
+          onclick={() => (showPassword = !showPassword)}
+        >
+          {showPassword ? "Hide" : "Show"}
+        </button>
+      </div>
     </label>
 
     {#if error}
@@ -158,5 +175,32 @@
   button:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+  .field {
+    position: relative;
+  }
+
+  .field input {
+    padding-right: 3.75rem;
+  }
+
+  .reveal {
+    position: absolute;
+    top: 50%;
+    right: 0.35rem;
+    transform: translateY(-50%);
+    padding: 0.25rem 0.4rem;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: 0.78rem;
+    opacity: 0.65;
+    cursor: pointer;
+  }
+
+  .reveal:hover,
+  .reveal:focus-visible {
+    opacity: 1;
   }
 </style>
