@@ -3,6 +3,7 @@
 
   import type { Session, UserInfo } from "../api/freshrss";
   import ArticleList from "../components/ArticleList.svelte";
+  import FloodLayer from "../components/FloodLayer.svelte";
   import CategoryMenu from "../components/CategoryMenu.svelte";
   import Header from "../components/Header.svelte";
   import LayoutSwitch from "../components/LayoutSwitch.svelte";
@@ -246,6 +247,9 @@
 
   <!-- The seam under the bar doubles as the activity light. -->
   <LoadAura />
+
+  <!-- Feedback for actions that land: hide, pin, lock, a finished sync. -->
+  <FloodLayer />
 
   {#if reader.error}
     <div class="error" role="alert">

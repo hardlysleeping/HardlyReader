@@ -1,0 +1,87 @@
+/**
+ * The little light that leaves when an action lands.
+ *
+ * One rule here: the effect is a hint that something happened where you clicked,
+ * so it starts at the point of the click, travels up, and is gone in half a
+ * second. Nothing in this module touches the DOM — the layer draws what these
+ * functions decide, which is what makes the trimming and clamping testable.
+ */
+
+export type FloodKind = "hidden" | "revealed" | "pin" | "unpin" | "sync" | "lock" | "unlock";
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface Flood {
+  /** Unique per emission, used as the keyed-block identity. */
+  id: number;
+  kind: FloodKind;
+  x: number;
+  y: number;
+}
+
+/** Long enough to notice, short enough to feel like a consequence. */
+export const FLOOD_MS = 520;
+
+/**
+ * How many can be in the air at once.
+ *
+ * Held down on a pin button this would otherwise queue a timer each time; three
+ * is enough that a quick double-action still reads as two, and old ones are
+ * dropped rather than waiting their turn.
+ */
+export const MAX_FLOODS = 3;
+
+const TONES: Record<FloodKind, string> = {
+  hidden: "var(--tone-hidden, #e5484d)",
+  revealed: "var(--accent, #0078e0)",
+  pin: "var(--tone-favourite, #0078e0)",
+  unpin: "var(--accent, #0078e0)",
+  sync: "var(--tone-sync, #0078e0)",
+  lock: "var(--tone-lock-closed, #f08c2e)",
+  unlock: "var(--tone-lock-open, #e6b93f)",
+};
+
+export function floodTone(kind: FloodKind): string {
+  return TONES[kind];
+}
+
+/**
+ * Where a flood starts when there was no pointer to start from — a sync has no
+ * click, so it arrives at the top right, under the control that reported it.
+ */
+export function fallbackOrigin(
+  kind: FloodKind,
+  viewport: { width: number; height: number },
+): Point {
+  if (kind === "sync") return { x: viewport.width - 46, y: 30 };
+  return { x: viewport.width / 2, y: viewport.height / 2 };
+}
+
+/**
+ * Adds one flood, keeping the list inside the viewport and inside MAX_FLOODS.
+ *
+ * Off-screen origins are pulled back to the nearest edge: a click on a menu that
+ * hung off the bottom of the window would otherwise animate somewhere nobody is
+ * looking.
+ */
+export function pushFlood(
+  list: readonly Flood[],
+  kind: FloodKind,
+  origin: Point | null,
+  id: number,
+  viewport: { width: number; height: number },
+): Flood[] {
+  const raw = origin ?? fallbackOrigin(kind, viewport);
+  const x = Math.min(Math.max(raw.x, 0), Math.max(viewport.width, 0));
+  const y = Math.min(Math.max(raw.y, 0), Math.max(viewport.height, 0));
+  const next = [...list, { id, kind, x, y }];
+  return next.length > MAX_FLOODS ? next.slice(next.length - MAX_FLOODS) : next;
+}
+
+/** Drops one finished flood by id. */
+export function retireFlood(list: readonly Flood[], id: number): Flood[] {
+  return list.filter((flood) => flood.id !== id);
+}

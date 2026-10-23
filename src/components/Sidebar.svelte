@@ -542,6 +542,7 @@
     padding: 7px 12px 7px 16px;
     border: 0;
     background: none;
+    transition: background-color 120ms ease, box-shadow 120ms ease;
     color: var(--text);
     font: inherit;
     font-size: 13px;
@@ -617,6 +618,7 @@
     width: 11px;
     height: 11px;
     fill: none;
+    transition: fill 160ms ease, stroke 160ms ease, opacity 160ms ease;
     stroke: var(--tone-favourite);
     stroke-width: 2;
     stroke-linecap: round;

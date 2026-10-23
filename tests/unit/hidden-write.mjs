@@ -79,6 +79,27 @@ function buildThemeModule() {
   return pathToFileURL(out).href;
 }
 
+/**
+ * The flood store is a runes module the reader imports, so it is compiled the
+ * same way and pointed at by absolute path.
+ */
+function buildFloodsModule() {
+  const source = readFileSync(join(ROOT, "src/state/floods.svelte.ts"), "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    fileName: "floods.svelte.ts",
+  });
+  const compiled = compileModule(outputText, { generate: "client", filename: "floods.svelte.ts" });
+  const code = compiled.js.code.replaceAll(
+    '"../lib/floods"',
+    JSON.stringify(absolute("src/lib/floods.ts")),
+  );
+  mkdirSync(GEN_DIR, { recursive: true });
+  const out = join(GEN_DIR, "floods.mjs");
+  writeFileSync(out, code);
+  return pathToFileURL(out).href;
+}
+
 function buildReaderModule() {
   const source = readFileSync(join(ROOT, "src/state/reader.svelte.ts"), "utf8");
   const { outputText } = ts.transpileModule(source, {
@@ -95,6 +116,7 @@ function buildReaderModule() {
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
     .replaceAll('"./theme.svelte"', JSON.stringify(buildThemeModule()))
+    .replaceAll('"./floods.svelte"', JSON.stringify(buildFloodsModule()))
     .replaceAll('"../lib/stream-cycle"', JSON.stringify(absolute("src/lib/stream-cycle.ts")))
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
