@@ -165,3 +165,30 @@ Hidden Categories and Sidebar Indent all exposing the public methods the adapter
 backups are recorded in `docs/live-deployment.md`.
 
 Still not measured: an authenticated v1.1 call on the live instance — it needs the owner's API password.
+
+## UI overhaul — plan v1 (2026-10-22 18:00)
+
+Plan: `~/.hermes/plans/2026-10-22_1800-hardlyreader-ui-overhaul-v1.md` (copy in the workspace).
+Planning only: nothing below is built. Rows 19-26 map one-to-one onto the plan's phases,
+and every one stays blocked until the reference screenshots land and the four open
+questions in the plan are answered.
+
+| # | Item | State | Notes |
+|---|---|---|---|
+| 19 | Password reveal toggle on the login form | todo | Toggle the input's `type`, keep the value, keep it reachable by keyboard |
+| 20 | Stream switching performance | todo | Today every switch is one uncached GReader round-trip with no abort and no generation guard. Plan: 60s in-memory stream cache, `AbortController` + generation token, hover prefetch (max 2 in flight), keyed list items, scroll preserved per stream, `performance.mark` p50/p95. Targets: <50ms cached, <400ms cold over the tailnet |
+| 21 | Tri-pane desktop layout (feeds / articles / reader) | todo | >=1100px: clicking a feed swaps only the middle column, like Newsflash. Below that, the existing two-pane and drawer stay |
+| 22 | Sidebar control row: hidden view (left), lock (middle), favourite filter (right) | todo | Icon above, label below, styled like FreshRSS extension buttons. Replaces the two header chips and becomes the only place the hidden view changes |
+| 23 | Row menu: hide/favourite and their reverses only | todo | Remove hidden/revealed/only entries — item 8 of the feedback. Hidden still beats favourite |
+| 24 | Favourites pinned to the top, pin glyph instead of a star | todo | Ordering only; does not override the hidden filter |
+| 25 | Manual pin for categories and feeds | todo | Keeps an item visible when the hidden view would filter it out — the curtain. Storage undecided: app-local (`localStorage`, per server+user) or server-side through the adapter |
+| 26 | Feed thumbnails from `iconUrl` | todo | Server sends it on every subscription (2/2 verified) via its own `/f.php` cache. Must rewrite the origin to the configured server, with the feed's initial as fallback |
+| 27 | Collapsible tree, indent visible, Starred above it | todo | `--feed-indent` is plumbed but not visible on rows; check row markup against the extension's `.item-title` selector |
+| 28 | Feed settings popup from the row menu | todo | Shows what actually exists for that feed: title, URLs, counts, the extension's real global indent value in context, plus hide/favourite/pin actions. Per-feed indent is a new extension capability, not a UI change |
+| 29 | Visual parity pass against the screenshots | todo | Blocked until the reference images arrive |
+
+Evidence carried into this batch: `iconUrl` is present on every subscription in the
+GReader payload and its `/f.php` endpoint answers 200, so thumbnails need a host rewrite
+rather than a new service. `SidebarIndent` stores one global `sidebar_indent_px` (12-60) —
+there is no per-feed setting to expose. `Sidebar.svelte` is 485 lines and four phases touch
+it, so it should be split before P3/P4.
