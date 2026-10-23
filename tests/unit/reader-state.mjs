@@ -64,6 +64,27 @@ function buildReadingModule() {
   return pathToFileURL(out).href;
 }
 
+/**
+ * The theme is a runes module the reader imports, so it is compiled the same
+ * way and pointed at by absolute path from the generated reader.
+ */
+function buildThemeModule() {
+  const source = readFileSync(join(ROOT, "src/state/theme.svelte.ts"), "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    fileName: "theme.svelte.ts",
+  });
+  const compiled = compileModule(outputText, { generate: "client", filename: "theme.svelte.ts" });
+  const code = compiled.js.code.replaceAll(
+    '"../lib/theme"',
+    JSON.stringify(absolute("src/lib/theme.ts")),
+  );
+  mkdirSync(GEN_DIR, { recursive: true });
+  const out = join(GEN_DIR, "theme.mjs");
+  writeFileSync(out, code);
+  return pathToFileURL(out).href;
+}
+
 function buildReaderModule() {
   const source = readFileSync(join(ROOT, "src/state/reader.svelte.ts"), "utf8");
   const { outputText } = ts.transpileModule(source, {
@@ -79,6 +100,7 @@ function buildReaderModule() {
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
+    .replaceAll('"./theme.svelte"', JSON.stringify(buildThemeModule()))
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
     .replaceAll('"./hidden-write"', JSON.stringify(absolute("src/state/hidden-write.ts")))
     .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))

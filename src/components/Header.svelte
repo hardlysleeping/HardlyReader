@@ -2,6 +2,7 @@
   import type { Snippet } from "svelte";
 
   import { reader } from "../state/reader.svelte";
+  import ThemePanel from "./ThemePanel.svelte";
 
   let {
     title = "HardlyReader",
@@ -38,6 +39,7 @@
   <div class="spacer"></div>
 
   {@render controls?.()}
+  <ThemePanel />
 
   <button class="icon" onclick={refresh} disabled={refreshing} aria-label="Refresh" title="Refresh">
     {refreshing ? "…" : "⟳"}

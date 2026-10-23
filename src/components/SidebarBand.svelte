@@ -311,22 +311,22 @@
   }
 
   .ctl.hidden {
-    --tone: #e5484d;
+    --tone: var(--tone-hidden);
   }
 
   .ctl.pin {
-    --tone: #0078e0;
+    --tone: var(--tone-favourite);
   }
 
   /* Lock reads as a state at a glance: yellow while open, orange once locked.
      The locked fill comes from `.on`, so the tone swap is the whole change. */
   .ctl.lock {
-    --tone: #e6b93f;
+    --tone: var(--tone-lock-open);
     min-width: 44px;
   }
 
   .ctl.lock.on {
-    --tone: #f08c2e;
+    --tone: var(--tone-lock-closed);
   }
 
   .ctl:hover:not(:disabled) {
@@ -395,7 +395,7 @@
   .close {
     border: 0;
     background: none;
-    color: var(--accent, #0078e0);
+    color: var(--accent);
     font: inherit;
     padding: 0;
     cursor: pointer;

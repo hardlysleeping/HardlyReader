@@ -262,7 +262,7 @@
   .indent input[type="range"] {
     flex: 1 1 auto;
     min-width: 0;
-    accent-color: var(--accent, #0078e0);
+    accent-color: var(--accent);
   }
 
   .indent-value {

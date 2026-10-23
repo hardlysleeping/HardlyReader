@@ -9,6 +9,10 @@
   } from "../lib/contextmenu";
   import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
+  import { MARKER_PATH, pinWords } from "../lib/theme";
+  import { theme } from "../state/theme.svelte";
+
+  const words = $derived(pinWords(theme.current.vocabulary));
 
   let { onNavigate }: { onNavigate?: () => void } = $props();
 
@@ -213,8 +217,14 @@
         >
           <span class="chevron" class:closed={folded} aria-hidden="true">▾</span>
           {#if pinned}
-            <svg class="pin" viewBox="0 0 24 24" role="img" aria-label="Pinned">
-              <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
+            <svg
+              class="pin"
+              class:star={theme.current.marker === "star"}
+              viewBox="0 0 24 24"
+              role="img"
+              aria-label={words.count}
+            >
+              <path d={MARKER_PATH[theme.current.marker]} />
             </svg>
           {/if}
           <span class="label">{category.label}</span>
@@ -247,8 +257,14 @@
             title={feed.title}
           >
             {#if reader.isFeedPinned(feed.id)}
-              <svg class="pin" viewBox="0 0 24 24" role="img" aria-label="Pinned">
-                <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
+              <svg
+                class="pin"
+                class:star={theme.current.marker === "star"}
+                viewBox="0 0 24 24"
+                role="img"
+                aria-label={words.count}
+              >
+                <path d={MARKER_PATH[theme.current.marker]} />
               </svg>
             {/if}
             {#if iconFor(feed) !== undefined && !brokenIcons[feed.id]}
@@ -285,7 +301,7 @@
       {#if reader.hiddenCategories.mode === "strict"}<span class="badge">Enforced</span>{/if}
     {/if}
     {#if reader.pinnedCount > 0}
-      <span class="stat">Pinned <b>{reader.pinnedCount}</b></span>
+      <span class="stat">{words.count} <b>{reader.pinnedCount}</b></span>
     {/if}
   </div>
 
@@ -322,9 +338,25 @@
 
 <style>
   .pin {
-    font-size: 10px;
-    line-height: 1;
-    opacity: 0.8;
+    flex: 0 0 auto;
+    width: 12px;
+    height: 12px;
+    opacity: 0.9;
+  }
+
+  /* The pin is an open stroke drawing, the star a closed shape: the same slot
+     needs opposite fill/stroke so neither reads as the outline of the other. */
+  .pin path {
+    fill: none;
+    stroke: var(--tone-favourite);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+
+  .pin.star path {
+    fill: var(--tone-favourite);
+    stroke: none;
   }
 
   .status {
@@ -417,27 +449,27 @@
      rather than one loud one, so a pinned row is obvious without shouting. */
   .group-title.pinned,
   .feed.pinned {
-    outline: 1px solid color-mix(in srgb, #0078e0 45%, transparent);
+    outline: 1px solid color-mix(in srgb, var(--tone-favourite) 45%, transparent);
     outline-offset: -1px;
     border-radius: 5px;
     box-shadow:
-      inset 0 -2px 0 color-mix(in srgb, #0078e0 60%, transparent),
-      0 0 9px color-mix(in srgb, #0078e0 18%, transparent);
+      inset 0 -2px 0 color-mix(in srgb, var(--tone-favourite) 60%, transparent),
+      0 0 9px color-mix(in srgb, var(--tone-favourite) 18%, transparent);
   }
 
   .group-title.pinned .label,
   .feed.pinned .label {
-    color: #4aa3f0;
+    color: color-mix(in srgb, var(--tone-favourite) 70%, var(--text));
   }
 
   /* Hidden: red, the same red as the band's hidden control. Only ever visible
      in the revealed/only views, where the point is to show what is hidden. */
   .group-title.is-hidden .label {
-    color: #e5484d;
+    color: var(--tone-hidden);
   }
 
   .group-title.is-hidden .chevron {
-    color: #e5484d;
+    color: var(--tone-hidden);
   }
 
   .pin {
@@ -445,14 +477,14 @@
     width: 11px;
     height: 11px;
     fill: none;
-    stroke: #0078e0;
+    stroke: var(--tone-favourite);
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
 
   .feed.pinned .label {
-    color: color-mix(in srgb, #0078e0 65%, var(--text-dim));
+    color: color-mix(in srgb, var(--tone-favourite) 65%, var(--text-dim));
   }
 
   .chevron {
@@ -523,7 +555,7 @@
     min-width: 0;
     height: 14px;
     margin: 0;
-    accent-color: #0078e0;
+    accent-color: var(--accent);
     cursor: pointer;
   }
 

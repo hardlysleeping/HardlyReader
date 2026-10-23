@@ -23,6 +23,7 @@ import {
   SIDEBAR_INDENT_MIN_PX,
   type HiddenCategoriesState,
 } from "../api/hardlyread";
+import { pinWords, type Vocabulary } from "./theme";
 
 /* ---------------------------------------------------------------------------
  * Long press
@@ -220,7 +221,9 @@ export interface MenuModel {
   /** Hide/Show. Null for a feed row. */
   toggle: MenuItemModel | null;
   /**
-   * Favourite/Unfavourite, server-synced through Favorite Categories. Null when
+   * The server favourite, synced through Favorite Categories. It keeps a
+   * distinct label when the local mark has taken the word "favourite" itself,
+   * so two different things are never called the same thing. Null when
    * that extension is not available: a favourite is a server fact, so there is
    * nothing honest to offer locally.
    */
@@ -251,7 +254,9 @@ export function categoryMenu(
   label: string,
   pinned: boolean,
   favorite: boolean | null = null,
+  vocabulary: Vocabulary = "pinned",
 ): MenuModel {
+  const words = pinWords(vocabulary);
   const id = categoryIdForLabel(state, label);
   const hidden = isHiddenCategory(state, label);
   const usable = state.available && id !== null;
@@ -272,7 +277,9 @@ export function categoryMenu(
         ? null
         : {
             action: { type: "favorite", favorite: !favorite },
-            label: favorite ? "Unfavourite" : "Favourite",
+            label: favorite
+              ? (vocabulary === "favourites" ? "Remove synced favourite" : "Unfavourite")
+              : words.server,
             checked: false,
             disabled: false,
           },
@@ -284,7 +291,7 @@ export function categoryMenu(
           disabled: !usable,
         }
       : null,
-    pin: { action: { type: "pin", pinned: !pinned }, label: pinned ? "Unpin" : "Pin", checked: false, disabled: false },
+    pin: { action: { type: "pin", pinned: !pinned }, label: pinned ? words.remove : words.add, checked: false, disabled: false },
     indent: null,
     remove: null,
     confirm: [],
@@ -305,7 +312,9 @@ export function feedMenu(
   pinned = false,
   indentPx = SIDEBAR_INDENT_FALLBACK_PX,
   indentServerBacked = false,
+  vocabulary: Vocabulary = "pinned",
 ): MenuModel {
+  const words = pinWords(vocabulary);
   return {
     kind: "feed",
     label: title,
@@ -322,7 +331,7 @@ export function feedMenu(
         },
     pin: confirming
       ? null
-      : { action: { type: "pin", pinned: !pinned }, label: pinned ? "Unpin" : "Pin", checked: false, disabled: false },
+      : { action: { type: "pin", pinned: !pinned }, label: pinned ? words.remove : words.add, checked: false, disabled: false },
     remove: confirming
       ? null
       : {
