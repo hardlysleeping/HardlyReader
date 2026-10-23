@@ -192,3 +192,23 @@ GReader payload and its `/f.php` endpoint answers 200, so thumbnails need a host
 rather than a new service. `SidebarIndent` stores one global `sidebar_indent_px` (12-60) —
 there is no per-feed setting to expose. `Sidebar.svelte` is 485 lines and four phases touch
 it, so it should be split before P3/P4.
+
+### Reference screenshots integrated (2026-10-22 18:10)
+
+Four screenshots of the sidebar to match. Read by OCR with word boxes plus pixel sampling: the vision
+provider returns unparseable streaming chunks to the image tool, so geometry, labels and colours are
+measured but icon shapes and type weights are inferences.
+
+Measured: sidebar 295px; page `#262626`, sidebar `#171717`, band `#2f2f2f`, borders `#333`, muted `#999`,
+accent `#0062b7`; band at y 78-106; rows every 43-46px; status strip at y 892/936/975.
+
+| # | Item | State | Notes |
+|---|---|---|---|
+| 30 | Sidebar band in three states: expanded / locked / collapsed | todo | Eye left, lock middle, pin right. Locked compacts to glyphs and removes every hidden indication; collapsed removes the band and pin area but leaves the status strip |
+| 31 | Inline passcode area under the band | todo | Appears in place on lock click, collapses on success or escape; a 423 from the adapter drives the same surface, not a toast |
+| 32 | Count-visibility rules for hidden | todo | Unlocked shows the hidden count and an ENFORCED badge; locked shows neither. Needs the label spelling out whether it counts categories or feeds |
+| 33 | Collapse/expand affordance | todo | Chevron at the right of the section header as the only remnant, whole header row clickable, keyboard toggle, persisted per server+user |
+| 34 | Adopt the reference visual tokens | todo | Palette above, band treatment, right-aligned counts, muted labels; the extension vocabulary labels (Mixed / Favourites / Hidden favourites, Hidden / Revealed / Only) |
+
+Two open questions carried in the plan §8: what `Hidden 1009` counts, and whether `Important feeds` is the
+pinned band or an existing FreshRSS grouping.
