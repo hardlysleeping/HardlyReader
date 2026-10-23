@@ -255,9 +255,13 @@ function state(overrides = {}) {
 
 {
   const menu = categoryMenu(parseState({ available: false }), "Technology", false);
-  check("without Hidden Categories there is no hide item at all", menu.toggle === null);
+  check("without Hidden Categories the hide item is still there", menu.toggle !== null);
+  check("...but disabled, because there is nowhere to write", menu.toggle.disabled === true);
+  check("...and the note says why", /not answering/.test(menu.note ?? ""), menu.note ?? "");
   check("...the mark is still offered, kept on this device", menu.favorite !== null && menu.favorite.disabled === false && menu.favorite.action.type === "pin");
-  check("...and nothing complains about a missing extension", menu.note === null, String(menu.note));
+  // The note is the whole reason the row can stay: without it, a disabled Hide
+  // would look like a bug rather than a fact about the server.
+  check("...and the reason is in the note, not left to guesswork", /not answering/.test(menu.note ?? ""), String(menu.note));
 }
 
 {

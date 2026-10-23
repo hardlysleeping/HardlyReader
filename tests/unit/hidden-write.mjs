@@ -499,9 +499,19 @@ try {
     const reader = fresh();
     reader.hiddenCategories = parseState({ available: false });
     reader.openCategoryMenu("Technology", { x: 0, y: 0 });
-    check("without the extension the menu only offers its mark", reader.menuModel?.toggle === null && reader.menuModel?.favorite?.action.type === "pin");
+    // Hide stays in the menu: an item that vanishes when the extension is absent
+    // reads as "this app cannot hide things", and the reason belongs in the note
+    // rather than in a missing row.
+    check(
+      "without the extension the menu still offers Hide, disabled",
+      reader.menuModel?.toggle?.disabled === true && reader.menuModel?.favorite?.action.type === "pin",
+    );
+    // Opening the menu asks the state once, to see whether the extension really
+    // is absent or the app is holding a stale "unavailable".
+    const afterOpen = calls.length;
+    check("opening the menu re-checks the extension once", afterOpen === 1, String(afterOpen));
     check("no write without the extension", (await reader.setCategoryHidden("Technology", true)) === null);
-    check("no request was made", calls.length === 0);
+    check("...and the failed write adds no request of its own", calls.length === afterOpen, String(calls.length));
   }
 
   {
