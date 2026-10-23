@@ -80,7 +80,7 @@
       class="ctl"
       class:active={hiddenView !== "hidden"}
       onclick={cycleHidden}
-      disabled={!reader.hiddenAvailable || locked || reader.hiddenBusy}
+      disabled={!reader.hiddenAvailable || locked}
       title={reader.hiddenAvailable
         ? locked
           ? "Locked"

@@ -413,13 +413,84 @@ try {
 
   {
     const reader = fresh();
-    reply = () => new Promise(() => {});
-    // Never resolves: the guard is about the in-flight window, not the answer.
-    void reader.setCategoryHidden("Technology", true);
-    const second = await reader.setCategoryHidden("Art", true);
-    check("a second write is refused while one is in flight", second === null);
-    check("...and only one request went out", calls.length === 1, `${calls.length} request(s)`);
-    reader.hiddenBusy = false;
+    let release = () => {};
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    const hiddenState = (ids) => ({
+      status: 200,
+      body: {
+        changed: true,
+        hiddenCategories: {
+          available: true,
+          mode: "strict",
+          view: "hidden",
+          effectiveView: "hidden",
+          hiddenIds: ids,
+          locked: false,
+          hasPasscode: false,
+          categories: [
+            { id: 12, name: "Technology", hidden: ids.includes(12) },
+            { id: 7, name: "Art", hidden: ids.includes(7) },
+          ],
+        },
+      },
+    });
+    reply = async () => {
+      if (first) {
+        first = false;
+        await gate;
+        return hiddenState([12]);
+      }
+      return hiddenState([12, 7]);
+    };
+
+    const a = reader.setCategoryHidden("Technology", true);
+    const b = reader.setCategoryHidden("Art", true);
+
+    // The intent that used to be dropped: a slow first write must not swallow
+    // the second click, and the newer intent must own the screen.
+    check("a second hide is drawn while the first is in flight", labels(reader.categories) === "");
+    // The queue starts on a microtask, so let it reach the transport first.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    check("only one request has gone out so far", calls.length === 1, `${calls.length} request(s)`);
+
+    release();
+    await Promise.all([a, b]);
+
+    const hideCalls = calls.filter((call) => call.url.startsWith(`${SERVER}/api/misc.php/Hardly%20Read/v1/hidden-categories/`));
+    check("both writes reached the server", hideCalls.length === 2, `${hideCalls.length} request(s)`);
+    check("the newest answer settles the screen", reader.hiddenCategories.hiddenIds.join(",") === "12,7", reader.hiddenCategories.hiddenIds.join(","));
+  }
+
+  {
+    const reader = fresh();
+    let release = () => {};
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    reply = async () => {
+      if (first) {
+        first = false;
+        await gate;
+        return { status: 200, body: { changed: true, hiddenCategories: { available: true, mode: "light", view: "revealed", effectiveView: "revealed", hiddenIds: [], locked: false, hasPasscode: false, categories: [] } } };
+      }
+      return { status: 200, body: { changed: true, hiddenCategories: { available: true, mode: "light", view: "hidden", effectiveView: "hidden", hiddenIds: [], locked: false, hasPasscode: false, categories: [] } } };
+    };
+
+    const a = reader.setHiddenView("revealed");
+    const b = reader.setHiddenView("hidden");
+
+    check("the newest view is drawn at once", reader.hiddenCategories.view === "hidden", reader.hiddenCategories.view);
+
+    release();
+    await Promise.all([a, b]);
+
+    // The reply for "revealed" arrives first and is older than what the user
+    // is now looking at: drawing it would flip the eye back for no reason.
+    check("a stale view reply is discarded", reader.hiddenCategories.view === "hidden", reader.hiddenCategories.view);
   }
 
   {
