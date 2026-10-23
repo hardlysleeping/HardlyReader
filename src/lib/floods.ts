@@ -7,7 +7,7 @@
  * functions decide, which is what makes the trimming and clamping testable.
  */
 
-export type FloodKind = "hidden" | "revealed" | "pin" | "unpin" | "sync" | "lock" | "unlock";
+export type FloodKind = "hidden" | "revealed" | "pin" | "unpin" | "sync" | "unlock";
 
 export interface Point {
   x: number;
@@ -20,6 +20,8 @@ export interface Flood {
   kind: FloodKind;
   x: number;
   y: number;
+  /** 0–1: how loud this one is. Unlocking is a quieter event than hiding a feed. */
+  strength: number;
 }
 
 /** Long enough to notice, short enough to feel like a consequence. */
@@ -40,9 +42,30 @@ const TONES: Record<FloodKind, string> = {
   pin: "var(--tone-favourite, #0078e0)",
   unpin: "var(--accent, #0078e0)",
   sync: "var(--tone-sync, #0078e0)",
-  lock: "var(--tone-lock-closed, #f08c2e)",
   unlock: "var(--tone-lock-open, #e6b93f)",
 };
+
+/**
+ * How loud each kind is by default.
+ *
+ * Hiding a feed or pinning one is a small, deliberate act and gets the full
+ * glow. Unlocking is different: it happens when you come back to the app, and a
+ * burst of light across the window for that is noise — it gets a third.
+ * Locking gets nothing at all; the shutter closing over the band is the
+ * feedback, and light escaping from a lock reads as the wrong message entirely.
+ */
+const STRENGTHS: Record<FloodKind, number> = {
+  hidden: 1,
+  revealed: 1,
+  pin: 1,
+  unpin: 1,
+  sync: 1,
+  unlock: 0.32,
+};
+
+export function floodStrength(kind: FloodKind): number {
+  return STRENGTHS[kind];
+}
 
 export function floodTone(kind: FloodKind): string {
   return TONES[kind];
@@ -73,11 +96,18 @@ export function pushFlood(
   origin: Point | null,
   id: number,
   viewport: { width: number; height: number },
+  strength: number = floodStrength(kind),
 ): Flood[] {
+  // A kind with no strength has no tone either, so there is nothing to draw.
+  // Dropping it here means even a stray untyped call cannot put a light on
+  // screen for something that should be silent, such as locking.
+  const loudness = Number.isFinite(strength) ? strength : floodStrength(kind);
+  if (!Number.isFinite(loudness)) return list as Flood[];
   const raw = origin ?? fallbackOrigin(kind, viewport);
   const x = Math.min(Math.max(raw.x, 0), Math.max(viewport.width, 0));
   const y = Math.min(Math.max(raw.y, 0), Math.max(viewport.height, 0));
-  const next = [...list, { id, kind, x, y }];
+  const quiet = Math.min(Math.max(loudness, 0), 1);
+  const next = [...list, { id, kind, x, y, strength: quiet }];
   return next.length > MAX_FLOODS ? next.slice(next.length - MAX_FLOODS) : next;
 }
 

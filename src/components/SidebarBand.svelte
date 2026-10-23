@@ -71,7 +71,7 @@
   }
 
   async function lockNow(event: MouseEvent) {
-    await reader.lockHidden(pointOf(event));
+    await reader.lockHidden();
     if (reader.hiddenLocked) lockOpen = false;
   }
 </script>

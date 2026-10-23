@@ -625,7 +625,7 @@ export class ReaderState {
    * is told. If the server refuses (no passcode) the flag rolls back and the
    * reason is shown, rather than the UI lying until the next refresh.
    */
-  async lockHidden(origin: Point | null = null): Promise<void> {
+  async lockHidden(): Promise<void> {
     const session = this.session;
     if (session === null || !this.hiddenAvailable || this.hiddenBusy) return;
 
@@ -637,7 +637,6 @@ export class ReaderState {
       const result = await apiLockHidden(transport, session);
       this.hiddenCategories = result.hiddenCategories;
       this.lockNotice = null;
-      floods.emit("lock", origin);
       // Locking hides categories server-side too, so the feed list can change.
       this.hiddenWriteGen += 1;
       this.scheduleHiddenCatchUp();
