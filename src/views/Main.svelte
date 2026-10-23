@@ -12,6 +12,7 @@
   import Sidebar from "../components/Sidebar.svelte";
   import { isTypingTarget, resolveKey, resolveShiftKey } from "../lib/keys";
   import { backLabel, levelOf, stepBackTarget, whereLabel } from "../lib/one-pane";
+  import { readingVars } from "../lib/reading-layout";
   import { chrome } from "../state/chrome.svelte";
   import { layout } from "../state/layout.svelte";
   import { reading } from "../state/reading.svelte";
@@ -222,7 +223,20 @@
   }
 </script>
 
-<div class="main">
+<div
+  class="main"
+  style={Object.entries(
+    readingVars({
+      textScale: reading.textScale,
+      rowScale: reading.rowScale,
+      leading: reading.leading,
+      indent: reading.indentParagraphs,
+      align: reading.textAlign,
+    }),
+  )
+    .map(([name, value]) => `${name}:${value}`)
+    .join(";")}
+>
   <Header
     subtitle={account?.userName ?? session.email}
     controls={layoutSwitch}

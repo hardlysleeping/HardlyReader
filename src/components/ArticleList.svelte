@@ -263,7 +263,9 @@
     display: flex;
     gap: 10px;
     width: 100%;
-    padding: 12px 16px;
+    /* Row height, type and thumbnail are one scale: growing the picture without
+       the type (or the other way round) makes the row look broken, not larger. */
+    padding: calc(12px * var(--row-scale, 1)) 16px;
     border: 0;
     border-bottom: 1px solid var(--border-soft);
     background: none;
@@ -310,8 +312,8 @@
     display: block;
     flex: none;
     align-self: center;
-    width: 48px;
-    height: 48px;
+    width: calc(48px * var(--row-scale, 1));
+    height: calc(48px * var(--row-scale, 1));
     margin-left: 2px;
     border-radius: 6px;
     overflow: hidden;
@@ -327,7 +329,7 @@
   }
 
   .title {
-    font-size: 13.5px;
+    font-size: calc(13.5px * var(--row-scale, 1));
     font-weight: 550;
     line-height: 1.35;
     overflow: hidden;
@@ -343,7 +345,7 @@
   }
 
   .preview {
-    font-size: 12px;
+    font-size: calc(12px * var(--row-scale, 1));
     line-height: 1.4;
     color: var(--muted);
     overflow: hidden;
@@ -356,7 +358,7 @@
   .byline {
     display: flex;
     gap: 8px;
-    font-size: 11px;
+    font-size: calc(11px * var(--row-scale, 1));
     color: var(--muted);
   }
 
