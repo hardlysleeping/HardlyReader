@@ -895,12 +895,15 @@
     margin-top: 2px;
   }
 
+  /* Counts line up at one right edge across every kind of row: the feed row's
+     padding and the category button's padding meet the same 10px inset, so the
+     numbers read as one column instead of two, two pixels apart. */
   .row {
     display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 7px 12px 7px 16px;
+    padding: 7px 10px 7px 16px;
     border: 0;
     background: none;
     transition: background-color 120ms ease, box-shadow 120ms ease;
