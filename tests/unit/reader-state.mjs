@@ -172,6 +172,42 @@ try {
   await pending;
   check("the pending load settles", reader.loadingList === false);
 
+// --- collapsed categories roundtrip ----------------------------------------
+// "It should stay collapsed" is a promise about a *new* instance, not about the
+// one that was clicked, so this checks the stored preference after a relaunch.
+{
+  const store = new Map();
+  const original = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+  };
+  try {
+    const session = { serverUrl: "https://reader.test", email: "u@reader.test" };
+    const first = new ReaderState();
+    first.session = session;
+    first.toggleCategory("category/1");
+    const key = "hardlyreader:prefs:https://reader.test|u@reader.test";
+    const written = JSON.parse(store.get(key) ?? "null");
+    check("collapsing a category writes the preference", written?.collapsed?.["category/1"] === true);
+
+    const second = new ReaderState();
+    second.session = session;
+    second.loadPrefs();
+    check("a new instance starts with the category still collapsed", second.isCategoryCollapsed("category/1") === true);
+
+    first.toggleCategory("category/1");
+    const third = new ReaderState();
+    third.session = session;
+    third.loadPrefs();
+    check("expanding persists as well", third.isCategoryCollapsed("category/1") === false);
+  } finally {
+    if (original === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = original;
+  }
+}
+
   reader.stop();
   check("stop() resets hidden state", reader.hiddenAvailable === false && reader.hiddenError === null);
 } finally {

@@ -293,3 +293,7 @@ Acceptance for the whole set: switching 3→2→1 never reloads a stream or lose
 reload restores mode and widths; every key row works in all three modes; one throttled browser run
 shows a feed handover under 1.5s of induced latency.
 
+| # | Item | State | Notes |
+|---|---|---|---|
+| 55 | Band collapse remembered across relaunches | **done** | It was stored in the per-account prefs blob (`serverUrl|email`) and read in `start()`, which made a purely visual preference depend on the session being restored before the first frame. Moved to its own key, `hardlyreader.chrome.v1`, via `src/lib/chrome-prefs.ts` + `src/state/chrome.svelte.ts`, read at module load so the band cannot paint expanded and snap closed. `chrome.mjs` proves first run, relaunch, expand, corrupt JSON, non-boolean values, and storage that throws (12 checks). Category-group collapse stays in the account prefs — it is per account by nature — with its own roundtrip checks |
+

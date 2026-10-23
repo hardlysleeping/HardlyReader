@@ -164,7 +164,6 @@ export class ReaderState {
   localPins = $state<LocalPins>(emptyPins());
 
   /** The sidebar band (hidden / lock / pin) folded away, per account. */
-  bandCollapsed = $state(false);
 
   /**
    * Indent chosen in this app. Kept beside the server value instead of over it:
@@ -342,11 +341,6 @@ export class ReaderState {
     this.updateLocalPins({ view: next });
   }
 
-  toggleBand(): void {
-    this.bandCollapsed = !this.bandCollapsed;
-    this.savePrefs();
-  }
-
   toggleCategory(id: string): void {
     this.collapsedCategories = { ...this.collapsedCategories, [id]: !this.isCategoryCollapsed(id) };
     this.savePrefs();
@@ -382,7 +376,6 @@ export class ReaderState {
     try {
       const raw = JSON.parse(localStorage.getItem(key) ?? "null") as Record<string, unknown> | null;
       this.localPins = parsePins(raw?.pins);
-      this.bandCollapsed = raw?.bandCollapsed === true;
       const indent = raw?.indentPx;
       this.localIndentPx =
         typeof indent === "number" && Number.isFinite(indent) ? clampIndentPx(indent) : null;
@@ -405,7 +398,6 @@ export class ReaderState {
         key,
         JSON.stringify({
           pins: this.localPins,
-          bandCollapsed: this.bandCollapsed,
           collapsed: this.collapsedCategories,
           indentPx: this.localIndentPx,
         }),
@@ -778,7 +770,6 @@ export class ReaderState {
     this.addFeedError = null;
     this.menu = null;
     this.localPins = emptyPins();
-    this.bandCollapsed = false;
     this.collapsedCategories = {};
   }
 
