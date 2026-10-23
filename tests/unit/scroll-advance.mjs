@@ -34,16 +34,16 @@ check("the same wheel travel does less work late", late < early * 0.6, `${late.t
 const travel = travelToAdvance();
 check("a full pull is reachable", travel < PULL_THRESHOLD * 100, String(travel));
 check("it takes more than the threshold in wheel travel", travel > PULL_THRESHOLD, `${travel} vs ${PULL_THRESHOLD}`);
-check("but not absurdly more", travel < PULL_THRESHOLD * 2.4, String(travel));
-// A 100px notch is the common wheel delta; the point of the curve is that the
-// fourth one finishes the pull rather than the second.
+check("but not absurdly more", travel < PULL_THRESHOLD * 2.7, String(travel));
+// A 100px notch is the common wheel delta; the point of the curve is that it
+// takes a run of them — about seven — rather than two.
 let notches = 0;
 let pullNow = 0;
 while (!shouldAdvance(pullNow) && notches < 20) {
   pullNow = accumulate(pullNow, 100);
   notches += 1;
 }
-check("it takes several deliberate notches, not one", notches >= 3 && notches <= 5, String(notches));
+check("it takes several deliberate notches, not one", notches >= 6 && notches <= 9, String(notches));
 // The curve integrates to threshold * (1 + resistance / 2); asserting it keeps
 // the constant honest if someone retunes either number.
 check(
@@ -57,7 +57,7 @@ check("progress is a fraction", progressOf(PULL_THRESHOLD / 2) === 0.5 && progre
 
 // A short threshold behaves the same way, just sooner.
 const shortTravel = travelToAdvance(120);
-check("a smaller threshold still resists", shortTravel > 120 && shortTravel < 120 * 2.4, String(shortTravel));
+check("a smaller threshold still resists", shortTravel > 120 && shortTravel < 120 * 2.7, String(shortTravel));
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

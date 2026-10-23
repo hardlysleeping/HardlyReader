@@ -77,8 +77,8 @@
   {#if !chrome.bandCollapsed}
     <div class="band">
     <button
-      class="ctl"
-      class:active={hiddenView !== "hidden"}
+      class="ctl hidden"
+      class:on={hiddenView !== "hidden"}
       onclick={cycleHidden}
       disabled={!reader.hiddenAvailable || locked}
       title={reader.hiddenAvailable
@@ -101,7 +101,7 @@
 
     <button
       class="ctl lock"
-      class:active={locked}
+      class:on={locked}
       onclick={() => (lockOpen = !lockOpen)}
       disabled={!reader.hiddenAvailable}
       aria-expanded={lockOpen}
@@ -119,8 +119,8 @@
     </button>
 
     <button
-      class="ctl"
-      class:active={pinView !== "all"}
+      class="ctl pin"
+      class:on={pinView !== "all"}
       onclick={cyclePins}
       disabled={reader.favoritesBusy}
       title={`Favourites: ${PIN_VIEW_LABELS[pinView]} — click for ${
@@ -234,16 +234,10 @@
     color: var(--danger, #e06c75);
   }
 
+  /* No box: the band is three separate cut-outs on the sidebar's own
+     background, so nothing is drawn around them but their own outline. */
   .bandbox {
-    margin: 6px 8px 8px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--band, #2f2f2f);
-  }
-
-  .bandbox.locked {
-    background: var(--band-locked, #212121);
+    margin: 0 8px 6px;
   }
 
   /* Full-width caret bar: the handle for the whole band, in both states. */
@@ -257,8 +251,9 @@
     border: 0;
     background: none;
     color: var(--text-dim);
-    opacity: 0.5;
+    opacity: 0.45;
     cursor: pointer;
+    border-radius: 6px;
   }
 
   .bandbox.collapsed .bar {
@@ -285,47 +280,79 @@
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: stretch;
-    gap: 4px;
-    padding: 0 4px 4px;
+    gap: 6px;
+    padding: 2px 2px 0;
   }
 
+  /* A die-cut sticker: the glyph sits in its own outline with nothing filled
+     behind it. Colour is the meaning — red is hidden, blue is pinned — and the
+     fill only appears when that control has something switched on. */
   .ctl {
+    --tone: var(--muted, #999);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 2px;
-    min-height: 40px;
-    padding: 4px 6px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: none;
-    color: var(--text-dim);
+    gap: 3px;
+    min-height: 44px;
+    padding: 5px 10px;
+    border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--tone);
     font: inherit;
     cursor: pointer;
+    transition:
+      background-color 0.12s ease,
+      border-color 0.12s ease,
+      color 0.12s ease,
+      transform 0.08s ease,
+      box-shadow 0.12s ease;
+  }
+
+  .ctl.hidden {
+    --tone: #e5484d;
+  }
+
+  .ctl.pin {
+    --tone: #0078e0;
   }
 
   .ctl.lock {
-    min-width: 40px;
+    min-width: 44px;
   }
 
   .ctl:hover:not(:disabled) {
-    color: var(--text);
-    background: var(--hover);
+    border-color: var(--tone);
+    background: color-mix(in srgb, var(--tone) 14%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--tone) 22%, transparent);
   }
 
-  .ctl.active {
-    color: var(--text);
-    border-color: var(--accent, #0062b7);
+  /* Pressed: the sticker takes the tone. Reads as "this is on", and the click
+     is answered on the same frame the pointer goes down. */
+  .ctl:active:not(:disabled) {
+    transform: scale(0.95);
+    background: color-mix(in srgb, var(--tone) 26%, transparent);
+  }
+
+  .ctl.on {
+    background: color-mix(in srgb, var(--tone) 22%, transparent);
+    border-color: var(--tone);
+    color: var(--tone);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--tone) 24%, transparent);
+  }
+
+  .ctl.on:active:not(:disabled) {
+    background: color-mix(in srgb, var(--tone) 34%, transparent);
   }
 
   .ctl:disabled {
-    opacity: 0.45;
+    opacity: 0.4;
     cursor: default;
   }
 
   .locked .ctl {
-    min-height: 30px;
+    min-height: 32px;
   }
 
   svg {
@@ -342,6 +369,7 @@
     font-size: 10px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+    opacity: 0.85;
   }
 
   .lockpanel {

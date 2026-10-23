@@ -152,6 +152,16 @@ final class HardlyReadApi
 			return $this->changeFavoritesView($username, $body);
 		}
 
+		// PUT /v1/indent — the one setting Sidebar Feed Indent owns. The app's
+		// slider and the extension's slider are the same stored integer, so the
+		// website and the app read the same value rather than two lookalikes.
+		if ($segments[0] === 'indent' && count($segments) === 1) {
+			if ($method !== 'PUT') {
+				return self::methodNotAllowed('PUT');
+			}
+			return $this->setIndent($username, $body);
+		}
+
 		// Lock, unlock and passcode. These are the extension's own curtain
 		// controls: without them the app can see a lock but never operate it,
 		// which makes the lock button decoration.
@@ -274,6 +284,42 @@ final class HardlyReadApi
 
 		$result = $hidden->changeView($view);
 		return $this->mutationResponse(is_array($result) ? $result : [], $hidden);
+	}
+
+	/**
+	 * Writes the sidebar indent.
+	 *
+	 * The integer is required and must be one: `0` is a real value (flush with
+	 * the edge), so an absent field cannot be read as zero without silently
+	 * resetting a setting. Out-of-range values are clamped by the extension,
+	 * which owns the cap, and the clamped value is what comes back.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function setIndent(string $username, array $body): HardlyReadApiResponse
+	{
+		if (!array_key_exists('px', $body) || !is_int($body['px'])) {
+			return self::error(400, 'invalid_indent', 'The "px" field must be an integer.');
+		}
+
+		$indent = ($this->loadSidebarIndent)($username);
+		if (!is_object($indent) || !method_exists($indent, 'indent')) {
+			return self::error(409, 'indent_unavailable', 'Sidebar Feed Indent is not enabled for this user.');
+		}
+		if (!method_exists($indent, 'setIndent')) {
+			// Documented incompatibility, not a 500: the app ships first.
+			return self::error(409, 'extension_incompatible', 'Sidebar Feed Indent does not implement setIndent().');
+		}
+
+		$before = (int) $indent->indent();
+		$indent->setIndent($body['px']);
+		$state = $this->sidebarIndentState($indent);
+
+		return new HardlyReadApiResponse(200, [
+			'ok' => true,
+			'changed' => ($state['px'] ?? $before) !== $before,
+			'sidebarIndent' => $state,
+		]);
 	}
 
 	/**
@@ -742,7 +788,12 @@ final class HardlyReadApi
 			return ['available' => false];
 		}
 
-		return ['available' => true, 'px' => (int) $indent->indent()];
+		$state = ['available' => true, 'px' => (int) $indent->indent()];
+		if (method_exists($indent, 'maxIndent')) {
+			$state['max'] = (int) $indent->maxIndent();
+		}
+
+		return $state;
 	}
 
 	/**

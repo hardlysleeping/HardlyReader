@@ -14,6 +14,7 @@
  *   PUT /v1/hidden-categories/view   <- { "view": "hidden"|"revealed"|"only" }
  *   PUT /v1/favorites/{id}           <- { "favorite": true|false }
  *   PUT /v1/favorites/view           <- { "view": "all"|"only"|"without" }
+ *   PUT /v1/indent                   <- { "px": 0..60 }
  *
  * Auth rides the existing GoogleLogin credential from `clientLogin()`. No
  * second password, nothing new to store.
@@ -110,12 +111,15 @@ export interface FavoriteMutationResult {
 
 export const SIDEBAR_INDENT_FALLBACK_PX = 12;
 export const SIDEBAR_INDENT_MIN_PX = 0;
-export const SIDEBAR_INDENT_MAX_PX = 64;
+/** The extension's own cap (`SidebarIndentExtension::MAX_INDENT`). */
+export const SIDEBAR_INDENT_MAX_PX = 60;
 
 export interface SidebarIndentState {
   available: boolean;
   /** Extra left padding for feed rows, already clamped. */
   px: number;
+  /** The extension's cap, so the control can be sized from the server. */
+  max: number;
 }
 
 export interface MutationResult {
@@ -278,18 +282,24 @@ export function parseFavorites(raw: unknown): FavoritesState {
  * and held between the two bounds, so a value in the thousands cannot push the
  * feed titles off the right edge.
  */
-export function clampIndentPx(value: unknown): number {
+export function clampIndentPx(value: unknown, max = SIDEBAR_INDENT_MAX_PX): number {
   const px = typeof value === "number" ? value : Number.NaN;
   if (!Number.isFinite(px)) return SIDEBAR_INDENT_FALLBACK_PX;
-  return Math.min(Math.max(Math.round(px), SIDEBAR_INDENT_MIN_PX), SIDEBAR_INDENT_MAX_PX);
+  return Math.min(Math.max(Math.round(px), SIDEBAR_INDENT_MIN_PX), max);
 }
 
 /** Normalises the `sidebarIndent` block. Unavailable reports the fallback. */
 export function parseSidebarIndent(raw: unknown): SidebarIndentState {
   if (!isRecord(raw) || raw.available !== true) {
-    return { available: false, px: SIDEBAR_INDENT_FALLBACK_PX };
+    return { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
   }
-  return { available: true, px: clampIndentPx(raw.px) };
+  // The server's own cap wins when it reports one: a client that invents a
+  // larger range would send values the extension silently clamps.
+  const max =
+    typeof raw.max === "number" && Number.isFinite(raw.max) && raw.max > 0
+      ? Math.min(Math.round(raw.max), SIDEBAR_INDENT_MAX_PX)
+      : SIDEBAR_INDENT_MAX_PX;
+  return { available: true, px: clampIndentPx(raw.px, max), max };
 }
 
 /** The whole `/v1/state` body. Unknown keys are ignored, missing ones default. */
@@ -584,4 +594,28 @@ export function isHiddenCategory(state: HiddenCategoriesState, labelOrStreamId: 
   if (!state.available) return false;
   const id = categoryIdForLabel(state, labelOrStreamId);
   return id !== null && state.hiddenIds.includes(id);
+}
+
+/**
+ * Writes the sidebar indent.
+ *
+ * The extension owns the setting, so this is the same integer its own sidebar
+ * slider writes — the website and the app cannot drift apart. Sent as an
+ * integer because the route rejects strings and floats: a slider reading "20"
+ * is a client bug, not a value to coerce.
+ */
+export async function setIndent(
+  transport: Transport,
+  session: Session,
+  px: number,
+): Promise<{ changed: boolean | null; sidebarIndent: SidebarIndentState }> {
+  if (!Number.isInteger(px) || px < SIDEBAR_INDENT_MIN_PX || px > SIDEBAR_INDENT_MAX_PX) {
+    throw new RangeError(`Indent must be an integer in ${SIDEBAR_INDENT_MIN_PX}..${SIDEBAR_INDENT_MAX_PX}, got ${String(px)}`);
+  }
+
+  const body = await request(transport, session, "/indent", { method: "PUT", body: { px } });
+  return {
+    changed: typeof body.changed === "boolean" ? body.changed : null,
+    sidebarIndent: parseSidebarIndent(body.sidebarIndent),
+  };
 }

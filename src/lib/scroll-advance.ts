@@ -11,14 +11,14 @@
 
 /**
  * Wheel travel a full pull is worth. With the resistance the real cost is
- * `THRESHOLD * (1 + RESISTANCE / 2)` — 450px here, about four 100px wheel
+ * `THRESHOLD * (1 + RESISTANCE / 2)` — 728px here, about seven 100px wheel
  * notches at the bottom of an article. Deliberate enough that a stray flick
  * does not switch articles, short enough that it never feels stuck.
  */
-export const PULL_THRESHOLD = 200;
+export const PULL_THRESHOLD = 280;
 
 /** How much heavier the pull gets by the end. 0 = linear, 2.5 = heavy. */
-export const RESISTANCE = 2.5;
+export const RESISTANCE = 3.2;
 
 /** Convenience: how much of a wheel delta counts at current progress. */
 export function contribution(progress: number): number {

@@ -15,10 +15,12 @@ import {
   getState,
   isHiddenCategory,
   labelOf,
+  parseSidebarIndent,
   parseState,
   lockHidden,
   setCategoryHidden,
   setHiddenPasscode,
+  setIndent,
   setView,
   unlockHidden,
   unavailableState,
@@ -444,6 +446,43 @@ check("empty group list stays empty", visibleGroups([], state).length === 0);
 check("state reports a passcode exists", parseState({ available: true, hasPasscode: true }).hasPasscode === true);
 check("state defaults hasPasscode to false", parseState({ available: true }).hasPasscode === false);
 check("unavailable state has no passcode", unavailableState().hasPasscode === false);
+
+
+/* ---------------------------------------------------------------------------
+ * Sidebar indent: the extension's setting, not a lookalike
+ * ------------------------------------------------------------------------- */
+
+{
+  const capped = parseSidebarIndent({ available: true, px: 999, max: 60 });
+  check("the indent is clamped to the server's cap", capped.px === 60, String(capped.px));
+  check("the cap is reported so a control can be sized", capped.max === 60, String(capped.max));
+
+  const invented = parseSidebarIndent({ available: true, px: 20 });
+  check("a server that reports no cap falls back to the extension's", invented.max === 60, String(invented.max));
+
+  const absent = parseSidebarIndent({ available: false });
+  check("an absent extension is not available", absent.available === false && absent.px === 12);
+}
+
+{
+  const { transport, calls } = recorder(() =>
+    jsonResponse(200, { ok: true, changed: true, sidebarIndent: { available: true, px: 34, max: 60 } }),
+  );
+  const result = await setIndent(transport, SESSION, 34);
+
+  check("the indent is written with PUT", calls[0].method === "PUT", calls[0].method);
+  check("...to the indent route", calls[0].url.endsWith("/v1/indent"), calls[0].url);
+  check("...as an integer", JSON.parse(calls[0].body).px === 34, calls[0].body);
+  check("the stored value comes back", result.sidebarIndent.px === 34, String(result.sidebarIndent.px));
+
+  let refused = null;
+  try {
+    await setIndent(transport, SESSION, 34.5);
+  } catch (error) {
+    refused = error;
+  }
+  check("a non-integer is refused before it is sent", refused instanceof RangeError && calls.length === 1);
+}
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
