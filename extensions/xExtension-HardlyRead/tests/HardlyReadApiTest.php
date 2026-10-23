@@ -834,6 +834,87 @@ final class HardlyReadApiTest extends TestCase
 		self::assertSame('Could not write the state database.', $response->body['error']['message']);
 	}
 
+	public function testFavoritesStoreUnusableCodeIsNotAnInternalError(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+		$favorites->setResult = [
+			'ok' => false,
+			'changed' => false,
+			'converged' => false,
+			'catId' => 3,
+			'favorite' => true,
+			'code' => 'store_unusable',
+			'message' => 'Favorite Categories state store is unusable: the state directory is not writable.',
+		];
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/3', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(409, $response->status);
+		self::assertSame('favorites_unavailable', $response->body['error']['code']);
+		self::assertArrayHasKey('favorites', $response->body, 'the client reconciles from state');
+	}
+
+	public function testFavoritesSaveFailedCodeMapsTo409(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+		$favorites->setResult = [
+			'ok' => false,
+			'changed' => false,
+			'converged' => false,
+			'catId' => 3,
+			'favorite' => true,
+			'code' => 'save_failed',
+			'message' => 'Could not save the favorite.',
+		];
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/3', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(409, $response->status);
+		self::assertSame('save_failed', $response->body['error']['code']);
+	}
+
+	public function testFavoritesViewInvalidViewCodeIs400EvenWhenTheStateAgrees(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+		$favorites->viewResult = [
+			'ok' => false,
+			'changed' => false,
+			'converged' => false,
+			'view' => 'all',
+			'code' => 'invalid_view',
+			'message' => 'Unknown view "bogus": nothing was changed.',
+		];
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/view', self::AUTH, ['view' => 'all']);
+
+		self::assertSame(400, $response->status);
+		self::assertSame('invalid_view', $response->body['error']['code']);
+	}
+
+	public function testFavoritesConvergenceCodeKeepsTheStateItCarries(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+		$favorites->setResult = [
+			'ok' => true,
+			'changed' => true,
+			'converged' => false,
+			'catId' => 3,
+			'favorite' => true,
+			'code' => 'convergence_failed',
+			'message' => 'Saved, but the feeds did not follow.',
+		];
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/3', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(409, $response->status);
+		self::assertSame('convergence_failed', $response->body['error']['code']);
+		self::assertArrayHasKey('favorites', $response->body);
+	}
+
 	public function testFavoriteRoutesRequireAuthentication(): void
 	{
 		$favorites = new FakeFavoriteCategories();

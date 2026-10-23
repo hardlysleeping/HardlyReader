@@ -355,6 +355,34 @@ final class HardlyReadApi
 		// A collaborator older than the `converged` field only reports ok.
 		$converged = array_key_exists('converged', $result) ? (bool) $result['converged'] : $ok;
 
+		// The extension reports a machine code on failure. Honour it before any
+		// inference: a state store that cannot be opened is not a bad request,
+		// and it is certainly not an internal error the client should retry.
+		$code = is_string($result['code'] ?? null) ? $result['code'] : '';
+		$message = is_string($result['message'] ?? null) && $result['message'] !== ''
+			? $result['message']
+			: 'Request failed.';
+		switch ($code) {
+			case '':
+				break;
+			case 'invalid_category':
+				return self::error(400, 'invalid_category', $message);
+			case 'invalid_view':
+				return self::error(400, 'invalid_view', $message);
+			case 'category_not_found':
+				return self::error(404, 'category_not_found', $message);
+			case 'store_unusable':
+				return self::error(409, 'favorites_unavailable', $message, ['favorites' => $state]);
+			case 'save_failed':
+				return self::error(409, 'save_failed', $message, ['favorites' => $state]);
+			case 'convergence_failed':
+				return self::error(409, 'convergence_failed', $message, ['favorites' => $state]);
+			default:
+				// A code from a newer extension than this adapter knows: fall
+				// through to the ok/converged reading rather than guessing.
+				break;
+		}
+
 		if ($ok && $converged) {
 			$body = ['ok' => true];
 			if ($includeChanged) {
@@ -372,10 +400,6 @@ final class HardlyReadApi
 
 		// Store failure, or a collaborator that reports neither ok nor
 		// convergence: the contract has no code for it.
-		$message = is_string($result['message'] ?? null) && $result['message'] !== ''
-			? $result['message']
-			: 'Request failed.';
-
 		return self::error(500, 'internal_error', $message);
 	}
 
