@@ -162,6 +162,19 @@
     }
   }
 
+  /**
+   * The article's own lock: home first, then the curtain.
+   *
+   * The jump is a local view change, so it happens immediately; the lock is a
+   * write and catches up. Waiting for the server before moving would put the
+   * network between the finger and the screen — the one thing the curtain is
+   * for is getting away now.
+   */
+  function lockFromArticle(): void {
+    goHome();
+    void reader.lockHidden();
+  }
+
   /** Home is the escape hatch: the feed list, in one press, from any depth. */
   function goHome(): void {
     if (mode === 1) reader.closeReader();
@@ -301,7 +314,7 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="single" {ontouchstart} {ontouchend}>
         {#if reader.selectedId !== null}
-          <ReaderPane onClose={closeReader} />
+          <ReaderPane onClose={closeReader} onLock={lockFromArticle} />
         {:else if onePosts}
           <ArticleList />
         {:else}
