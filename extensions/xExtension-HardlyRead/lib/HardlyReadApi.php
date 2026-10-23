@@ -44,7 +44,10 @@ final class HardlyReadApi
 		'convergence_failed' => 'Category state changed, but some feed visibility updates failed.',
 		'invalid_category' => 'Category id must be a positive integer.',
 		'invalid_view' => 'View must be one of: hidden, revealed, only.',
-		'locked' => 'Hidden Categories is locked: unlock it in FreshRSS first.',
+		'locked' => 'Hidden Categories is locked: unlock it with the passcode.',
+		'invalid_passcode' => 'Passcode must be 1 to 6 digits, numbers only.',
+		'passcode_required' => 'Set a passcode before locking: there is nothing to lock with.',
+		'wrong_passcode' => 'Wrong passcode.',
 	];
 
 	private Closure $authenticate;
@@ -147,6 +150,32 @@ final class HardlyReadApi
 				return self::methodNotAllowed('PUT');
 			}
 			return $this->changeFavoritesView($username, $body);
+		}
+
+		// Lock, unlock and passcode. These are the extension's own curtain
+		// controls: without them the app can see a lock but never operate it,
+		// which makes the lock button decoration.
+		//
+		// Matched before any {id} pattern so `lock` is never read as an id.
+		if ($segments[0] === 'lock' && count($segments) === 1) {
+			if ($method !== 'POST') {
+				return self::methodNotAllowed('POST');
+			}
+			return $this->lockHidden($username);
+		}
+
+		if ($segments[0] === 'unlock' && count($segments) === 1) {
+			if ($method !== 'POST') {
+				return self::methodNotAllowed('POST');
+			}
+			return $this->unlockHidden($username, $body);
+		}
+
+		if ($segments[0] === 'passcode' && count($segments) === 1) {
+			if ($method !== 'PUT') {
+				return self::methodNotAllowed('PUT');
+			}
+			return $this->setPasscode($username, $body);
 		}
 
 		// PUT /v1/favorites/{id}
@@ -469,6 +498,110 @@ final class HardlyReadApi
 	}
 
 	/**
+	 * Locks the curtain. Refuses when no passcode exists, because the extension
+	 * would then have no way back in.
+	 */
+	private function lockHidden(string $username): HardlyReadApiResponse
+	{
+		$hidden = ($this->loadHiddenCategories)($username);
+		if (!$this->usable($hidden)) {
+			return self::error(409, 'hidden_categories_unavailable', 'Hidden Categories is not enabled for this user.');
+		}
+		/** @var object $hidden */
+		if (!method_exists($hidden, 'lock')) {
+			return self::error(409, 'extension_incompatible', 'Hidden Categories does not implement lock().');
+		}
+
+		$result = $hidden->lock();
+		$result = is_array($result) ? $result : [];
+		if (($result['ok'] ?? false) !== true) {
+			return self::error(
+				409,
+				'passcode_required',
+				self::CONTRACT_MESSAGES['passcode_required'],
+				['hiddenCategories' => $this->hiddenState($hidden)],
+			);
+		}
+
+		return $this->mutationResponse($result, $hidden);
+	}
+
+	/**
+	 * Unlocks with the passcode. Unlocking is global: the extension stores the
+	 * locked flag once, so unlocking here unlocks for every client, including
+	 * the web UI.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function unlockHidden(string $username, array $body): HardlyReadApiResponse
+	{
+		$passcode = $body['passcode'] ?? null;
+		if (!is_string($passcode) || $passcode === '') {
+			return self::error(400, 'wrong_passcode', 'The "passcode" field is required.');
+		}
+
+		$hidden = ($this->loadHiddenCategories)($username);
+		if (!$this->usable($hidden)) {
+			return self::error(409, 'hidden_categories_unavailable', 'Hidden Categories is not enabled for this user.');
+		}
+		/** @var object $hidden */
+		if (!method_exists($hidden, 'unlock')) {
+			return self::error(409, 'extension_incompatible', 'Hidden Categories does not implement unlock().');
+		}
+
+		$result = $hidden->unlock($passcode);
+		$result = is_array($result) ? $result : [];
+		if (($result['ok'] ?? false) !== true) {
+			// 403, not 401: the request is authenticated, the code was wrong.
+			return self::error(
+				403,
+				'wrong_passcode',
+				self::CONTRACT_MESSAGES['wrong_passcode'],
+				['hiddenCategories' => $this->hiddenState($hidden)],
+			);
+		}
+
+		return $this->mutationResponse($result, $hidden);
+	}
+
+	/**
+	 * Sets or clears the passcode. An empty string disables the lock, matching
+	 * the extension's settings form.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function setPasscode(string $username, array $body): HardlyReadApiResponse
+	{
+		if (!array_key_exists('passcode', $body) || !is_string($body['passcode'])) {
+			return self::error(400, 'invalid_passcode', 'The "passcode" field must be a string.');
+		}
+
+		$hidden = ($this->loadHiddenCategories)($username);
+		if (!$this->usable($hidden)) {
+			return self::error(409, 'hidden_categories_unavailable', 'Hidden Categories is not enabled for this user.');
+		}
+		/** @var object $hidden */
+		if (!method_exists($hidden, 'setPasscode')) {
+			return self::error(409, 'extension_incompatible', 'Hidden Categories does not implement setPasscode().');
+		}
+
+		$result = $hidden->setPasscode($body['passcode']);
+		$result = is_array($result) ? $result : [];
+		if (($result['ok'] ?? false) !== true) {
+			return self::error(
+				400,
+				'invalid_passcode',
+				is_string($result['message'] ?? null) && $result['message'] !== ''
+					? $result['message']
+					: self::CONTRACT_MESSAGES['invalid_passcode'],
+				['hiddenCategories' => $this->hiddenState($hidden)],
+			);
+		}
+
+		return $this->mutationResponse($result, $hidden);
+	}
+
+	/**
 	 * The machine-readable half of the state. Kept separate from the HTTP body
 	 * so error responses can carry exactly the same block.
 	 *
@@ -519,6 +652,9 @@ final class HardlyReadApi
 			'effectiveView' => (string) $hidden->effectiveView(),
 			'hiddenIds' => $hiddenIds,
 			'locked' => (bool) $store->isLocked(),
+			// Whether a lock is even possible. The app offers locking only when
+			// a passcode exists, instead of failing at the point of use.
+			'hasPasscode' => method_exists($store, 'hasPasscode') ? (bool) $store->hasPasscode() : false,
 			'categories' => $categories,
 		];
 	}

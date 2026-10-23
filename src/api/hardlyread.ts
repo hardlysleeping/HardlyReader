@@ -53,6 +53,8 @@ export interface HiddenCategoriesState {
   effectiveView: HiddenView;
   hiddenIds: number[];
   locked: boolean;
+  /** Whether a passcode exists. Locking is impossible without one. */
+  hasPasscode: boolean;
   categories: HiddenCategory[];
 }
 
@@ -163,6 +165,7 @@ export function unavailableState(): HiddenCategoriesState {
     effectiveView: "hidden",
     hiddenIds: [],
     locked: false,
+    hasPasscode: false,
     categories: [],
   };
 }
@@ -228,6 +231,7 @@ export function parseState(raw: unknown): HiddenCategoriesState {
     effectiveView: isView(raw.effectiveView) ? raw.effectiveView : view,
     hiddenIds: integerList(raw.hiddenIds),
     locked: raw.locked === true,
+    hasPasscode: raw.hasPasscode === true,
     categories: categoryList(raw.categories),
   };
 }
@@ -324,7 +328,7 @@ function failure(status: number, body: Record<string, unknown>): ApiError {
 }
 
 interface RequestOptions {
-  method: "GET" | "PUT";
+  method: "GET" | "PUT" | "POST";
   body?: Record<string, unknown>;
 }
 
@@ -412,6 +416,59 @@ export async function setView(
   const body = await request(transport, session, "/hidden-categories/view", {
     method: "PUT",
     body: { view },
+  });
+  return {
+    changed: typeof body.changed === "boolean" ? body.changed : null,
+    hiddenCategories: parseState(body.hiddenCategories),
+  };
+}
+
+/**
+ * Locks the curtain. The extension refuses when no passcode is set (409
+ * `passcode_required`), which is why the app asks for a passcode first.
+ */
+export async function lockHidden(transport: Transport, session: Session): Promise<MutationResult> {
+  const body = await request(transport, session, "/lock", { method: "POST" });
+  return {
+    changed: typeof body.changed === "boolean" ? body.changed : null,
+    hiddenCategories: parseState(body.hiddenCategories),
+  };
+}
+
+/**
+ * Unlocks with the passcode. A wrong code is 403 `wrong_passcode`; the state
+ * submitted with the error is still authoritative, so the client stays in sync.
+ */
+export async function unlockHidden(
+  transport: Transport,
+  session: Session,
+  passcode: string,
+): Promise<MutationResult> {
+  if (typeof passcode !== "string" || passcode === "") {
+    throw new RangeError("A passcode is required to unlock");
+  }
+  const body = await request(transport, session, "/unlock", {
+    method: "POST",
+    body: { passcode },
+  });
+  return {
+    changed: typeof body.changed === "boolean" ? body.changed : null,
+    hiddenCategories: parseState(body.hiddenCategories),
+  };
+}
+
+/**
+ * Sets or clears the passcode. An empty string disables locking, matching the
+ * extension's settings form; the digits-only rule is enforced server-side.
+ */
+export async function setHiddenPasscode(
+  transport: Transport,
+  session: Session,
+  passcode: string,
+): Promise<MutationResult> {
+  const body = await request(transport, session, "/passcode", {
+    method: "PUT",
+    body: { passcode },
   });
   return {
     changed: typeof body.changed === "boolean" ? body.changed : null,

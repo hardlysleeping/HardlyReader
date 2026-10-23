@@ -16,8 +16,11 @@ import {
   isHiddenCategory,
   labelOf,
   parseState,
+  lockHidden,
   setCategoryHidden,
+  setHiddenPasscode,
   setView,
+  unlockHidden,
   unavailableState,
 } from "../../src/api/hardlyread.ts";
 import { effectiveView, showsCategory, visibleGroups } from "../../src/state/hidden.ts";
@@ -341,6 +344,106 @@ check("showsCategory agrees with visibleGroups", showsCategory(state, "Technolog
 check("empty group list stays empty", visibleGroups([], state).length === 0);
 
 /* -------------------------------------------------------------------------- */
+
+
+/* -------------------------------------------------------- lock/unlock --
+ *
+ * The lock is the extension's curtain. These pin the wire contract the app
+ * depends on: a wrong passcode must not look like a successful unlock, and the
+ * passcode must reach the server exactly as typed (leading zeroes and all).
+ */
+
+{
+  const state = {
+    available: true,
+    mode: "strict",
+    view: "hidden",
+    effectiveView: "hidden",
+    hiddenIds: [4],
+    locked: true,
+    hasPasscode: true,
+    categories: [{ id: 4, name: "News", hidden: true }],
+  };
+  const { calls, transport } = recorder(async () => jsonResponse(200, { changed: true, hiddenCategories: state }));
+
+  const result = await lockHidden(transport, SESSION);
+
+  check("lock posts to /v1/lock", calls[0].method === "POST" && calls[0].url.endsWith("/v1/lock"));
+  check("lock returns the authoritative state", result.hiddenCategories.locked === true);
+  check("lock sends no body", calls[0].body === undefined);
+}
+
+{
+  const { calls, transport } = recorder(async () =>
+    jsonResponse(200, { changed: true, hiddenCategories: { available: true, locked: false, hasPasscode: true } }),
+  );
+
+  const ok = await unlockHidden(transport, SESSION, "001234");
+
+  check("unlock posts to /v1/unlock", calls[0].method === "POST" && calls[0].url.endsWith("/v1/unlock"));
+  check(
+    "unlock sends the passcode unchanged",
+    JSON.parse(calls[0].body).passcode === "001234",
+    calls[0].body,
+  );
+  check("unlock reports the new state", ok.hiddenCategories.locked === false);
+}
+
+{
+  const { transport } = recorder(async () => jsonResponse(200, { changed: true, hiddenCategories: { available: true } }));
+  let threw = false;
+  try {
+    await unlockHidden(transport, SESSION, "");
+  } catch (error) {
+    threw = error instanceof RangeError;
+  }
+  check("an empty passcode never reaches the server", threw);
+}
+
+{
+  const lockedState = {
+    available: true,
+    mode: "strict",
+    view: "hidden",
+    effectiveView: "hidden",
+    hiddenIds: [4],
+    locked: true,
+    hasPasscode: true,
+    categories: [],
+  };
+  const { transport } = recorder(async () =>
+    jsonResponse(403, {
+      error: { code: "wrong_passcode", message: "Wrong passcode." },
+      hiddenCategories: lockedState,
+    }),
+  );
+
+  let caught = null;
+  try {
+    await unlockHidden(transport, SESSION, "9999");
+  } catch (error) {
+    caught = error;
+  }
+
+  check("a wrong passcode is an ApiError", caught instanceof ApiError);
+  check("with code wrong_passcode", caught?.code === "wrong_passcode");
+  check("and stays locked", caught?.state?.locked === true, "state must not be guessed as unlocked");
+}
+
+{
+  const { calls, transport } = recorder(async () =>
+    jsonResponse(200, { changed: true, hiddenCategories: { available: true, hasPasscode: false } }),
+  );
+
+  await setHiddenPasscode(transport, SESSION, "");
+
+  check("clearing uses PUT /v1/passcode", calls[0].method === "PUT" && calls[0].url.endsWith("/v1/passcode"));
+  check("an empty passcode is sent, not omitted", JSON.parse(calls[0].body).passcode === "");
+}
+
+check("state reports a passcode exists", parseState({ available: true, hasPasscode: true }).hasPasscode === true);
+check("state defaults hasPasscode to false", parseState({ available: true }).hasPasscode === false);
+check("unavailable state has no passcode", unavailableState().hasPasscode === false);
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

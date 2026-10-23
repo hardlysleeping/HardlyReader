@@ -97,6 +97,7 @@ final class HardlyReadApiTest extends TestCase
 					'effectiveView' => 'hidden',
 					'hiddenIds' => [4, 12, 31],
 					'locked' => false,
+					'hasPasscode' => false,
 					'categories' => [
 						['id' => 4, 'name' => 'Comics', 'hidden' => true],
 						['id' => 12, 'name' => 'News', 'hidden' => true],
@@ -1198,6 +1199,143 @@ final class HardlyReadApiTest extends TestCase
 	}
 
 	// ------------------------------------------------------------- helpers --
+
+
+	// ------------------------------------------------------- lock/unlock --
+
+	public function testLockCallsTheExtensionOnce(): void
+	{
+		$hidden = new FakeHiddenCategories();
+
+		$response = $this->api($hidden)->dispatch('POST', '/v1/lock', self::AUTH);
+
+		self::assertSame(200, $response->status);
+		self::assertTrue($response->body['ok']);
+		self::assertSame(1, $hidden->lockCalls);
+		self::assertSame([4, 12], $response->body['hiddenCategories']['hiddenIds']);
+	}
+
+	public function testLockWithoutAPasscodeIsRefusedAndExplained(): void
+	{
+		$hidden = new FakeHiddenCategories();
+		$hidden->lockResult = ['ok' => false, 'message' => 'Set a passcode first.'];
+
+		$response = $this->api($hidden)->dispatch('POST', '/v1/lock', self::AUTH);
+
+		// 409, not 500: the request was valid, the instance is not ready.
+		self::assertSame(409, $response->status);
+		self::assertSame('passcode_required', $response->body['error']['code']);
+		self::assertSame(1, $hidden->lockCalls);
+	}
+
+	public function testUnlockPassesThePasscodeThroughUnchanged(): void
+	{
+		$hidden = new FakeHiddenCategories();
+
+		$response = $this->api($hidden)->dispatch('POST', '/v1/unlock', self::AUTH, ['passcode' => '001234']);
+
+		self::assertSame(200, $response->status);
+		self::assertSame(['001234'], $hidden->unlockArguments, 'leading zeroes must survive');
+	}
+
+	public function testWrongPasscodeIsForbiddenAndCarriesTheState(): void
+	{
+		$hidden = new FakeHiddenCategories();
+		$hidden->unlockResult = ['ok' => false, 'message' => 'Wrong passcode.'];
+
+		$response = $this->api($hidden)->dispatch('POST', '/v1/unlock', self::AUTH, ['passcode' => '999']);
+
+		// 403: authenticated, wrong code. 401 would make clients re-login.
+		self::assertSame(403, $response->status);
+		self::assertSame('wrong_passcode', $response->body['error']['code']);
+		self::assertArrayHasKey('hiddenCategories', $response->body);
+	}
+
+	public function testUnlockWithoutAPasscodeFieldDoesNotReachTheExtension(): void
+	{
+		$hidden = new FakeHiddenCategories();
+
+		$response = $this->api($hidden)->dispatch('POST', '/v1/unlock', self::AUTH, []);
+
+		self::assertSame(400, $response->status);
+		self::assertSame(0, $hidden->unlockCalls);
+	}
+
+	public function testPasscodeIsStoredThroughTheExtension(): void
+	{
+		$hidden = new FakeHiddenCategories();
+
+		$response = $this->api($hidden)->dispatch('PUT', '/v1/passcode', self::AUTH, ['passcode' => '4321']);
+
+		self::assertSame(200, $response->status);
+		self::assertSame('4321', $hidden->lastPasscodeArgument);
+	}
+
+	public function testEmptyPasscodeClearsRatherThanFailing(): void
+	{
+		$hidden = new FakeHiddenCategories();
+		$hidden->passcodeResult = ['ok' => true, 'changed' => true, 'message' => 'Passcode cleared.'];
+
+		$response = $this->api($hidden)->dispatch('PUT', '/v1/passcode', self::AUTH, ['passcode' => '']);
+
+		self::assertSame(200, $response->status);
+		self::assertSame('', $hidden->lastPasscodeArgument);
+	}
+
+	public function testRejectedPasscodeFormatIsABadRequest(): void
+	{
+		$hidden = new FakeHiddenCategories();
+		$hidden->passcodeResult = ['ok' => false, 'message' => 'Passcode must be 1 to 6 digits, numbers only.'];
+
+		$response = $this->api($hidden)->dispatch('PUT', '/v1/passcode', self::AUTH, ['passcode' => 'abcd']);
+
+		self::assertSame(400, $response->status);
+		self::assertSame('invalid_passcode', $response->body['error']['code']);
+	}
+
+	public function testPasscodeFieldMustBeAString(): void
+	{
+		$hidden = new FakeHiddenCategories();
+
+		$response = $this->api($hidden)->dispatch('PUT', '/v1/passcode', self::AUTH, ['passcode' => 1234]);
+
+		self::assertSame(400, $response->status);
+		self::assertSame(0, $hidden->passcodeCalls);
+	}
+
+	public function testLockRouteRejectsGet(): void
+	{
+		$hidden = new FakeHiddenCategories();
+
+		$response = $this->api($hidden)->dispatch('GET', '/v1/lock', self::AUTH);
+
+		self::assertSame(405, $response->status);
+		self::assertSame(0, $hidden->lockCalls);
+	}
+
+	public function testLockRequiresAuthentication(): void
+	{
+		$hidden = new FakeHiddenCategories();
+
+		$response = $this->api($hidden, authenticated: false)->dispatch('POST', '/v1/lock', self::AUTH);
+
+		self::assertSame(401, $response->status);
+		self::assertSame(0, $hidden->lockCalls);
+	}
+
+	public function testStateReportsWhetherALockIsPossible(): void
+	{
+		$withPasscode = new FakeHiddenCategories(new FakeHiddenCategoriesStore(passcode: '1234'));
+		$without = new FakeHiddenCategories(new FakeHiddenCategoriesStore(passcode: ''));
+
+		self::assertTrue(
+			$this->api($withPasscode)->dispatch('GET', '/v1/state', self::AUTH)->body['hiddenCategories']['hasPasscode'],
+			'the app needs to know a lock is possible before offering it',
+		);
+		self::assertFalse(
+			$this->api($without)->dispatch('GET', '/v1/state', self::AUTH)->body['hiddenCategories']['hasPasscode'],
+		);
+	}
 
 	private function api(
 		?object $hidden,

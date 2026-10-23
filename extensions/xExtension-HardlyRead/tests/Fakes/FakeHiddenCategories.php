@@ -44,6 +44,58 @@ final class FakeHiddenCategories extends FakeHiddenCategoriesReadOnly
 		return $this->categoryResult;
 	}
 
+	/** @var array<string, mixed> */
+	public array $lockResult = ['ok' => true, 'changed' => true, 'message' => 'Locked.'];
+
+	/** @var array<string, mixed> */
+	public array $unlockResult = ['ok' => true, 'changed' => true, 'message' => 'Unlocked.'];
+
+	/** @var array<string, mixed> */
+	public array $passcodeResult = ['ok' => true, 'changed' => true, 'message' => 'Passcode saved.'];
+
+	public int $lockCalls = 0;
+
+	public int $unlockCalls = 0;
+
+	public int $passcodeCalls = 0;
+
+	/** @var list<string|null> */
+	public array $unlockArguments = [];
+
+	public ?string $lastPasscodeArgument = null;
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	public function lock(): array
+	{
+		$this->lockCalls++;
+
+		return $this->lockResult;
+	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	public function unlock(?string $given): array
+	{
+		$this->unlockCalls++;
+		$this->unlockArguments[] = $given;
+
+		return $this->unlockResult;
+	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	public function setPasscode(string $code): array
+	{
+		$this->passcodeCalls++;
+		$this->lastPasscodeArgument = $code;
+
+		return $this->passcodeResult;
+	}
+
 	/**
 	 * @return array<string, mixed>
 	 */

@@ -15,6 +15,7 @@ final class FakeHiddenCategoriesStore
 		private string $mode = 'strict',
 		private string $view = 'hidden',
 		private bool $locked = false,
+		private string $passcode = '',
 	) {
 	}
 
@@ -36,8 +37,18 @@ final class FakeHiddenCategoriesStore
 		return $this->view;
 	}
 
+	/**
+	 * The fake keeps the locked flag independent of the passcode: tests set one
+	 * or the other deliberately, and the real store's "no passcode means never
+	 * locked" rule is its own behaviour, not the router's to model.
+	 */
 	public function isLocked(): bool
 	{
 		return $this->locked;
+	}
+
+	public function hasPasscode(): bool
+	{
+		return $this->passcode !== '';
 	}
 }

@@ -25,7 +25,11 @@ import {
   clampIndentPx,
   getState as getHiddenState,
   setCategoryFavorite as apiSetCategoryFavorite,
+  ApiError,
+  lockHidden as apiLockHidden,
   setCategoryHidden as apiSetCategoryHidden,
+  setHiddenPasscode as apiSetHiddenPasscode,
+  unlockHidden as apiUnlockHidden,
   setFavoritesView as apiSetFavoritesView,
   setView as apiSetView,
   SIDEBAR_INDENT_FALLBACK_PX,
@@ -142,6 +146,9 @@ export class ReaderState {
 
   /** True while a hide/show/view write is in flight. */
   hiddenBusy = $state(false);
+
+  /** Last lock/unlock message, so a wrong passcode is visible rather than silent. */
+  lockNotice = $state<string | null>(null);
 
   /** Favorite Categories state, from the same `/v1/state` read. */
   favorites = $state<FavoritesState>(unavailableFavorites());
@@ -280,6 +287,10 @@ export class ReaderState {
   /** How many categories the extension hides. Never drawn while locked. */
   get hiddenCount(): number {
     return this.hiddenCategories.available ? this.hiddenCategories.hiddenIds.length : 0;
+  }
+
+  get hiddenHasPasscode(): boolean {
+    return this.hiddenCategories.available && this.hiddenCategories.hasPasscode;
   }
 
   get hiddenLocked(): boolean {
@@ -452,6 +463,84 @@ export class ReaderState {
         // this only exists to keep the union total.
         this.setSidebarIndentPx(action.px);
         return null;
+    }
+  }
+
+  /**
+   * Locks the curtain, locally first.
+   *
+   * The lock is a single flag: setting it here makes the sidebar drop the
+   * hidden categories and every hint about them immediately, then the server
+   * is told. If the server refuses (no passcode) the flag rolls back and the
+   * reason is shown, rather than the UI lying until the next refresh.
+   */
+  async lockHidden(): Promise<void> {
+    const session = this.session;
+    if (session === null || !this.hiddenAvailable || this.hiddenBusy) return;
+
+    const previous = this.hiddenCategories;
+    this.hiddenBusy = true;
+    this.lockNotice = null;
+    this.hiddenCategories = { ...previous, locked: true };
+    try {
+      const result = await apiLockHidden(transport, session);
+      this.hiddenCategories = result.hiddenCategories;
+      this.lockNotice = null;
+    } catch (error) {
+      this.hiddenCategories = previous;
+      this.lockNotice =
+        error instanceof ApiError ? error.message : "Could not lock. Nothing was changed.";
+    } finally {
+      this.hiddenBusy = false;
+    }
+  }
+
+  /**
+   * Unlocks with a passcode. Deliberately not optimistic: unlocking without
+   * checking the code would be a cosmetic lock.
+   */
+  async unlockHidden(passcode: string): Promise<boolean> {
+    const session = this.session;
+    if (session === null || !this.hiddenAvailable || this.hiddenBusy) return false;
+
+    this.hiddenBusy = true;
+    this.lockNotice = null;
+    try {
+      const result = await apiUnlockHidden(transport, session, passcode);
+      this.hiddenCategories = result.hiddenCategories;
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        // A wrong code still reports authoritative state; take it.
+        if (error.state !== null) {
+          this.hiddenCategories = error.state;
+        }
+        this.lockNotice = error.code === "wrong_passcode" ? "Wrong passcode." : error.message;
+      } else {
+        this.lockNotice = "Could not unlock. Check your connection.";
+      }
+      return false;
+    } finally {
+      this.hiddenBusy = false;
+    }
+  }
+
+  /** Sets or clears the passcode. Empty input disables locking entirely. */
+  async setHiddenPasscode(passcode: string): Promise<boolean> {
+    const session = this.session;
+    if (session === null || !this.hiddenAvailable || this.hiddenBusy) return false;
+
+    this.hiddenBusy = true;
+    this.lockNotice = null;
+    try {
+      const result = await apiSetHiddenPasscode(transport, session, passcode);
+      this.hiddenCategories = result.hiddenCategories;
+      return true;
+    } catch (error) {
+      this.lockNotice = error instanceof ApiError ? error.message : "Could not save the passcode.";
+      return false;
+    } finally {
+      this.hiddenBusy = false;
     }
   }
 

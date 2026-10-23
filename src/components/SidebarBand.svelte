@@ -12,6 +12,8 @@
   };
 
   let lockOpen = $state(false);
+  let code = $state("");
+  let changing = $state(false);
 
   const hiddenView = $derived(reader.hiddenView);
   const nextHidden = $derived(HIDDEN_CYCLE[(HIDDEN_CYCLE.indexOf(hiddenView) + 1) % HIDDEN_CYCLE.length]);
@@ -25,6 +27,31 @@
 
   function cyclePins() {
     void reader.cyclePinView();
+  }
+
+  async function submitUnlock(event: SubmitEvent) {
+    event.preventDefault();
+    if (code === "" || reader.hiddenBusy) return;
+    const ok = await reader.unlockHidden(code);
+    if (ok) {
+      code = "";
+      lockOpen = false;
+    }
+  }
+
+  async function submitCode(event: SubmitEvent) {
+    event.preventDefault();
+    if (reader.hiddenBusy) return;
+    const ok = await reader.setHiddenPasscode(code);
+    if (ok) {
+      code = "";
+      changing = false;
+    }
+  }
+
+  async function lockNow() {
+    await reader.lockHidden();
+    if (reader.hiddenLocked) lockOpen = false;
   }
 </script>
 
@@ -100,16 +127,101 @@
   {#if lockOpen}
     <div class="lockpanel" role="region" aria-label="Lock">
       {#if locked}
-        <p>Hidden Categories is locked. Unlock it in FreshRSS; unlocking with your passcode from here is next on the list.</p>
+        <form class="code" onsubmit={submitUnlock}>
+          <label for="unlock-code">Passcode</label>
+          <input
+            id="unlock-code"
+            type="password"
+            inputmode="numeric"
+            maxlength="6"
+            autocomplete="off"
+            bind:value={code}
+          />
+          <button type="submit" class="primary" disabled={reader.hiddenBusy || code === ""}>Unlock</button>
+        </form>
+      {:else if reader.hiddenHasPasscode && !changing}
+        <div class="row">
+          <button class="primary" onclick={lockNow} disabled={reader.hiddenBusy}>Lock now</button>
+          <button onclick={() => ((changing = true), (code = ""))}>Change passcode</button>
+        </div>
       {:else}
-        <p>Unlocked. Locking is set in FreshRSS, under Hidden Categories.</p>
+        <form class="code" onsubmit={submitCode}>
+          <label for="set-code">
+            {reader.hiddenHasPasscode ? "New passcode" : "Set a passcode to enable locking"}
+          </label>
+          <input
+            id="set-code"
+            type="password"
+            inputmode="numeric"
+            maxlength="6"
+            autocomplete="off"
+            bind:value={code}
+          />
+          <button type="submit" class="primary" disabled={reader.hiddenBusy}>Save</button>
+          {#if reader.hiddenHasPasscode}
+            <button type="button" onclick={() => ((changing = false), (code = ""))}>Cancel</button>
+          {/if}
+        </form>
+        {#if !reader.hiddenHasPasscode}
+          <p class="hint">One to six digits. Clearing the passcode turns locking off.</p>
+        {/if}
       {/if}
-      <button class="close" onclick={() => (lockOpen = false)}>Close</button>
+      {#if reader.lockNotice}
+        <p class="notice" role="status">{reader.lockNotice}</p>
+      {/if}
+      <button class="close" onclick={() => ((lockOpen = false), (changing = false), (code = ""))}>Close</button>
     </div>
   {/if}
 {/if}
 
 <style>
+  .lockpanel .code {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .lockpanel .code label {
+    flex: 1 1 100%;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .lockpanel .code input {
+    flex: 1 1 4.5rem;
+    min-width: 0;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--sunken, #171717);
+    color: inherit;
+    font: inherit;
+    letter-spacing: 0.15em;
+  }
+
+  .lockpanel .row {
+    display: flex;
+    gap: 6px;
+  }
+
+  .lockpanel .primary {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .lockpanel .hint {
+    margin: 6px 0 0;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .lockpanel .notice {
+    margin: 6px 0 0;
+    font-size: 11px;
+    color: var(--danger, #e06c75);
+  }
+
   .band {
     display: grid;
     grid-template-columns: 1fr auto 1fr 22px;
