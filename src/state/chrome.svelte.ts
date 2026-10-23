@@ -13,13 +13,31 @@
  * a Svelte compiler.
  */
 
-import { browserStorage, readBandCollapsed, writeBandCollapsed } from "../lib/chrome-prefs";
+import {
+  browserStorage,
+  readBandCollapsed,
+  readIndentOpen,
+  writeBandCollapsed,
+  writeIndentOpen,
+} from "../lib/chrome-prefs";
 
 class ChromeState {
   bandCollapsed = $state(false);
 
+  /**
+   * Whether the feed-indent slider is showing. Collapsed by default: the value
+   * is worth seeing, the 12px slider track is not.
+   */
+  indentOpen = $state(false);
+
   load(): void {
     this.bandCollapsed = readBandCollapsed(browserStorage());
+    this.indentOpen = readIndentOpen(browserStorage());
+  }
+
+  toggleIndentOpen(): void {
+    this.indentOpen = !this.indentOpen;
+    writeIndentOpen(browserStorage(), this.indentOpen);
   }
 
   toggleBand(): void {

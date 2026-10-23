@@ -1,4 +1,10 @@
-import { CHROME_KEY, readBandCollapsed, writeBandCollapsed } from "../../src/lib/chrome-prefs.ts";
+import {
+  CHROME_KEY,
+  readBandCollapsed,
+  readIndentOpen,
+  writeBandCollapsed,
+  writeIndentOpen,
+} from "../../src/lib/chrome-prefs.ts";
 
 let failures = 0;
 let checks = 0;
@@ -35,6 +41,25 @@ check("a relaunch stays collapsed", readBandCollapsed(storage) === true);
 
 writeBandCollapsed(storage, false);
 check("expanding is persisted", readBandCollapsed(storage) === false);
+
+// The indent slider is a second flag in the same key: writing one must not
+// drop the other.
+const shared = memoryStorage();
+check("the indent slider starts collapsed", readIndentOpen(shared) === false);
+writeBandCollapsed(shared, true);
+writeIndentOpen(shared, true);
+check("opening the slider keeps the band collapsed", readBandCollapsed(shared) === true);
+check("the slider reads back as open", readIndentOpen(shared) === true);
+check("still one key", shared.store.size === 1, [...shared.store.keys()].join(","));
+writeBandCollapsed(shared, false);
+check("expanding the band keeps the slider open", readIndentOpen(shared) === true);
+writeIndentOpen(shared, false);
+check("closing the slider keeps the band expanded", readBandCollapsed(shared) === false);
+check("a half-written key defaults both flags quiet", (() => {
+  const half = memoryStorage();
+  half.store.set(CHROME_KEY, JSON.stringify({ indentOpen: true }));
+  return readIndentOpen(half) === true && readBandCollapsed(half) === false;
+})());
 
 storage.store.set(CHROME_KEY, "{not json");
 check("corrupt JSON falls back to expanded", readBandCollapsed(storage) === false);
