@@ -43,7 +43,7 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| 14 | Publish to public GitHub | **done (early, at owner's request)** | `github.com/hardlysleeping/hardlyread`, public, default branch `main`, 100 files. History is a **single squashed root commit** because the older commits carried a tailnet IP, hostname and the harness password and a force-push would not have removed them. Scrubbed before pushing: `100.79.162.94` → `your-server`, `cenvalweb.tail900410.ts.net` → `your-freshrss-host.example.ts.net`, `itest-api-password` → `hardlyread-test-password` (consistently, so the harness still runs). Verified by cloning the public repo back and grepping: clean. Local `master` keeps full history; `origin` points at the public repo |
+| 14 | Publish to public GitHub | **done (early, at owner's request)** | `github.com/hardlysleeping/hardlyread`, public, default branch `main`. History is a **single squashed root commit** because the older commits carried private infrastructure details (a tailnet IP, a hostname, the harness password) and a force-push would not have removed them from the remote. Those values were neutralised *before* the snapshot was created — this file deliberately does not repeat them. Verified by cloning the public repo back and grepping. Local `master` keeps the full history and must never be pushed |
 
 Gate: the "Done when" section below must actually pass first. Full history is scanned before the first
 push — a force-push does not purge old commits, and this account cannot delete repos.
