@@ -91,3 +91,9 @@ The tests cover the parts that are easy to get quietly wrong: the GReader client
 Early. The desktop app is the target; iOS, Android and a PWA are planned from the same code and are **not** built or tested yet. There is no offline cache of article bodies or images — a server that is down is a server that is down. No release bundles are published yet beyond the tagged source.
 
 Screenshots are of a demo build with invented feeds — no real subscriptions appear in this repository.
+
+## Licence
+
+[PolyForm Noncommercial 1.0.0](LICENSE): free for any **noncommercial** use — read it, run it, change it, share it, build on it. **Commercial use, and distribution through an app store or TestFlight, needs written permission from the author.** That includes selling it, bundling it into something sold, or shipping it to a store under your own name.
+
+This is deliberately not an open-source licence: GPL-3.0 and friends cannot carry a "no commercial use" condition, because GPL §7 forbids adding restrictions on anyone the code is passed to.

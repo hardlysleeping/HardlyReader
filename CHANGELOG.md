@@ -52,6 +52,12 @@ reading, with the extensions optional throughout.
 
 ### Changed
 
+- **Relicensed under [PolyForm Noncommercial 1.0.0](LICENSE)** — free for any
+  noncommercial use; commercial use and app-store or TestFlight distribution
+  need written permission. GPL-3.0 was considered and rejected: it cannot carry
+  a no-commercial condition, because §7 forbids further restrictions on anyone
+  the code is passed to.
+
 - The sidebar's hidden/pin/lock controls fold into a compact band that can be
   collapsed, so the feed list gets the height.
 - The header gives up its subtitle, sign-out and Aa/gear group under 560px, with
