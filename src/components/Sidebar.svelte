@@ -12,6 +12,8 @@
   import { buildOpml, opmlFileName, parseOpml } from "../lib/opml";
   import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
   import { relativeTime } from "../lib/format";
+  import { thumbnailOf, type ThumbSource } from "../lib/thumb";
+  import { reading } from "../state/reading.svelte";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
   import { searchFeeds } from "../lib/search";
@@ -165,6 +167,28 @@
       reader.toggleCategory(category.id);
     }
     void toggleFeed(feed);
+  }
+
+  /**
+   * The same picture the posts column would have shown, worked out once per
+   * post. Nothing is fetched here — `thumbnailOf` only decides a URL from what
+   * the feed already sent — so an unfolded feed costs no extra requests.
+   */
+  const thumbnails = new WeakMap<StreamItem, string | null>();
+
+  function thumbnail(item: StreamItem): string | null {
+    const known = thumbnails.get(item);
+    if (known !== undefined) return known;
+    const found = thumbnailOf(item as ThumbSource).url;
+    thumbnails.set(item, found);
+    return found;
+  }
+
+  /** A hotlinked picture that fails is dropped, not left as a broken box. */
+  let brokenThumbs = $state<string[]>([]);
+
+  function thumbFailed(id: string) {
+    brokenThumbs = [...brokenThumbs, id];
   }
 
   /** A post under an open feed: the reader is the one thing that takes over. */
@@ -638,6 +662,23 @@
                   >
                     <span class="post-title">{item.title || "(untitled)"}</span>
                     <span class="post-time">{relativeTime(item.timestampUsec, item.published)}</span>
+                    {#if reading.thumbSide !== "off" && thumbnail(item) !== null && !brokenThumbs.includes(item.id)}
+                      <span
+                        class="post-thumb"
+                        class:left={reading.thumbSide === "left"}
+                        aria-hidden="true"
+                      >
+                        <img
+                          src={thumbnail(item)}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          referrerpolicy="no-referrer"
+                          draggable="false"
+                          onerror={() => thumbFailed(item.id)}
+                        />
+                      </span>
+                    {/if}
                   </button>
                 {/each}
               {/if}
@@ -1013,7 +1054,7 @@
 
   .post {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
     width: 100%;
     padding: 4px 6px;
@@ -1052,6 +1093,32 @@
     color: var(--muted);
     font-size: 10.5px;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* The picture the feed chose, at the size the reader asked for in Aa — the
+     same 48px × row × picture scales as the posts column, so the size setting
+     means one thing everywhere. A row without a picture keeps its plain shape
+     rather than reserving a box. */
+  .post-thumb {
+    display: block;
+    flex: none;
+    width: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    height: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    border-radius: 5px;
+    overflow: hidden;
+    background: var(--hover);
+  }
+
+  .post-thumb.left {
+    order: -1;
+  }
+
+  .post-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    color: transparent;
   }
 
   .posts-note {
