@@ -1,0 +1,93 @@
+# HardlyReader
+
+A reader for FreshRSS that behaves like a reading app rather than a web page: three panes that fold to one, a keyboard that never needs the mouse, and no reflow while you scroll.
+
+Svelte 5, TypeScript, Tauri 2. Linux desktop today; the same code is the browser build.
+
+![Three panes: feeds, posts, article](docs/screenshots/three-panes.png)
+
+## What it does
+
+**Panes that fit the window.** One, two or three columns, chosen in the header or by width. The feeds pane can be folded away without losing the other two, and the widths you drag stay where you put them.
+
+| | |
+|---|---|
+| ![Cards view](docs/screenshots/cards.png) | ![Grid view](docs/screenshots/grid.png) |
+| **Four ways to list posts** — Regular with thumbnails and a preview, List for density, Cards and Grid for pictures. One row structure behind all four, so every action works in every shape. | |
+| ![Feeds pane folded](docs/screenshots/two-panes-collapsed.png) | ![One pane](docs/screenshots/one-pane-feed.png) |
+| **Fold the feeds pane** and the posts keep their width. | **One column** on a narrow window, with a feed's posts unfolded in place. |
+| ![Locked](docs/screenshots/locked.png) | ![Search](docs/screenshots/search-categories.png) |
+| **Locked categories** sit behind a passcode; hidden ones do not leak into counts or screen readers. | **Search** matches feeds *and* categories, and keeps the category around the feeds it found. |
+| ![Light theme](docs/screenshots/theme-light.png) | ![Settings](docs/screenshots/settings-colours.png) |
+| **Dark, light or automatic**, with the accent and every tone configurable. | **Settings in three tabs** — colours, layout, reading — instead of one long column. |
+| ![Large type](docs/screenshots/type-large.png) | ![Reading settings](docs/screenshots/settings-reading.png) |
+| **Type and rows scale** independently, to 150% and 140%. | **Reading controls**: measure, leading, alignment, text advance and automatic read marking. |
+
+### Reading
+
+- **Manual or automatic read marking.** Automatic marks a post read after it has been open for the delay you choose; manual leaves it alone until you say so.
+- **Keyboard first.** Next/previous post, next/previous feed, mark read, star, open in the browser, go back — every one is a single key, and `?` lists them.
+- **Pull down in the post list** to ask the feed for new posts; pull down in an article to leave it, or go to the previous post when advance-on-scroll is on.
+- **Scroll that does not jump** — the reader only moves when you ask it to.
+- **Article images** can be shown, scaled, or turned off, and the same for row thumbnails.
+
+### Feeds, categories and the extensions
+
+- Feeds, categories and posts all come from FreshRSS over the GReader API: read, unread, star, subscribe and unsubscribe happen server-side as they do on the website.
+- Categories can be **hidden** (with three eye states: hidden, revealed, only), **pinned**, and hidden categories can be **locked** behind a passcode. Hiding and pinning are done by two FreshRSS extensions, which stay optional: without them the app runs, with the controls that need them disabled rather than broken.
+- Hiding is optimistic — press the eye and the category is gone from the sidebar immediately, with the server catching up.
+- Feed pins are local to the device; category pins live on the server, so they follow you.
+
+### The rest
+
+- OPML import and export (folders included).
+- Feed icons from the server, with a drawn fallback when there is none.
+- A sync button that says what it is doing, and a quiet seam under the header that shows activity without a spinner.
+- Session survives a restart; so does where you were — the feed, the open post, the feed unfolded in place, and which categories were folded.
+
+## Requirements
+
+- FreshRSS with **API access enabled** (Settings → Authentication). The API password is what the app asks for, not the account password.
+- For the extension-backed features: **Pinned Categories** and/or **Hidden Categories**, plus the small **Hardly Read** adapter that exposes their state over the API.
+- To build: Node 20+, pnpm, Rust, and Tauri 2's Linux dependencies (WebKitGTK 4.1).
+
+## Running
+
+```sh
+pnpm install
+pnpm tauri dev      # desktop window
+pnpm dev            # browser build on 127.0.0.1:1420
+```
+
+Build a bundle:
+
+```sh
+pnpm tauri build    # .deb / .rpm / AppImage in src-tauri/target/release/bundle
+```
+
+On first launch, enter the base URL of your FreshRSS (e.g. `https://feeds.example.org`), the account email and the **API password**. Loopback addresses work too (`http://127.0.0.1:8080`).
+
+## Extensions
+
+| Extension | What the app uses it for |
+|---|---|
+| [Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories) | Which categories are pinned, and their order |
+| Hidden Categories | Which categories are hidden, the view state, and the lock |
+| Hardly Read adapter | One request that returns all of the above, plus the sidebar indent |
+
+Every one of them is optional. The website keeps working the same way with or without the app, and the app keeps working with or without them — it just says so, in the control that needs one.
+
+## Development
+
+```sh
+pnpm check    # svelte-check: 0 errors, 0 warnings is the bar
+pnpm test     # unit suites, headless, no browser and no server
+```
+
+The tests cover the parts that are easy to get quietly wrong: the GReader client, the pane maths, filters and ordering, the extension API's state and error shapes, the reading timer, the lock flows, search grouping, and the memory of where you were.
+
+## Status
+
+Early. The desktop app is the target; iOS, Android and a PWA are planned from the same code and are **not** built or tested yet. There is no offline cache of article bodies or images — a server that is down is a server that is down. No release bundles are published yet beyond the tagged source.
+
+Screenshots are of a demo build with invented feeds — no real subscriptions appear in this repository.

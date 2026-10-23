@@ -227,13 +227,23 @@ export function nudge(widths: PaneWidths, which: "sidebar" | "list", direction: 
   return { ...widths, [which]: widths[which] + step };
 }
 
-/** `grid-template-columns` for a mode, including the gutter tracks. */
-export function gridTemplate(mode: PaneMode, widths: PaneWidths): string {
+/**
+ * `grid-template-columns` for a mode, including the gutter tracks.
+ *
+ * `collapsed` is the first pane folded away: its column and its seam leave the
+ * template instead of being set to zero, so the grids the other panes sit in
+ * keep whole columns rather than a 0px track that still reports a gutter.
+ */
+export function gridTemplate(mode: PaneMode, widths: PaneWidths, collapsed = false): string {
   if (mode === 3) {
-    return `${widths.sidebar}px ${GUTTER}px ${widths.list}px ${GUTTER}px minmax(0, 1fr)`;
+    return collapsed
+      ? `${widths.list}px ${GUTTER}px minmax(0, 1fr)`
+      : `${widths.sidebar}px ${GUTTER}px ${widths.list}px ${GUTTER}px minmax(0, 1fr)`;
   }
   if (mode === 2) {
-    return `${widths.sidebar}px ${GUTTER}px minmax(0, 1fr)`;
+    return collapsed
+      ? "minmax(0, 1fr)"
+      : `${widths.sidebar}px ${GUTTER}px minmax(0, 1fr)`;
   }
   return "minmax(0, 1fr)";
 }

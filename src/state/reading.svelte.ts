@@ -7,6 +7,7 @@
  */
 
 import { isArticleFilter, type ArticleFilter } from "../lib/article-filter";
+import { LIST_VIEW_DEFAULT, isListView, type ListView } from "../lib/list-view";
 import { clampDwellSeconds, DWELL_SECONDS_DEFAULT } from "../lib/dwell";
 import {
   ALIGN_INITIAL,
@@ -50,6 +51,15 @@ class ReadingState {
    * a feed that had lost them.
    */
   articleFilter = $state<ArticleFilter>("all");
+
+  /**
+   * The shape of the posts column: regular rows, one-line list, cards or grid.
+   *
+   * Global and device-local like the rest of reading, because it is how you
+   * read, not a property of a feed. `regular` is the default, so the column
+   * looks the way it always did until it is told otherwise.
+   */
+  listView = $state<ListView>(LIST_VIEW_DEFAULT);
 
   /**
    * Whether a post is marked read without being asked.
@@ -126,6 +136,7 @@ class ReadingState {
       const saved = JSON.parse(raw) as {
         advanceOnScroll?: unknown;
         articleFilter?: unknown;
+        listView?: unknown;
         markReadMode?: unknown;
         autoMarkRead?: unknown;
         autoMarkSeconds?: unknown;
@@ -141,6 +152,7 @@ class ReadingState {
       };
       if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
+      if (isListView(saved.listView)) this.listView = saved.listView;
       // An explicit choice of mode is honoured; the old bare `autoMarkRead`
       // boolean is not read at all. It was a single icon next to the star, and
       // it stayed on for the owner without his meaning it to — automatic
@@ -189,6 +201,12 @@ class ReadingState {
     const next = clampDwellSeconds(seconds);
     if (this.autoMarkSeconds === next) return;
     this.autoMarkSeconds = next;
+    this.save();
+  }
+
+  setListView(view: ListView): void {
+    if (!isListView(view) || this.listView === view) return;
+    this.listView = view;
     this.save();
   }
 
@@ -279,6 +297,7 @@ class ReadingState {
         JSON.stringify({
           advanceOnScroll: this.advanceOnScroll,
           articleFilter: this.articleFilter,
+          listView: this.listView,
           markReadMode: this.autoMarkRead ? "auto" : "manual",
           autoMarkSeconds: this.autoMarkSeconds,
           scrollEffort: this.scrollEffort,

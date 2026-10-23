@@ -304,8 +304,10 @@
         {/if}
       </div>
     {:else if mode === 2}
-      <Sidebar />
-      <PaneGutter which="sidebar" />
+      {#if !layout.collapsed}
+        <Sidebar />
+        <PaneGutter which="sidebar" />
+      {/if}
       <!-- The second column is the posts column and becomes the article: the
            two-column behaviour, now chosen rather than inferred from width. -->
       {#if reader.selectedId !== null}
@@ -314,8 +316,10 @@
         <ArticleList />
       {/if}
     {:else}
-      <Sidebar />
-      <PaneGutter which="sidebar" />
+      {#if !layout.collapsed}
+        <Sidebar />
+        <PaneGutter which="sidebar" />
+      {/if}
       <ArticleList />
       <PaneGutter which="list" />
       <ReaderPane onClose={closeReader} />
@@ -335,10 +339,68 @@
 </div>
 
 {#snippet layoutSwitch()}
+  <!-- Fold the feeds pane away. It lives beside the pane switch because both
+       answer "what do I want on screen", and it is drawn only where there is a
+       sidebar to fold: one column has nothing to collapse. -->
+  {#if mode !== 1}
+    <button
+      class="fold"
+      class:on={layout.collapsed}
+      aria-pressed={layout.collapsed}
+      aria-label={layout.collapsed ? "Show the feeds pane" : "Collapse the feeds pane"}
+      title={layout.collapsed ? "Show the feeds pane" : "Collapse the feeds pane"}
+      onclick={() => layout.toggleSidebar()}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        {#if layout.collapsed}
+          <path d="M6 3.5 10.5 8 6 12.5" />
+        {:else}
+          <path d="M10 3.5 5.5 8 10 12.5" />
+        {/if}
+      </svg>
+    </button>
+  {/if}
   <LayoutSwitch />
 {/snippet}
 
 <style>
+  /* The fold toggle: the same quiet weight as the pane switch beside it. */
+  .fold {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--edge-soft);
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+  }
+
+  .fold svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .fold:hover {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  .fold.on {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--edge-soft));
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
   .main {
     display: flex;
     flex-direction: column;

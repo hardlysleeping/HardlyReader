@@ -126,6 +126,29 @@ export interface SearchableGroup<F extends SearchableFeed> {
   feeds: readonly F[];
 }
 
+/** A group that knows its own id, which is what the sidebar has. */
+export interface CategorisedGroup<F extends SearchableFeed> extends SearchableGroup<F> {
+  id: string;
+}
+
+/**
+ * Results under the category they live in.
+ *
+ * The category is the frame a feed list is read in, so a search keeps it: even
+ * when only a feed's name matched, its category is drawn around it holding just
+ * the feeds that matched. When the category's own name is what matched, every
+ * feed in it is a result — that is what asking for a category means.
+ */
+export interface HitGroup<F extends SearchableFeed> {
+  id: string;
+  label: string;
+  /** Feeds in the category, matched or not: the "2 of 7" in the heading. */
+  total: number;
+  /** Non-null when the query matched the category's own name. */
+  categoryScore: number | null;
+  hits: FeedHit<F>[];
+}
+
 /** Text that has been extracted from a feed's posts, keyed by feed id. */
 export interface FeedText {
   posts: readonly { id: string; title: string; text: string }[];
@@ -198,4 +221,59 @@ export function searchFeeds<F extends SearchableFeed>(
   }
 
   return [...best.values()].sort((a, b) => b.score - a.score || a.feed.title.localeCompare(b.feed.title));
+}
+
+/**
+ * The same hits, arranged under their categories.
+ *
+ * A feed belongs to the first category the sidebar draws it in, which is the
+ * one a result row would name, so the arrangement and the tree agree. Groups
+ * whose own name matched come first — asking for "Art" should not bury the Art
+ * category under a feed that happens to contain those letters — then the rest by
+ * their best hit. A category with no hits is not drawn at all: the results are
+ * the list, not the whole tree with things greyed out.
+ */
+export function groupHits<F extends SearchableFeed>(
+  query: string,
+  hits: readonly FeedHit<F>[],
+  groups: readonly CategorisedGroup<F>[],
+): HitGroup<F>[] {
+  const home = new Map<string, number>();
+  groups.forEach((group, index) => {
+    for (const feed of group.feeds) {
+      if (!home.has(feed.id)) home.set(feed.id, index);
+    }
+  });
+
+  const buckets = new Map<number, FeedHit<F>[]>();
+  for (const hit of hits) {
+    const index = home.get(hit.feed.id);
+    if (index === undefined) continue;
+    const bucket = buckets.get(index) ?? [];
+    bucket.push(hit);
+    buckets.set(index, bucket);
+  }
+
+  const out: HitGroup<F>[] = [];
+  for (const [index, bucket] of buckets) {
+    const group = groups[index];
+    if (group === undefined) continue;
+    out.push({
+      id: group.id,
+      label: group.label,
+      total: group.feeds.length,
+      categoryScore: fuzzyScore(query, group.label),
+      hits: [...bucket].sort(
+        (a, b) => b.score - a.score || a.feed.title.localeCompare(b.feed.title),
+      ),
+    });
+  }
+
+  return out.sort((a, b) => {
+    const named = Number(b.categoryScore !== null) - Number(a.categoryScore !== null);
+    if (named !== 0) return named;
+    const score = (b.categoryScore ?? b.hits[0]?.score ?? 0) - (a.categoryScore ?? a.hits[0]?.score ?? 0);
+    if (score !== 0) return score;
+    return a.label.localeCompare(b.label);
+  });
 }

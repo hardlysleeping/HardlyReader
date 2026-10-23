@@ -49,6 +49,7 @@ function buildReadingModule() {
   const compiled = compileModule(outputText, { generate: "client", filename: "reading.svelte.ts" });
   const code = compiled.js.code
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
+    .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
     .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
@@ -115,6 +116,7 @@ function buildReaderModule() {
     .replaceAll('"../api/transport"', JSON.stringify(absolute("src/api/transport.ts")))
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
+    .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
     .replaceAll('"./theme.svelte"', JSON.stringify(buildThemeModule()))
     .replaceAll('"./floods.svelte"', JSON.stringify(buildFloodsModule()))
@@ -122,6 +124,7 @@ function buildReaderModule() {
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
     .replaceAll('"../lib/sync-progress"', JSON.stringify(absolute("src/lib/sync-progress.ts")))
+    .replaceAll('"../lib/place"', JSON.stringify(absolute("src/lib/place.ts")))
     .replaceAll('"./hidden-write"', JSON.stringify(absolute("src/state/hidden-write.ts")))
     .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
     .replaceAll('"./favorites"', JSON.stringify(absolute("src/state/favorites.ts")))

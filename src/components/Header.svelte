@@ -23,6 +23,41 @@
   let menuOpen = $state(false);
   let sheet = $state<HTMLElement | null>(null);
 
+  /**
+   * The account is a door, not a label: the name is here so signing out has
+   * somewhere to live, and it opens on a press rather than sitting in the bar as
+   * a button of its own. In a narrow window even the name goes — signing out is
+   * then a row in the menu.
+   */
+  let accountOpen = $state(false);
+  let accountEl = $state<HTMLElement | null>(null);
+
+  function closeAccount() {
+    accountOpen = false;
+  }
+
+  function pickAccount(action: () => void) {
+    closeAccount();
+    action();
+  }
+
+  $effect(() => {
+    if (!accountOpen) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (accountEl !== null && target !== null && !accountEl.contains(target)) closeAccount();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeAccount();
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  });
+
   function closeMenu() {
     menuOpen = false;
   }
@@ -138,18 +173,31 @@
         <button role="menuitem" onclick={() => pick(() => ontogglesidebar?.())}>Feeds</button>
         <button role="menuitem" onclick={() => pick(() => readingControls?.openPanel())}>Reading</button>
         <button role="menuitem" onclick={() => pick(() => themePanel?.openSettings())}>Settings</button>
-        <button role="menuitem" onclick={() => pick(() => void refresh())} disabled={refreshing}>
-          {refreshing ? "Syncing…" : "Sync now"}
-        </button>
         <button role="menuitem" onclick={() => pick(() => onsignout?.())}>Sign out</button>
       </div>
     {/if}
   </div>
   <span class="brand">{title}</span>
-  {#if subtitle}<span class="subtitle">{subtitle}</span>{/if}
-  <!-- Signing out belongs with the account it signs out of, not at the far end
-       of the bar beside the refresh control. -->
-  <button class="signout" onclick={() => onsignout?.()}>Sign out</button>
+  <!-- The name is the account's handle: pressing it offers what you can do with
+       the account, which is sign out. It shrinks to fit whatever it is given
+       rather than pushing the controls beside it. -->
+  {#if subtitle}
+    <div class="account" bind:this={accountEl}>
+      <button
+        class="who"
+        aria-haspopup="menu"
+        aria-expanded={accountOpen}
+        title={subtitle}
+        onclick={() => (accountOpen = !accountOpen)}
+      >{subtitle}</button>
+      {#if accountOpen}
+        <div class="who-sheet" role="menu" aria-label="Account">
+          <p class="who-name" title={subtitle}>{subtitle}</p>
+          <button role="menuitem" onclick={() => pickAccount(() => onsignout?.())}>Sign out</button>
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   <div class="spacer"></div>
 
@@ -229,12 +277,83 @@
     letter-spacing: -0.01em;
   }
 
-  .subtitle {
-    font-size: 11.5px;
+  .account {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  /* Shrinks before anything else in the bar: the name identifies, it does not
+     inform, and it already has a tooltip with its full text. */
+  .who {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 150px;
+    padding: 2px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
     color: var(--muted);
+    font: inherit;
+    font-size: 11.5px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .who:hover,
+  .who[aria-expanded="true"] {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .who-sheet {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 70;
+    min-width: 148px;
+    max-width: 220px;
+    padding: 5px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    animation: sheet-in 120ms ease-out;
+  }
+
+  .who-name {
+    margin: 0;
+    padding: 4px 7px 6px;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--muted);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .who-sheet button {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    padding: 5px 7px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .who-sheet button:hover {
+    background: var(--hover);
+    color: var(--text);
   }
 
   .spacer {
@@ -271,29 +390,6 @@
 
 
 
-
-  .signout {
-    flex: 0 0 auto;
-    margin-left: 6px;
-    padding: 2px 7px;
-    border: 1px solid var(--border-soft);
-    border-radius: 7px;
-    background: none;
-    color: var(--muted);
-    font: inherit;
-    font-size: 11px;
-    cursor: pointer;
-    transition:
-      color 120ms ease,
-      background 120ms ease,
-      border-color 120ms ease;
-  }
-
-  .signout:hover {
-    color: var(--text);
-    background: var(--hover);
-    border-color: var(--border);
-  }
 
   /* Sync is the one control in this bar that changes what you are looking at,
      so it gets room to be aimed at rather than being a 28px glyph wedged
@@ -437,8 +533,8 @@
     z-index: 70;
     display: flex;
     flex-direction: column;
-    min-width: 132px;
-    padding: 4px;
+    min-width: 118px;
+    padding: 3px;
     border: 1px solid var(--border);
     border-radius: 9px;
     background: var(--surface);
@@ -454,13 +550,13 @@
   }
 
   .sheet button {
-    padding: 6px 9px;
+    padding: 5px 8px;
     border: 0;
     border-radius: 6px;
     background: none;
     color: var(--text-dim);
     font: inherit;
-    font-size: 12.5px;
+    font-size: 12px;
     text-align: left;
     white-space: nowrap;
     cursor: pointer;
@@ -502,8 +598,7 @@
       padding: 0 8px;
     }
 
-    .subtitle,
-    .signout,
+    .account,
     .tools {
       display: none;
     }

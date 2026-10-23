@@ -6,6 +6,7 @@ import { landingItem, step } from "../lib/reading-order";
 import { attemptOrder } from "../lib/stream-cycle";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
 import { SYNC_IDLE, SYNC_TOTAL, type SyncState } from "../lib/sync-progress";
+import { EMPTY_PLACE, parsePlace, placeKey, type Place } from "../lib/place";
 import { floods } from "./floods.svelte";
 import { theme } from "./theme.svelte";
 
@@ -485,6 +486,7 @@ export class ReaderState {
 
   setExpandedFeed(id: string | null): void {
     this.expandedFeedId = id;
+    this.savePlace();
   }
 
   toggleCategory(id: string): void {
@@ -982,9 +984,64 @@ export class ReaderState {
     this.session = session;
     this.error = null;
     this.loadPrefs();
+    const place = this.readPlace();
     // Paint what we had last time before asking the network for anything.
     await this.hydrateSidebar();
-    await Promise.all([this.loadSidebar(), this.openStream(READING_LIST, "Reading list")]);
+    const stream = place.streamId ?? READING_LIST;
+    const title = place.streamId === null ? "Reading list" : place.streamTitle;
+    await Promise.all([this.loadSidebar(), this.openStream(stream, title)]);
+    if (place.streamId !== null && this.error !== null) {
+      // The feed has been deleted or renamed since: land somewhere real rather
+      // than leaving a dead stream and an error on screen at sign-in.
+      this.error = null;
+      await this.openStream(READING_LIST, "Reading list");
+      this.savePlace();
+      return;
+    }
+    this.expandedFeedId = place.expandedFeedId;
+    // The post is only reopened from what the first page holds; an older one is
+    // not worth a request of its own, and the feed is open either way.
+    const open = place.articleId === null ? undefined : this.items.find((item) => item.id === place.articleId);
+    if (open !== undefined) this.select(open);
+    this.savePlace();
+  }
+
+  private placeKey(): string | null {
+    const session = this.session;
+    return session === null ? null : placeKey(session.serverUrl, session.email);
+  }
+
+  private readPlace(): Place {
+    const key = this.placeKey();
+    if (key === null || typeof localStorage === "undefined") return { ...EMPTY_PLACE };
+    try {
+      return parsePlace(JSON.parse(localStorage.getItem(key) ?? "null"));
+    } catch {
+      return { ...EMPTY_PLACE };
+    }
+  }
+
+  /**
+   * Called whenever the feed, post or unfolded feed changes. Storage that is
+   * full or blocked just means the app opens on the Reading list, so failures
+   * are silent by design.
+   */
+  private savePlace(): void {
+    const key = this.placeKey();
+    if (key === null || typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          streamId: this.activeStream,
+          streamTitle: this.activeTitle,
+          articleId: this.selectedId,
+          expandedFeedId: this.expandedFeedId,
+        }),
+      );
+    } catch {
+      /* preferences just do not persist */
+    }
   }
 
   private diskKey(name: string): string | null {
@@ -1347,6 +1404,7 @@ export class ReaderState {
     this.activeStream = streamId;
     this.activeTitle = title;
     this.selectedId = null;
+    this.savePlace();
     await this.reloadStream();
   }
 
@@ -1700,6 +1758,7 @@ export class ReaderState {
 
   select(item: StreamItem, edge: "top" | "bottom" = "top"): void {
     this.selectedId = item.id;
+    this.savePlace();
     this.landingEdge = edge;
     this.traversalEnded = false;
     // Opening a post is not reading it: the dwell timer decides that, and only
@@ -1709,6 +1768,7 @@ export class ReaderState {
 
   closeReader(): void {
     this.selectedId = null;
+    this.savePlace();
     this.clearDwell();
   }
 

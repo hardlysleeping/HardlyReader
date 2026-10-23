@@ -4,6 +4,15 @@
   import { plainPreview, relativeTime } from "../lib/format";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
+  import {
+    LIST_VIEWS,
+    LIST_VIEW_LABELS,
+    LIST_VIEW_TITLES,
+    isListView,
+    picturePlacement,
+    showsPreview,
+    type ListView,
+  } from "../lib/list-view";
   import { pullDown } from "../lib/pull";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
@@ -44,9 +53,38 @@
     reading.setArticleFilter(filter);
   }
 
+  /** The shape of this column, global for the same reason as the filter. */
+  const view = $derived(reading.listView);
+
+  function setView(next: ListView) {
+    reading.setListView(next);
+  }
+
+  /** The picture for a post, or null when this shape shows none. */
+  function image(item: StreamItem): string | null {
+    if (reading.thumbSide === "off" || picturePlacement(view) === "none") return null;
+    if (broken.includes(item.id)) return null;
+    return thumbnail(item);
+  }
+
   function open(item: StreamItem) {
     reader.select(item);
     onOpen?.();
+  }
+
+  /**
+   * Star and read are buttons of their own, never a click on the row: the row
+   * opens the post, and a mis-tap into the reader is not how anyone wants to
+   * star something. Both are optimistic in `reader`, so the mark moves now.
+   */
+  function toggleStar(item: StreamItem, event: MouseEvent): void {
+    event.stopPropagation();
+    void reader.toggleStar(item);
+  }
+
+  function toggleRead(item: StreamItem, event: MouseEvent): void {
+    event.stopPropagation();
+    void reader.setRead(item, !isRead(item));
   }
 </script>
 
@@ -64,18 +102,58 @@
         {/if}
       </span>
     </div>
-    <div class="filters" role="group" aria-label="Show posts">
-      {#each ARTICLE_FILTERS as filter (filter)}
-        <button
-          class="filter"
-          class:on={reading.articleFilter === filter}
-          aria-pressed={reading.articleFilter === filter}
-          title={`Show ${ARTICLE_FILTER_LABELS[filter].toLowerCase()} posts in every feed`}
-          onclick={() => setFilter(filter)}
-        >
-          {ARTICLE_FILTER_LABELS[filter]}
-        </button>
-      {/each}
+
+    <div class="bar" role="group" aria-label="How posts are shown">
+      <!-- Four shapes, one at a time. Icons rather than words because this bar
+           shares a 240px column with the filter pills and the feed title. -->
+      <div class="views" role="group" aria-label="Post view">
+        {#each LIST_VIEWS as option (option)}
+          <button
+            class="viewicon"
+            class:on={view === option}
+            aria-pressed={view === option}
+            aria-label={LIST_VIEW_LABELS[option]}
+            title={LIST_VIEW_TITLES[option]}
+            onclick={() => setView(option)}
+          >
+            {#if option === "regular"}
+              <svg viewBox="0 0 16 16" aria-hidden="true"
+                ><path d="M2 3.5h12M2 8h7M2 12.5h9" /><circle cx="13" cy="8" r="1.4" /></svg
+              >
+            {:else if option === "list"}
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /></svg>
+            {:else if option === "cards"}
+              <svg viewBox="0 0 16 16" aria-hidden="true"
+                ><rect x="2.5" y="2.5" width="11" height="7" rx="1.4" /><path d="M2.5 12h9" /></svg
+              >
+            {:else}
+              <svg viewBox="0 0 16 16" aria-hidden="true"
+                ><rect x="2.2" y="2.2" width="5" height="5" rx="1" /><rect x="8.8" y="2.2" width="5" height="5" rx="1" /><rect
+                  x="2.2"
+                  y="8.8"
+                  width="5"
+                  height="5"
+                  rx="1"
+                /><rect x="8.8" y="8.8" width="5" height="5" rx="1" /></svg
+              >
+            {/if}
+          </button>
+        {/each}
+      </div>
+
+      <div class="filters" role="group" aria-label="Show posts">
+        {#each ARTICLE_FILTERS as filter (filter)}
+          <button
+            class="filter"
+            class:on={reading.articleFilter === filter}
+            aria-pressed={reading.articleFilter === filter}
+            title={`Show ${ARTICLE_FILTER_LABELS[filter].toLowerCase()} posts in every feed`}
+            onclick={() => setFilter(filter)}
+          >
+            {ARTICLE_FILTER_LABELS[filter]}
+          </button>
+        {/each}
+      </div>
     </div>
   </header>
 
@@ -84,6 +162,9 @@
      on screen. -->
   <div
     class="items"
+    class:compact={view === "list"}
+    class:cards={view === "cards"}
+    class:grid={view === "grid"}
     use:pullDown={{
       label: "Pull down to check for new posts",
       readyLabel: "Release to check for new posts",
@@ -95,44 +176,95 @@
       <div class="skeleton" aria-hidden="true">
         {#each Array(6) as _, index (index)}
           <div class="skeleton-row">
-            <span class="bar w-80"></span>
-            <span class="bar w-60"></span>
-            <span class="bar w-30"></span>
+            <span class="bone w-80"></span>
+            <span class="bone w-60"></span>
+            <span class="bone w-30"></span>
           </div>
         {/each}
       </div>
     {/if}
     {#each reader.listItems as item (item.id)}
-      <button
-        class="item"
+      {@const picture = image(item)}
+      {@const placement = picture === null ? "none" : picturePlacement(view)}
+      <div
+        class="row"
         class:selected={reader.selectedId === item.id}
         class:read={isRead(item)}
-        onclick={() => open(item)}
+        class:stacked={placement === "top"}
       >
-        <span class="dot" class:hidden={isRead(item)} aria-hidden="true"></span>
-        <span class="body">
-          <span class="title">{item.title || "(untitled)"}</span>
-          <span class="preview">{summary(item)}</span>
-          <span class="byline">
-            <span class="feed-name">{item.origin?.title ?? ""}</span>
-            <span class="time">{relativeTime(item.timestampUsec, item.published)}</span>
-            {#if isStarred(item)}<span class="star" aria-label="Starred">★</span>{/if}
+        <button class="item" onclick={() => open(item)}>
+          {#if placement === "top"}
+            <span class="lead" aria-hidden="true">
+              <img
+                src={picture}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                referrerpolicy="no-referrer"
+                draggable="false"
+                onerror={() => fail(item.id)}
+              />
+            </span>
+          {/if}
+          <span class="body">
+            <span class="line">
+              <span class="dot" class:hidden={isRead(item)} aria-hidden="true"></span>
+              <span class="title">{item.title || "(untitled)"}</span>
+            </span>
+            {#if showsPreview(view)}
+              <span class="preview">{summary(item)}</span>
+            {/if}
+            <span class="byline">
+              <span class="feed-name">{item.origin?.title ?? ""}</span>
+              <span class="time">{relativeTime(item.timestampUsec, item.published)}</span>
+            </span>
           </span>
-        </span>
-        {#if reading.thumbSide !== "off" && thumbnail(item) !== null && !broken.includes(item.id)}
-          <span class="thumb" class:left={reading.thumbSide === "left"} aria-hidden="true">
-            <img
-              src={thumbnail(item)}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              referrerpolicy="no-referrer"
-              draggable="false"
-              onerror={() => fail(item.id)}
-            />
-          </span>
-        {/if}
-      </button>
+          {#if placement === "side"}
+            <span class="thumb" class:left={reading.thumbSide === "left"} aria-hidden="true">
+              <img
+                src={picture}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                referrerpolicy="no-referrer"
+                draggable="false"
+                onerror={() => fail(item.id)}
+              />
+            </span>
+          {/if}
+        </button>
+
+        <!-- Star and read, in every shape: a view you cannot act in is a view
+             you have to leave to use the list. -->
+        <div class="acts">
+          <button
+            class="act"
+            class:on={isStarred(item)}
+            aria-pressed={isStarred(item)}
+            aria-label={isStarred(item) ? "Remove star" : "Star this post"}
+            title={isStarred(item) ? "Remove star" : "Star this post"}
+            onclick={(event) => toggleStar(item, event)}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true"
+              ><path
+                d="M8 1.9l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.7 4.2 13.7l.7-4.3-3.1-3 4.3-.6z"
+              /></svg
+            >
+          </button>
+          <button
+            class="act mark"
+            class:on={isRead(item)}
+            aria-pressed={isRead(item)}
+            aria-label={isRead(item) ? "Mark unread" : "Mark read"}
+            title={isRead(item) ? "Mark unread" : "Mark read"}
+            onclick={(event) => toggleRead(item, event)}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true"
+              ><circle cx="8" cy="8" r="5.4" /><path d="M5.2 8.2l2 2 3.6-3.9" /></svg
+            >
+          </button>
+        </div>
+      </div>
     {/each}
 
     {#if !reader.loadingList && reader.listItems.length === 0}
@@ -159,6 +291,58 @@
     align-items: baseline;
     gap: 8px;
     min-width: 0;
+  }
+
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .views {
+    display: flex;
+    gap: 1px;
+    padding: 1px;
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--edge-soft) 70%, transparent);
+  }
+
+  .viewicon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 21px;
+    height: 19px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+  }
+
+  .viewicon svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .viewicon:hover {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  .viewicon.on {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
   }
 
   .filters {
@@ -210,14 +394,15 @@
     gap: 6px;
   }
 
-  .bar {
+  /* Skeleton bones, not `.bar`: that name is the header's control group. */
+  .bone {
     height: 9px;
     border-radius: 5px;
     background: var(--hover, #2f2f2f);
     animation: pulse 1.1s ease-in-out infinite;
   }
 
-  .w-80 { width: 80%; }
+  .bone.w-80 { width: 80%; }
   .w-60 { width: 60%; }
   .w-30 { width: 30%; height: 7px; }
 
@@ -227,7 +412,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .bar { animation: none; opacity: 0.55; }
+    .bone { animation: none; opacity: 0.55; }
   }
 
   .list {
@@ -271,28 +456,36 @@
     padding-bottom: 32px;
   }
 
+  /* The bar the list is made of. One row per post, whichever shape it takes. */
+  .row {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .row:hover {
+    background: var(--hover);
+  }
+
+  .row.selected {
+    background: var(--accent-soft);
+  }
+
   .item {
     display: flex;
+    flex: 1;
     gap: 10px;
-    width: 100%;
+    min-width: 0;
     /* Row height, type and thumbnail are one scale: growing the picture without
        the type (or the other way round) makes the row look broken, not larger. */
     padding: calc(12px * var(--row-scale, 1)) 16px;
     border: 0;
-    border-bottom: 1px solid var(--border-soft);
     background: none;
     color: inherit;
     font: inherit;
     text-align: left;
     cursor: pointer;
-  }
-
-  .item:hover {
-    background: var(--hover);
-  }
-
-  .item.selected {
-    background: var(--accent-soft);
   }
 
   .dot {
@@ -306,6 +499,7 @@
 
   .dot.hidden {
     background: transparent;
+    box-shadow: inset 0 0 0 1px var(--border);
   }
 
   .body {
@@ -316,37 +510,10 @@
     min-width: 0;
   }
 
-  /* The picture the feed itself chose, small enough to be a hint rather than
-     the content: the title is still what you read. Rendered only when a feed
-     offered one, so text-only feeds keep the plain row instead of a row of
-     empty boxes. */
-  .thumb {
-    display: block;
-    flex: none;
-    align-self: center;
-    width: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    height: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    margin-left: 10px;
-    border-radius: 6px;
-    overflow: hidden;
-    background: var(--hover);
-  }
-
-  /* Left is a real move, not a mirror: the picture takes the row's leading
-     edge and the read dot steps in after it, so the dot stays adjacent to the
-     title it qualifies. */
-  .thumb.left {
-    order: -1;
-    margin-left: 0;
-    margin-right: 10px;
-  }
-
-  .thumb img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    color: transparent;
+  .line {
+    display: flex;
+    gap: 8px;
+    min-width: 0;
   }
 
   .title {
@@ -381,6 +548,7 @@
     gap: 8px;
     font-size: calc(11px * var(--row-scale, 1));
     color: var(--muted);
+    min-width: 0;
   }
 
   .feed-name {
@@ -390,8 +558,275 @@
     max-width: 60%;
   }
 
-  .star {
+  .time {
+    flex: none;
+  }
+
+  /* The picture the feed itself chose. Rendered only when a feed offered one,
+     so text-only feeds keep the plain row instead of a row of empty boxes. */
+  .thumb {
+    display: block;
+    flex: none;
+    align-self: center;
+    width: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    height: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    margin-left: 10px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--hover);
+  }
+
+  /* Left is a real move, not a mirror: the picture takes the row's leading
+     edge and the read dot steps in after it, so the dot stays adjacent to the
+     title it qualifies. */
+  .thumb.left {
+    order: -1;
+    margin-left: 0;
+    margin-right: 10px;
+  }
+
+  .thumb img,
+  .lead img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    color: transparent;
+  }
+
+  /* Star and read: quiet until wanted, always present, and out of the way of
+     the row's own click. */
+  .acts {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 2px 8px 2px 0;
+  }
+
+  .act {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+  }
+
+  .act svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+  }
+
+  .row:hover .act,
+  .act.on,
+  .act:focus-visible {
+    opacity: 1;
+  }
+
+  .act:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  .act.on {
     color: var(--star);
+  }
+
+  .act.on svg {
+    fill: currentColor;
+  }
+
+  .act.mark.on {
+    color: var(--accent);
+  }
+
+  /* Thumbs need bigger targets than pointers do. */
+  @media (pointer: coarse) {
+    .act {
+      width: 28px;
+      height: 28px;
+      opacity: 1;
+    }
+  }
+
+  /* ---------------------------------------------------------------- list --
+     One line per post: the headline, the feed and the time. No preview, no
+     picture — that is the trade for fitting twice as many on a screen. */
+  .compact .item {
+    padding: calc(6px * var(--row-scale, 1)) 14px;
+  }
+
+  .compact .body {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .compact .line {
+    flex: 1;
+    align-items: baseline;
+  }
+
+  .compact .dot {
+    margin-top: 0;
+    align-self: center;
+  }
+
+  .compact .title {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: calc(12.5px * var(--row-scale, 1));
+  }
+
+  .compact .byline {
+    flex: none;
+    font-size: calc(10.5px * var(--row-scale, 1));
+  }
+
+  .compact .act {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* --------------------------------------------------------------- cards --
+     The picture gets the width and the headline sits under it. */
+  .cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 10px 32px;
+  }
+
+  .cards .row {
+    border: 1px solid var(--border-soft);
+    border-radius: 9px;
+    overflow: hidden;
+    background: var(--surface);
+    transition: border-color 0.12s ease;
+  }
+
+  .cards .row:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border-soft));
+  }
+
+  .cards .row.selected {
+    border-color: var(--accent);
+  }
+
+  .cards .item {
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+  }
+
+  .cards .lead {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: calc(150px * var(--thumb-scale, 1));
+    overflow: hidden;
+    background: var(--hover);
+  }
+
+  .cards .body {
+    padding: calc(9px * var(--row-scale, 1)) calc(11px * var(--row-scale, 1))
+      calc(10px * var(--row-scale, 1));
+  }
+
+  .cards .acts,
+  .grid .acts {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    flex-direction: row;
+    gap: 3px;
+    padding: 2px;
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    backdrop-filter: blur(3px);
+  }
+
+  /* ---------------------------------------------------------------- grid --
+     Tiles, side by side: as many as the column's width allows. */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 8px;
+    align-content: start;
+    padding: 8px 8px 32px;
+  }
+
+  .grid .row {
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface);
+    transition: border-color 0.12s ease;
+  }
+
+  .grid .row:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border-soft));
+  }
+
+  .grid .row.selected {
+    border-color: var(--accent);
+  }
+
+  .grid .item {
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+  }
+
+  .grid .lead {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    max-height: calc(120px * var(--thumb-scale, 1));
+    overflow: hidden;
+    background: var(--hover);
+  }
+
+  .grid .body {
+    padding: 7px 8px 9px;
+  }
+
+  .grid .title {
+    font-size: calc(11.5px * var(--row-scale, 1));
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+  }
+
+  .grid .byline {
+    font-size: calc(10px * var(--row-scale, 1));
+  }
+
+  .grid .feed-name {
+    max-width: 100%;
+  }
+
+  /* A tile with no picture would be half empty: it says what it is instead. */
+  .grid .row:not(.stacked) .body {
+    padding-top: 12px;
+  }
+
+  .grid .more {
+    grid-column: 1 / -1;
   }
 
   .empty {

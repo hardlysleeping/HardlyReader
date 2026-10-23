@@ -348,9 +348,12 @@
     right: 12px;
     z-index: 61;
     width: 252px;
-    /* Ten rows will not fit a short window; scrolling beats clipping the footer. */
-    max-height: calc(100vh - 58px);
+    /* A popup, not a page: capped short of the window so it never turns into a
+       full-height column with a scrollbar down its whole side. Below this it
+       scrolls, with the footer reachable. */
+    max-height: min(72vh, 460px);
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 8px 12px 10px;
     border: 1px solid var(--border);
     border-radius: 10px;

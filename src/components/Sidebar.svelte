@@ -17,7 +17,7 @@
   import { reading } from "../state/reading.svelte";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
-  import { searchFeeds } from "../lib/search";
+  import { groupHits, searchFeeds } from "../lib/search";
   import { search } from "../state/search.svelte";
   import { theme } from "../state/theme.svelte";
   import { chrome } from "../state/chrome.svelte";
@@ -52,21 +52,20 @@
    * the text has been extracted, which is why the index is passed as null
    * otherwise rather than being searched and found empty.
    */
-  const hits = $derived(
-    searchFeeds(
-      search.query,
-      reader.categories.map((category) => ({ label: category.label, feeds: category.feeds })),
-      search.deep ? search.index : null,
-    ),
+  const groups = $derived(
+    reader.categories.map((category) => ({
+      id: category.id,
+      label: category.label,
+      feeds: category.feeds,
+    })),
   );
 
-  const categoryOf = $derived(
-    new Map(
-      reader.categories.flatMap((category) =>
-        category.feeds.map((feed) => [feed.id, category.label] as const),
-      ),
-    ),
+  const hits = $derived(
+    searchFeeds(search.query, groups, search.deep ? search.index : null),
   );
+
+  /** The same hits under the categories they live in. */
+  const hitGroups = $derived(groupHits(search.query, hits, groups));
 
   function submitSearch(event: KeyboardEvent) {
     if (event.key === "Escape") search.clear();
@@ -514,29 +513,49 @@
     }}
   >
   {#if searching}
-    <div class="section">
-      {#if hits.length === 0}
+    {#if hits.length === 0}
+      <div class="section">
         <p class="empty">
-          No feed matches “{search.query}”.{#if !search.deep} Names only — ¶ also searches inside posts.{/if}
+          No feed or category matches “{search.query}”.{#if !search.deep} Names only — ¶ also searches inside posts.{/if}
         </p>
-      {:else}
-        {#each hits as hit (hit.feed.id)}
-          <button
-            class="row feed hit"
-            class:active={reader.activeStream === hit.feed.id}
-            onclick={() => (inlinePosts ? jumpTo(hit.feed) : open(hit.feed.id, hit.feed.title))}
-          >
-            <span class="label">{hit.feed.title}</span>
-            {#if hit.via === "category"}
-              <span class="why">in {categoryOf.get(hit.feed.id) ?? "category"}</span>
-            {:else if hit.via === "text" && hit.postTitle}
-              <span class="why">“{hit.postTitle}”</span>
-            {/if}
-            <span class="count">{reader.countFor(hit.feed.id)}</span>
-          </button>
-        {/each}
-      {/if}
-    </div>
+      </div>
+    {:else}
+        <!-- Results keep their category around them. A category is the frame a
+             feed list is read in, so a feed found by name still sits under its
+             heading holding only what matched — and a heading that matched by
+             name brings all of its feeds with it. -->
+        {#each hitGroups as group (group.id)}
+          <div class="section">
+            <div class="group">
+              <div class="row group-title search-title" class:pinned={reader.isCategoryPinned(group.label)}>
+                {#if reader.isCategoryPinned(group.label)}
+                  <svg class="pin" viewBox="0 0 24 24" role="img" aria-label={words.count}>
+                    <path d={MARKER_PATH} />
+                  </svg>
+                {/if}
+                <span class="label">{group.label}</span>
+                {#if group.hits.length < group.total}
+                  <span class="why">{group.hits.length} of {group.total}</span>
+                {/if}
+                <span class="count">{reader.countFor(group.id)}</span>
+              </div>
+            </div>
+            {#each group.hits as hit (hit.feed.id)}
+              <button
+                class="row feed hit"
+                class:active={reader.activeStream === hit.feed.id}
+                onclick={() => (inlinePosts ? jumpTo(hit.feed) : open(hit.feed.id, hit.feed.title))}
+              >
+                <span class="label">{hit.feed.title}</span>
+                {#if hit.via === "text" && hit.postTitle}
+                  <span class="why">“{hit.postTitle}”</span>
+                {/if}
+                <span class="count">{reader.countFor(hit.feed.id)}</span>
+              </button>
+            {/each}
+        </div>
+      {/each}
+    {/if}
 
     {#if search.deep && search.indexedCount() === 0 && hits.length > 0}
       <p class="find-note">No post text indexed yet — feed names still match.</p>
@@ -1268,6 +1287,19 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  /* The result heading is a label, not a control: it names the frame the rows
+     under it are drawn in. The "2 of 7" says the category is only partly here. */
+  .search-title {
+    cursor: default;
+    padding-right: 12px;
+  }
+
+  .search-title .why {
+    flex: 0 0 auto;
+    font-size: 10px;
     color: var(--muted);
   }
 

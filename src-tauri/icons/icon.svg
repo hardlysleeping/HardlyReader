@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    HardlyReader. A feed mark drawn as geometry: one dot and two quarter arcs
+    struck from it, all three the same weight, so it stays legible at 32px and
+    needs no shading. Near-black tile, white mark: the app is a dark reader and
+    this is what it looks like in a dock.
+  -->
+  <rect x="72" y="72" width="880" height="880" rx="190" fill="#14161a"/>
+  <g fill="none" stroke="#f4f6f8" stroke-width="84">
+    <path d="M318 474 A232 232 0 0 1 550 706"/>
+    <path d="M318 286 A420 420 0 0 1 738 706"/>
+  </g>
+  <circle cx="318" cy="706" r="74" fill="#f4f6f8"/>
+</svg>

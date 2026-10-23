@@ -7,6 +7,10 @@
  * No DOM, no timers, no GUI: the long-press delay is driven through the `Timer`
  * seam, and the rest is pure functions.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
 import { parseState } from "../../src/api/hardlyread.ts";
 import {
   LONG_PRESS_MS,
@@ -286,6 +290,45 @@ function state(overrides = {}) {
   check("a pinned feed can be unpinned", feedMenu("Ars Technica", false, true).pin?.label === "Unpin");
   check("confirming a removal hides the pin item", feedMenu("Ars Technica", true, false).pin === null);
   check("the menu model has no indent field at all", !("indent" in menu));
+}
+
+/* ---------------------------------------------------------------------------
+ * What the menu may reach for
+ *
+ * The menu is a FreshRSS client first. Removal is the GReader API's own
+ * `subscription/edit`; a feed pin never leaves this device; a category pin is
+ * kept here when the extension is absent. Only hide and pin cross into an
+ * extension, and they have to: `subscription/list` drops every feed at
+ * priority <= -10 without returning that priority, so a hidden category is not
+ * in the API at all and its id is the extension's to give.
+ * ------------------------------------------------------------------------- */
+
+{
+  const missing = categoryMenu(state({ available: false }), "Technology", false);
+  check("with no extension the hide item is still shown", missing.toggle !== null && missing.toggle.label === "Hide");
+  check("with no extension the hide item cannot be used", missing.toggle.disabled === true);
+  check("with no extension the reason is stated", /not answering/.test(missing.note ?? ""));
+  check("with no extension the pin still works, kept on this device", missing.favorite.disabled === false && missing.favorite.action.type === "pin");
+}
+
+{
+  const menu = feedMenu("Ars Technica", false, false);
+  check("a feed row offers nothing that needs an extension", menu.toggle === null && menu.favorite === null && menu.pin !== null && menu.remove !== null);
+}
+
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const source = readFileSync(join(root, "src/state/reader.svelte.ts"), "utf8");
+  const removeFeed = source.slice(source.indexOf("async removeFeed("));
+  check(
+    "removing a feed is a GReader call, not an extension one",
+    /unsubscribe\(transport, session/.test(removeFeed.slice(0, 900)),
+    "removeFeed should hand the stream id to the GReader transport",
+  );
+  check(
+    "removing a feed is not routed through the adapter",
+    !/hardlyread/i.test(removeFeed.slice(0, 900)),
+  );
 }
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

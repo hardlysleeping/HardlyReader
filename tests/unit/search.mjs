@@ -1,6 +1,7 @@
 import {
   extractText,
   fuzzyScore,
+  groupHits,
   normalise,
   rankByFuzzy,
   searchFeeds,
@@ -90,6 +91,51 @@ check("and is credited to its name", both[0].via === "title");
 
 const typo = searchFeeds("technca", groups);
 check("a fuzzy typo still finds the feed", typo.length === 1 && typo[0].feed.id === "f3", JSON.stringify(typo.map((h) => h.feed.id)));
+
+// --- results keep their category ---------------------------------------------
+// The sidebar draws every feed inside a category, so the results do too: a
+// heading is drawn whenever anything under it matched, even if the heading's
+// own name did not. `Cross` is deliberately in two categories: a feed is listed
+// once, in the first category the tree draws it in, and the two agree.
+
+const tree = [
+  {
+    id: "c-art",
+    label: "Art",
+    feeds: [
+      { id: "f1", title: "MoMA" },
+      { id: "f2", title: "Artforum" },
+      { id: "f9", title: "Cross" },
+    ],
+  },
+  { id: "c-tech", label: "Technology", feeds: [{ id: "f3", title: "Ars Technica" }, { id: "f9", title: "Cross" }] },
+  { id: "c-news", label: "News", feeds: [{ id: "f4", title: "The Verge" }] },
+];
+
+const named = groupHits("ars", searchFeeds("ars", tree), tree);
+check("a feed found by name still gets its category", named.length === 1 && named[0].label === "Technology", JSON.stringify(named.map((g) => g.label)));
+check("the category is drawn holding only what matched", named[0].hits.length === 1 && named[0].total === 2);
+check("and it is not treated as a name match", named[0].categoryScore === null);
+check("the heading carries the category id", named[0].id === "c-tech");
+
+const namedCategory = groupHits("art", searchFeeds("art", tree), tree);
+check("a category found by name comes first", namedCategory[0].label === "Art", JSON.stringify(namedCategory.map((g) => g.label)));
+check("and brings all of its feeds", namedCategory[0].hits.length === 3 && namedCategory[0].total === 3);
+check("its score says the name matched", namedCategory[0].categoryScore !== null);
+check(
+  "feeds found by their own name keep their own category",
+  namedCategory[1].label === "Technology" && namedCategory[1].hits.length === 1,
+);
+
+const shared = groupHits("cross", searchFeeds("cross", tree), tree);
+check("a feed in two categories is listed once, in the first", shared.length === 1 && shared[0].id === "c-art" && shared[0].hits.length === 1);
+
+check("a category with nothing under it is not drawn", groupHits("verge", searchFeeds("verge", tree), tree).length === 1);
+check("no query, no groups", groupHits("", [], tree).length === 0);
+check(
+  "every hit lands in exactly one group",
+  namedCategory.reduce((sum, group) => sum + group.hits.length, 0) === searchFeeds("art", tree).length,
+);
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

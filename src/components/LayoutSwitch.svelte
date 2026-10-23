@@ -45,8 +45,12 @@
     display: flex;
     gap: 2px;
     padding: 2px;
+    border: 1px solid var(--edge-soft);
     border-radius: 6px;
-    background: var(--sunken, #171717);
+    /* The theme's own surface, not a dark fallback: the old `--sunken` /
+       `--raised` names exist in neither palette, so the switch stayed charcoal
+       in the light theme and its numbers sank into it. */
+    background: var(--surface);
   }
 
   .mode {
@@ -55,7 +59,7 @@
     border: 0;
     border-radius: 4px;
     background: transparent;
-    color: var(--muted, #999999);
+    color: var(--muted);
     font: inherit;
     font-size: 12px;
     line-height: 18px;
@@ -63,11 +67,12 @@
   }
 
   .mode:hover {
-    color: var(--text, #e6e6e6);
+    color: var(--text);
   }
 
   .mode.on {
-    background: var(--raised, #333333);
-    color: var(--text, #e6e6e6);
+    background: var(--bg);
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--edge);
   }
 </style>

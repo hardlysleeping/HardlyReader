@@ -35,6 +35,8 @@ interface SavedLayout {
   thresholds?: Partial<PaneThresholds>;
   /** True once the user has picked a mode themselves. */
   chosen?: boolean;
+  /** The first pane folded away. */
+  collapsed?: boolean;
 }
 
 /** Phone, for layout purposes: a coarse pointer and a small shortest side. */
@@ -78,6 +80,15 @@ class LayoutState {
    */
   chosen = $state(false);
 
+  /**
+   * The first pane folded away.
+   *
+   * A preference, not a width: collapsing leaves the dragged widths untouched,
+   * so opening it again puts the sidebar back exactly as it was. One column has
+   * nothing to fold into, so the flag is ignored there.
+   */
+  sidebarCollapsed = $state(false);
+
   /** What can actually be drawn at this width. */
   get mode(): PaneMode {
     return effectiveMode(this.desired, this.available, this.device, this.thresholds);
@@ -107,7 +118,17 @@ class LayoutState {
   }
 
   get template(): string {
-    return gridTemplate(this.mode, this.widths);
+    return gridTemplate(this.mode, this.widths, this.collapsed);
+  }
+
+  /** True only where there is a sidebar to fold: never in one column. */
+  get collapsed(): boolean {
+    return this.sidebarCollapsed && this.mode !== 1;
+  }
+
+  toggleSidebar(): void {
+    this.sidebarCollapsed = !this.sidebarCollapsed;
+    this.save();
   }
 
   get gutters(): number {
@@ -134,6 +155,7 @@ class LayoutState {
         this.chosen = true;
         this.desired = saved.mode;
       }
+      if (typeof saved.collapsed === "boolean") this.sidebarCollapsed = saved.collapsed;
       if (saved.thresholds !== undefined) {
         this.thresholds = clampThresholds(saved.thresholds, this.device);
       }
@@ -221,6 +243,7 @@ class LayoutState {
           widths: this.widths,
           thresholds: this.thresholds,
           chosen: this.chosen,
+          collapsed: this.sidebarCollapsed,
         }),
       );
     } catch {
