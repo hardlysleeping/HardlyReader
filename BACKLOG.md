@@ -181,9 +181,9 @@ questions in the plan are answered.
 | 22 | Sidebar control row: hidden view (left), lock (middle), favourite filter (right) | todo | Icon above, label below, styled like FreshRSS extension buttons. Replaces the two header chips and becomes the only place the hidden view changes |
 | 23 | Row menu: hide/favourite and their reverses only | todo | Remove hidden/revealed/only entries — item 8 of the feedback. Hidden still beats favourite |
 | 24 | Favourites pinned to the top, pin glyph instead of a star | todo | Ordering only; does not override the hidden filter |
-| 25 | Manual pin for categories and feeds | todo | Keeps an item visible when the hidden view would filter it out — the curtain. Storage undecided: app-local (`localStorage`, per server+user) or server-side through the adapter |
-| 26 | Feed thumbnails from `iconUrl` | todo | Server sends it on every subscription (2/2 verified) via its own `/f.php` cache. Must rewrite the origin to the configured server, with the feed's initial as fallback |
-| 27 | Collapsible tree, indent visible, Starred above it | todo | `--feed-indent` is plumbed but not visible on rows; check row markup against the extension's `.item-title` selector |
+| 25 | Manual pin for categories and feeds | todo | Keeps an item visible when the hidden view filters it out — the curtain. **Storage settled and verified:** category pin = `category.attributes.position`, written by FreshRSS's own `categoryController` and honoured by `listSortedCategories()`, so it pins in the web UI too with no extension involved. Feeds have no order column (only `priority`, owned by both extensions), so feed pins are app-local — a documented asymmetry |
+| 26 | Feed thumbnails from `iconUrl` | todo | Server sends it on every subscription (2/2 verified) via its own `/f.php` cache. Must rewrite the origin to the configured server, initial as fallback. Behind a `faviconProvider` seam: FreshRSS first, free third-party provider selectable later for local RSS with no FreshRSS behind it |
+| 27 | Collapsible tree, indent visible, Starred above it | todo | `--feed-indent` is plumbed but not visible on rows; check row markup against the extension's `.item-title` selector. Indent is confirmed **global, covering all feeds** — no per-feed setting exists or is wanted |
 | 28 | Feed settings popup from the row menu | todo | Shows what actually exists for that feed: title, URLs, counts, the extension's real global indent value in context, plus hide/favourite/pin actions. Per-feed indent is a new extension capability, not a UI change |
 | 29 | Visual parity pass against the screenshots | todo | Blocked until the reference images arrive |
 
@@ -212,3 +212,17 @@ accent `#0062b7`; band at y 78-106; rows every 43-46px; status strip at y 892/93
 
 Two open questions carried in the plan §8: what `Hidden 1009` counts, and whether `Important feeds` is the
 pinned band or an existing FreshRSS grouping.
+
+### Decisions from the owner (2026-10-22 18:20)
+
+| # | Item | State | Notes |
+|---|---|---|---|
+| 35 | Adapter v1.2: pin state and routes | todo | `tag/list` carries ids only — verified — so pins cannot be read from GReader. Adapter exposes `pins` in `/v1/state` and writes `category.attributes.position`; needs a VPS deploy and a revert entry in `docs/live-deployment.md` |
+
+Answered: pins go server-side wherever the server can hold them and local otherwise, for both hidden and
+favourite, and must not require either extension; indent is global across all feeds; favicons come from
+FreshRSS's cache with a third-party fallback planned for future local RSS.
+
+Priority order now on the board, 1-9: perf, band, thumbnails, tri-pane, pins (adapter v1.2 + local),
+collapse, password toggle, feed settings, parity. Sidebar edits never run concurrently — the file gets split
+into row components in whichever of tri-pane or band runs first.
