@@ -66,7 +66,8 @@ check("hidden maps to --tone-hidden", vars["--tone-hidden"] === "#00ff00");
 check("favourite maps to --tone-favourite", vars["--tone-favourite"] === "#0000ff");
 check("open lock maps to --tone-lock-open", vars["--tone-lock-open"] === "#ffff00");
 check("locked lock maps to --tone-lock-closed", vars["--tone-lock-closed"] === "#ff00ff");
-check("exactly the five chosen colours are written", Object.keys(vars).length === 5);
+check("sync maps to --tone-sync", vars["--tone-sync"] === DEFAULT_THEME.sync);
+check("exactly the six chosen colours are written", Object.keys(vars).length === 6, String(Object.keys(vars).length));
 check("no undefined values", Object.values(vars).every((v) => typeof v === "string" && v.startsWith("#")));
 
 check("pin wording is the app's own", pinWords("pinned").add === "Pin" && pinWords("pinned").count === "Pinned");

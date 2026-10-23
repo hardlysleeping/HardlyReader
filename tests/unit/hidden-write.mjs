@@ -97,6 +97,7 @@ function buildReaderModule() {
     .replaceAll('"../lib/stream-cycle"', JSON.stringify(absolute("src/lib/stream-cycle.ts")))
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
+    .replaceAll('"../lib/sync-progress"', JSON.stringify(absolute("src/lib/sync-progress.ts")))
     .replaceAll('"./hidden-write"', JSON.stringify(absolute("src/state/hidden-write.ts")))
     .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
     .replaceAll('"./favorites"', JSON.stringify(absolute("src/state/favorites.ts")))
