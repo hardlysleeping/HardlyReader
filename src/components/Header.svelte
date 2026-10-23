@@ -1,12 +1,17 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
+
   import { reader } from "../state/reader.svelte";
 
   let {
     title = "HardlyReader",
     subtitle = "",
+    controls,
     onsignout,
     ontogglesidebar,
   }: {
+    /** Layout controls, owned by the view rather than by the header. */
+    controls?: Snippet;
     title?: string;
     subtitle?: string;
     onsignout?: () => void;
@@ -31,6 +36,8 @@
   {#if subtitle}<span class="subtitle">{subtitle}</span>{/if}
 
   <div class="spacer"></div>
+
+  {@render controls?.()}
 
   <button class="icon" onclick={refresh} disabled={refreshing} aria-label="Refresh" title="Refresh">
     {refreshing ? "…" : "⟳"}

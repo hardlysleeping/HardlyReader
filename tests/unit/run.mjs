@@ -20,7 +20,13 @@ for (const suite of suites) {
     { cwd: here, encoding: "utf8" },
   );
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-  const summary = output.trim().split("\n").filter(Boolean).pop() ?? "(no output)";
+  // The last line is sometimes a Node deprecation warning, not the result, so
+  // prefer a line that actually reports checks.
+  const lines = output.trim().split("\n").filter(Boolean);
+  const summary =
+    [...lines].reverse().find((line) => /checks|suites|passed|failure/i.test(line)) ??
+    lines[lines.length - 1] ??
+    "(no output)";
   console.log(`${result.status === 0 ? "ok  " : "FAIL"} ${suite.padEnd(20)} ${summary}`);
   if (result.status !== 0) {
     failed.push(suite);

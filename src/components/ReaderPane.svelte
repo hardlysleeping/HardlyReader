@@ -6,6 +6,50 @@
 
   let { onClose }: { onClose?: () => void } = $props();
 
+  let scroller = $state<HTMLElement | null>(null);
+  let lastAdvance = 0;
+
+  function reduceMotion(): boolean {
+    return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  /** Where the article is, so the key map and the wheel both know if it can move. */
+  function onscroll(): void {
+    const el = scroller;
+    if (!el) return;
+    reader.setArticleScroll(el.scrollTop <= 2, el.scrollTop + el.clientHeight >= el.scrollHeight - 2);
+  }
+
+  function atEnd(el: HTMLElement): boolean {
+    return el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+  }
+
+  /**
+   * Scrolling past the end of an article moves to the next one, and past the end
+   * of a feed into the next feed. It only fires when the article itself cannot
+   * scroll further, and it is debounced so one trackpad flick cannot skip three
+   * articles.
+   */
+  function onwheel(event: WheelEvent): void {
+    const el = scroller;
+    if (!el || event.deltaY <= 0 || !atEnd(el)) return;
+    const now = Date.now();
+    if (now - lastAdvance < 350) return;
+    lastAdvance = now;
+    void reader.advanceArticle(1);
+  }
+
+  // A new article starts at its top, and the scroll flags must not carry over
+  // from the previous one or Space would immediately advance again.
+  $effect(() => {
+    const id = reader.selectedId;
+    if (id === null) return;
+    const el = scroller;
+    if (!el) return;
+    el.scrollTop = 0;
+    reader.setArticleScroll(true, el.scrollHeight <= el.clientHeight + 2);
+  });
+
   const item = $derived(reader.selected);
 
   const body = $derived(
@@ -60,6 +104,18 @@
   {#if item}
     <header class="toolbar">
       <button class="icon" onclick={() => onClose?.()} aria-label="Back to list">←</button>
+      <button
+        class="icon"
+        aria-label="Previous article"
+        title="Previous article — ↑ to change feed, these move through posts and into the previous feed"
+        onclick={() => void reader.advanceArticle(-1)}
+      >↑</button>
+      <button
+        class="icon"
+        aria-label="Next article"
+        title="Next article — continues into the next feed at the end of this one"
+        onclick={() => void reader.advanceArticle(1)}
+      >↓</button>
       <div class="spacer"></div>
       <button
         class="icon star"
@@ -82,7 +138,7 @@
       {/if}
     </header>
 
-    <article>
+    <article bind:this={scroller} data-scroll="article" {onscroll} {onwheel}>
       <h1>{item.title || "(untitled)"}</h1>
       <p class="byline">
         <span>{item.origin?.title ?? ""}</span>

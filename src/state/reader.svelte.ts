@@ -1,5 +1,7 @@
 import { SvelteMap } from "svelte/reactivity";
 
+import { landingItem, step } from "../lib/reading-order";
+
 import {
   READING_LIST,
   STATE_READ,
@@ -1062,6 +1064,108 @@ export class ReaderState {
     } finally {
       this.loadingMore = false;
     }
+  }
+
+  /**
+   * The sidebar's order as a flat list: Reading list, Starred, then each
+   * category's feeds in the order shown. Arrow keys and continuous reading both
+   * walk this, so what the keyboard calls "the next feed" is exactly the next
+   * row the user can see.
+   */
+  get streamList(): { id: string; title: string }[] {
+    const streams = [
+      { id: READING_LIST, title: "Reading list" },
+      { id: STATE_STARRED, title: "Starred" },
+    ];
+    for (const category of this.categories) {
+      for (const feed of category.feeds) streams.push({ id: feed.id, title: feed.title });
+    }
+    return streams;
+  }
+
+  /** How far the open article has been scrolled, reported by the reader pane. */
+  articleAtEnd = $state(false);
+  articleAtStart = $state(true);
+
+  setArticleScroll(atStart: boolean, atEnd: boolean): void {
+    this.articleAtStart = atStart;
+    this.articleAtEnd = atEnd;
+  }
+
+  /** Up/Down: the neighbouring feed, keeping the article open if one was. */
+  async stepStream(delta: -1 | 1): Promise<void> {
+    const streams = this.streamList;
+    const index = streams.findIndex((s) => s.id === this.activeStream);
+    const target = streams[index + delta];
+    if (!target || target.id === this.activeStream) return;
+    const wasReading = this.selectedId !== null;
+    await this.openStream(target.id, target.title);
+    if (wasReading) {
+      const first = delta === 1 ? this.items[0] : this.items[this.items.length - 1];
+      if (first) this.select(first);
+    }
+  }
+
+  /** Right/Enter: open the first post of the stream, or the post already chosen. */
+  async enter(): Promise<void> {
+    if (this.selectedId !== null) return;
+    const item = this.items[0];
+    if (item) this.select(item);
+  }
+
+  /** Left: out of the article and back to the posts. */
+  back(): boolean {
+    if (this.selectedId === null) return false;
+    this.closeReader();
+    return true;
+  }
+
+  async firstStream(): Promise<void> {
+    const first = this.streamList[0];
+    if (first) await this.openStream(first.id, first.title);
+  }
+
+  async lastStream(): Promise<void> {
+    const streams = this.streamList;
+    const last = streams[streams.length - 1];
+    if (last) await this.openStream(last.id, last.title);
+  }
+
+  /**
+   * Continuous reading. Inside the stream this is the neighbouring post; at the
+   * end it crosses into the next feed and lands on its first post.
+   *
+   * A failed load leaves the open article where it is with the error banner
+   * showing, rather than moving to a blank pane.
+   */
+  async advanceArticle(direction: -1 | 1): Promise<void> {
+    if (this.selectedId === null) return;
+    const next = step(
+      [{ id: this.activeStream, title: this.activeTitle, items: this.items }],
+      { streamId: this.activeStream, itemId: this.selectedId },
+      direction,
+    );
+    if (next.kind === "item") {
+      const item = this.items.find((candidate) => candidate.id === next.itemId);
+      if (item) this.select(item);
+      return;
+    }
+    if (next.kind === "end") await this.crossToNextStream(direction);
+  }
+
+  /** Open the neighbouring feed and land on the post nearest the direction of travel. */
+  private async crossToNextStream(direction: -1 | 1): Promise<void> {
+    const streams = this.streamList;
+    const index = streams.findIndex((s) => s.id === this.activeStream);
+    const target = streams[index + direction];
+    if (!target) return;
+    await this.openStream(target.id, target.title);
+    const landing = landingItem(
+      { id: target.id, title: target.title, items: this.items },
+      direction,
+    );
+    const item = landing === null ? undefined : this.items.find((candidate) => candidate.id === landing);
+    if (item) this.select(item);
   }
 
   select(item: StreamItem): void {
