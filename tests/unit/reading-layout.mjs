@@ -23,6 +23,8 @@ import {
   THUMB_SIDE_LABELS,
   ARTICLE_IMAGE_INITIAL,
   isThumbSide,
+  THUMB_BASE_PX,
+  thumbWidthPx,
   scalePercent,
   stepScale,
 } from "../../src/lib/reading-layout.ts";
@@ -188,6 +190,15 @@ check("Reset restores the picture size but leaves its side alone", () => {
   assert.equal(isDefaultLayout(dirty), false, "a moved picture is not defaults");
   const reset = { ...dirty, thumbScale: THUMB_SCALE.initial };
   assert.equal(isDefaultLayout(reset), true, "size is a quantity; the side is a position he chose");
+});
+
+check("the readout agrees with the stylesheet's arithmetic", () => {
+  assert.equal(THUMB_BASE_PX, 48, "the stylesheet hardcodes the same base");
+  assert.equal(thumbWidthPx(1, 1), 48);
+  assert.equal(thumbWidthPx(1, 1.6), 77, "rounded, not truncated");
+  assert.equal(thumbWidthPx(1.4, 1), 67);
+  assert.equal(thumbWidthPx(1, 0.6), 29);
+  assert.equal(thumbWidthPx(99, 99), 134, "both scales clamp, so the readout cannot promise 3966px");
 });
 
 check("defaults are recognised, so Reset can be disabled", () => {
