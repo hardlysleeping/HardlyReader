@@ -22,6 +22,7 @@ import {
   categoryIdForLabel,
   favoriteIdForLabel,
   getApiState as getApiStateFromServer,
+  clampIndentPx,
   getState as getHiddenState,
   setCategoryFavorite as apiSetCategoryFavorite,
   setCategoryHidden as apiSetCategoryHidden,
@@ -155,6 +156,12 @@ export class ReaderState {
 
   /** The sidebar band (hidden / lock / pin) folded away, per account. */
   bandCollapsed = $state(false);
+
+  /**
+   * Indent chosen in this app. Kept beside the server value instead of over it:
+   * the extension's number is the default, a local change wins until cleared.
+   */
+  localIndentPx = $state<number | null>(null);
   /** Categories folded shut, per account, so a big sidebar stays short. */
   collapsedCategories = $state<Record<string, boolean>>({});
 
@@ -187,7 +194,13 @@ export class ReaderState {
     if (menu === null) return null;
     return menu.target.kind === "category"
       ? categoryMenu(this.hiddenCategories, menu.target.label, this.isCategoryPinned(menu.target.label))
-      : feedMenu(menu.target.title, menu.confirming, this.isFeedPinned(menu.target.id));
+      : feedMenu(
+          menu.target.title,
+          menu.confirming,
+          this.isFeedPinned(menu.target.id),
+          this.sidebarIndent.px,
+          this.sidebarIndent.available,
+        );
   }
 
   /** The view the extension is actually applying. */
@@ -282,6 +295,18 @@ export class ReaderState {
     this.updateLocalPins({ categories: withPinned(this.localPins.categories, label, pinned) });
   }
 
+  /**
+   * Applies indentation to every feed row. Indent is one global setting in the
+   * extension, so this never varies per feed; the choice is remembered here
+   * because the adapter has no write route for it yet.
+   */
+  setSidebarIndentPx(px: number): void {
+    const clamped = clampIndentPx(px);
+    this.localIndentPx = clamped;
+    this.sidebarIndent = { ...this.sidebarIndent, px: clamped };
+    this.savePrefs();
+  }
+
   setFeedPinned(streamId: string, pinned: boolean): void {
     this.updateLocalPins({ feeds: withPinned(this.localPins.feeds, streamId, pinned) });
   }
@@ -315,6 +340,11 @@ export class ReaderState {
     return stored ?? this.subscriptions.length > LARGE_SIDEBAR_FEEDS;
   }
 
+  /** Server indent, unless this device has its own choice. */
+  private withLocalIndent(state: SidebarIndentState): SidebarIndentState {
+    return this.localIndentPx === null ? state : { ...state, px: this.localIndentPx };
+  }
+
   private updateLocalPins(change: Partial<LocalPins>): void {
     this.localPins = { ...this.localPins, ...change };
     this.savePrefs();
@@ -332,6 +362,12 @@ export class ReaderState {
       const raw = JSON.parse(localStorage.getItem(key) ?? "null") as Record<string, unknown> | null;
       this.localPins = parsePins(raw?.pins);
       this.bandCollapsed = raw?.bandCollapsed === true;
+      const indent = raw?.indentPx;
+      this.localIndentPx =
+        typeof indent === "number" && Number.isFinite(indent) ? clampIndentPx(indent) : null;
+      if (this.localIndentPx !== null) {
+        this.sidebarIndent = { ...this.sidebarIndent, px: this.localIndentPx };
+      }
       const collapsed = raw?.collapsed;
       this.collapsedCategories =
         typeof collapsed === "object" && collapsed !== null ? (collapsed as Record<string, boolean>) : {};
@@ -346,7 +382,12 @@ export class ReaderState {
     try {
       localStorage.setItem(
         key,
-        JSON.stringify({ pins: this.localPins, bandCollapsed: this.bandCollapsed, collapsed: this.collapsedCategories }),
+        JSON.stringify({
+          pins: this.localPins,
+          bandCollapsed: this.bandCollapsed,
+          collapsed: this.collapsedCategories,
+          indentPx: this.localIndentPx,
+        }),
       );
     } catch {
       /* storage full or blocked: preferences just do not persist */
@@ -405,6 +446,11 @@ export class ReaderState {
         this.menu = null;
         if (target.kind === "category") await this.setCategoryPinned(target.label, action.pinned);
         else this.setFeedPinned(target.id, action.pinned);
+        return null;
+      case "indent":
+        // Indent is applied live from the slider and leaves the menu open, so
+        // this only exists to keep the union total.
+        this.setSidebarIndentPx(action.px);
         return null;
     }
   }
@@ -592,7 +638,7 @@ export class ReaderState {
     if (snapshot.api !== undefined) {
       this.hiddenCategories = snapshot.api.hiddenCategories;
       this.favorites = snapshot.api.favorites;
-      this.sidebarIndent = snapshot.api.sidebarIndent;
+      this.sidebarIndent = this.withLocalIndent(snapshot.api.sidebarIndent);
     }
   }
 
@@ -668,7 +714,7 @@ export class ReaderState {
       const state = await getApiStateFromServer(transport, this.session);
       this.hiddenCategories = state.hiddenCategories;
       this.favorites = state.favorites;
-      this.sidebarIndent = state.sidebarIndent;
+      this.sidebarIndent = this.withLocalIndent(state.sidebarIndent);
       this.hiddenError = null;
     } catch (error) {
       this.hiddenCategories = unavailableState();

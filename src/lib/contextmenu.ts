@@ -18,6 +18,9 @@
 import {
   categoryIdForLabel,
   isHiddenCategory,
+  SIDEBAR_INDENT_FALLBACK_PX,
+  SIDEBAR_INDENT_MAX_PX,
+  SIDEBAR_INDENT_MIN_PX,
   type HiddenCategoriesState,
 } from "../api/hardlyread";
 
@@ -185,6 +188,7 @@ export function placeMenu(anchor: Point, menu: Size, viewport: Size): Point {
 
 export type MenuAction =
   | { type: "hidden"; hidden: boolean }
+  | { type: "indent"; px: number }
   | { type: "pin"; pinned: boolean }
   | { type: "remove-feed" }
   | { type: "confirm-remove" }
@@ -198,6 +202,14 @@ export interface MenuItemModel {
   disabled: boolean;
 }
 
+export interface IndentControl {
+  px: number;
+  min: number;
+  max: number;
+  /** True when the value came from the Sidebar Indent extension. */
+  serverBacked: boolean;
+}
+
 export interface MenuModel {
   /** A category row offers hide/show, favorite and the views; a feed row offers removal. */
   kind: "category" | "feed";
@@ -208,6 +220,11 @@ export interface MenuModel {
   toggle: MenuItemModel | null;
   /** Pin/Unpin. Always offered: pins fall back to this device without the extension. */
   pin: MenuItemModel | null;
+  /**
+   * Sidebar indentation, for a feed row. Indent applies to every feed, so this
+   * is one control shown per feed rather than a per-feed setting.
+   */
+  indent: IndentControl | null;
   /** Remove, for a feed row. Replaced by `confirm` once it is chosen. */
   remove: MenuItemModel | null;
   /** The second half of a removal: confirm or back out. Empty otherwise. */
@@ -247,6 +264,7 @@ export function categoryMenu(state: HiddenCategoriesState, label: string, pinned
         }
       : null,
     pin: { action: { type: "pin", pinned: !pinned }, label: pinned ? "Unpin" : "Pin", checked: false, disabled: false },
+    indent: null,
     remove: null,
     confirm: [],
   };
@@ -260,12 +278,26 @@ export function categoryMenu(state: HiddenCategoriesState, label: string, pinned
  * for the removal, then confirming it. `confirm` is that second step; it holds
  * both answers, so backing out is as reachable as going ahead.
  */
-export function feedMenu(title: string, confirming: boolean, pinned = false): MenuModel {
+export function feedMenu(
+  title: string,
+  confirming: boolean,
+  pinned = false,
+  indentPx = SIDEBAR_INDENT_FALLBACK_PX,
+  indentServerBacked = false,
+): MenuModel {
   return {
     kind: "feed",
     label: title,
     note: confirming ? "This removes the feed and its unread items from the server." : null,
     toggle: null,
+    indent: confirming
+      ? null
+      : {
+          px: indentPx,
+          min: SIDEBAR_INDENT_MIN_PX,
+          max: SIDEBAR_INDENT_MAX_PX,
+          serverBacked: indentServerBacked,
+        },
     pin: confirming
       ? null
       : { action: { type: "pin", pinned: !pinned }, label: pinned ? "Unpin" : "Pin", checked: false, disabled: false },
