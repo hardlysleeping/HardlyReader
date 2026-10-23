@@ -183,11 +183,10 @@
 </script>
 
 <nav class="sidebar" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
-  <SidebarBand />
-
   <!-- One field, filtering as you type: no submit button, no separate mode
        button beside it. The paragraph mark inside the field is the "also search
-       post text" switch, kept quiet until it is wanted. -->
+       post text" switch, kept quiet until it is wanted. It sits above the band
+       because it filters the whole tree below it. -->
   <div class="find">
     <svg class="glass" viewBox="0 0 16 16" aria-hidden="true">
       <circle cx="7" cy="7" r="4.4" />
@@ -218,6 +217,8 @@
       onclick={toggleDeep}
     >¶</button>
   </div>
+
+  <SidebarBand />
 
   {#if search.deep}
     <p class="find-note">
@@ -645,14 +646,14 @@
     white-space: nowrap;
   }
 
-  /* Search sits between the band and the list: it filters the tree below it, so
-     it belongs above the thing it filters. One quiet field — the magnifier and
+  /* Search sits at the top of the sidebar, above the hidden/favourites band: it
+     filters the whole tree below it, band included, so it belongs first. One quiet field — the magnifier and
      the mode mark live inside it, so there is no button beside the input. */
   .find {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin: 2px 12px 8px;
+    margin: 8px 12px 4px;
     padding: 0 6px 0 9px;
     height: 30px;
     border: 1px solid var(--border-soft);

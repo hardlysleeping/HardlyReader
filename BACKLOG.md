@@ -335,3 +335,7 @@ shows a feed handover under 1.5s of induced latency.
 |---|---|---|---|
 | 66 | Header: sign out beside the account, room for sync | **done** | Sign out moved from the far right to sit with the username it signs out of (brand → account → Sign out), quiet until hovered. Sync is now a 34×34 rounded control with a 10px gap before it rather than a 28px glyph wedged against its neighbours, its border takes the accent on hover, and the glyph turns while a refresh is running (still, not spinning, under reduced motion). Measured in a mounted header: brand/username/Sign out at x=12/108/183, sync 34×34 at the far end with a 10px margin. |
 
+| # | Item | State | Notes |
+|---|---|---|---|
+| 67 | Search above the band; shorter collapse bar | **done** | The search field is now the sidebar's first element, above the hidden/favourites band it filters, with the band's own control strip below it. The collapse handle shrank from 14px to 8px closed→open (20px → 12px when the band is folded), and its caret from 14px to 11px, since it is a handle rather than a row. Measured in a mounted sidebar: order `find → bandbox → indent → section`, bar 8px/12px, caret 11px, and typing `art` still filters to the right feeds. |
+

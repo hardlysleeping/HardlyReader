@@ -240,13 +240,15 @@
     margin: 0 8px 6px;
   }
 
-  /* Full-width caret bar: the handle for the whole band, in both states. */
+  /* Full-width caret bar: the handle for the whole band, in both states. Kept
+     short — it is a handle, not a row, and with the search field above it the
+     list has already paid for two strips. */
   .bar {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 100%;
-    height: 14px;
+    height: 8px;
     padding: 0;
     border: 0;
     background: none;
@@ -256,8 +258,10 @@
     border-radius: 6px;
   }
 
+  /* Collapsed it is the only thing left of the band, so it keeps enough body to
+     be a target without pretending to be a full row. */
   .bandbox.collapsed .bar {
-    height: 20px;
+    height: 12px;
   }
 
   .bar:hover,
@@ -267,8 +271,8 @@
   }
 
   .bar .caret {
-    width: 14px;
-    height: 14px;
+    width: 11px;
+    height: 11px;
     transition: transform 0.15s ease;
   }
 
