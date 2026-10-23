@@ -229,6 +229,15 @@ export class ReaderState {
    */
   localIndentPx = $state<number | null>(null);
   /** Categories folded shut, per account, so a big sidebar stays short. */
+  /**
+   * In one column, the feed whose posts are unfolded under it.
+   *
+   * It lives here rather than in the sidebar because the reader replaces the
+   * sidebar in that layout: coming back out of an article must land on the feed
+   * you were reading, not on a list that has folded itself again.
+   */
+  expandedFeedId = $state<string | null>(null);
+
   collapsedCategories = $state<Record<string, boolean>>({});
 
   /**
@@ -474,6 +483,10 @@ export class ReaderState {
       return;
     }
     this.updateLocalPins({ view: next });
+  }
+
+  setExpandedFeed(id: string | null): void {
+    this.expandedFeedId = id;
   }
 
   toggleCategory(id: string): void {

@@ -30,7 +30,9 @@ function rule(selector) {
  * it — which is the whole contract this test guards.
  */
 function divSpan(text, className) {
-  const open = text.indexOf(`<div class="${className}"`);
+  // Attributes need not sit on the same line as the tag — the scroll area now
+  // carries a gesture — so look for the class anywhere in the opening tag.
+  const open = text.search(new RegExp(`<div(?=[^>]*class="${className}")`));
   assert.notEqual(open, -1, `no .${className} in the markup`);
   let depth = 0;
   const tag = /<div\b|<\/div>/g;

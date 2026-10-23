@@ -122,6 +122,57 @@ body {
   height: 100%;
 }
 
+/* Slim, quiet scrollbars: they appear where there is more content, not as a
+   column of chrome down the side of every panel. A short thumb is honest about a
+   long list; the track stays out of the way. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 42%, transparent) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 65%, transparent);
+}
+
+/* The pull gesture's feedback: one line at the top of the window, saying what
+   letting go will do. It is created by the action, so it cannot live in a
+   component's scoped styles. */
+.pull-pill {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  z-index: 80;
+  transform: translateX(-50%);
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.pull-pill.armed {
+  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
 body {
   /* Nothing in this app is wider than the window: panes share the width, the
      header moves what does not fit into its menu. A horizontal scrollbar here

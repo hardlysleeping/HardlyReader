@@ -4,6 +4,7 @@
   import { plainPreview, relativeTime } from "../lib/format";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
+  import { pullDown } from "../lib/pull";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
 
@@ -78,7 +79,18 @@
     </div>
   </header>
 
-  <div class="items">
+  <!-- Pull down at the top asks this feed for anything newer without losing the
+     list underneath: the same request the sync button makes, scoped to what is
+     on screen. -->
+  <div
+    class="items"
+    use:pullDown={{
+      label: "Pull down to check for new posts",
+      readyLabel: "Release to check for new posts",
+      enabled: () => !reader.loadingList,
+      onPull: () => void reader.reloadStream({ force: true }),
+    }}
+  >
     {#if reader.loadingList && reader.items.length === 0}
       <div class="skeleton" aria-hidden="true">
         {#each Array(6) as _, index (index)}
