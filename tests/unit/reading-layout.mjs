@@ -23,6 +23,9 @@ import {
   THUMB_SIDE_LABELS,
   ARTICLE_IMAGE_INITIAL,
   isThumbSide,
+  isStepPercent,
+  STEP_INITIAL,
+  STEP_PERCENTS,
   THUMB_BASE_PX,
   thumbWidthPx,
   scalePercent,
@@ -59,9 +62,11 @@ check("junk in storage falls back to 100%, not NaN", () => {
 
 check("stepping up from the bottom does not drift", () => {
   // 0.85 + 0.1 is 0.9500000000000001 in binary floating point.
-  assert.equal(stepScale(0.85, 1, TEXT_SCALE), 0.95);
-  assert.equal(stepScale(0.95, 1, TEXT_SCALE), 1.05);
-  assert.equal(stepScale(1.05, -1, TEXT_SCALE), 0.95);
+  assert.equal(stepScale(0.85, 1, TEXT_SCALE), 0.9, "default step is 5%");
+  assert.equal(stepScale(0.95, 1, TEXT_SCALE), 1);
+  assert.equal(stepScale(1.05, -1, TEXT_SCALE), 1);
+  assert.equal(stepScale(1, 1, TEXT_SCALE, 1), 1.01);
+  assert.equal(stepScale(1, 1, TEXT_SCALE, 10), 1.1);
 });
 
 check("stepping stops at the ends rather than leaving the scale", () => {
@@ -165,8 +170,8 @@ check("the picture scale is clamped to its own range, not the row's", () => {
 });
 
 check("its steps land on the scale and stop at the ends", () => {
-  assert.equal(stepScale(THUMB_SCALE.initial, 1, THUMB_SCALE), 1.2);
-  assert.equal(stepScale(THUMB_SCALE.initial, -1, THUMB_SCALE), 0.8);
+  assert.equal(stepScale(THUMB_SCALE.initial, 1, THUMB_SCALE), 1.05, "pictures move 5%, not a fifth");
+  assert.equal(stepScale(THUMB_SCALE.initial, -1, THUMB_SCALE), 0.95);
   assert.equal(stepScale(THUMB_SCALE.max, 1, THUMB_SCALE), THUMB_SCALE.max);
   assert.equal(stepScale(THUMB_SCALE.min, -1, THUMB_SCALE), THUMB_SCALE.min);
 });
@@ -190,6 +195,33 @@ check("Reset restores the picture size but leaves its side alone", () => {
   assert.equal(isDefaultLayout(dirty), false, "a moved picture is not defaults");
   const reset = { ...dirty, thumbScale: THUMB_SCALE.initial };
   assert.equal(isDefaultLayout(reset), true, "size is a quantity; the side is a position he chose");
+});
+
+check("one step size governs every scale, and 5% is the default", () => {
+  assert.deepEqual([...STEP_PERCENTS], [1, 5, 10]);
+  assert.equal(STEP_INITIAL, 5);
+  assert.equal(isStepPercent(5), true);
+  assert.equal(isStepPercent(20), false, "20% was the old picture step and is gone");
+  for (const percent of STEP_PERCENTS) {
+    assert.equal(stepScale(1, 1, ROW_SCALE, percent), 1 + percent / 100);
+    assert.equal(stepScale(1, 1, THUMB_SCALE, percent), 1 + percent / 100);
+  }
+});
+
+check("1% steps land on exact percents, not float dust", () => {
+  let value = 1;
+  for (let i = 0; i < 7; i += 1) value = stepScale(value, 1, TEXT_SCALE, 1);
+  assert.equal(value, 1.07);
+  assert.equal(scalePercent(value), "107%");
+});
+
+check("a 1% step still stops at the ends", () => {
+  assert.equal(stepScale(TEXT_SCALE.max, 1, TEXT_SCALE, 1), TEXT_SCALE.max);
+  assert.equal(stepScale(TEXT_SCALE.min, -1, TEXT_SCALE, 1), TEXT_SCALE.min);
+});
+
+check("the step is part of the defaults, so Reset restores 5%", () => {
+  assert.equal(isDefaultLayout({ ...LAYOUT_INITIAL, stepPercent: 10 }), false);
 });
 
 check("the readout agrees with the stylesheet's arithmetic", () => {

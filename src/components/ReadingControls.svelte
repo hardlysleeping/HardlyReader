@@ -19,6 +19,8 @@
     ROW_SCALE,
     TEXT_ALIGNS,
     TEXT_SCALE,
+    STEP_INITIAL,
+    STEP_PERCENTS,
     THUMB_SCALE,
     THUMB_SIDES,
     thumbWidthPx,
@@ -57,6 +59,7 @@
       thumbScale: reading.thumbScale,
       thumbSide: reading.thumbSide,
       articleImage: reading.articleImage,
+      stepPercent: reading.stepPercent,
     }),
   );
 
@@ -237,6 +240,22 @@
       </button>
     </div>
 
+    <!-- At the bottom because it governs the whole panel rather than one row:
+         every − and + above moves by this much. -->
+    <div class="row step-row">
+      <span class="key">Step</span>
+      <div class="seg" role="group" aria-label="Size step">
+        {#each STEP_PERCENTS as percent (percent)}
+          <button
+            class:on={reading.stepPercent === percent}
+            aria-pressed={reading.stepPercent === percent}
+            onclick={() => reading.setStepPercent(percent)}
+            title={`Each press changes a size by ${percent}%`}
+          >{percent}%</button>
+        {/each}
+      </div>
+    </div>
+
     <div class="row end">
       <button class="reset" onclick={() => reading.resetReadingLayout()} disabled={atDefaults}>
         Reset to defaults
@@ -316,6 +335,9 @@
     right: 12px;
     z-index: 61;
     width: 252px;
+    /* Ten rows will not fit a short window; scrolling beats clipping the footer. */
+    max-height: calc(100vh - 58px);
+    overflow-y: auto;
     padding: 8px 12px 10px;
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -350,6 +372,14 @@
     text-transform: uppercase;
     color: var(--text-dim);
     opacity: 0.75;
+  }
+
+  /* The step sits apart from the rows it governs, on the far side of the
+     hairline that opens the footer. */
+  .row.step-row {
+    margin-top: 5px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border-soft);
   }
 
   .row.end {

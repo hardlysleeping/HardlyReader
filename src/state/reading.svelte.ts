@@ -15,14 +15,17 @@ import {
   LEADING_INITIAL,
   ROW_SCALE,
   TEXT_SCALE,
+  STEP_INITIAL,
   THUMB_SCALE,
   THUMB_SIDE_INITIAL,
   clampScale,
   isLeading,
+  isStepPercent,
   isTextAlign,
   isThumbSide,
   stepScale,
   type Leading,
+  type StepPercent,
   type TextAlign,
   type ThumbSide,
 } from "../lib/reading-layout";
@@ -102,6 +105,14 @@ class ReadingState {
   /** A lead picture above the article text in the reading pane. */
   articleImage = $state(ARTICLE_IMAGE_INITIAL);
 
+  /**
+   * Percent per press, for every size control in the panel.
+   *
+   * One number for text, rows and pictures: three steps that disagree would mean
+   * the same gesture moved different amounts depending on which row it was in.
+   */
+  stepPercent = $state<StepPercent>(STEP_INITIAL);
+
   load(): void {
     if (typeof localStorage === "undefined") return;
     try {
@@ -121,6 +132,7 @@ class ReadingState {
         thumbScale?: unknown;
         thumbSide?: unknown;
         articleImage?: unknown;
+        stepPercent?: unknown;
       };
       if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
@@ -135,6 +147,7 @@ class ReadingState {
       this.thumbScale = clampScale(saved.thumbScale, THUMB_SCALE);
       if (isThumbSide(saved.thumbSide)) this.thumbSide = saved.thumbSide;
       if (typeof saved.articleImage === "boolean") this.articleImage = saved.articleImage;
+      if (isStepPercent(saved.stepPercent)) this.stepPercent = saved.stepPercent;
     } catch {
       // Same rule as the layout: a corrupt preference is not worth a dialog.
     }
@@ -172,7 +185,7 @@ class ReadingState {
 
   /** A− / A+ for article text. Returns the value actually applied. */
   stepTextScale(direction: 1 | -1): number {
-    const next = stepScale(this.textScale, direction, TEXT_SCALE);
+    const next = stepScale(this.textScale, direction, TEXT_SCALE, this.stepPercent);
     if (next !== this.textScale) {
       this.textScale = next;
       this.save();
@@ -182,7 +195,7 @@ class ReadingState {
 
   /** The same for list rows, so the two can be sized independently. */
   stepRowScale(direction: 1 | -1): number {
-    const next = stepScale(this.rowScale, direction, ROW_SCALE);
+    const next = stepScale(this.rowScale, direction, ROW_SCALE, this.stepPercent);
     if (next !== this.rowScale) {
       this.rowScale = next;
       this.save();
@@ -192,12 +205,19 @@ class ReadingState {
 
   /** − / + for the picture alone. Returns the value actually applied. */
   stepThumbScale(direction: 1 | -1): number {
-    const next = stepScale(this.thumbScale, direction, THUMB_SCALE);
+    const next = stepScale(this.thumbScale, direction, THUMB_SCALE, this.stepPercent);
     if (next !== this.thumbScale) {
       this.thumbScale = next;
       this.save();
     }
     return next;
+  }
+
+  /** How far one press moves every size control. */
+  setStepPercent(percent: StepPercent): void {
+    if (!isStepPercent(percent) || this.stepPercent === percent) return;
+    this.stepPercent = percent;
+    this.save();
   }
 
   setThumbSide(side: ThumbSide): void {
@@ -237,6 +257,7 @@ class ReadingState {
     this.textAlign = ALIGN_INITIAL;
     this.thumbScale = THUMB_SCALE.initial;
     this.articleImage = ARTICLE_IMAGE_INITIAL;
+    this.stepPercent = STEP_INITIAL;
     this.save();
   }
 
@@ -259,6 +280,7 @@ class ReadingState {
           thumbScale: this.thumbScale,
           thumbSide: this.thumbSide,
           articleImage: this.articleImage,
+          stepPercent: this.stepPercent,
         }),
       );
     } catch {
