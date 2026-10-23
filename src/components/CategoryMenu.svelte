@@ -156,30 +156,75 @@
 >
   <p class="title">{model.label}</p>
 
-  <button
-    class="item"
-    role="menuitem"
-    disabled={model.toggle.disabled || busy}
-    onclick={() => onselect(model.toggle.action)}
-  >{model.toggle.label}</button>
+  {#if model.toggle}
+    {@const toggle = model.toggle}
+    <button
+      class="item"
+      role="menuitem"
+      disabled={toggle.disabled || busy}
+      onclick={() => onselect(toggle.action)}
+    >{toggle.label}</button>
+  {/if}
 
-  <div class="separator" role="separator"></div>
+  {#if model.favorite}
+    {@const favorite = model.favorite}
+    <button
+      class="item"
+      role="menuitem"
+      disabled={favorite.disabled || busy}
+      onclick={() => onselect(favorite.action)}
+    >
+      <span class="tick" aria-hidden="true">{favorite.checked ? "✓" : ""}</span>
+      <span class="option">{favorite.label}</span>
+    </button>
+  {/if}
 
-  <div role="group" aria-label="View">
-    <p class="group-label" aria-hidden="true">View</p>
-    {#each model.views as item (item.label)}
-      <button
-        class="item checkable"
-        role="menuitemradio"
-        aria-checked={item.checked}
-        disabled={item.disabled || busy}
-        onclick={() => onselect(item.action)}
-      >
-        <span class="tick" aria-hidden="true">{item.checked ? "✓" : ""}</span>
-        <span class="option">{item.label}</span>
-      </button>
-    {/each}
-  </div>
+  {#if model.remove}
+    {@const remove = model.remove}
+    <div class="separator" role="separator"></div>
+    <button
+      class="item"
+      class:danger={remove.action.type === "remove-feed"}
+      role="menuitem"
+      disabled={remove.disabled || busy}
+      onclick={() => onselect(remove.action)}
+    >{remove.label}</button>
+  {/if}
+
+  {#if model.confirm.length > 0}
+    <div class="separator" role="separator"></div>
+    <div role="group" aria-label="Confirm removal">
+      {#each model.confirm as item (item.label)}
+        <button
+          class="item"
+          class:danger={item.action.type === "remove-feed"}
+          role="menuitem"
+          disabled={item.disabled || busy}
+          onclick={() => onselect(item.action)}
+        >{item.label}</button>
+      {/each}
+    </div>
+  {/if}
+
+  {#if model.views.length > 0}
+    <div class="separator" role="separator"></div>
+
+    <div role="group" aria-label="View">
+      <p class="group-label" aria-hidden="true">View</p>
+      {#each model.views as item (item.label)}
+        <button
+          class="item checkable"
+          role="menuitemradio"
+          aria-checked={item.checked}
+          disabled={item.disabled || busy}
+          onclick={() => onselect(item.action)}
+        >
+          <span class="tick" aria-hidden="true">{item.checked ? "✓" : ""}</span>
+          <span class="option">{item.label}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   {#if model.note}
     <p class="note">{model.note}</p>
@@ -240,6 +285,15 @@
 
   .checkable {
     padding-left: 2px;
+  }
+
+  .danger {
+    color: #d9534f;
+  }
+
+  .danger:hover:not(:disabled),
+  .danger:focus-visible {
+    background: rgb(217 83 79 / 14%);
   }
 
   .tick {

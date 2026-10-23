@@ -64,7 +64,7 @@
       x={menu.x}
       y={menu.y}
       model={menu.model}
-      busy={reader.hiddenBusy}
+      busy={reader.hiddenBusy || reader.favoritesBusy || reader.feedBusy}
       onselect={(action) => void reader.applyMenuAction(action)}
       onclose={() => reader.closeCategoryMenu()}
     />

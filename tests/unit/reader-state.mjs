@@ -56,7 +56,9 @@ function buildReaderModule() {
     .replaceAll('"../api/transport"', JSON.stringify(absolute("src/api/transport.ts")))
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
     .replaceAll('"./hidden-write"', JSON.stringify(absolute("src/state/hidden-write.ts")))
-    .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")));
+    .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
+    .replaceAll('"./favorites"', JSON.stringify(absolute("src/state/favorites.ts")))
+    .replaceAll('"./write"', JSON.stringify(absolute("src/state/write.ts")));
 }
 
 function subscription(id, title, label) {

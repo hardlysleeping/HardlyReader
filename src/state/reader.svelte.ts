@@ -11,6 +11,8 @@ import {
   isStarred,
   listSubscriptions,
   listTags,
+  subscribe,
+  unsubscribe,
   type Session,
   type StreamItem,
   type Subscription,
@@ -18,17 +20,34 @@ import {
 } from "../api/freshrss";
 import {
   categoryIdForLabel,
+  favoriteIdForLabel,
+  getApiState as getApiStateFromServer,
   getState as getHiddenState,
+  setCategoryFavorite as apiSetCategoryFavorite,
   setCategoryHidden as apiSetCategoryHidden,
+  setFavoritesView as apiSetFavoritesView,
   setView as apiSetView,
+  SIDEBAR_INDENT_FALLBACK_PX,
+  unavailableFavorites,
   unavailableState,
+  type FavoriteView,
+  type FavoritesState,
   type HiddenCategoriesState,
   type HiddenView,
+  type SidebarIndentState,
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
-import { categoryMenu, type MenuAction, type MenuModel, type Point } from "../lib/contextmenu";
+import { feedMenu, categoryMenu, type MenuAction, type MenuModel, type Point } from "../lib/contextmenu";
+import {
+  applyFavoritesWrite,
+  nextFavoriteView as viewAfter,
+  withCategoryFavorite,
+  withFavoritesView,
+  type FavoritesWriteOutcome,
+} from "./favorites";
 import { effectiveView, visibleGroups } from "./hidden";
 import { applyHiddenWrite, withCategoryHidden, withView, type HiddenWriteOutcome } from "./hidden-write";
+import type { WriteOutcome } from "./write";
 
 export const PAGE_SIZE = 50;
 
@@ -37,6 +56,11 @@ export interface CategoryGroup {
   label: string;
   feeds: Subscription[];
 }
+
+/** What the open menu is about. It decides which items the menu draws. */
+type MenuTarget =
+  | { kind: "category"; label: string }
+  | { kind: "feed"; id: string; title: string };
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -79,19 +103,41 @@ export class ReaderState {
   /** True while a hide/show/view write is in flight. */
   hiddenBusy = $state(false);
 
+  /** Favorite Categories state, from the same `/v1/state` read. */
+  favorites = $state<FavoritesState>(unavailableFavorites());
+  /** True while a favorite/view write is in flight. */
+  favoritesBusy = $state(false);
+
   /**
-   * The open category menu, anchored at a viewport point.
+   * Sidebar feed indentation. Always holds a usable number: the fallback when
+   * the extension is absent, the clamped server value when it is not.
+   */
+  sidebarIndent = $state<SidebarIndentState>({
+    available: false,
+    px: SIDEBAR_INDENT_FALLBACK_PX,
+  });
+
+  /** True while a subscribe or unsubscribe is in flight. */
+  feedBusy = $state(false);
+  /** Why the last add-feed attempt failed, in the server's words. */
+  addFeedError = $state<string | null>(null);
+
+  /**
+   * The open row menu, anchored at a viewport point.
    *
    * It lives here rather than in the sidebar because a `position: fixed` menu
    * inside the sidebar would be positioned against that element on narrow
    * layouts, where the sidebar is a transformed drawer. The shell renders it.
    */
-  menu = $state<{ x: number; y: number; label: string } | null>(null);
+  menu = $state<{ x: number; y: number; target: MenuTarget; confirming: boolean } | null>(null);
 
   /** The items to draw for the open menu, or null when none is open. */
   get menuModel(): MenuModel | null {
-    if (this.menu === null) return null;
-    return categoryMenu(this.hiddenCategories, this.menu.label);
+    const menu = this.menu;
+    if (menu === null) return null;
+    return menu.target.kind === "category"
+      ? categoryMenu(this.hiddenCategories, menu.target.label, this.favorites)
+      : feedMenu(menu.target.title, menu.confirming);
   }
 
   /** The view the extension is actually applying. */
@@ -103,15 +149,60 @@ export class ReaderState {
     return this.hiddenCategories.available;
   }
 
+  get favoritesAvailable(): boolean {
+    return this.favorites.available;
+  }
+
+  /** The favorites view the server has stored. */
+  get favoriteView(): FavoriteView {
+    return this.favorites.view;
+  }
+
+  /** What one click on the header's favorites control would ask for. */
+  get nextFavoriteView(): FavoriteView {
+    return viewAfter(this.favorites.view);
+  }
+
   /** The numeric FreshRSS id behind a GReader label, or null if unknown. */
   categoryId(labelOrStreamId: string): number | null {
     return categoryIdForLabel(this.hiddenCategories, labelOrStreamId);
   }
 
+  /**
+   * The numeric id to favorite, from whichever block knows it.
+   *
+   * The favorites block is authoritative, but a server can report the hidden
+   * block and not every category in the favorites one; both describe the same
+   * category table, so a miss in one is worth a look in the other.
+   */
+  favoriteId(labelOrStreamId: string): number | null {
+    return (
+      favoriteIdForLabel(this.favorites, labelOrStreamId) ??
+      categoryIdForLabel(this.hiddenCategories, labelOrStreamId)
+    );
+  }
+
+  /** True when the server reports this category as a favorite. */
+  isFavorite(labelOrStreamId: string): boolean {
+    if (!this.favorites.available) return false;
+    const id = this.favoriteId(labelOrStreamId);
+    return id !== null && this.favorites.ids.includes(id);
+  }
+
   /** Opens the menu for a category row. Does nothing without the extension. */
   openCategoryMenu(label: string, point: Point): void {
     if (!this.hiddenAvailable) return;
-    this.menu = { x: point.x, y: point.y, label };
+    this.menu = { x: point.x, y: point.y, target: { kind: "category", label }, confirming: false };
+  }
+
+  /** Opens the menu for a feed row: removal, and the confirmation of it. */
+  openFeedMenu(feed: { id: string; title: string }, point: Point): void {
+    this.menu = {
+      x: point.x,
+      y: point.y,
+      target: { kind: "feed", id: feed.id, title: feed.title },
+      confirming: false,
+    };
   }
 
   closeCategoryMenu(): void {
@@ -119,18 +210,41 @@ export class ReaderState {
   }
 
   /**
-   * Runs one menu item and closes the menu.
+   * Runs one menu item.
    *
-   * The menu closes before the write so the row's new state is visible without
-   * anything on top of it — the change is optimistic either way.
+   * Anything that writes closes the menu first, so the row's new state is
+   * visible without anything on top of it — the change is optimistic either
+   * way. Asking to remove a feed does not write: it swaps the menu into its
+   * confirmation step, which is the point of a confirmation step.
    */
-  async applyMenuAction(action: MenuAction): Promise<HiddenWriteOutcome | null> {
-    const label = this.menu?.label;
-    this.menu = null;
-    if (label === undefined) return null;
-    return action.type === "hidden"
-      ? this.setCategoryHidden(label, action.hidden)
-      : this.setHiddenView(action.view);
+  async applyMenuAction(action: MenuAction): Promise<WriteOutcome<HiddenCategoriesState | FavoritesState> | null> {
+    const menu = this.menu;
+    if (menu === null) return null;
+    const target = menu.target;
+
+    switch (action.type) {
+      case "confirm-remove":
+        this.menu = { ...menu, confirming: true };
+        return null;
+      case "cancel-remove":
+        this.menu = { ...menu, confirming: false };
+        return null;
+      case "remove-feed": {
+        this.menu = null;
+        if (target.kind !== "feed") return null;
+        await this.removeFeed(target.id);
+        return null;
+      }
+      case "hidden":
+        this.menu = null;
+        return target.kind === "category" ? this.setCategoryHidden(target.label, action.hidden) : null;
+      case "favorite":
+        this.menu = null;
+        return target.kind === "category" ? this.setCategoryFavorite(target.label, action.favorite) : null;
+      case "view":
+        this.menu = null;
+        return this.setHiddenView(action.view);
+    }
   }
 
   /** Hides or shows one category: optimistically, then against the server. */
@@ -176,6 +290,62 @@ export class ReaderState {
     } finally {
       this.hiddenBusy = false;
     }
+  }
+
+  /**
+   * Favorites or unfavorites one category: optimistically, then against the
+   * server.
+   *
+   * `changed: false` is a success — the server was already in that state — so
+   * it is drawn exactly like a change and reported to nobody.
+   */
+  async setCategoryFavorite(label: string, favorite: boolean): Promise<FavoritesWriteOutcome | null> {
+    const session = this.session;
+    const id = this.favoriteId(label);
+    if (session === null || id === null || !this.favoritesAvailable || this.favoritesBusy) return null;
+
+    this.favoritesBusy = true;
+    try {
+      const outcome = await applyFavoritesWrite(
+        this.favorites,
+        withCategoryFavorite(this.favorites, id, favorite),
+        (next) => {
+          this.favorites = next;
+        },
+        () => apiSetCategoryFavorite(transport, session, id, favorite),
+      );
+      this.settleFavorites(outcome);
+      return outcome;
+    } finally {
+      this.favoritesBusy = false;
+    }
+  }
+
+  /** Switches the favorites view: optimistically, then against the server. */
+  async setFavoritesView(view: FavoriteView): Promise<FavoritesWriteOutcome | null> {
+    const session = this.session;
+    if (session === null || !this.favoritesAvailable || this.favoritesBusy) return null;
+
+    this.favoritesBusy = true;
+    try {
+      const outcome = await applyFavoritesWrite(
+        this.favorites,
+        withFavoritesView(this.favorites, view),
+        (next) => {
+          this.favorites = next;
+        },
+        () => apiSetFavoritesView(transport, session, view),
+      );
+      this.settleFavorites(outcome);
+      return outcome;
+    } finally {
+      this.favoritesBusy = false;
+    }
+  }
+
+  /** One click on the header control: the next view in the cycle. */
+  async cycleFavoritesView(): Promise<FavoritesWriteOutcome | null> {
+    return this.setFavoritesView(viewAfter(this.favorites.view));
   }
 
   get selected(): StreamItem | null {
@@ -246,6 +416,11 @@ export class ReaderState {
     this.hiddenCategories = unavailableState();
     this.hiddenError = null;
     this.hiddenBusy = false;
+    this.favorites = unavailableFavorites();
+    this.favoritesBusy = false;
+    this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX };
+    this.feedBusy = false;
+    this.addFeedError = null;
     this.menu = null;
   }
 
@@ -257,7 +432,7 @@ export class ReaderState {
         listTags(transport, this.session),
         getUnreadCounts(transport, this.session),
         // Never throws; an install without the extension is not an error.
-        this.loadHiddenState(),
+        this.loadApiState(),
       ]);
       this.subscriptions = subscriptions;
       this.tags = tags;
@@ -268,11 +443,36 @@ export class ReaderState {
   }
 
   /**
-   * Reads hidden-categories state.
+   * Reads every extension block: hidden categories, favorites, sidebar indent.
+   *
+   * One request, because the extension builds all three from the same user
+   * configuration and three calls could each see a different snapshot.
    *
    * Deliberately does not touch `error`: a missing extension, a 409 or a 401
    * here must not take over the sidebar, and the GReader calls already report
    * a dead token.
+   */
+  async loadApiState(): Promise<void> {
+    if (!this.session) return;
+    try {
+      const state = await getApiStateFromServer(transport, this.session);
+      this.hiddenCategories = state.hiddenCategories;
+      this.favorites = state.favorites;
+      this.sidebarIndent = state.sidebarIndent;
+      this.hiddenError = null;
+    } catch (error) {
+      this.hiddenCategories = unavailableState();
+      this.favorites = unavailableFavorites();
+      this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX };
+      this.hiddenError = message(error);
+    }
+  }
+
+  /**
+   * Reads hidden-categories state alone, for callers that only want that.
+   *
+   * Kept separate from `loadApiState` because a hidden-categories refresh must
+   * not silently overwrite favorites the user just changed.
    */
   async loadHiddenState(): Promise<void> {
     if (!this.session) return;
@@ -282,6 +482,69 @@ export class ReaderState {
     } catch (error) {
       this.hiddenCategories = unavailableState();
       this.hiddenError = message(error);
+    }
+  }
+
+  /**
+   * Subscribes to a feed URL, then re-reads the subscription list.
+   *
+   * No title is sent: FreshRSS takes the feed's own, and inventing one here
+   * would leave the sidebar showing a name the server never agreed to. The
+   * server's own error text is kept for the form to show — `HttpError` already
+   * carries it.
+   */
+  async addFeed(url: string): Promise<boolean> {
+    const session = this.session;
+    const feedUrl = url.trim();
+    if (session === null || this.feedBusy) return false;
+    if (feedUrl === "") {
+      this.addFeedError = "Enter a feed URL first.";
+      return false;
+    }
+
+    this.feedBusy = true;
+    this.addFeedError = null;
+    try {
+      await subscribe(transport, session, feedUrl);
+      await this.loadSidebar();
+      return true;
+    } catch (error) {
+      this.addFeedError = message(error);
+      return false;
+    } finally {
+      this.feedBusy = false;
+    }
+  }
+
+  /** Drops a stale add-feed error, e.g. when the form is reopened or closed. */
+  clearAddFeedError(): void {
+    this.addFeedError = null;
+  }
+
+  /**
+   * Unsubscribes a feed, then re-reads the subscription list.
+   *
+   * If the removed feed was the open stream, the reading list takes its place:
+   * leaving the app pointed at a stream that no longer exists would only
+   * produce an error banner on the next reload.
+   */
+  async removeFeed(streamId: string): Promise<boolean> {
+    const session = this.session;
+    if (session === null || this.feedBusy) return false;
+
+    this.feedBusy = true;
+    try {
+      await unsubscribe(transport, session, streamId);
+      await this.loadSidebar();
+      if (this.activeStream === streamId) {
+        await this.openStream(READING_LIST, "Reading list");
+      }
+      return true;
+    } catch (error) {
+      this.error = message(error);
+      return false;
+    } finally {
+      this.feedBusy = false;
     }
   }
 
@@ -434,6 +697,11 @@ export class ReaderState {
    * a reason, and that reason belongs in the banner.
    */
   private settleHidden(outcome: HiddenWriteOutcome): void {
+    if (outcome.kind === "failed") this.error = outcome.message;
+  }
+
+  /** The same rule for favorites: reconcile silently, report a real failure. */
+  private settleFavorites(outcome: FavoritesWriteOutcome): void {
     if (outcome.kind === "failed") this.error = outcome.message;
   }
 
