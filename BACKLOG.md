@@ -1,4 +1,4 @@
-e as# Backlog
+# Backlog
 
 MVP scope per the commit checklist. Linux + FreshRSS + HiddenCategories only; iOS, Android,
 Favorites, Sidebar Indent, offline caching and background sync are explicitly out of scope until
@@ -36,14 +36,14 @@ Status: `done` / `wip` / `next` / `todo` / `blocked`
 | # | Commit | Status | Notes |
 |---|---|---|---|
 | 11 | PHPUnit: GET state, PUT category, PUT view; 200/401/404/409/423 | done | 51 tests / 166 assertions, green on PHP 8.2, 8.3, 8.4. Covers auth-before-routing, 404 (unknown route/version/empty/trailing), 405 with `Allow`, 400 (zero, non-numeric, malformed, non-boolean), 409 (`hidden_categories_unavailable`, `extension_incompatible`), 423 locked, convergence carrying authoritative state. Fakes only — no FreshRSS in the loop; `a5dc943` |
-| 12 | PHP CI matrix + combined summary | wip | `.github/workflows/tests.yml`, three jobs, matrix 8.2/8.3/8.4 per §6.6; parses as YAML and the scripts pass `bash -n`. **Never executed on a GitHub runner** — `actionlint` is still not installed; `c77f09c` |
-| 13 | Docker E2E against real FreshRSS container | done | `tests/integration/run.sh`: own compose project (`hardlyread-e2e`) on port 18081, so it never touches the developer's 18080; installs both extensions, seeds fixed fixture categories, waits on `cli/health.php`, restarts the web server so opcache picks the new config up, runs 52 wire-level checks (`tests/integration/e2e.mjs`) and cross-checks the extension's own store. Diagnostics land in `tests/integration/artifacts/` on failure; `KEEP_CONTAINERS_ON_FAILURE=1` leaves the stack up. 52/52 green locally, twice, plus a verified failure path. **Not run on a GitHub runner**, and CI needs a Hidden Categories checkout (`HARDLYREAD_HIDDEN_CATEGORIES_DIR`) because the published copy predates `setCategoryHidden()`/`changeView()` |
+| 12 | PHP CI matrix + combined summary | **done** | **Executed on a real runner** (run `39888463114`, 24 s): `PHPUnit / PHP 8.2 → success`, `8.3 → success`, `8.4 → success`, `PHPUnit Summary → success`. Previously only parsed as YAML; `c77f09c` |
+| 13 | Docker E2E against real FreshRSS container | done | `tests/integration/run.sh`: own compose project (`hardlyread-e2e`) on port 18081, so it never touches the developer's 18080; installs both extensions, seeds fixed fixture categories, waits on `cli/health.php`, restarts the web server so opcache picks the new config up, runs 52 wire-level checks (`tests/integration/e2e.mjs`) and cross-checks the extension's own store. Diagnostics land in `tests/integration/artifacts/` on failure; `KEEP_CONTAINERS_ON_FAILURE=1` leaves the stack up. 52/52 green locally, twice, plus a verified failure path. **On CI it fails in ~20 s**: `error: Hidden Categories source not found at /home/runner/apps/freshrss/extensions-src/xExtension-HiddenCategories`. So the E2E suite has still never run on a runner — row 43 fixes the checkout, row 44 the missing extension |
 
 ## P2 — Release
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| 14 | Publish to public GitHub — **only after the MVP is done** | todo | `github.com/hardlysleeping/hardlyreader`; no personal data in files *or* history; plan §8.1 |
+| 14 | Publish to public GitHub | **done (early, at owner's request)** | `github.com/hardlysleeping/hardlyread`, public, default branch `main`, 100 files. History is a **single squashed root commit** because the older commits carried a tailnet IP, hostname and the harness password and a force-push would not have removed them. Scrubbed before pushing: `100.79.162.94` → `your-server`, `cenvalweb.tail900410.ts.net` → `your-freshrss-host.example.ts.net`, `itest-api-password` → `hardlyread-test-password` (consistently, so the harness still runs). Verified by cloning the public repo back and grepping: clean. Local `master` keeps full history; `origin` points at the public repo |
 
 Gate: the "Done when" section below must actually pass first. Full history is scanned before the first
 push — a force-push does not purge old commits, and this account cannot delete repos.
@@ -175,16 +175,16 @@ questions in the plan are answered.
 
 | # | Item | State | Notes |
 |---|---|---|---|
-| 19 | Password reveal toggle on the login form | todo | Toggle the input's `type`, keep the value, keep it reachable by keyboard |
+| 19 | Password reveal toggle on the login form | **done** | Show/Hide button in the field; measured in the browser: `password → text → password`, label follows, value kept; `0666681` |
 | 20 | Stream switching performance | **partial** | Today every switch is one uncached GReader round-trip with no abort and no generation guard. Plan: 60s in-memory stream cache, `AbortController` + generation token, hover prefetch (max 2 in flight), keyed list items, scroll preserved per stream, `performance.mark` p50/p95. Targets: <50ms cached, <400ms cold over the tailnet. **Landed:** StreamCache (60s TTL, 20 streams, LRU-ish eviction), AbortController + token guard so a stale response can never paint, hover/focus prefetch capped at two in flight, cache kept in step after read/star/paginate, `lastStreamMs`/`lastStreamSource` exposed. Tests: 17 cache checks plus a reader-level check proving 3 switches cost 2 requests. **Fixed the stale-list bug:** an uncached switch used to keep the previous stream's articles on screen under the new title, which read as "the click did nothing". The list now clears immediately and shows skeleton rows; measured with a 1.5s throttle — title updates at once, 0 stale items, 6 skeleton rows, then 10 real ones. Honest gap: a cold stream fetch measures **4-5ms** on the local harness, so network is not the bottleneck there — the perceived slowness is render cost or the live instance over the tailnet, and neither is measured yet |
-| 21 | Tri-pane desktop layout (feeds / articles / reader) | todo | >=1100px: clicking a feed swaps only the middle column, like Newsflash. Below that, the existing two-pane and drawer stay |
-| 22 | Sidebar control row: hidden view (left), lock (middle), favourite filter (right) | todo | Icon above, label below, styled like FreshRSS extension buttons. Replaces the two header chips and becomes the only place the hidden view changes |
-| 23 | Row menu: hide/favourite and their reverses only | todo | Remove hidden/revealed/only entries — item 8 of the feedback. Hidden still beats favourite |
-| 24 | Favourites pinned to the top, pin glyph instead of a star | todo | Ordering only; does not override the hidden filter |
-| 25 | Manual pin for categories and feeds | todo | Keeps an item visible when the hidden view filters it out — the curtain. **Storage settled and verified:** category pin = `category.attributes.position`, written by FreshRSS's own `categoryController` and honoured by `listSortedCategories()`, so it pins in the web UI too with no extension involved. Feeds have no order column (only `priority`, owned by both extensions), so feed pins are app-local — a documented asymmetry |
-| 26 | Feed thumbnails from `iconUrl` | todo | Server sends it on every subscription (2/2 verified) via its own `/f.php` cache. Must rewrite the origin to the configured server, initial as fallback. Behind a `faviconProvider` seam: FreshRSS first, free third-party provider selectable later for local RSS with no FreshRSS behind it |
+| 21 | Tri-pane desktop layout (feeds / articles / reader) | **done** | Three columns from 1200px (`300px minmax(320,400) minmax(0,1fr)`); picking a feed swaps only the middle column. 840-1199 two-pane, drawer below. Plan said 1100px — the breakpoint was already 1200 and was left alone |
+| 22 | Sidebar control row: hidden view (left), lock (middle), favourite filter (right) | **done** | `SidebarBand.svelte`: eye left, lock centre, pin right, label under each icon; it is now the only place the hidden view changes; `d8b9b6c` |
+| 23 | Row menu: hide/favourite and their reverses only | **done** | Menu actions are hide, pin, indent, remove-feed — no view entries (`contextmenu.ts`). Hidden still beats favourite |
+| 24 | Favourites pinned to the top, pin glyph instead of a star | **todo** | Glyph done (pin, not star). **Ordering is NOT implemented** — nothing in `Sidebar.svelte` sorts favourites first, verified by grep. Ordering only; must not override the hidden filter |
+| 25 | Manual pin for categories and feeds | **wip — decision changed** | Pins exist but category pins currently write through `setCategoryFavorite()` (`reader.svelte.ts:301`), making a pin a second name for a favourite. Per the 2026-10-22 20:00 review a pin and a favourite are different states: **MVP = pins app-local for both**, favourites stay on the server/extensions. `category.attributes.position` is dropped as the pin store for now because FavoriteCategories already writes it |
+| 26 | Feed thumbnails from `iconUrl` | **done** | `src/lib/feedicon.ts` + rows; loopback icon URLs rewritten to the configured server, deterministic letter tile + hue as fallback, dead icons fall back instead of showing a broken image. 18 unit checks; measured in the app: both feeds render loaded icons; `0666681` |
 | 27 | Collapsible tree, indent visible, Starred above it | todo | `--feed-indent` is plumbed but not visible on rows; check row markup against the extension's `.item-title` selector. Indent is confirmed **global, covering all feeds** — no per-feed setting exists or is wanted |
-| 28 | Feed settings popup from the row menu | todo | Shows what actually exists for that feed: title, URLs, counts, the extension's real global indent value in context, plus hide/favourite/pin actions. Per-feed indent is a new extension capability, not a UI change |
+| 28 | Feed settings popup from the row menu | **partial** | Popup works and holds hide, pin, indent slider (0-64, applied live, menu stays open, choice remembered per device) and remove-feed with its confirmation. Still missing: title, feed/home URLs, item counts. Per-feed indent remains a new extension capability, not a UI change; `021adbe` |
 | 29 | Visual parity pass against the screenshots | todo | Blocked until the reference images arrive |
 
 Evidence carried into this batch: `iconUrl` is present on every subscription in the
@@ -204,11 +204,11 @@ accent `#0062b7`; band at y 78-106; rows every 43-46px; status strip at y 892/93
 
 | # | Item | State | Notes |
 |---|---|---|---|
-| 30 | Sidebar band in three states: expanded / locked / collapsed | todo | Eye left, lock middle, pin right. Locked compacts to glyphs and removes every hidden indication; collapsed removes the band and pin area but leaves the status strip |
-| 31 | Inline passcode area under the band | todo | Appears in place on lock click, collapses on success or escape; a 423 from the adapter drives the same surface, not a toast |
-| 32 | Count-visibility rules for hidden | todo | Unlocked shows the hidden count and an ENFORCED badge; locked shows neither. Needs the label spelling out whether it counts categories or feeds |
-| 33 | Collapse/expand affordance | todo | Chevron at the right of the section header as the only remnant, whole header row clickable, keyboard toggle, persisted per server+user |
-| 34 | Adopt the reference visual tokens | todo | Palette above, band treatment, right-aligned counts, muted labels; the extension vocabulary labels (Mixed / Favourites / Hidden favourites, Hidden / Revealed / Only) |
+| 30 | Sidebar band in three states: expanded / locked / collapsed | **done** | All three measured. Locked compacts to glyphs and drops every hidden clue; collapsed leaves only a full-width caret bar (`2bada61`); `d8b9b6c` |
+| 31 | Inline passcode area under the band | **done** | Inline panel: set a passcode, Lock now, unlock with passcode, "Wrong passcode." shown in place. Backed by real routes (`POST /v1/lock`, `POST /v1/unlock`, `PUT /v1/passcode`) proven on the harness (200/403); `dc72ae8` |
+| 32 | Count-visibility rules for hidden | **done (count)** | Unlocked shows `Hidden 1` and it appears in the same tick as the hide (measured); locked shows no count and no hidden clues. Still open: an ENFORCED badge, and whether the number counts categories or feeds |
+| 33 | Collapse/expand affordance | **done — redesigned** | Not the corner chevron the plan asked for: the caret is a full-width bar across the top of the band. Collapsed measures `281×20` inside a `283×22` box (controls gone); expanded `281×14` above the controls. Arrow points up to hide, down to restore, and the label/title say which; persisted per server+user; `2bada61` |
+| 34 | Adopt the reference visual tokens | **todo** | Band treatment and muted labels are in place; the reference palette and right-aligned counts are not verified against the screenshots. Extension vocabulary is in use (`Hidden / Revealed / Only`, `Mixed / Favourites / Hidden favourites`) |
 
 Two open questions carried in the plan §8: what `Hidden 1009` counts, and whether `Important feeds` is the
 pinned band or an existing FreshRSS grouping.
@@ -217,7 +217,7 @@ pinned band or an existing FreshRSS grouping.
 
 | # | Item | State | Notes |
 |---|---|---|---|
-| 35 | Adapter v1.2: pin state and routes | todo | `tag/list` carries ids only — verified — so pins cannot be read from GReader. Adapter exposes `pins` in `/v1/state` and writes `category.attributes.position`; needs a VPS deploy and a revert entry in `docs/live-deployment.md` |
+| 35 | Adapter v1.2: pin state and routes | **deferred** | Superseded by the 2026-10-22 20:00 review and dropped from the MVP: FavoriteCategories already writes `category.attributes.position`, so a second writer is the exact extension conflict this project has avoided. Manual pins stay app-local until ownership of that column is written down and tested. `tag/list` still carries ids only, so server pins would need the adapter — later, not now |
 
 Answered: pins go server-side wherever the server can hold them and local otherwise, for both hidden and
 favourite, and must not require either extension; indent is global across all feeds; favicons come from
@@ -247,3 +247,30 @@ Conflict rules recorded in the plan §3.3: server wins for hidden/favourite/lock
 (unless a local indent override exists); the device keeps band collapse, feed pins, open stream
 and drafts. Rejected there too, with reasons: SSE, long-poll, WebSocket, full-state polling,
 extension-side push, and SQLite mtime watching.
+
+## P0 — reproducible repos and real CI (2026-10-22 20:00)
+
+Plan: `~/.hermes/plans/2026-10-22_2000-hardlyread-mvp-repro-ci.md` (copy in the workspace).
+This sits **above** sync: a fresh public clone must pass its own tests first.
+
+Adopted from the owner's external review after re-checking each claim: CI run `39888463114` is real
+(PHPUnit 8.2/8.3/8.4 success, integration failure in ~20 s), the public collaborator repos really are
+missing the extracted methods, and `setCategoryPinned()` really does write through
+`setCategoryFavorite()`. One correction to the review: favourites ordering is **not** implemented.
+
+| # | Item | State | Notes |
+|---|---|---|---|
+| 41 | Publish HiddenCategories with `setCategoryHidden()`, `changeView()` | todo | Public repo predates commit `73cfde6`, so the adapter 409s against any fresh clone. **Needs explicit approval naming that repo before any push.** Should also carry `lock()`, `unlock()`, `setPasscode()` or the adapter's lock routes stay dead on a stock install |
+| 42 | Publish FavoriteCategories with `setCategoryFavorite()`, public `changeView()` | todo | Same gate: explicit approval naming that repo |
+| 43 | CI: checkout collaborator repos into `.deps/`, pass absolute paths to `run.sh` | todo | `HARDLYREAD_HIDDEN_CATEGORIES_DIR` plus a new `HARDLYREAD_FAVORITE_CATEGORIES_DIR`; fail with a clear message when a dep is missing instead of exit 1 |
+| 44 | E2E: install FavoriteCategories, replace the absent-extension assertions with real ones | todo | favourite, unfavourite, favourites view cycle, idempotence, persistence, Hidden+Favourite coexistence. Keep one deliberate 409 configuration |
+| 45 | Frontend CI job | todo | `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm build`, all `tests/unit/*.mjs`. Nothing currently protects the Svelte app |
+| 46 | Pin ownership: decouple manual pins from favourites | todo | Pins app-local for categories and feeds; favourites stay server-side. Removes the `setCategoryPinned() → setCategoryFavorite()` crossover |
+| 47 | Login token storage + Tauri CSP | todo — **after MVP** | `src/api/session.ts` keeps the GoogleLogin token in `localStorage`; `tauri.conf.json` has `"csp": null`. Both are prerequisites for a public or mobile build, not for the daily-driver loop |
+
+**MVP gate** (nothing new until all true): fresh public clone → CI green → log in → hide/favourite
+respond instantly → FreshRSS web agrees → a web-side change shows in the app within 5 s.
+
+**Do not rebuild:** tri-pane, `SidebarBand`, lock/passcode UI, collapsible categories, feed favicons,
+indent control, local pins, stream cache/prefetch, password reveal, caret bar — all built (rows 19-33).
+Extract `SyncEngine` as a new module; do not rewrite `ReaderState`.
