@@ -481,9 +481,15 @@
     transform: rotate(180deg);
   }
 
+  /* Two equal halves around the lock. `minmax(0, 1fr)` rather than `1fr` is the
+     whole point: a plain 1fr track is at least its content's min-content width,
+     so the half holding the longer word ("Unpinned" against "Revealed") took
+     more of the row and the other one — Hidden — squeezed first. With the floor
+     removed both halves are the same width at every sidebar width, and the
+     labels give up their ends evenly instead of one side collapsing. */
   .band {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: stretch;
     gap: 6px;
     padding: 2px 2px 0;
@@ -499,6 +505,7 @@
     align-items: center;
     justify-content: center;
     gap: 3px;
+    min-width: 0;
     min-height: 44px;
     padding: 5px 10px;
     border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent);
@@ -574,9 +581,13 @@
   }
 
   .lbl {
+    max-width: 100%;
+    overflow: hidden;
     font-size: 10px;
     letter-spacing: 0.04em;
+    text-overflow: ellipsis;
     text-transform: uppercase;
+    white-space: nowrap;
     opacity: 0.85;
   }
 
