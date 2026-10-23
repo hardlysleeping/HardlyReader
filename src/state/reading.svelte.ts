@@ -33,6 +33,14 @@ import { clampEffort, EFFORT_DEFAULT } from "../lib/scroll-advance";
 
 const STORAGE_KEY = "hardlyreader.reading.v1";
 
+/** How read state is decided: by you, or by a clock while the post is open. */
+export type MarkReadMode = "manual" | "auto";
+
+/** Both options, and nothing else: a corrupt value falls back to manual. */
+export function isMarkReadMode(value: unknown): value is MarkReadMode {
+  return value === "manual" || value === "auto";
+}
+
 class ReadingState {
   advanceOnScroll = $state(true);
 
@@ -45,11 +53,12 @@ class ReadingState {
   articleFilter = $state<ArticleFilter>("all");
 
   /**
-   * Mark a post read after it has been open for `AUTO_MARK_MS`.
+   * Whether a post is marked read without being asked.
    *
-   * Off by default and stayed off for the owner: the whole reason he wanted it
-   * optional is that scrolling is not reading, and a post flipped past should
-   * still be there when he comes back for it.
+   * Manual is the default and the owner's preference: opening a post is not
+   * reading it, and a post flipped past should still be there when he comes
+   * back. The automatic option stays, because it is a real preference — just
+   * not the one to start with.
    */
   autoMarkRead = $state(false);
 
@@ -121,6 +130,7 @@ class ReadingState {
       const saved = JSON.parse(raw) as {
         advanceOnScroll?: unknown;
         articleFilter?: unknown;
+        markReadMode?: unknown;
         autoMarkRead?: unknown;
         autoMarkSeconds?: unknown;
         scrollEffort?: unknown;
@@ -136,7 +146,12 @@ class ReadingState {
       };
       if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
-      if (typeof saved.autoMarkRead === "boolean") this.autoMarkRead = saved.autoMarkRead;
+      // An explicit choice of mode is honoured; the old bare `autoMarkRead`
+      // boolean is not read at all. It was a single icon next to the star, and
+      // it stayed on for the owner without his meaning it to — automatic
+      // marking is now something you have to pick twice (the setting or the
+      // button), and manual is what a fresh install gets.
+      if (isMarkReadMode(saved.markReadMode)) this.autoMarkRead = saved.markReadMode === "auto";
       if (saved.autoMarkSeconds !== undefined) this.autoMarkSeconds = clampDwellSeconds(saved.autoMarkSeconds);
       if (saved.scrollEffort !== undefined) this.scrollEffort = clampEffort(saved.scrollEffort);
       this.textScale = clampScale(saved.textScale, TEXT_SCALE);
@@ -159,7 +174,13 @@ class ReadingState {
   }
 
   toggleAutoMarkRead(): void {
-    this.autoMarkRead = !this.autoMarkRead;
+    this.setAutoMarkRead(!this.autoMarkRead);
+  }
+
+  /** The setting behind the ⏱ button, one place for both. */
+  setAutoMarkRead(on: boolean): void {
+    if (this.autoMarkRead === on) return;
+    this.autoMarkRead = on;
     this.save();
   }
 
@@ -269,7 +290,7 @@ class ReadingState {
         JSON.stringify({
           advanceOnScroll: this.advanceOnScroll,
           articleFilter: this.articleFilter,
-          autoMarkRead: this.autoMarkRead,
+          markReadMode: this.autoMarkRead ? "auto" : "manual",
           autoMarkSeconds: this.autoMarkSeconds,
           scrollEffort: this.scrollEffort,
           textScale: this.textScale,
