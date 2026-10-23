@@ -1,5 +1,6 @@
 import { SvelteMap } from "svelte/reactivity";
 
+import type { OpmlFeed } from "../lib/opml";
 import { addFeedsMessage, parseFeedUrls, type AddFeedsResult } from "../lib/add-feeds";
 import { landingItem, step } from "../lib/reading-order";
 import { attemptOrder } from "../lib/stream-cycle";
@@ -1132,19 +1133,45 @@ export class ReaderState {
       return { added: [], failed: [] };
     }
 
+    return this.subscribeEach(session, urls.map((url) => ({ url })));
+  }
+
+  /**
+   * Subscribes to the feeds in an OPML file, keeping their folders.
+   *
+   * Same rules as pasting a list — sequential, one sidebar reload, failures
+   * reported and the rest carried on with — because it is the same burst of
+   * requests; only the source differs. The folder travels as the GReader label
+   * on the subscribe itself, so a feed is never briefly uncategorised.
+   */
+  async importOpml(feeds: readonly OpmlFeed[]): Promise<AddFeedsResult> {
+    const session = this.session;
+    if (session === null || this.feedBusy) return { added: [], failed: [] };
+    if (feeds.length === 0) {
+      this.addFeedError = "That file has no feeds in it.";
+      return { added: [], failed: [] };
+    }
+    return this.subscribeEach(session, feeds);
+  }
+
+  /** The loop both entry points share. */
+  private async subscribeEach(
+    session: Session,
+    entries: readonly { url: string; title?: string; category?: string }[],
+  ): Promise<AddFeedsResult> {
     this.feedBusy = true;
     this.addFeedError = null;
-    this.feedProgress = { done: 0, total: urls.length };
+    this.feedProgress = { done: 0, total: entries.length };
     const result: AddFeedsResult = { added: [], failed: [] };
     try {
-      for (const url of urls) {
+      for (const entry of entries) {
         try {
-          await subscribe(transport, session, url);
-          result.added.push(url);
+          await subscribe(transport, session, entry.url, entry.title, entry.category);
+          result.added.push(entry.url);
         } catch (error) {
-          result.failed.push({ url, error: message(error) });
+          result.failed.push({ url: entry.url, error: message(error) });
         }
-        this.feedProgress = { done: result.added.length + result.failed.length, total: urls.length };
+        this.feedProgress = { done: result.added.length + result.failed.length, total: entries.length };
       }
       if (result.added.length > 0) await this.loadSidebar();
       this.addFeedError = addFeedsMessage(result);

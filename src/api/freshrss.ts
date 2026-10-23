@@ -435,6 +435,7 @@ export async function subscribe(
   session: Session,
   feedUrl: string,
   title?: string,
+  category?: string,
 ): Promise<void> {
   const params = new URLSearchParams({
     ac: "subscribe",
@@ -442,6 +443,11 @@ export async function subscribe(
   });
   if (title !== undefined && title !== "") {
     params.set("t", title);
+  }
+  // `a` is GReader's "add to this label": the same field the website uses when
+  // a feed arrives inside a folder, which is how an OPML import keeps them.
+  if (category !== undefined && category !== "") {
+    params.set("a", `user/-/label/${category}`);
   }
 
   await postWithWriteToken(

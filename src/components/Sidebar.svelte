@@ -9,6 +9,7 @@
     isMenuKey,
   } from "../lib/contextmenu";
   import { parseFeedUrls } from "../lib/add-feeds";
+  import { buildOpml, opmlFileName, parseOpml } from "../lib/opml";
   import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
@@ -238,6 +239,94 @@
     // Kept open when anything failed: the failures are in the message, and the
     // text is still there to correct rather than retype.
     if (result.added.length > 0 && result.failed.length === 0) cancelAdding();
+  }
+
+  /**
+   * OPML, both ways, under the add field.
+   *
+   * Import reads the file in the browser and subscribes through the same queue
+   * the pasted list uses, folder names included, so a move from another reader
+   * does not arrive as one undifferentiated pile. Export writes what this
+   * account actually has, folders and all, and says so on the same line — the
+   * name of the file in play is always on screen, so it is clear whether the
+   * last file came in or went out.
+   */
+  let opmlName = $state<string | null>(null);
+  let opmlNote = $state<string | null>(null);
+
+  async function pickOpml(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file === undefined) return;
+    opmlName = file.name;
+    opmlNote = null;
+    try {
+      const feeds = parseOpml(await file.text());
+      const result = await reader.importOpml(feeds);
+      const folders = new Set(feeds.map((feed) => feed.category).filter((name) => name !== undefined));
+      if (result.failed.length === 0) {
+        opmlNote = `Imported ${result.added.length} feed${result.added.length === 1 ? "" : "s"}${
+          folders.size > 0 ? ` into ${folders.size} folder${folders.size === 1 ? "" : "s"}` : ""
+        }.`;
+      } else {
+        opmlNote = `Imported ${result.added.length}, ${result.failed.length} failed — ${result.failed[0]?.error ?? ""}`;
+      }
+    } catch (error) {
+      opmlNote = error instanceof Error ? error.message : String(error);
+    } finally {
+      // So choosing the same file twice runs again instead of doing nothing.
+      input.value = "";
+    }
+  }
+
+  /**
+   * Writes the feed list out as OPML.
+   *
+   * The download is the anchor-and-blob kind every browser understands. The
+   * native Linux window is the exception: WebKitGTK only saves a download if
+   * the shell handles it, and this shell does not, so there the file also goes
+   * to the clipboard and the line underneath says so rather than claiming a
+   * file that never appeared.
+   */
+  async function exportOpml(): Promise<void> {
+    const folders = reader.categories.map((category) => ({
+      label: category.label,
+      feeds: category.feeds.map((feed) => ({ title: feed.title, url: feed.url })),
+    }));
+    const total = folders.reduce((count, folder) => count + folder.feeds.length, 0);
+    if (total === 0) {
+      opmlNote = "There are no feeds to export yet.";
+      return;
+    }
+    const name = opmlFileName(new Date());
+    const xml = buildOpml(folders);
+    const blob = new Blob([xml], { type: "text/x-opml" });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 1000);
+    opmlName = name;
+
+    const feeds = `${total} feed${total === 1 ? "" : "s"}`;
+    const native = typeof (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
+    if (!native) {
+      opmlNote = `Exported ${feeds} to ${name}.`;
+      return;
+    }
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(xml);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+    opmlNote = copied
+      ? `Exported ${feeds}. If no file appeared, the OPML is on your clipboard.`
+      : `Exported ${feeds} to ${name} — if no file appeared, the window could not save it.`;
   }
 </script>
 
@@ -537,6 +626,44 @@
     {:else}
       <button class="add-open" onclick={startAdding}>+ Add feed</button>
     {/if}
+
+    <!-- Below the add field, because both are ways in for a feed list. The
+         file name keeps its own line so it has room to be read: a name squeezed
+         between two buttons would only ever show its first few letters. -->
+    <div class="opml">
+      <div class="opml-row">
+        <label
+          class="opml-import"
+          class:busy={reader.feedBusy}
+          title="Import feeds from an OPML file — folders come too"
+        >
+          <input
+            type="file"
+            accept=".opml,.xml,text/xml,application/xml,application/octet-stream"
+            disabled={reader.feedBusy}
+            onchange={pickOpml}
+          />
+          <svg class="up" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 10.6V2.4" />
+            <path d="M4.7 5.7 8 2.4l3.3 3.3" />
+            <path d="M2.6 10.9v2.1c0 .4.3.7.7.7h9.4c.4 0 .7-.3.7-.7v-2.1" />
+          </svg>
+          <span>{reader.feedBusy ? "Importing…" : "Import"}</span>
+        </label>
+        <button
+          class="opml-export"
+          onclick={exportOpml}
+          disabled={reader.feedBusy || reader.categories.length === 0}
+          title="Save every feed and folder as an OPML file"
+        >Export</button>
+      </div>
+      <p class="opml-file" class:none={opmlName === null} title={opmlName ?? "No file chosen"}>
+        {opmlName ?? "No file chosen"}
+      </p>
+      {#if opmlNote}
+        <p class="opml-note" role="status">{opmlNote}</p>
+      {/if}
+    </div>
   </div>
 </nav>
 
@@ -1177,5 +1304,104 @@
     line-height: 1;
     background: hsl(var(--hue) 32% 26%);
     color: hsl(var(--hue) 45% 82%);
+  }
+
+  /* OPML sits under the add field as a second way in for a feed list. Both
+     controls are the same quiet weight as "+ Add feed" above them. */
+  .opml {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .opml-row {
+    display: flex;
+    gap: 6px;
+  }
+
+  .opml-import,
+  .opml-export {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 9px;
+    border: 1px solid var(--border-soft);
+    border-radius: 7px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      background 120ms ease,
+      border-color 120ms ease;
+  }
+
+  .opml-import {
+    flex: 1;
+  }
+
+  .opml-import:hover,
+  .opml-export:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--hover);
+    border-color: var(--border);
+  }
+
+  .opml-import.busy,
+  .opml-export:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  /* The file input is the label's business, not the sidebar's: the visible
+     control is the label, and the browser's own chrome would break the row. */
+  .opml-import input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .opml-import .up {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* The name of the file in play, on a line of its own so it has room: clipped
+     with an ellipsis rather than wrapped, and dimmed to a hint when empty. */
+  .opml-file {
+    margin: 0;
+    padding: 0 2px;
+    font-size: 10.5px;
+    line-height: 1.3;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .opml-file.none {
+    color: var(--muted);
+    opacity: 0.75;
+  }
+
+  .opml-note {
+    margin: 0;
+    padding: 0 2px;
+    font-size: 10.5px;
+    line-height: 1.35;
+    color: var(--text-dim);
   }
 </style>
