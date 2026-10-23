@@ -9,12 +9,32 @@
     isMenuKey,
   } from "../lib/contextmenu";
   import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
-  import { chrome } from "../state/chrome.svelte";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
   import { searchFeeds } from "../lib/search";
   import { search } from "../state/search.svelte";
   import { theme } from "../state/theme.svelte";
+  import { chrome } from "../state/chrome.svelte";
+
+  let wasLocked = false;
+
+  /**
+   * A lock folds the band.
+   *
+   * Folding when the curtain goes down is the private choice: a locked band that
+   * is still open is a row of controls about hidden things, even if the controls
+   * are only "Unlock". Only the transition does this, so opening the band while
+   * locked is allowed to stay open — a later refresh that still reports "locked"
+   * must not slam it shut again. The stored preference is untouched: unlocking
+   * returns to the fold state the user actually chose.
+   */
+  $effect(() => {
+    const locked = reader.hiddenLocked;
+    if (locked === wasLocked) return;
+    wasLocked = locked;
+    if (locked) chrome.collapseBandForLock();
+    else chrome.restoreBand();
+  });
 
   const words = $derived(pinWords(theme.current.vocabulary));
 
