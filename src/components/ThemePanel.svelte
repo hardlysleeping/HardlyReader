@@ -1,7 +1,8 @@
 <script lang="ts">
   /**
-   * Theme controls: a colour swatch that opens the panel, and a day/night
-   * switch beside it.
+   * The Options swatch and the panel behind it. The day/night switch is not
+   * here — it lives in the sidebar's settings strip (see ThemeToggle) so a
+   * near-miss on this small target cannot flip the whole screen.
    *
    * The swatch is one click from the accent it edits, which is the thing most
    * people change; the panel behind it holds the colours that carry meaning —
@@ -31,13 +32,6 @@
 
   let open = $state(false);
 
-  const isDark = $derived(
-    theme.current.mode === "dark" ||
-      (theme.current.mode === "system" &&
-        typeof matchMedia !== "undefined" &&
-        matchMedia("(prefers-color-scheme: dark)").matches),
-  );
-
   const swatches: {
     key: "accent" | "hidden" | "favourite" | "lockOpen" | "lockClosed" | "sync";
     label: string;
@@ -49,10 +43,6 @@
     { key: "lockClosed", label: "Lock locked" },
     { key: "sync", label: "Sync" },
   ];
-
-  function swapMode() {
-    theme.setMode(isDark ? "light" : "dark");
-  }
 </script>
 
 <div class="themebar">
@@ -66,15 +56,6 @@
     onclick={() => (open = !open)}
   >
     <span class="dot" aria-hidden="true"></span>
-  </button>
-
-  <button
-    class="mode"
-    onclick={swapMode}
-    aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-    title={isDark ? "Light mode" : "Dark mode"}
-  >
-    {isDark ? "☀" : "☾"}
   </button>
 </div>
 
@@ -223,8 +204,7 @@
     gap: 4px;
   }
 
-  .swatch,
-  .mode {
+  .swatch {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -240,8 +220,7 @@
     cursor: pointer;
   }
 
-  .swatch:hover,
-  .mode:hover {
+  .swatch:hover {
     background: var(--hover);
     color: var(--text);
   }
