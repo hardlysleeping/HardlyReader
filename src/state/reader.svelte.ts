@@ -56,6 +56,8 @@ import {
   type FavoritesWriteOutcome,
 } from "./favorites";
 import { effectiveView, visibleGroups } from "./hidden";
+import { filterItems } from "../lib/article-filter";
+import { reading } from "./reading.svelte";
 import { StreamCache } from "./stream-cache";
 import {
   arrangeByPins,
@@ -128,6 +130,17 @@ export class ReaderState {
   counts = new SvelteMap<string, number>();
 
   items = $state<StreamItem[]>([]);
+
+  /**
+   * The posts the list and continuous reading walk through.
+   *
+   * Everything that presents or navigates posts reads this, not `items`, or the
+   * filter and the ↑/↓ traversal would disagree — you would advance into a post
+   * the list is not showing.
+   */
+  get listItems(): StreamItem[] {
+    return filterItems(this.items, reading.articleFilter);
+  }
   continuation = $state<string | undefined>(undefined);
   activeStream = $state(READING_LIST);
   activeTitle = $state("Reading list");
@@ -1282,7 +1295,8 @@ export class ReaderState {
     const wasReading = this.selectedId !== null;
     await this.openStream(target.id, target.title);
     if (wasReading) {
-      const first = delta === 1 ? this.items[0] : this.items[this.items.length - 1];
+      const visible = this.listItems;
+      const first = delta === 1 ? visible[0] : visible[visible.length - 1];
       if (first) this.select(first);
     }
   }
@@ -1290,7 +1304,7 @@ export class ReaderState {
   /** Right/Enter: open the first post of the stream, or the post already chosen. */
   async enter(): Promise<void> {
     if (this.selectedId !== null) return;
-    const item = this.items[0];
+    const item = this.listItems[0];
     if (item) this.select(item);
   }
 
@@ -1322,12 +1336,12 @@ export class ReaderState {
   async advanceArticle(direction: -1 | 1): Promise<void> {
     if (this.selectedId === null) return;
     const next = step(
-      [{ id: this.activeStream, title: this.activeTitle, items: this.items }],
+      [{ id: this.activeStream, title: this.activeTitle, items: this.listItems }],
       { streamId: this.activeStream, itemId: this.selectedId },
       direction,
     );
     if (next.kind === "item") {
-      const item = this.items.find((candidate) => candidate.id === next.itemId);
+      const item = this.listItems.find((candidate) => candidate.id === next.itemId);
       if (item) this.select(item);
       return;
     }
@@ -1342,10 +1356,10 @@ export class ReaderState {
     if (!target) return;
     await this.openStream(target.id, target.title);
     const landing = landingItem(
-      { id: target.id, title: target.title, items: this.items },
+      { id: target.id, title: target.title, items: this.listItems },
       direction,
     );
-    const item = landing === null ? undefined : this.items.find((candidate) => candidate.id === landing);
+    const item = landing === null ? undefined : this.listItems.find((candidate) => candidate.id === landing);
     if (item) this.select(item);
   }
 
