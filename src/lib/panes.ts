@@ -26,19 +26,54 @@ export const MIN: Record<"sidebar" | "list" | "article", number> = {
 export const DEFAULT_WIDTHS: PaneWidths = { sidebar: 280, list: 380 };
 
 /**
- * The narrowest window in which each mode is honest.
+ * The narrowest window in which each mode is honest, per device class.
  *
  * These are policy, not geometry. The geometric minimums above say a pane can
  * *exist*; these say it is still usable. Two panes at 466px technically fit
- * their minimums and leave a 34px content column, which is why the floor here
- * is 700 — the same reason three panes need 1000, not the 792 that would
- * satisfy the minimums and give the article a strip.
+ * their minimums and leave a 34px content column, which is why the floor on a
+ * desktop is 700, and three panes need 1000 rather than the 792 that would give
+ * the article a strip.
+ *
+ * A phone in landscape is ~844px, which the desktop floor would refuse — yet
+ * three narrow columns is exactly what was asked for there. So a phone gets its
+ * own minimums and its own floors instead of pretending the desktop numbers
+ * apply to it.
  */
-export const NEEDED: Record<PaneMode, number> = {
-  1: 320,
-  2: 700,
-  3: 1000,
+export type Device = "phone" | "desktop";
+
+export const MINIMUMS: Record<Device, Record<"sidebar" | "list" | "article", number>> = {
+  desktop: MIN,
+  phone: { sidebar: 150, list: 210, article: 240 },
 };
+
+export const NEEDED: Record<Device, Record<PaneMode, number>> = {
+  desktop: { 1: 320, 2: 700, 3: 1000 },
+  phone: { 1: 280, 2: 440, 3: 660 },
+};
+
+export function minimums(device: Device = "desktop") {
+  return MINIMUMS[device];
+}
+
+export function needed(mode: PaneMode, device: Device = "desktop"): number {
+  return NEEDED[device][mode];
+}
+
+/**
+ * First-run mode. iPhone (and anything phone-sized) opens portrait in one
+ * column and landscape in three; everything else follows the window. This is
+ * only a default — the switch keeps all three available afterwards.
+ */
+export function defaultModeFor(input: {
+  phone: boolean;
+  width: number;
+  height: number;
+}): PaneMode {
+  if (input.phone) return input.width > input.height ? 3 : 1;
+  if (input.width >= 1200) return 3;
+  if (input.width >= 840) return 2;
+  return 1;
+}
 
 /** The sum of hard minimums: what `clampWidths` can never go below. */
 export function geometricMinimum(mode: PaneMode): number {
@@ -51,9 +86,13 @@ export function geometricMinimum(mode: PaneMode): number {
  * What the window can show. The caller keeps the mode the user chose and
  * reports that it is squeezed, rather than quietly overwriting the choice.
  */
-export function effectiveMode(desired: PaneMode, available: number): PaneMode {
-  if (desired >= 3 && available >= NEEDED[3]) return 3;
-  if (desired >= 2 && available >= NEEDED[2]) return 2;
+export function effectiveMode(
+  desired: PaneMode,
+  available: number,
+  device: Device = "desktop",
+): PaneMode {
+  if (desired >= 3 && available >= NEEDED[device][3]) return 3;
+  if (desired >= 2 && available >= NEEDED[device][2]) return 2;
   return 1;
 }
 
@@ -66,19 +105,25 @@ export function guttersFor(mode: PaneMode): number {
  * mount (a width saved on a 27" screen must not leave a 40px article on a
  * laptop) and on resize.
  */
-export function clampWidths(widths: PaneWidths, mode: PaneMode, available: number): PaneWidths {
+export function clampWidths(
+  widths: PaneWidths,
+  mode: PaneMode,
+  available: number,
+  device: Device = "desktop",
+): PaneWidths {
+  const mins = MINIMUMS[device];
   const sidebarMax = Math.max(
-    MIN.sidebar,
-    available - guttersFor(mode) - (mode >= 2 ? MIN.list : 0) - (mode >= 3 ? MIN.article : 0),
+    mins.sidebar,
+    available - guttersFor(mode) - (mode >= 2 ? mins.list : 0) - (mode >= 3 ? mins.article : 0),
   );
-  const sidebar = clamp(widths.sidebar, MIN.sidebar, sidebarMax);
-  if (mode < 2) return { sidebar, list: clamp(widths.list, MIN.list, MIN.list) };
+  const sidebar = clamp(widths.sidebar, mins.sidebar, sidebarMax);
+  if (mode < 2) return { sidebar, list: clamp(widths.list, mins.list, mins.list) };
 
   const listMax =
     mode === 3
-      ? Math.max(MIN.list, available - guttersFor(mode) - sidebar - MIN.article)
-      : Math.max(MIN.list, available - guttersFor(mode) - sidebar);
-  const list = clamp(widths.list, MIN.list, listMax);
+      ? Math.max(mins.list, available - guttersFor(mode) - sidebar - mins.article)
+      : Math.max(mins.list, available - guttersFor(mode) - sidebar);
+  const list = clamp(widths.list, mins.list, listMax);
   return { sidebar, list };
 }
 
@@ -89,9 +134,10 @@ export function dragPane(
   dx: number,
   mode: PaneMode,
   available: number,
+  device: Device = "desktop",
 ): PaneWidths {
   const moved = { ...widths, [which]: widths[which] + dx };
-  return clampWidths(moved, mode, available);
+  return clampWidths(moved, mode, available, device);
 }
 
 /** Double-click on a gutter restores the mode's default for that pane. */

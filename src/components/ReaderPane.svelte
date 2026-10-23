@@ -3,6 +3,7 @@
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, sanitizeArticle } from "../lib/sanitize";
   import { reader } from "../state/reader.svelte";
+  import { reading } from "../state/reading.svelte";
 
   let { onClose }: { onClose?: () => void } = $props();
 
@@ -32,7 +33,7 @@
    */
   function onwheel(event: WheelEvent): void {
     const el = scroller;
-    if (!el || event.deltaY <= 0 || !atEnd(el)) return;
+    if (!reading.advanceOnScroll || !el || event.deltaY <= 0 || !atEnd(el)) return;
     const now = Date.now();
     if (now - lastAdvance < 350) return;
     lastAdvance = now;
@@ -117,6 +118,16 @@
         onclick={() => void reader.advanceArticle(1)}
       >↓</button>
       <div class="spacer"></div>
+      <button
+        class="icon flow"
+        class:on={reading.advanceOnScroll}
+        aria-pressed={reading.advanceOnScroll}
+        aria-label="Continue to the next article when scrolling past the end"
+        title={reading.advanceOnScroll
+          ? "Scrolling past the end continues to the next article — click to stop at the end of each article"
+          : "Scrolling stops at the end of each article — click to continue into the next one"}
+        onclick={() => reading.toggleAdvance()}
+      >⇣</button>
       <button
         class="icon star"
         class:on={isStarred(item)}
@@ -206,6 +217,10 @@
 
   .star.on {
     color: var(--star);
+  }
+
+  .flow.on {
+    color: var(--accent-text, #6cb0f5);
   }
 
   article {

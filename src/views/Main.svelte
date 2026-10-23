@@ -11,6 +11,7 @@
   import Sidebar from "../components/Sidebar.svelte";
   import { isTypingTarget, resolveKey, resolveShiftKey } from "../lib/keys";
   import { layout } from "../state/layout.svelte";
+  import { reading } from "../state/reading.svelte";
   import { reader } from "../state/reader.svelte";
 
   let {
@@ -32,6 +33,7 @@
 
   onMount(() => {
     layout.load();
+    reading.load();
     void reader.start(session);
 
     // The mode is drawn from the real container width rather than from an

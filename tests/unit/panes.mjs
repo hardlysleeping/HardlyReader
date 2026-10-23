@@ -1,6 +1,6 @@
 import {
-  MIN, GUTTER, NEEDED, effectiveMode, clampWidths, dragPane, resetPane, nudge, gridTemplate, guttersFor,
-  geometricMinimum,
+  MIN, GUTTER, NEEDED, MINIMUMS, effectiveMode, clampWidths, dragPane, resetPane, nudge, gridTemplate,
+  guttersFor, geometricMinimum, defaultModeFor, needed, minimums,
 } from "../../src/lib/panes.ts";
 
 let failures = 0;
@@ -16,8 +16,8 @@ function check(name, ok, detail = "") {
 // The usability floors sit above the hard minimums, on purpose.
 check("three panes need both minimums plus gutters", geometricMinimum(3) === MIN.sidebar + MIN.list + MIN.article + GUTTER * 2, String(geometricMinimum(3)));
 check("two panes need one gutter", geometricMinimum(2) === MIN.sidebar + MIN.list + GUTTER, String(geometricMinimum(2)));
-check("three-pane floor clears the geometry", NEEDED[3] >= geometricMinimum(3) && NEEDED[3] === 1000);
-check("two-pane floor clears the geometry", NEEDED[2] >= geometricMinimum(2) && NEEDED[2] === 700, String(NEEDED[2]));
+check("three-pane floor clears the geometry", NEEDED.desktop[3] >= geometricMinimum(3) && NEEDED.desktop[3] === 1000);
+check("two-pane floor clears the geometry", NEEDED.desktop[2] >= geometricMinimum(2) && NEEDED.desktop[2] === 700, String(NEEDED.desktop[2]));
 check("gutter count per mode", guttersFor(3) === 12 && guttersFor(2) === 6 && guttersFor(1) === 0);
 
 // A narrow window does not get three panes, whichever mode was asked for.
@@ -63,6 +63,35 @@ check(
   gridTemplate(3, { sidebar: 300, list: 400 }),
 );
 check("one pane is a single flexible track", gridTemplate(1, { sidebar: 300, list: 400 }) === "minmax(0, 1fr)");
+
+// --- phone ------------------------------------------------------------------
+// An iPhone is ~390x844 in CSS pixels: portrait is one column, landscape is
+// three, and the switch can still change it afterwards.
+check("phone portrait opens in 1", defaultModeFor({ phone: true, width: 390, height: 844 }) === 1);
+check("phone landscape opens in 3", defaultModeFor({ phone: true, width: 844, height: 390 }) === 3);
+check("desktop 1440 opens in 3", defaultModeFor({ phone: false, width: 1440, height: 900 }) === 3);
+check("desktop 900 opens in 2", defaultModeFor({ phone: false, width: 900, height: 800 }) === 2);
+check("desktop 500 opens in 1", defaultModeFor({ phone: false, width: 500, height: 800 }) === 1);
+
+// The phone gets its own floors, below the desktop ones, because a landscape
+// iPhone is 844px and the desktop floor would refuse three panes there.
+check("phone floors are lower than desktop", needed(3, "phone") < needed(3, "desktop"), `${needed(3, "phone")} vs ${needed(3, "desktop")}`);
+check("landscape iPhone can draw 3 panes", effectiveMode(3, 844, "phone") === 3, String(effectiveMode(3, 844, "phone")));
+check("the same width on desktop falls to 2", effectiveMode(3, 844, "desktop") === 2);
+check("portrait phone falls to 1", effectiveMode(3, 390, "phone") === 1);
+check("phone minimums are narrower", minimums("phone").sidebar < minimums("desktop").sidebar);
+check(
+  "phone widths clamp to phone minimums",
+  clampWidths({ sidebar: 60, list: 60 }, 3, 844, "phone").sidebar === MINIMUMS.phone.sidebar,
+  JSON.stringify(clampWidths({ sidebar: 60, list: 60 }, 3, 844, "phone")),
+);
+const phoneThree = clampWidths({ sidebar: 168, list: 240 }, 3, 844, "phone");
+check(
+  "a landscape iPhone keeps all three panes above their minimums",
+  phoneThree.sidebar >= MINIMUMS.phone.sidebar && phoneThree.list >= MINIMUMS.phone.list &&
+    844 - phoneThree.sidebar - phoneThree.list - GUTTER * 2 >= MINIMUMS.phone.article,
+  JSON.stringify(phoneThree),
+);
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
