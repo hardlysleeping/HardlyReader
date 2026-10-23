@@ -10,6 +10,7 @@
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
   import { isTypingTarget, resolveKey, resolveShiftKey } from "../lib/keys";
+  import { backLabel, levelOf, stepBackTarget, whereLabel } from "../lib/one-pane";
   import { chrome } from "../state/chrome.svelte";
   import { layout } from "../state/layout.svelte";
   import { reading } from "../state/reading.svelte";
@@ -136,17 +137,37 @@
   }
 
   /**
-   * Back to the feed before this one.
-   *
-   * In one column the sidebar is off screen, so the feed you came from is not
-   * visible to tap. This closes any article and steps back through the stream
-   * history; with no history it is disabled rather than pretending.
+   * One column is a walk through the same three things the panes show side by
+   * side: the feeds, the posts of one feed, and the article. Back therefore
+   * steps exactly one of those at a time — article, then posts, then feeds — so
+   * what you see happening matches where you land. Jumping straight from an
+   * article to the feed list skips a screen you were just looking at, which
+   * reads as the app losing your place.
    */
-  async function backToFeed(): Promise<void> {
-    if (!reader.canGoBackToStream) return;
-    reader.closeReader();
-    await reader.previousStream();
+  const level = $derived(levelOf(reader.selectedId, onePosts));
+
+  function stepBack(): void {
+    switch (stepBackTarget(level)) {
+      case "close-article":
+        reader.closeReader();
+        return;
+      case "show-feeds":
+        onePosts = false;
+        return;
+      case null:
+        return;
+    }
   }
+
+  /** Home is the escape hatch: the feed list, in one press, from any depth. */
+  function goHome(): void {
+    if (mode === 1) reader.closeReader();
+    showFeeds();
+  }
+
+  /** What the bar says you are looking at — one line, never wrapping. */
+  const where = $derived(whereLabel(level, reader.activeTitle, reader.selected?.title ?? null));
+  const backTo = $derived(backLabel(level, reader.activeTitle));
 
   /**
    * Swipe, for the phone layout: right is "out of here", left is "onward".
@@ -179,17 +200,9 @@
     else gestureForward();
   }
 
-  /** Right-swipe: article → posts → previous feed → feeds. */
+  /** Right-swipe: one level out, the same step the back button takes. */
   function gestureBack(): void {
-    if (reader.selectedId !== null) {
-      reader.back();
-      return;
-    }
-    if (reader.canGoBackToStream) {
-      void reader.previousStream();
-      return;
-    }
-    if (onePosts) onePosts = false;
+    stepBack();
   }
 
   /** Left-swipe: feeds → posts → the first post. */
@@ -233,32 +246,31 @@
     {#if mode === 1}
       <!-- One column, walked through: feeds, then the posts of one feed, then
            the article. Left and the crumb go back a level. -->
+      <!-- Two controls, always in the same two places: back one level, then
+           home to the feeds. They never swap sides or move between levels, so
+           the muscle memory survives the walk. -->
       <nav class="crumbs" aria-label="Location">
         <button
-          class="crumb back"
-          onclick={() => void backToFeed()}
-          disabled={!reader.canGoBackToStream}
-          aria-label={reader.canGoBackToStream
-            ? `Back to ${reader.previousStreamTitle ?? "the previous feed"}`
-            : "No previous feed"}
-          title={reader.canGoBackToStream
-            ? `Back to ${reader.previousStreamTitle ?? "the previous feed"}`
-            : "No previous feed"}
-        >←</button>
-        <span class="sep" aria-hidden="true"></span>
-        <button class="crumb" onclick={() => (onePosts = false)} disabled={!onePosts && reader.selectedId === null}>
-          Feeds
+          class="step"
+          onclick={stepBack}
+          disabled={level === "feeds"}
+          aria-label={backTo}
+          title={backTo}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" /></svg>
         </button>
-        {#if onePosts || reader.selectedId !== null}
-          <span aria-hidden="true">›</span>
-          <button class="crumb" onclick={() => reader.closeReader()} disabled={reader.selectedId === null}>
-            {reader.activeTitle}
-          </button>
-        {/if}
-        {#if reader.selectedId !== null}
-          <span aria-hidden="true">›</span>
-          <span class="here">{reader.selected?.title ?? "Article"}</span>
-        {/if}
+        <button
+          class="step"
+          onclick={goHome}
+          disabled={level === "feeds"}
+          aria-label="Feeds"
+          title="Feeds"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true"
+            ><path d="M2.5 7.2 8 2.5l5.5 4.7V13a.6.6 0 0 1-.6.6H3.1a.6.6 0 0 1-.6-.6Z" /></svg
+          >
+        </button>
+        <span class="where" title={where}>{where}</span>
       </nav>
 
       <!-- The one-pane surface owns the swipe gesture; it is a container, not a
@@ -351,41 +363,73 @@
   .crumbs {
     display: flex;
     align-items: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 10px;
+    gap: 4px;
+    height: 34px;
+    padding: 0 8px;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
     font-size: 12px;
     color: var(--muted);
     overflow: hidden;
     white-space: nowrap;
+    flex: none;
   }
 
-  .crumb {
+  /* Fixed-size, fixed-order controls: the pair keeps its geometry at every
+     level, so pressing back never moves the thing you press next. */
+  .step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 26px;
+    height: 26px;
     padding: 0;
     border: 0;
+    border-radius: 7px;
     background: none;
     color: var(--text-dim);
-    font: inherit;
     cursor: pointer;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
-  .crumb:hover:not(:disabled) {
+  .step svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .step:hover:not(:disabled) {
     color: var(--text);
+    background: var(--hover);
   }
 
-  .crumb:disabled {
-    color: var(--muted);
+  .step:disabled {
+    opacity: 0.32;
     cursor: default;
   }
 
-  .here {
-    color: var(--text);
+  .where {
+    min-width: 0;
+    margin-left: 4px;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: var(--text-dim);
+  }
+
+  /* Thumbs need bigger targets than pointers do. */
+  @media (pointer: coarse) {
+    .step {
+      width: 34px;
+      height: 34px;
+    }
+
+    .crumbs {
+      height: 42px;
+    }
   }
 
   .error {
