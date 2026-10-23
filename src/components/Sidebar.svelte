@@ -9,6 +9,7 @@
     isMenuKey,
   } from "../lib/contextmenu";
   import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
+  import { chrome } from "../state/chrome.svelte";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
   import { searchFeeds } from "../lib/search";
@@ -234,24 +235,36 @@
   <!-- Feed indent: the extension's own setting, not a lookalike. Disabled
        rather than hidden when the extension is absent, so the reason is
        visible instead of the control silently doing nothing. -->
-  <div class="indent">
-    <label for="feed-indent">Indent</label>
-    <input
-      id="feed-indent"
-      type="range"
-      min="0"
-      max={reader.sidebarIndent.max}
-      step="1"
-      value={reader.sidebarIndent.px}
-      disabled={!reader.sidebarIndent.available}
-      title={reader.indentError ??
-        (reader.sidebarIndent.available
-          ? "Feed name indent, shared with the Sidebar Feed Indent extension"
-          : "Sidebar Feed Indent is not enabled on this server")}
-      oninput={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value))}
-    />
-    <span class="px">{reader.sidebarIndent.px}</span>
-    <ThemeToggle />
+  <div class="indent" class:open={chrome.indentOpen}>
+    <button
+      class="indent-label"
+      aria-expanded={chrome.indentOpen}
+      aria-controls="feed-indent-row"
+      title={chrome.indentOpen ? "Hide the indent slider" : "Show the indent slider"}
+      onclick={() => chrome.toggleIndentOpen()}
+    >
+      Indent
+      <span class="px">{reader.sidebarIndent.px}</span>
+      <svg class="caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5 8 10.5l4-4" /></svg>
+    </button>
+    {#if chrome.indentOpen}
+      <input
+        id="feed-indent-row"
+        type="range"
+        min="0"
+        max={reader.sidebarIndent.max}
+        step="1"
+        value={reader.sidebarIndent.px}
+        disabled={!reader.sidebarIndent.available}
+        aria-label="Feed name indent"
+        title={reader.indentError ??
+          (reader.sidebarIndent.available
+            ? "Feed name indent, shared with the Sidebar Feed Indent extension"
+            : "Sidebar Feed Indent is not enabled on this server")}
+        oninput={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value))}
+      />
+    {/if}
+    <span class="right"><ThemeToggle /></span>
   </div>
 
   {#if searching}
@@ -828,35 +841,130 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 2px 12px 8px 16px;
+    padding: 1px 12px 6px 16px;
     font-size: 11px;
     color: var(--muted);
   }
 
-  .indent label {
+  /* The label is the control: one click shows or hides the slider, and the
+     number is always readable while it is hidden. */
+  .indent-label {
+    display: inline-flex;
+    align-items: center;
     flex: 0 0 auto;
+    gap: 5px;
+    padding: 1px 3px;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: inherit;
+    font: inherit;
     letter-spacing: 0.02em;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
   }
 
+  .indent-label:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .indent-label:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .indent .px {
+    min-width: 1.2rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+  }
+
+  .caret {
+    width: 10px;
+    height: 10px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 120ms ease;
+  }
+
+  .indent.open .caret {
+    transform: rotate(180deg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .caret {
+      transition: none;
+    }
+  }
+
+  .right {
+    margin-left: auto;
+    display: inline-flex;
+  }
+
+  /* A 2px track and a 9px thumb: the native 14px trough was the loudest thing
+     in the sidebar for a setting that is set once. */
   .indent input[type="range"] {
     flex: 1 1 auto;
     min-width: 0;
-    height: 14px;
+    height: 12px;
     margin: 0;
-    accent-color: var(--accent);
+    padding: 0;
+    background: transparent;
+    appearance: none;
+    -webkit-appearance: none;
     cursor: pointer;
+  }
+
+  .indent input[type="range"]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .indent input[type="range"]::-webkit-slider-runnable-track {
+    height: 2px;
+    border-radius: 1px;
+    background: var(--border);
+  }
+
+  .indent input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 9px;
+    height: 9px;
+    margin-top: -3.5px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+
+  .indent input[type="range"]:hover::-webkit-slider-thumb,
+  .indent input[type="range"]:focus-visible::-webkit-slider-thumb {
+    background: var(--accent);
+  }
+
+  .indent input[type="range"]::-moz-range-track {
+    height: 2px;
+    border-radius: 1px;
+    background: var(--border);
+  }
+
+  .indent input[type="range"]::-moz-range-thumb {
+    width: 9px;
+    height: 9px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--muted);
   }
 
   .indent input[type="range"]:disabled {
     cursor: default;
     opacity: 0.4;
-  }
-
-  .indent .px {
-    flex: 0 0 1.6rem;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    color: var(--text-dim);
   }
 
   .count {
