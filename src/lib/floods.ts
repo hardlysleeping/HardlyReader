@@ -7,7 +7,7 @@
  * functions decide, which is what makes the trimming and clamping testable.
  */
 
-export type FloodKind = "hidden" | "revealed" | "pin" | "unpin" | "sync";
+export type FloodKind = "hidden" | "revealed" | "pin" | "unpin";
 
 export interface Point {
   x: number;
@@ -41,24 +41,23 @@ const TONES: Record<FloodKind, string> = {
   revealed: "var(--accent, #0078e0)",
   pin: "var(--tone-favourite, #0078e0)",
   unpin: "var(--accent, #0078e0)",
-  sync: "var(--tone-sync, #0078e0)",
 };
 
 /**
  * How loud each kind is by default.
  *
  * Hiding a feed or pinning one is a small, deliberate act and gets the full
- * glow. The lock pair gets nothing at all: both are answered by the band itself
- * — the shutter closing on lock, and a green pulse on its own edge on unlock.
- * Light thrown across the window for either reads as the wrong message: one
- * says something escaped, the other says the app celebrated being opened.
+ * glow. The lock pair and a sync get nothing at all: each is answered by the bar
+ * that owns the control — the shutter and a red-then-green pulse on the band,
+ * a ring in the sync colour on the header. Light thrown across the window for
+ * those reads as the wrong message: one says something escaped, the other says
+ * the app celebrated finishing a fetch.
  */
 const STRENGTHS: Record<FloodKind, number> = {
   hidden: 1,
   revealed: 1,
   pin: 1,
   unpin: 1,
-  sync: 1,
 };
 
 export function floodStrength(kind: FloodKind): number {
@@ -69,15 +68,11 @@ export function floodTone(kind: FloodKind): string {
   return TONES[kind];
 }
 
-/**
- * Where a flood starts when there was no pointer to start from — a sync has no
- * click, so it arrives at the top right, under the control that reported it.
- */
+/** Where a flood starts when there was no pointer to start from: centre screen. */
 export function fallbackOrigin(
-  kind: FloodKind,
+  _kind: FloodKind,
   viewport: { width: number; height: number },
 ): Point {
-  if (kind === "sync") return { x: viewport.width - 46, y: 30 };
   return { x: viewport.width / 2, y: viewport.height / 2 };
 }
 

@@ -23,12 +23,11 @@ check("a flood lives about half a second", () => {
 });
 
 check("each kind has its own tone, all valid CSS", () => {
-  const kinds = ["hidden", "revealed", "pin", "unpin", "sync"];
+  const kinds = ["hidden", "revealed", "pin", "unpin"];
   const tones = kinds.map((kind) => floodTone(kind));
   for (const tone of tones) assert.ok(tone.startsWith("var(--"), tone);
   assert.equal(new Set(tones).size, kinds.length - 1, "pin and revealed may share the accent");
   assert.ok(floodTone("hidden").includes("tone-hidden"));
-  assert.ok(floodTone("sync").includes("tone-sync"));
 });
 
 check("locking has no glow at all", () => {
@@ -44,7 +43,7 @@ check("a kind with no strength draws nothing, even when pushed by hand", () => {
 
 check("unlocking draws nothing: the band answers in place", () => {
   assert.equal(floodStrength("unlock"), undefined, "the band pulses, the window does not");
-  for (const kind of ["hidden", "revealed", "pin", "unpin", "sync"]) {
+  for (const kind of ["hidden", "revealed", "pin", "unpin"]) {
     assert.equal(floodStrength(kind), 1, `${kind} keeps the full glow`);
   }
   assert.equal(pushFlood([], "unlock", { x: 10, y: 10 }, 9, VIEW).length, 0, "no flood to measure");
@@ -69,11 +68,12 @@ check("an origin off the edge is pulled back inside the viewport", () => {
   assert.equal(left.x, 0);
 });
 
-check("without a click, a sync arrives top right", () => {
-  const origin = fallbackOrigin("sync", VIEW);
-  assert.equal(origin.x, VIEW.width - 46);
-  assert.equal(origin.y, 30);
-  assert.equal(pushFlood([], "sync", null, 4, VIEW)[0].y, origin.y);
+check("a sync draws nothing: the header pulses its own bar", () => {
+  // Same rule as the lock pair — the control's own bar answers it, in the user's
+  // sync colour, rather than a bloom thrown at the top right of the window.
+  assert.equal(floodStrength("sync"), undefined);
+  assert.equal(floodTone("sync"), undefined);
+  assert.equal(pushFlood([], "sync", null, 4, VIEW).length, 0);
 });
 
 check("anything else without a click lands centre screen", () => {
@@ -109,7 +109,7 @@ check("pushing does not mutate the list it was given", () => {
 });
 
 check("a zero-size viewport (no window yet) does not produce NaN", () => {
-  const flood = pushFlood([], "sync", { x: 10, y: 10 }, 1, { width: 0, height: 0 })[0];
+  const flood = pushFlood([], "hidden", { x: 10, y: 10 }, 1, { width: 0, height: 0 })[0];
   assert.equal(flood.x, 0);
   assert.equal(flood.y, 0);
   assert.ok(Number.isFinite(flood.x) && Number.isFinite(flood.y));
