@@ -115,3 +115,15 @@ is proxied to the harness and the app is reached at `http://127.0.0.1:1420` with
 server URL `http://127.0.0.1:1420/freshrss`. The Tauri build never uses this proxy.
 
 Never point this at the live instance; the harness is disposable by design.
+
+## v1.1 — Favourites, sidebar indent, add feed (2026-10-22 evening)
+
+| # | Item | State | Evidence |
+|---|---|---|---|
+| 15 | FavoriteCategories: extract `setCategoryFavorite()`, `changeView()` | **done locally** | Mirror `557f373` + `f5ece2c`. **NOT deployed**: the authoritative VPS copy has neither method (md5 `bf656ec7`, 0 matches), so the favourites routes return 409 on the live instance until it is deployed |
+| 16 | Adapter v1.1: favourites + sidebar-indent state and routes | done | `b404f3f`, status mapping `3a90a5a`, merge `1192140`. PHPUnit 96 tests / 311 assertions |
+| 17 | App v1.1: star, favourites view cycle, indent, add/remove feed | done | branch `b6ae3b9`, merge `a354b46`. svelte-check 0/0, build clean, 377 unit checks across 6 files |
+| 18 | Verify v1.1 against a real container | done (API) | `GET /v1/state` returns `favorites{available,view,ids,categories}` and `sidebarIndent{available,px:24}`; favourite on/off round-trips with `changed:false` on repeat; `PUT /v1/favorites/view` cycles all/only/without; 400 for id 0, bad view and non-boolean, 404 for an unknown category. Hidden categories still correct in the same state payload |
+
+Measured, not assumed: 377 unit checks, 96 PHPUnit tests, clean Svelte check and Vite build on merged
+master. Not measured: the v1.1 UI in a browser, and any v1.1 path on the live instance.
