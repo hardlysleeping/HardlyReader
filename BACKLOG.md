@@ -331,3 +331,7 @@ shows a feed handover under 1.5s of induced latency.
 |---|---|---|---|
 | 65 | Search field: one quiet field, filters as you type | **done** | The separate "Text" button beside the input is gone. Search was already live-on-keystroke; now the box says so: a single 30px field with a drawn magnifier inside, a clear × that exists only while there is text, and the deep-search switch reduced to a ¶ glyph that stays dim until it is on. Focus is a soft accent ring instead of a hard outline, and the browser's own grey clear blob is suppressed in favour of the drawn one. Empty-state copy updated to match (no more "Text" button to point at). Also gave the selected sidebar row a 2px accent rail so "where am I" reads at a glance. Verified in a mounted sidebar: no button beside the field, `ars` → 2 hits, `art` → the Art category's feed, clear × returns the tree. |
 
+| # | Item | State | Notes |
+|---|---|---|---|
+| 66 | Header: sign out beside the account, room for sync | **done** | Sign out moved from the far right to sit with the username it signs out of (brand → account → Sign out), quiet until hovered. Sync is now a 34×34 rounded control with a 10px gap before it rather than a 28px glyph wedged against its neighbours, its border takes the accent on hover, and the glyph turns while a refresh is running (still, not spinning, under reduced motion). Measured in a mounted header: brand/username/Sign out at x=12/108/183, sync 34×34 at the far end with a 10px margin. |
+
