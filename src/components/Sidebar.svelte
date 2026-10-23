@@ -10,9 +10,43 @@
   import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
+  import { searchFeeds } from "../lib/search";
+  import { search } from "../state/search.svelte";
   import { theme } from "../state/theme.svelte";
 
   const words = $derived(pinWords(theme.current.vocabulary));
+
+  /** Something typed: the sidebar shows results instead of the tree. */
+  const searching = $derived(search.query.trim() !== "");
+
+  /**
+   * Matches, best first. Names always; post text only when the toggle is on and
+   * the text has been extracted, which is why the index is passed as null
+   * otherwise rather than being searched and found empty.
+   */
+  const hits = $derived(
+    searchFeeds(
+      search.query,
+      reader.categories.map((category) => ({ label: category.label, feeds: category.feeds })),
+      search.deep ? search.index : null,
+    ),
+  );
+
+  const categoryOf = $derived(
+    new Map(
+      reader.categories.flatMap((category) =>
+        category.feeds.map((feed) => [feed.id, category.label] as const),
+      ),
+    ),
+  );
+
+  function submitSearch(event: KeyboardEvent) {
+    if (event.key === "Escape") search.clear();
+  }
+
+  function toggleDeep() {
+    void search.setDeep(!search.deep, reader.subscriptions, reader.session);
+  }
 
   let { onNavigate }: { onNavigate?: () => void } = $props();
 
@@ -151,6 +185,50 @@
 <nav class="sidebar" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
   <SidebarBand />
 
+  <!-- One field, filtering as you type: no submit button, no separate mode
+       button beside it. The paragraph mark inside the field is the "also search
+       post text" switch, kept quiet until it is wanted. -->
+  <div class="find">
+    <svg class="glass" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.4" />
+      <path d="M10.4 10.4L14 14" />
+    </svg>
+    <input
+      type="search"
+      class="find-input"
+      placeholder="Search feeds"
+      aria-label="Search feeds"
+      autocomplete="off"
+      spellcheck="false"
+      value={search.query}
+      oninput={(event) => search.setQuery(event.currentTarget.value)}
+      onkeydown={submitSearch}
+    />
+    {#if searching}
+      <button class="find-clear" aria-label="Clear search" title="Clear search (Esc)" onclick={() => search.clear()}>×</button>
+    {/if}
+    <button
+      class="find-deep"
+      class:on={search.deep}
+      aria-pressed={search.deep}
+      aria-label="Also search text inside posts"
+      title={search.deep
+        ? "Matching names and post text — click for names only"
+        : "Matching feed and category names — click to also search text inside posts"}
+      onclick={toggleDeep}
+    >¶</button>
+  </div>
+
+  {#if search.deep}
+    <p class="find-note">
+      {#if search.progress}
+        Reading posts {search.progress.done}/{search.progress.total}…
+      {:else}
+        {search.indexedCount()} feeds searchable by text
+      {/if}
+    </p>
+  {/if}
+
   <!-- Feed indent: the extension's own setting, not a lookalike. Disabled
        rather than hidden when the extension is absent, so the reason is
        visible instead of the control silently doing nothing. -->
@@ -173,6 +251,35 @@
     <span class="px">{reader.sidebarIndent.px}</span>
   </div>
 
+  {#if searching}
+    <div class="section">
+      {#if hits.length === 0}
+        <p class="empty">
+          No feed matches “{search.query}”.{#if !search.deep} Names only — ¶ also searches inside posts.{/if}
+        </p>
+      {:else}
+        {#each hits as hit (hit.feed.id)}
+          <button
+            class="row feed hit"
+            class:active={reader.activeStream === hit.feed.id}
+            onclick={() => open(hit.feed.id, hit.feed.title)}
+          >
+            <span class="label">{hit.feed.title}</span>
+            {#if hit.via === "category"}
+              <span class="why">in {categoryOf.get(hit.feed.id) ?? "category"}</span>
+            {:else if hit.via === "text" && hit.postTitle}
+              <span class="why">“{hit.postTitle}”</span>
+            {/if}
+            <span class="count">{reader.countFor(hit.feed.id)}</span>
+          </button>
+        {/each}
+      {/if}
+    </div>
+
+    {#if search.deep && search.indexedCount() === 0 && hits.length > 0}
+      <p class="find-note">No post text indexed yet — feed names still match.</p>
+    {/if}
+  {:else}
   <div class="section">
     <button
       class="row strong"
@@ -290,6 +397,7 @@
       {/if}
     </div>
   {/each}
+  {/if}
 
   {#if reader.subscriptions.length === 0 && !reader.loadingList}
     <p class="empty">No feeds yet.</p>
@@ -423,6 +531,7 @@
   .row.active {
     background: var(--accent-soft);
     color: var(--accent-text);
+    box-shadow: inset 2px 0 0 var(--accent);
   }
 
   .row.strong .label {
@@ -534,6 +643,145 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Search sits between the band and the list: it filters the tree below it, so
+     it belongs above the thing it filters. One quiet field — the magnifier and
+     the mode mark live inside it, so there is no button beside the input. */
+  .find {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 2px 12px 8px;
+    padding: 0 6px 0 9px;
+    height: 30px;
+    border: 1px solid var(--border-soft);
+    border-radius: 9px;
+    background: var(--bg);
+    transition:
+      border-color 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .find:hover {
+    border-color: var(--border);
+  }
+
+  .find:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
+  }
+
+  .glass {
+    flex: 0 0 auto;
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    transition: stroke 120ms ease;
+  }
+
+  .find:focus-within .glass {
+    stroke: var(--accent);
+  }
+
+  .find-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 12.5px;
+    outline: none;
+    appearance: none;
+  }
+
+  .find-input::placeholder {
+    color: var(--muted);
+  }
+
+  /* The browser's own clear affordance is a grey blob at a different size in
+     every engine; the field draws its own. */
+  .find-input::-webkit-search-cancel-button,
+  .find-input::-webkit-search-decoration {
+    appearance: none;
+    display: none;
+  }
+
+  .find-clear,
+  .find-deep {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .find-clear {
+    font-size: 14px;
+  }
+
+  .find-clear:hover,
+  .find-deep:hover {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  /* Quiet until wanted: the mode mark is dim in an idle field and states itself
+     only when it is on. */
+  .find-deep {
+    font-size: 11.5px;
+    opacity: 0.5;
+  }
+
+  .find:hover .find-deep,
+  .find:focus-within .find-deep {
+    opacity: 0.8;
+  }
+
+  .find-deep.on {
+    opacity: 1;
+    color: var(--accent-text);
+    background: var(--accent-soft);
+  }
+
+  .find-note {
+    margin: 0;
+    padding: 0 16px 6px;
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  .hit .why {
+    flex: 0 1 auto;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  .empty {
+    margin: 0;
+    padding: 8px 16px;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--muted);
   }
 
   .indent {

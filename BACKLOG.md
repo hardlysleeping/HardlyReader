@@ -327,3 +327,7 @@ shows a feed handover under 1.5s of induced latency.
 |---|---|---|---|
 | 64 | Scroll effort as a setting | **done** | How much wheel travel it takes to leave a post is a multiplier in Options, ×0.5 to ×2.0, default **×1.0** — the value tuned by hand, so nothing moves for the owner. It scales the pull threshold only, so the curve and the indicator behave identically at every setting and both directions scale together; the panel states the cost in wheel notches (7 at default, 15 at ×2) rather than in pixels. Measured in a mounted pane: one notch fills 0.357 of the pull at ×1.0 and 0.179 at ×2.0. 11 new checks |
 
+| # | Item | State | Notes |
+|---|---|---|---|
+| 65 | Search field: one quiet field, filters as you type | **done** | The separate "Text" button beside the input is gone. Search was already live-on-keystroke; now the box says so: a single 30px field with a drawn magnifier inside, a clear × that exists only while there is text, and the deep-search switch reduced to a ¶ glyph that stays dim until it is on. Focus is a soft accent ring instead of a hard outline, and the browser's own grey clear blob is suppressed in favour of the drawn one. Empty-state copy updated to match (no more "Text" button to point at). Also gave the selected sidebar row a 2px accent rail so "where am I" reads at a glance. Verified in a mounted sidebar: no button beside the field, `ars` → 2 hits, `art` → the Art category's feed, clear × returns the tree. |
+
