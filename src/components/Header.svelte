@@ -26,12 +26,60 @@
   const readout = $derived(syncReadout(reader.sync));
   const description = $derived(syncDescription(reader.sync));
 
+  /**
+   * The bar answers a finished sync the way the band answers a lock and an
+   * unlock: one thin ring on its own edge, in the sync colour, gone in a third
+   * of a second. The control is in this bar, so this is the bar that changes.
+   */
+  let pulse = $state(false);
+  /**
+   * A tick for a moment after the last fetch lands.
+   *
+   * The resting glyph is a pair of arrows, not a ring, so "finished" can never
+   * be mistaken for a spinner that stopped mid-turn — and for a second after it
+   * is done it is a tick, which is the one shape that cannot mean "working".
+   */
+  let justFinished = $state(false);
+  let tickTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let wasActive = reader.sync.active;
+  $effect(() => {
+    const activeNow = reader.sync.active;
+    if (wasActive && !activeNow) {
+      wasActive = false;
+      pulse = true;
+      justFinished = true;
+      if (tickTimer !== null) clearTimeout(tickTimer);
+      tickTimer = setTimeout(() => {
+        tickTimer = null;
+        justFinished = false;
+      }, 1200);
+    } else if (!wasActive && activeNow) {
+      wasActive = true;
+      justFinished = false;
+      if (tickTimer !== null) {
+        clearTimeout(tickTimer);
+        tickTimer = null;
+      }
+    }
+  });
+
+  $effect(() => () => {
+    if (tickTimer !== null) clearTimeout(tickTimer);
+  });
+
+  /** What the control says it is, which is also what it just did. */
+  const label = $derived(justFinished ? "Synced" : description);
+
   async function refresh() {
     await reader.refresh();
   }
 </script>
 
 <header class="bar">
+  {#if pulse}
+    <span class="pulse" aria-hidden="true" onanimationend={() => (pulse = false)}></span>
+  {/if}
   <button class="icon menu" onclick={() => ontogglesidebar?.()} aria-label="Show feeds">☰</button>
   <span class="brand">{title}</span>
   {#if subtitle}<span class="subtitle">{subtitle}</span>{/if}
@@ -67,15 +115,28 @@
   <button
     class="sync"
     class:busy={refreshing}
+    class:done={justFinished}
     onclick={refresh}
     disabled={refreshing}
-    aria-label={description}
-    title={description}
+    aria-label={label}
+    title={label}
   >
-    <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true">
-      <circle class="ring" cx="12" cy="12" r="8.5" />
-      <path class="arc" d="M20.5 12a8.5 8.5 0 0 1-14.6 5.9" />
-    </svg>
+    {#if justFinished}
+      <!-- Done: a tick, briefly. -->
+      <svg class="glyph tick" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 12.5 10.2 17.7 19 7.5" />
+      </svg>
+    {:else}
+      <!-- Two arrows chasing each other: the sync mark, drawn as strokes so it
+           stays crisp at 16px. At rest it is still; while syncing the whole mark
+           turns, which is unmistakably "working" next to a mark that is not. -->
+      <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20.5 12a8.5 8.5 0 0 1-14.8 5.7" />
+        <path d="M3.5 12a8.5 8.5 0 0 1 14.8-5.7" />
+        <path d="M18.3 2.9v3.8h-3.8" />
+        <path d="M5.7 21.1v-3.8h3.8" />
+      </svg>
+    {/if}
   </button>
 </header>
 
@@ -83,6 +144,7 @@
   /* A title bar, not a toolbar: enough height to hold a 34px control with air
      around it, and no more. */
   .bar {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 7px;
@@ -215,34 +277,39 @@
     overflow: visible;
   }
 
-  /* At rest the ring is a quiet outline and the arc is a quarter turn: it reads
-     as "refresh" without moving. While syncing the whole mark turns, and the
-     ring breathes so a slow fetch is still visibly alive. */
-  .glyph .ring {
-    opacity: 0.25;
-  }
-
+  /* While syncing the whole mark turns. Nothing else moves: a second animation
+     under a spinning mark was what made the control look busy after it had
+     finished. */
   .sync.busy .glyph {
     animation: turn 820ms linear infinite;
   }
 
-  .sync.busy .glyph .ring {
-    animation: breathe 1400ms ease-in-out infinite;
+  /* Done, for a second: the tick takes the full sync colour and the button's
+     edge lights up, so "finished" is a different picture from "idle" and from
+     "working" rather than a ring that happens to be still. */
+  .sync.done {
+    color: var(--tone-sync);
+    border-color: color-mix(in srgb, var(--tone-sync) 65%, var(--border));
+    background: color-mix(in srgb, var(--tone-sync) 10%, transparent);
+  }
+
+  .glyph.tick {
+    stroke-width: 2.3;
+  }
+
+  /* The same ring the band draws on a lock or an unlock, in the sync colour. */
+  .pulse {
+    position: absolute;
+    inset: 0;
+    border-radius: 0;
+    pointer-events: none;
+    --pulse-tone: var(--tone-sync);
+    animation: hrs-bar-pulse 360ms ease-out both;
   }
 
   @keyframes turn {
     to {
       transform: rotate(360deg);
-    }
-  }
-
-  @keyframes breathe {
-    0%,
-    100% {
-      opacity: 0.18;
-    }
-    50% {
-      opacity: 0.45;
     }
   }
 
@@ -277,9 +344,13 @@
 
   @media (prefers-reduced-motion: reduce) {
     .sync.busy .glyph,
-    .sync.busy .glyph .ring,
     .progress {
       animation: none;
+    }
+
+    .pulse {
+      animation: none;
+      box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--tone-sync) 45%, transparent);
     }
   }
 

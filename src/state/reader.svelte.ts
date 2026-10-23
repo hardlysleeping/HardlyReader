@@ -1258,8 +1258,8 @@ export class ReaderState {
     } finally {
       const finished = this.sync.total;
       this.sync = { active: false, done: finished, total: finished, step: "" };
-      // Arrives under the control that started it, at the top right.
-      floods.emit("sync");
+      // The header pulses its own bar when `active` falls; nothing is thrown
+      // across the window for a fetch finishing.
     }
   }
 

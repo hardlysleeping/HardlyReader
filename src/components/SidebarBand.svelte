@@ -384,7 +384,7 @@
     inset: -2px;
     border-radius: 12px;
     pointer-events: none;
-    animation: band-pulse 360ms ease-out both;
+    animation: hrs-bar-pulse 360ms ease-out both;
   }
 
   .pulse.lock {
@@ -393,21 +393,6 @@
 
   .pulse.unlock {
     --pulse-tone: var(--tone-unlock, #3fbf6f);
-  }
-
-  @keyframes band-pulse {
-    0% {
-      opacity: 1;
-      box-shadow:
-        inset 0 0 0 1px color-mix(in srgb, var(--pulse-tone) 75%, transparent),
-        0 0 8px color-mix(in srgb, var(--pulse-tone) 26%, transparent);
-    }
-    100% {
-      opacity: 0;
-      box-shadow:
-        inset 0 0 0 3px color-mix(in srgb, var(--pulse-tone) 0%, transparent),
-        0 0 16px color-mix(in srgb, var(--pulse-tone) 0%, transparent);
-    }
   }
 
   /* The controls are pulled out from under the bar: clipped while they move,

@@ -1,3 +1,23 @@
+/* One pulse, two places: the sidebar band answers a lock and an unlock, the
+   header bar answers a sync. Same drawing each time — a thin ring on the bar's
+   own edge that grows a hair and fades — so an action reads as the app
+   responding rather than as light thrown across the window. `--pulse-tone` is
+   set by whoever fires it; the ring is gone on `animationend`. */
+@keyframes hrs-bar-pulse {
+  0% {
+    opacity: 1;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--pulse-tone, currentColor) 75%, transparent),
+      0 0 8px color-mix(in srgb, var(--pulse-tone, currentColor) 26%, transparent);
+  }
+  100% {
+    opacity: 0;
+    box-shadow:
+      inset 0 0 0 3px color-mix(in srgb, var(--pulse-tone, currentColor) 0%, transparent),
+      0 0 16px color-mix(in srgb, var(--pulse-tone, currentColor) 0%, transparent);
+  }
+}
+
 /*
  * Palettes.
  *
@@ -28,6 +48,7 @@
   --tone-lock-open: #e6b93f;
   --tone-lock-closed: #f08c2e;
   --tone-unlock: #3fbf6f;
+
   --tone-sync: #28a06b;
 
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
