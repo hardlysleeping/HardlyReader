@@ -4,7 +4,8 @@
    *
    * Two buttons that are used often enough to deserve a click — smaller text,
    * bigger text — and one that opens everything else: list size, line spacing,
-   * paragraph indent, and which edge the text hangs from.
+   * paragraph indent, which edge the text hangs from, and where a post's
+   * picture sits and how big it is.
    *
    * All of it is one setting for every post and every feed. Sizing per post
    * would mean deciding again each time you open something, and an A+ that
@@ -18,6 +19,9 @@
     ROW_SCALE,
     TEXT_ALIGNS,
     TEXT_SCALE,
+    THUMB_SCALE,
+    THUMB_SIDES,
+    THUMB_SIDE_LABELS,
     atScaleLimit,
     isDefaultLayout,
     scalePercent,
@@ -28,6 +32,7 @@
 
   const textPercent = $derived(scalePercent(reading.textScale, TEXT_SCALE));
   const rowPercent = $derived(scalePercent(reading.rowScale, ROW_SCALE));
+  const thumbPercent = $derived(scalePercent(reading.thumbScale, THUMB_SCALE));
   const smallerTextAtLimit = $derived(atScaleLimit(reading.textScale, -1, TEXT_SCALE));
   const biggerTextAtLimit = $derived(atScaleLimit(reading.textScale, 1, TEXT_SCALE));
   const atDefaults = $derived(
@@ -37,6 +42,9 @@
       leading: reading.leading,
       indent: reading.indentParagraphs,
       align: reading.textAlign,
+      thumbScale: reading.thumbScale,
+      thumbSide: reading.thumbSide,
+      articleImage: reading.articleImage,
     }),
   );
 
@@ -112,6 +120,42 @@
         <span class="value">{rowPercent}</span>
         <button onclick={() => reading.stepRowScale(1)} aria-label="Bigger rows">+</button>
       </div>
+    </div>
+
+    <div class="row">
+      <span class="key">Pictures</span>
+      <div class="seg" role="group" aria-label="Picture position in list">
+        {#each THUMB_SIDES as side (side)}
+          <button
+            class:on={reading.thumbSide === side}
+            aria-pressed={reading.thumbSide === side}
+            onclick={() => reading.setThumbSide(side)}
+            title={`Pictures ${THUMB_SIDE_LABELS[side].toLowerCase()}`}
+          >{THUMB_SIDE_LABELS[side]}</button>
+        {/each}
+      </div>
+    </div>
+
+    <div class="row">
+      <span class="key" id="picture-size-label">Picture size</span>
+      <div class="stepper" role="group" aria-labelledby="picture-size-label">
+        <button onclick={() => reading.stepThumbScale(-1)} aria-label="Smaller pictures">−</button>
+        <span class="value">{thumbPercent}</span>
+        <button onclick={() => reading.stepThumbScale(1)} aria-label="Bigger pictures">+</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <span class="key">Picture in article</span>
+      <button
+        class="toggle"
+        class:on={reading.articleImage}
+        aria-pressed={reading.articleImage}
+        onclick={() => reading.toggleArticleImage()}
+        title="Show the post's picture above the text"
+      >
+        {reading.articleImage ? "On" : "Off"}
+      </button>
     </div>
 
     <div class="row">

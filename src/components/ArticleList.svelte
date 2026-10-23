@@ -107,8 +107,8 @@
             {#if isStarred(item)}<span class="star" aria-label="Starred">★</span>{/if}
           </span>
         </span>
-        {#if thumbnail(item) !== null && !broken.includes(item.id)}
-          <span class="thumb" aria-hidden="true">
+        {#if reading.thumbSide !== "off" && thumbnail(item) !== null && !broken.includes(item.id)}
+          <span class="thumb" class:left={reading.thumbSide === "left"} aria-hidden="true">
             <img
               src={thumbnail(item)}
               alt=""
@@ -312,12 +312,21 @@
     display: block;
     flex: none;
     align-self: center;
-    width: calc(48px * var(--row-scale, 1));
-    height: calc(48px * var(--row-scale, 1));
-    margin-left: 2px;
+    width: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    height: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    margin-left: 10px;
     border-radius: 6px;
     overflow: hidden;
     background: var(--hover);
+  }
+
+  /* Left is a real move, not a mirror: the picture takes the row's leading
+     edge and the read dot steps in after it, so the dot stays adjacent to the
+     title it qualifies. */
+  .thumb.left {
+    order: -1;
+    margin-left: 0;
+    margin-right: 10px;
   }
 
   .thumb img {
