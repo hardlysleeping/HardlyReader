@@ -12,6 +12,7 @@
   import { buildOpml, opmlFileName, parseOpml } from "../lib/opml";
   import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
   import { relativeTime } from "../lib/format";
+  import { pullDown } from "../lib/pull";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { reading } from "../state/reading.svelte";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
@@ -83,11 +84,12 @@
   let { inlinePosts = false }: { inlinePosts?: boolean } = $props();
 
   /**
-   * The feed whose posts are showing underneath it. One at a time: the sidebar
-   * is a list where you look at one feed's posts, not a tree of every post you
-   * have ever had open — several open at once would bury the feeds below.
+   * The feed whose posts are showing underneath it. One at a time, and kept in
+   * the store: the sidebar is a list where you look at one feed's posts, not a
+   * tree of every post you have ever had open, and the reader takes this panel
+   * away entirely while an article is open.
    */
-  let expandedFeed = $state<string | null>(null);
+  const expandedFeed = $derived(reader.expandedFeedId);
 
 
   /** The add-feed form: closed until asked for, so the sidebar stays a list. */
@@ -146,10 +148,10 @@
       return;
     }
     if (expandedFeed === feed.id) {
-      expandedFeed = null;
+      reader.setExpandedFeed(null);
       return;
     }
-    expandedFeed = feed.id;
+    reader.setExpandedFeed(feed.id);
     await reader.openStream(feed.id, feed.title);
   }
 
@@ -189,6 +191,17 @@
 
   function thumbFailed(id: string) {
     brokenThumbs = [...brokenThumbs, id];
+  }
+
+  /**
+   * Pulling the list down asks for news.
+   *
+   * With a feed open that means that feed; with nothing open there is no "that
+   * feed", so it is the whole account — the same thing the sync button does.
+   */
+  function pullRefresh(): void {
+    if (reader.activeStream !== "") void reader.reloadStream({ force: true });
+    else void reader.refresh();
   }
 
   /** A post under an open feed: the reader is the one thing that takes over. */
@@ -491,7 +504,15 @@
   <!-- Everything that can grow scrolls here and nowhere else: the search field,
        the band and the indent strip stay put above, the counts and the add/OPML
        block stay put below. The list is the only thing with a length. -->
-  <div class="scroll">
+  <div
+    class="scroll"
+    use:pullDown={{
+      label: "Pull down to check for new posts",
+      readyLabel: "Release to check for new posts",
+      enabled: () => !reader.loadingList && !reader.sync.active,
+      onPull: pullRefresh,
+    }}
+  >
   {#if searching}
     <div class="section">
       {#if hits.length === 0}

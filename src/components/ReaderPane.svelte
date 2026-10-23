@@ -4,6 +4,7 @@
   import { hardenLinks, isExternalHttp, sanitizeArticle } from "../lib/sanitize";
   import { accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
+  import { pullDown } from "../lib/pull";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
 
@@ -254,7 +255,21 @@
       {/if}
     </header>
 
-    <article bind:this={scroller} data-scroll="article" {onscroll} {onwheel}>
+    <!-- A finger dragging down at the top of an article means "up", and there are
+         two ways up. With advance-on-scroll on, up is the previous post, as it is
+         for the wheel. With it off there is nothing higher to reach, so up is out
+         of the reader and back to the list it came from. -->
+    <article
+      bind:this={scroller}
+      data-scroll="article"
+      {onscroll}
+      {onwheel}
+      use:pullDown={{
+        label: reading.advanceOnScroll ? "Pull down for the previous post" : "Pull down to go back",
+        readyLabel: reading.advanceOnScroll ? "Release for the previous post" : "Release to go back",
+        onPull: () => (reading.advanceOnScroll ? void reader.advanceArticle(-1) : onClose?.()),
+      }}
+    >
       <h1>{item.title || "(untitled)"}</h1>
       <p class="byline">
         <span>{item.origin?.title ?? ""}</span>
