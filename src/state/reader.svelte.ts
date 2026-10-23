@@ -23,6 +23,7 @@ import {
 import {
   categoryIdForLabel,
   favoriteIdForLabel,
+  isHiddenCategory,
   getApiState as getApiStateFromServer,
   clampIndentPx,
   getState as getHiddenState,
@@ -33,8 +34,10 @@ import {
   setHiddenPasscode as apiSetHiddenPasscode,
   unlockHidden as apiUnlockHidden,
   setFavoritesView as apiSetFavoritesView,
+  setIndent as apiSetIndent,
   setView as apiSetView,
   SIDEBAR_INDENT_FALLBACK_PX,
+  SIDEBAR_INDENT_MAX_PX,
   unavailableFavorites,
   unavailableState,
   type FavoriteView,
@@ -199,7 +202,11 @@ export class ReaderState {
   sidebarIndent = $state<SidebarIndentState>({
     available: false,
     px: SIDEBAR_INDENT_FALLBACK_PX,
+    max: SIDEBAR_INDENT_MAX_PX,
   });
+
+  /** Why the last indent write failed, in the server's words. */
+  indentError = $state<string | null>(null);
 
   /** True while a subscribe or unsubscribe is in flight. */
   feedBusy = $state(false);
@@ -293,6 +300,11 @@ export class ReaderState {
    * whether an item survives the hidden filter; being a favourite is a
    * separate, server-synced fact.
    */
+  /** Whether this category is hidden, per the extension's own state. */
+  isCategoryHidden(label: string): boolean {
+    return isHiddenCategory(this.hiddenCategories, label);
+  }
+
   isCategoryPinned(label: string): boolean {
     return this.localPins.categories.includes(label);
   }
@@ -335,15 +347,71 @@ export class ReaderState {
   }
 
   /**
-   * Applies indentation to every feed row. Indent is one global setting in the
-   * extension, so this never varies per feed; the choice is remembered here
-   * because the adapter has no write route for it yet.
+   * Applies indentation to every feed row, and stores it where the extension
+   * keeps it.
+   *
+   * Dragging a slider produces a value per pixel, so the draw is immediate and
+   * the write is debounced: one request per pause, not sixty per drag. The
+   * extension owns the setting, so the website's own slider picks up the same
+   * number, and this one picks up changes made there on the next read of
+   * `/v1/state`.
+   *
+   * Without the extension there is nowhere to store it, so it stays a local
+   * preference — the indent still works on a server that has no extensions.
    */
   setSidebarIndentPx(px: number): void {
-    const clamped = clampIndentPx(px);
-    this.localIndentPx = clamped;
+    const clamped = clampIndentPx(px, this.sidebarIndent.max);
+    if (this.sidebarIndent.px === clamped) return;
     this.sidebarIndent = { ...this.sidebarIndent, px: clamped };
-    this.savePrefs();
+
+    if (!this.sidebarIndent.available || this.indentLocalOnly) {
+      this.localIndentPx = clamped;
+      this.savePrefs();
+      return;
+    }
+
+    this.scheduleIndentWrite(clamped);
+  }
+
+  /** Set when the server has no write route: the indent stays on this device. */
+  private indentLocalOnly = false;
+
+  private indentTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private scheduleIndentWrite(px: number): void {
+    if (this.indentTimer !== null) clearTimeout(this.indentTimer);
+    const wanted = px;
+    this.indentTimer = setTimeout(() => {
+      this.indentTimer = null;
+      void this.writeIndent(wanted);
+    }, 250);
+  }
+
+  private async writeIndent(px: number): Promise<void> {
+    const session = this.session;
+    if (session === null) return;
+    try {
+      const result = await apiSetIndent(transport, session, px);
+      // The server clamps; adopt what it stored rather than what was asked for,
+      // but never stomp a newer drag that happened while this was in flight.
+      if (this.sidebarIndent.px === px) {
+        this.sidebarIndent = result.sidebarIndent;
+      }
+      this.indentError = null;
+    } catch (error) {
+      // A server whose adapter predates the write route answers 404/409. The
+      // indent still has to work, so it degrades to this device rather than
+      // freezing the slider — and says so instead of looking broken.
+      if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
+        // Stop trying to store it remotely, but keep the control usable.
+        this.indentLocalOnly = true;
+        this.localIndentPx = this.sidebarIndent.px;
+        this.savePrefs();
+        this.indentError = "This server cannot store the indent yet — keeping it on this device.";
+        return;
+      }
+      this.indentError = error instanceof Error ? error.message : String(error);
+    }
   }
 
   setFeedPinned(streamId: string, pinned: boolean): void {
@@ -374,9 +442,16 @@ export class ReaderState {
     return stored ?? this.subscriptions.length > LARGE_SIDEBAR_FEEDS;
   }
 
-  /** Server indent, unless this device has its own choice. */
+  /**
+   * The server's indent, unless the extension is missing.
+   *
+   * A local override only exists for servers without Sidebar Feed Indent. When
+   * the extension is there it is the one store: honouring a stale local number
+   * would show one indent in the app and another on the website.
+   */
   private withLocalIndent(state: SidebarIndentState): SidebarIndentState {
-    return this.localIndentPx === null ? state : { ...state, px: this.localIndentPx };
+    if (state.available || this.localIndentPx === null) return state;
+    return { ...state, px: clampIndentPx(this.localIndentPx, state.max) };
   }
 
   private updateLocalPins(change: Partial<LocalPins>): void {
@@ -880,7 +955,7 @@ export class ReaderState {
     this.hiddenBusy = false;
     this.favorites = unavailableFavorites();
     this.favoritesBusy = false;
-    this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX };
+    this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
     this.feedBusy = false;
     this.addFeedError = null;
     this.menu = null;
@@ -928,7 +1003,7 @@ export class ReaderState {
     } catch (error) {
       this.hiddenCategories = unavailableState();
       this.favorites = unavailableFavorites();
-      this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX };
+      this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
       this.hiddenError = message(error);
     }
   }

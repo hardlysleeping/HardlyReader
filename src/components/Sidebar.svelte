@@ -147,6 +147,28 @@
 <nav class="sidebar" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
   <SidebarBand />
 
+  <!-- Feed indent: the extension's own setting, not a lookalike. Disabled
+       rather than hidden when the extension is absent, so the reason is
+       visible instead of the control silently doing nothing. -->
+  <div class="indent">
+    <label for="feed-indent">Indent</label>
+    <input
+      id="feed-indent"
+      type="range"
+      min="0"
+      max={reader.sidebarIndent.max}
+      step="1"
+      value={reader.sidebarIndent.px}
+      disabled={!reader.sidebarIndent.available}
+      title={reader.indentError ??
+        (reader.sidebarIndent.available
+          ? "Feed name indent, shared with the Sidebar Feed Indent extension"
+          : "Sidebar Feed Indent is not enabled on this server")}
+      oninput={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value))}
+    />
+    <span class="px">{reader.sidebarIndent.px}</span>
+  </div>
+
   <div class="section">
     <button
       class="row strong"
@@ -168,12 +190,15 @@
 
   {#each reader.categories as category (category.id)}
     {@const pinned = reader.isCategoryPinned(category.label)}
+    {@const hiddenCat = reader.isCategoryHidden(category.label)}
     {@const folded = reader.isCategoryCollapsed(category.id)}
     <div class="section">
       <div class="group">
         <button
           class="row group-title"
           class:active={reader.activeStream === category.id}
+          class:pinned
+          class:is-hidden={hiddenCat}
           onclick={() => openCategory(category)}
           onpointerenter={() => reader.prefetchStream(category.id)}
           onfocus={() => reader.prefetchStream(category.id)}
@@ -187,7 +212,11 @@
           aria-haspopup="menu"
         >
           <span class="chevron" class:closed={folded} aria-hidden="true">▾</span>
-          {#if pinned}<span class="pin" title="Pinned" aria-label="Pinned">📌</span>{/if}
+          {#if pinned}
+            <svg class="pin" viewBox="0 0 24 24" role="img" aria-label="Pinned">
+              <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
+            </svg>
+          {/if}
           <span class="label">{category.label}</span>
           <span class="count">{reader.countFor(category.id)}</span>
         </button>
@@ -203,6 +232,7 @@
           <button
             class="row feed"
             class:active={reader.activeStream === feed.id}
+            class:pinned={reader.isFeedPinned(feed.id)}
             onclick={() => openFeed(feed)}
             onpointerenter={() => reader.prefetchStream(feed.id)}
             onfocus={() => reader.prefetchStream(feed.id)}
@@ -216,7 +246,11 @@
             aria-haspopup="menu"
             title={feed.title}
           >
-            {#if reader.isFeedPinned(feed.id)}<span class="pin" aria-label="Pinned">📌</span>{/if}
+            {#if reader.isFeedPinned(feed.id)}
+              <svg class="pin" viewBox="0 0 24 24" role="img" aria-label="Pinned">
+                <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
+              </svg>
+            {/if}
             {#if iconFor(feed) !== undefined && !brokenIcons[feed.id]}
               <img
                 class="icon"
@@ -378,6 +412,49 @@
     text-transform: none;
   }
 
+  /* Pinned: the title takes the logo's blue, the row keeps a blue outline, a
+     soft outer glow and an underlight along the bottom edge. Three quiet cues
+     rather than one loud one, so a pinned row is obvious without shouting. */
+  .group-title.pinned,
+  .feed.pinned {
+    outline: 1px solid color-mix(in srgb, #0078e0 45%, transparent);
+    outline-offset: -1px;
+    border-radius: 5px;
+    box-shadow:
+      inset 0 -2px 0 color-mix(in srgb, #0078e0 60%, transparent),
+      0 0 9px color-mix(in srgb, #0078e0 18%, transparent);
+  }
+
+  .group-title.pinned .label,
+  .feed.pinned .label {
+    color: #4aa3f0;
+  }
+
+  /* Hidden: red, the same red as the band's hidden control. Only ever visible
+     in the revealed/only views, where the point is to show what is hidden. */
+  .group-title.is-hidden .label {
+    color: #e5484d;
+  }
+
+  .group-title.is-hidden .chevron {
+    color: #e5484d;
+  }
+
+  .pin {
+    flex: 0 0 auto;
+    width: 11px;
+    height: 11px;
+    fill: none;
+    stroke: #0078e0;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .feed.pinned .label {
+    color: color-mix(in srgb, #0078e0 65%, var(--text-dim));
+  }
+
   .chevron {
     width: 12px;
     font-size: 10px;
@@ -425,6 +502,41 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .indent {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 12px 8px 16px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .indent label {
+    flex: 0 0 auto;
+    letter-spacing: 0.02em;
+  }
+
+  .indent input[type="range"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 14px;
+    margin: 0;
+    accent-color: #0078e0;
+    cursor: pointer;
+  }
+
+  .indent input[type="range"]:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+
+  .indent .px {
+    flex: 0 0 1.6rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
   }
 
   .count {

@@ -1100,8 +1100,80 @@ final class HardlyReadApiTest extends TestCase
 			->dispatch('GET', '/v1/state', self::AUTH);
 
 		self::assertSame(200, $response->status);
-		self::assertSame(['available' => true, 'px' => 28], $response->body['sidebarIndent']);
+		self::assertSame(['available' => true, 'px' => 28, 'max' => 60], $response->body['sidebarIndent']);
 		self::assertSame(['alice'], $this->indentLoadedFor);
+	}
+
+	public function testIndentWriteStoresTheValueAndReportsIt(): void
+	{
+		$indent = new FakeSidebarIndent(12);
+
+		$response = $this->api(null, sidebarIndent: $indent)
+			->dispatch('PUT', '/v1/indent', self::AUTH, ['px' => 34]);
+
+		self::assertSame(200, $response->status);
+		self::assertTrue($response->body['changed']);
+		self::assertSame(34, $indent->indent());
+		self::assertSame(1, $indent->writes);
+		self::assertSame(['available' => true, 'px' => 34, 'max' => 60], $response->body['sidebarIndent']);
+	}
+
+	public function testIndentWriteIsClampedByTheExtension(): void
+	{
+		$indent = new FakeSidebarIndent(12);
+
+		$response = $this->api(null, sidebarIndent: $indent)
+			->dispatch('PUT', '/v1/indent', self::AUTH, ['px' => 90]);
+
+		self::assertSame(200, $response->status);
+		self::assertSame(60, $response->body['sidebarIndent']['px']);
+	}
+
+	public function testIndentWriteReportsNoChangeForTheSameValue(): void
+	{
+		$indent = new FakeSidebarIndent(34);
+
+		$response = $this->api(null, sidebarIndent: $indent)
+			->dispatch('PUT', '/v1/indent', self::AUTH, ['px' => 34]);
+
+		self::assertSame(200, $response->status);
+		self::assertFalse($response->body['changed']);
+	}
+
+	public function testIndentWriteNeedsAnInteger(): void
+	{
+		$indent = new FakeSidebarIndent(12);
+
+		foreach ([['px' => '20'], ['px' => 2.5], []] as $body) {
+			$response = $this->api(null, sidebarIndent: $indent)
+				->dispatch('PUT', '/v1/indent', self::AUTH, $body);
+
+			self::assertSame(400, $response->status);
+			self::assertSame('invalid_indent', $response->body['error']['code']);
+		}
+
+		self::assertSame(0, $indent->writes);
+	}
+
+	public function testIndentWriteRefusesAnUnavailableExtension(): void
+	{
+		$response = $this->api(null)
+			->dispatch('PUT', '/v1/indent', self::AUTH, ['px' => 20]);
+
+		self::assertSame(409, $response->status);
+		self::assertSame('indent_unavailable', $response->body['error']['code']);
+	}
+
+	public function testIndentRouteRejectsOtherMethods(): void
+	{
+		$indent = new FakeSidebarIndent(12);
+
+		$response = $this->api(null, sidebarIndent: $indent)
+			->dispatch('POST', '/v1/indent', self::AUTH, ['px' => 20]);
+
+		self::assertSame(405, $response->status);
+		self::assertSame('PUT', $response->headers['Allow']);
+		self::assertSame(0, $indent->writes);
 	}
 
 	public function testStateTreatsAnUnreadableIndentAsUnavailable(): void
