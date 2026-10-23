@@ -19,15 +19,30 @@ export type ThumbSide = "left" | "right" | "off";
 export interface ScaleSpec {
   readonly min: number;
   readonly max: number;
-  readonly step: number;
   readonly initial: number;
 }
 
+/**
+ * How far one press moves a size, in percent.
+ *
+ * Shared by text, rows and pictures rather than fixed per scale: a fifth of a
+ * picture per press was two presses away from absurd, and someone who wants fine
+ * control wants it everywhere, not on whichever control happened to be tuned
+ * that way.
+ */
+export const STEP_PERCENTS = [1, 5, 10] as const;
+export type StepPercent = (typeof STEP_PERCENTS)[number];
+export const STEP_INITIAL: StepPercent = 5;
+
+export function isStepPercent(value: unknown): value is StepPercent {
+  return typeof value === "number" && (STEP_PERCENTS as readonly number[]).includes(value);
+}
+
 /** Article text. 100% is the tuned reading size; the range is a nudge, not a magnifier. */
-export const TEXT_SCALE: ScaleSpec = { min: 0.85, max: 1.5, step: 0.1, initial: 1 };
+export const TEXT_SCALE: ScaleSpec = { min: 0.85, max: 1.5, initial: 1 };
 
 /** List rows: title, preview and thumbnail grow together, so rows stay in proportion. */
-export const ROW_SCALE: ScaleSpec = { min: 0.8, max: 1.4, step: 0.1, initial: 1 };
+export const ROW_SCALE: ScaleSpec = { min: 0.8, max: 1.4, initial: 1 };
 
 /**
  * The picture's own size, on top of the row scale.
@@ -36,7 +51,7 @@ export const ROW_SCALE: ScaleSpec = { min: 0.8, max: 1.4, step: 0.1, initial: 1 
  * text are different wishes: at 200% the thumbnail is a preview, at 60% it is an
  * icon beside the headline.
  */
-export const THUMB_SCALE: ScaleSpec = { min: 0.6, max: 2, step: 0.2, initial: 1 };
+export const THUMB_SCALE: ScaleSpec = { min: 0.6, max: 2, initial: 1 };
 
 /**
  * The picture's base size, before row and picture scaling.
@@ -133,9 +148,14 @@ export function clampScale(value: unknown, spec: ScaleSpec): number {
  * value that came from elsewhere (an older build, or a hand-edited preference)
  * still walks sensibly instead of snapping.
  */
-export function stepScale(current: number, direction: 1 | -1, spec: ScaleSpec): number {
+export function stepScale(
+  current: number,
+  direction: 1 | -1,
+  spec: ScaleSpec,
+  stepPercent: StepPercent = STEP_INITIAL,
+): number {
   const start = clampScale(current, spec);
-  return clampScale(round(start + direction * spec.step), spec);
+  return clampScale(round(start + (direction * stepPercent) / 100), spec);
 }
 
 export function atScaleLimit(value: number, direction: 1 | -1, spec: ScaleSpec): boolean {
@@ -157,6 +177,8 @@ export interface ReadingLayout {
   thumbScale: number;
   thumbSide: ThumbSide;
   articleImage: boolean;
+  /** Percent per press, shared by every size control. */
+  stepPercent: StepPercent;
 }
 
 export const LAYOUT_INITIAL: ReadingLayout = {
@@ -168,6 +190,7 @@ export const LAYOUT_INITIAL: ReadingLayout = {
   thumbScale: THUMB_SCALE.initial,
   thumbSide: THUMB_SIDE_INITIAL,
   articleImage: ARTICLE_IMAGE_INITIAL,
+  stepPercent: STEP_INITIAL,
 };
 
 export function isDefaultLayout(layout: ReadingLayout): boolean {
@@ -178,7 +201,8 @@ export function isDefaultLayout(layout: ReadingLayout): boolean {
     layout.indent === INDENT_INITIAL &&
     layout.align === ALIGN_INITIAL &&
     clampScale(layout.thumbScale, THUMB_SCALE) === THUMB_SCALE.initial &&
-    layout.articleImage === ARTICLE_IMAGE_INITIAL
+    layout.articleImage === ARTICLE_IMAGE_INITIAL &&
+    (layout.stepPercent ?? STEP_INITIAL) === STEP_INITIAL
   );
 }
 
