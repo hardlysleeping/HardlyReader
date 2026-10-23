@@ -362,6 +362,27 @@ export function feedStreamId(feedUrl: string): string {
   return `feed/${feedUrl}`;
 }
 
+/**
+ * The server's own words, when it bothered to send any.
+ *
+ * FreshRSS answers a refused subscribe with a short plain-text or HTML
+ * explanation; the status alone ("HTTP 400") tells the user nothing about
+ * *why* the URL was rejected, so the text is flattened and appended.
+ */
+async function errorDetail(response: Response): Promise<string> {
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    return "";
+  }
+  const flat = text
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return flat === "" ? "" : `: ${flat.slice(0, 200)}`;
+}
+
 /** POSTs to a write endpoint with a freshly issued write token. */
 async function postWithWriteToken(
   transport: Transport,
@@ -386,7 +407,8 @@ async function postWithWriteToken(
     throw new AuthError("Write token rejected by server");
   }
   if (!response.ok) {
-    throw new HttpError(response.status, `${failureLabel} failed (HTTP ${response.status})`);
+    const detail = await errorDetail(response);
+    throw new HttpError(response.status, `${failureLabel} failed (HTTP ${response.status})${detail}`);
   }
 }
 

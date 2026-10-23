@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HiddenView } from "../api/hardlyread";
+  import { favoriteViewLabel } from "../state/favorites";
   import { reader } from "../state/reader.svelte";
 
   let {
@@ -35,8 +36,15 @@
     VIEW_CYCLE[(VIEW_CYCLE.indexOf(hiddenView) + 1) % VIEW_CYCLE.length],
   );
 
+  /** Same argument, same control: the favorites view filters categories too. */
+  const favoriteView = $derived(reader.favoriteView);
+
   async function cycleView() {
     await reader.setHiddenView(nextView);
+  }
+
+  async function cycleFavorites() {
+    await reader.cycleFavoritesView();
   }
 
   async function refresh() {
@@ -69,6 +77,22 @@
       <span class="view-label">{VIEW_LABELS[hiddenView]}</span>
     </button>
   {/if}
+
+  <button
+    class="view"
+    class:filtered={favoriteView !== "all"}
+    onclick={cycleFavorites}
+    disabled={!reader.favoritesAvailable || reader.favoritesBusy}
+    aria-label={`Favorites: ${favoriteViewLabel(favoriteView)}. Switch to ${favoriteViewLabel(
+      reader.nextFavoriteView,
+    )}.`}
+    title={reader.favoritesAvailable
+      ? `Favorites: ${favoriteViewLabel(favoriteView)} — click for ${favoriteViewLabel(reader.nextFavoriteView)}`
+      : "Favorite Categories is not available on this server"}
+  >
+    <span class="eye" aria-hidden="true">{favoriteView === "all" ? "☆" : "★"}</span>
+    <span class="view-label">{favoriteViewLabel(favoriteView)}</span>
+  </button>
 
   <button class="icon" onclick={refresh} disabled={refreshing} aria-label="Refresh" title="Refresh">
     {refreshing ? "…" : "⟳"}

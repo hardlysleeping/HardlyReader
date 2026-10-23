@@ -1,24 +1,18 @@
 /**
  * Optimistic writes for hidden-categories state.
  *
- * The rule this file exists to enforce: the sidebar changes at once, the write
- * follows, and any answer that carries authoritative state is applied rather
- * than undone. A 409 means the extension could not converge on what was asked;
- * its body holds what is actually true, so that is what gets drawn. Only a
- * failure with no state attached is a rollback — nothing was written, so the
- * state we started from is still the truth.
+ * The rule itself lives in `./write`; this file is the hidden-categories
+ * binding of it — the optimistic state to draw, and which part of a failing
+ * answer is authoritative.
  */
 import {
-  ApiError,
   type HiddenCategoriesState,
   type HiddenView,
   type MutationResult,
 } from "../api/hardlyread";
+import { applyOptimisticWrite, type WriteOutcome } from "./write";
 
-export type HiddenWriteOutcome =
-  | { kind: "applied"; changed: boolean | null; state: HiddenCategoriesState }
-  | { kind: "reconciled"; status: number; code: string; message: string; state: HiddenCategoriesState }
-  | { kind: "failed"; message: string; state: HiddenCategoriesState };
+export type HiddenWriteOutcome = WriteOutcome<HiddenCategoriesState>;
 
 /**
  * The state to draw while a hide/show is in flight.
@@ -65,29 +59,14 @@ export async function applyHiddenWrite(
   commit: (state: HiddenCategoriesState) => void,
   write: () => Promise<MutationResult>,
 ): Promise<HiddenWriteOutcome> {
-  commit(optimistic);
-
-  try {
-    const result = await write();
-    commit(result.hiddenCategories);
-    return { kind: "applied", changed: result.changed, state: result.hiddenCategories };
-  } catch (error) {
-    if (error instanceof ApiError && error.state !== null) {
-      commit(error.state);
-      return {
-        kind: "reconciled",
-        status: error.status,
-        code: error.code,
-        message: error.message,
-        state: error.state,
-      };
-    }
-
-    commit(current);
-    return {
-      kind: "failed",
-      message: error instanceof Error ? error.message : String(error),
-      state: current,
-    };
-  }
+  return applyOptimisticWrite(
+    current,
+    optimistic,
+    commit,
+    async () => {
+      const result = await write();
+      return { changed: result.changed, state: result.hiddenCategories };
+    },
+    (error) => error.state,
+  );
 }

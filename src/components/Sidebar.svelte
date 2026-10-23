@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { READING_LIST, STATE_STARRED } from "../api/freshrss";
+  import { READING_LIST, STATE_STARRED, type Subscription } from "../api/freshrss";
   import {
     LongPressTracker,
     anchorForRect,
@@ -11,6 +11,10 @@
   let { onNavigate }: { onNavigate?: () => void } = $props();
 
   let collapsed = $state<Record<string, boolean>>({});
+
+  /** The add-feed form: closed until asked for, so the sidebar stays a list. */
+  let adding = $state(false);
+  let feedUrl = $state("");
 
   /**
    * Set when a long press has opened the menu, so the click that the browser
@@ -36,37 +40,73 @@
     void open(category.id, category.label);
   }
 
+  function openFeed(feed: Subscription) {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    void open(feed.id, feed.title);
+  }
+
+  /** Favorites the category, or takes the star back. */
+  function toggleFavorite(category: CategoryGroup) {
+    void reader.setCategoryFavorite(category.label, !reader.isFavorite(category.label));
+  }
+
   /**
-   * Right-click. Without the extension there is nothing to offer, so the native
-   * menu is left alone rather than replaced by a dead one.
+   * Right-click. A category row needs the extension: without it there is
+   * nothing to offer, so the native menu is left alone rather than replaced by
+   * a dead one. A feed row always has removal to offer.
    */
-  function onContextMenu(event: MouseEvent, category: CategoryGroup) {
+  function onCategoryContextMenu(event: MouseEvent, category: CategoryGroup) {
     if (!reader.hiddenAvailable) return;
     event.preventDefault();
     reader.openCategoryMenu(category.label, { x: event.clientX, y: event.clientY });
   }
 
+  function onFeedContextMenu(event: MouseEvent, feed: Subscription) {
+    event.preventDefault();
+    reader.openFeedMenu({ id: feed.id, title: feed.title }, { x: event.clientX, y: event.clientY });
+  }
+
   /** Shift+F10 and the context-menu key: same menu, anchored to the row. */
-  function onKeydown(event: KeyboardEvent, category: CategoryGroup) {
+  function onCategoryKeydown(event: KeyboardEvent, category: CategoryGroup) {
     if (!reader.hiddenAvailable || !isMenuKey(event)) return;
     event.preventDefault();
     const anchor = anchorForRect((event.currentTarget as HTMLElement).getBoundingClientRect());
     reader.openCategoryMenu(category.label, anchor);
   }
 
-  function onPointerDown(event: PointerEvent, category: CategoryGroup) {
-    if (!reader.hiddenAvailable || !armsLongPress(event.pointerType)) return;
+  function onFeedKeydown(event: KeyboardEvent, feed: Subscription) {
+    if (!isMenuKey(event)) return;
+    event.preventDefault();
+    const anchor = anchorForRect((event.currentTarget as HTMLElement).getBoundingClientRect());
+    reader.openFeedMenu({ id: feed.id, title: feed.title }, anchor);
+  }
+
+  /** Arms a long press for whichever row the pointer went down on. */
+  function armPress(event: PointerEvent, openMenu: (point: { x: number; y: number }) => void) {
+    if (!armsLongPress(event.pointerType)) return;
     swallowClick = false;
     press?.cancel();
     press = new LongPressTracker((point) => {
       swallowClick = true;
-      reader.openCategoryMenu(category.label, point);
+      openMenu(point);
     });
     press.start({
       pointerType: event.pointerType,
       clientX: event.clientX,
       clientY: event.clientY,
     });
+  }
+
+  function onCategoryPointerDown(event: PointerEvent, category: CategoryGroup) {
+    if (!reader.hiddenAvailable) return;
+    armPress(event, (point) => reader.openCategoryMenu(category.label, point));
+  }
+
+  function onFeedPointerDown(event: PointerEvent, feed: Subscription) {
+    armPress(event, (point) => reader.openFeedMenu({ id: feed.id, title: feed.title }, point));
   }
 
   function onPointerMove(event: PointerEvent) {
@@ -80,9 +120,26 @@
   function cancelPress() {
     press?.cancel();
   }
+
+  function startAdding() {
+    adding = true;
+    reader.clearAddFeedError();
+  }
+
+  function cancelAdding() {
+    adding = false;
+    feedUrl = "";
+    reader.clearAddFeedError();
+  }
+
+  async function submitFeed(event: SubmitEvent) {
+    event.preventDefault();
+    const added = await reader.addFeed(feedUrl);
+    if (added) cancelAdding();
+  }
 </script>
 
-<nav class="sidebar" aria-label="Feeds">
+<nav class="sidebar" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
   <div class="section">
     <button
       class="row strong"
@@ -103,15 +160,17 @@
   </div>
 
   {#each reader.categories as category (category.id)}
+    {@const isFavorite = reader.isFavorite(category.label)}
+    {@const favoriteReady = reader.favoriteId(category.label) !== null}
     <div class="section">
       <div class="group">
         <button
           class="row group-title"
           class:active={reader.activeStream === category.id}
           onclick={() => openCategory(category)}
-          oncontextmenu={(event) => onContextMenu(event, category)}
-          onkeydown={(event) => onKeydown(event, category)}
-          onpointerdown={(event) => onPointerDown(event, category)}
+          oncontextmenu={(event) => onCategoryContextMenu(event, category)}
+          onkeydown={(event) => onCategoryKeydown(event, category)}
+          onpointerdown={(event) => onCategoryPointerDown(event, category)}
           onpointermove={onPointerMove}
           onpointerup={cancelPress}
           onpointercancel={cancelPress}
@@ -122,6 +181,16 @@
           <span class="label">{category.label}</span>
           <span class="count">{reader.countFor(category.id)}</span>
         </button>
+        {#if reader.favoritesAvailable}
+          <button
+            class="star"
+            class:on={isFavorite}
+            aria-label={isFavorite ? `Unfavorite ${category.label}` : `Favorite ${category.label}`}
+            aria-pressed={isFavorite}
+            disabled={reader.favoritesBusy || !favoriteReady}
+            onclick={() => toggleFavorite(category)}
+          >{isFavorite ? "★" : "☆"}</button>
+        {/if}
         <button
           class="toggle"
           aria-label={collapsed[category.id] ? "Expand" : "Collapse"}
@@ -134,7 +203,15 @@
           <button
             class="row feed"
             class:active={reader.activeStream === feed.id}
-            onclick={() => open(feed.id, feed.title)}
+            onclick={() => openFeed(feed)}
+            oncontextmenu={(event) => onFeedContextMenu(event, feed)}
+            onkeydown={(event) => onFeedKeydown(event, feed)}
+            onpointerdown={(event) => onFeedPointerDown(event, feed)}
+            onpointermove={onPointerMove}
+            onpointerup={cancelPress}
+            onpointercancel={cancelPress}
+            onpointerleave={cancelPress}
+            aria-haspopup="menu"
             title={feed.title}
           >
             <span class="label">{feed.title}</span>
@@ -150,6 +227,36 @@
   {#if reader.subscriptions.length === 0 && !reader.loadingList}
     <p class="empty">No feeds yet.</p>
   {/if}
+
+  <div class="add">
+    {#if adding}
+      <form onsubmit={submitFeed}>
+        <label class="visually-hidden" for="feed-url">Feed URL</label>
+        <input
+          id="feed-url"
+          type="url"
+          class="url"
+          placeholder="https://example.com/feed.xml"
+          bind:value={feedUrl}
+          disabled={reader.feedBusy}
+          autocomplete="off"
+        />
+        <div class="add-actions">
+          <button type="submit" class="submit" disabled={reader.feedBusy}>
+            {reader.feedBusy ? "Adding…" : "Add"}
+          </button>
+          <button type="button" class="cancel" onclick={cancelAdding} disabled={reader.feedBusy}>
+            Cancel
+          </button>
+        </div>
+        {#if reader.addFeedError}
+          <p class="add-error" role="alert">{reader.addFeedError}</p>
+        {/if}
+      </form>
+    {:else}
+      <button class="add-open" onclick={startAdding}>+ Add feed</button>
+    {/if}
+  </div>
 </nav>
 
 <style>
@@ -199,6 +306,8 @@
 
   .group-title {
     padding-left: 8px;
+    /* Room for the star, so a long category name never slides under it. */
+    padding-right: 34px;
   }
 
   .group-title .label {
@@ -217,6 +326,37 @@
     transform: rotate(-90deg);
   }
 
+  /* The star sits at the row's right edge; the chevron's own toggle button
+     stays on the left, so neither steals the other's clicks. */
+  .star {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .star.on {
+    color: var(--star);
+  }
+
+  .star:hover:not(:disabled) {
+    color: var(--star);
+  }
+
+  .star:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
   /* A full-size sibling catches clicks on the chevron only, so the row itself
      stays a single click target for opening the category stream. */
   .toggle {
@@ -230,8 +370,10 @@
     cursor: pointer;
   }
 
+  /* Feed rows take the server's indent on top of the base inset; category rows
+     do not, because that is the hierarchy the indent exists to express. */
   .feed {
-    padding-left: 34px;
+    padding-left: calc(34px + var(--feed-indent, 12px));
     font-size: 12.5px;
     color: var(--text-dim);
   }
@@ -257,5 +399,87 @@
     padding: 12px 16px;
     font-size: 12px;
     color: var(--muted);
+  }
+
+  .add {
+    padding: 14px 12px 0;
+  }
+
+  .add-open {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px dashed var(--border);
+    border-radius: 7px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .add-open:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .url {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .add-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .submit,
+  .cancel {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+
+  .submit:hover:not(:disabled),
+  .cancel:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .submit:disabled,
+  .cancel:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .add-error {
+    margin: 6px 0 0;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: #d9534f;
+    overflow-wrap: anywhere;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 </style>

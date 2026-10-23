@@ -18,7 +18,9 @@
 import {
   HIDDEN_VIEWS,
   categoryIdForLabel,
+  favoriteIdForLabel,
   isHiddenCategory,
+  type FavoritesState,
   type HiddenCategoriesState,
   type HiddenView,
 } from "../api/hardlyread";
@@ -187,7 +189,11 @@ export function placeMenu(anchor: Point, menu: Size, viewport: Size): Point {
 
 export type MenuAction =
   | { type: "hidden"; hidden: boolean }
-  | { type: "view"; view: HiddenView };
+  | { type: "view"; view: HiddenView }
+  | { type: "favorite"; favorite: boolean }
+  | { type: "remove-feed" }
+  | { type: "confirm-remove" }
+  | { type: "cancel-remove" };
 
 export interface MenuItemModel {
   action: MenuAction;
@@ -198,11 +204,20 @@ export interface MenuItemModel {
 }
 
 export interface MenuModel {
+  /** A category row offers hide/show, favorite and the views; a feed row offers removal. */
+  kind: "category" | "feed";
   label: string;
   /** Why the items cannot be used, when they cannot. */
   note: string | null;
-  toggle: MenuItemModel;
+  /** Hide/Show. Null for a feed row. */
+  toggle: MenuItemModel | null;
+  /** Favorite/Unfavorite. Null when the extension is not in play at all. */
+  favorite: MenuItemModel | null;
   views: MenuItemModel[];
+  /** Remove, for a feed row. Replaced by `confirm` once it is chosen. */
+  remove: MenuItemModel | null;
+  /** The second half of a removal: confirm or back out. Empty otherwise. */
+  confirm: MenuItemModel[];
 }
 
 const VIEW_LABELS: Record<HiddenView, string> = {
@@ -218,35 +233,108 @@ const VIEW_LABELS: Record<HiddenView, string> = {
  * and the one the extension is applying is the one worth a tick. Locked items
  * stay enabled — the server answers 423 with authoritative state and the write
  * layer reconciles it, which beats a dead menu with no explanation.
+ *
+ * `favorites` is optional so a caller with no favorites block at all gets no
+ * favorite item, rather than an item it cannot describe. Once it is passed,
+ * the item is drawn even when the extension is unavailable, disabled, so the
+ * user learns why instead of wondering where it went.
  */
-export function categoryMenu(state: HiddenCategoriesState, label: string): MenuModel {
+export function categoryMenu(
+  state: HiddenCategoriesState,
+  label: string,
+  favorites?: FavoritesState,
+): MenuModel {
   const id = categoryIdForLabel(state, label);
   const hidden = isHiddenCategory(state, label);
   const usable = state.available && id !== null;
 
-  let note: string | null = null;
+  const notes: string[] = [];
   if (!state.available) {
-    note = "Hidden Categories is not available on this server.";
+    notes.push("Hidden Categories is not available on this server.");
   } else if (id === null) {
-    note = "This category has no id on the server, so it cannot be hidden.";
+    notes.push("This category has no id on the server, so it cannot be hidden.");
   } else if (state.locked) {
-    note = "The extension is locked; the server will refuse changes.";
+    notes.push("The extension is locked; the server will refuse changes.");
+  }
+
+  let favorite: MenuItemModel | null = null;
+  if (favorites !== undefined) {
+    const favoriteId = favoriteIdForLabel(favorites, label);
+    const isFavorite = favoriteId !== null && favorites.ids.includes(favoriteId);
+    if (!favorites.available) {
+      notes.push("Favorite Categories is not available on this server.");
+    } else if (favoriteId === null) {
+      notes.push("This category has no id on the server, so it cannot be favorited.");
+    }
+    favorite = {
+      action: { type: "favorite", favorite: !isFavorite },
+      label: isFavorite ? "Unfavorite" : "Favorite",
+      checked: false,
+      disabled: !favorites.available || favoriteId === null,
+    };
   }
 
   return {
+    kind: "category",
     label,
-    note,
+    note: notes.length === 0 ? null : notes.join(" "),
     toggle: {
       action: { type: "hidden", hidden: !hidden },
       label: hidden ? "Show" : "Hide",
       checked: false,
       disabled: !usable,
     },
+    favorite,
     views: HIDDEN_VIEWS.map((view) => ({
       action: { type: "view", view },
       label: VIEW_LABELS[view],
       checked: state.available && view === state.effectiveView,
       disabled: !state.available,
     })),
+    remove: null,
+    confirm: [],
+  };
+}
+
+/**
+ * The menu for one feed row.
+ *
+ * Removal is the only thing a feed can be offered that the app cannot do from
+ * the row itself, and it is destructive, so it arrives in two steps: asking
+ * for the removal, then confirming it. `confirm` is that second step; it holds
+ * both answers, so backing out is as reachable as going ahead.
+ */
+export function feedMenu(title: string, confirming: boolean): MenuModel {
+  return {
+    kind: "feed",
+    label: title,
+    note: confirming ? "This removes the feed and its unread items from the server." : null,
+    toggle: null,
+    favorite: null,
+    views: [],
+    remove: confirming
+      ? null
+      : {
+          action: { type: "confirm-remove" },
+          label: "Remove feed…",
+          checked: false,
+          disabled: false,
+        },
+    confirm: confirming
+      ? [
+          {
+            action: { type: "remove-feed" },
+            label: "Remove feed",
+            checked: false,
+            disabled: false,
+          },
+          {
+            action: { type: "cancel-remove" },
+            label: "Cancel",
+            checked: false,
+            disabled: false,
+          },
+        ]
+      : [],
   };
 }

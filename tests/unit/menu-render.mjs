@@ -17,8 +17,8 @@ import { pathToFileURL } from "node:url";
 import { compile, preprocess } from "svelte/compiler";
 import { render } from "svelte/server";
 import ts from "typescript";
-import { parseState } from "../../src/api/hardlyread.ts";
-import { categoryMenu } from "../../src/lib/contextmenu.ts";
+import { parseFavorites, parseState } from "../../src/api/hardlyread.ts";
+import { categoryMenu, feedMenu } from "../../src/lib/contextmenu.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const GEN_DIR = join(ROOT, "tests/unit/.gen");
@@ -137,6 +137,54 @@ try {
     check("a category name cannot open a tag", body.includes("&lt;b>Art&lt;/b>"));
     check("...and no raw tag survives", !body.includes("<b>Art"));
     check("...and it is escaped in the aria-label too", body.includes('aria-label="Actions for &lt;b>Art&lt;/b>"'));
+  }
+
+  {
+    const favorites = (overrides = {}) =>
+      parseFavorites({
+        available: true,
+        view: "all",
+        ids: [7],
+        categories: [
+          { id: 12, name: "Technology", favorite: false },
+          { id: 7, name: "Art", favorite: true },
+        ],
+        ...overrides,
+      });
+
+    const body = draw(categoryMenu(state(), "Art", favorites()));
+    check("the favorite item is drawn", body.includes(">Unfavorite<"));
+    check("...as a menu item", count(body, 'role="menuitem"') === 2, String(count(body, 'role="menuitem"')));
+    check("...enabled", !/role="menuitem"[^>]*disabled/.test(body));
+
+    const other = draw(categoryMenu(state(), "Technology", favorites()));
+    check("a non-favorite offers Favorite", other.includes(">Favorite<"));
+
+    const missing = draw(categoryMenu(state(), "Technology", parseFavorites({ available: false })));
+    check("without the extension the item is rendered disabled", count(missing, "disabled") === 1, String(count(missing, "disabled")));
+    check("...with the reason as a note", missing.includes("Favorite Categories is not available"));
+  }
+
+  {
+    const asked = draw(feedMenu("Ars Technica", false));
+    check("a feed menu is titled with the feed", asked.includes(">Ars Technica<"));
+    check("...offering removal", asked.includes("Remove feed…"));
+    check("...with no views", count(asked, 'role="menuitemradio"') === 0);
+    check("...and no hidden/favorite items", !asked.includes(">Hide<") && !asked.includes(">Favorite<"));
+  }
+
+  {
+    const confirming = draw(feedMenu("Ars Technica", true));
+    check("the confirmation replaces the ask", !confirming.includes("Remove feed…"));
+    check("...offering both answers", confirming.includes(">Remove feed<") && confirming.includes(">Cancel<"));
+    check("...marking the destructive one", /class="item[^"]*danger[^"]*"[^>]*>Remove feed</.test(confirming));
+    check("...saying what it costs", confirming.includes("removes the feed"));
+  }
+
+  {
+    const body = draw(feedMenu("<i>Ars</i>", false));
+    check("a feed title cannot open a tag", body.includes("&lt;i>Ars&lt;/i>"));
+    check("...and is escaped in the aria-label", body.includes('aria-label="Actions for &lt;i>Ars&lt;/i>"'));
   }
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });
