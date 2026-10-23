@@ -54,7 +54,8 @@ function buildReadingModule() {
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
-    .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")));
+    .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
+    .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
   const out = join(GEN_DIR, "reading.mjs");
   writeFileSync(out, code);
@@ -130,7 +131,8 @@ function buildReaderModule() {
     .replaceAll('"./write"', JSON.stringify(absolute("src/state/write.ts")))
     .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")))
     .replaceAll('"./pins"', JSON.stringify(absolute("src/state/pins.ts")))
-    .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")));
+    .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")))
+    .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")));
 }
 
 const api = await import(absolute("src/api/hardlyread.ts"));
