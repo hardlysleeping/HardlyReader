@@ -21,6 +21,7 @@
     TEXT_SCALE,
     THUMB_SCALE,
     THUMB_SIDES,
+    thumbWidthPx,
     THUMB_SIDE_LABELS,
     atScaleLimit,
     isDefaultLayout,
@@ -35,6 +36,17 @@
   const thumbPercent = $derived(scalePercent(reading.thumbScale, THUMB_SCALE));
   const smallerTextAtLimit = $derived(atScaleLimit(reading.textScale, -1, TEXT_SCALE));
   const biggerTextAtLimit = $derived(atScaleLimit(reading.textScale, 1, TEXT_SCALE));
+  const smallerThumbAtLimit = $derived(atScaleLimit(reading.thumbScale, -1, THUMB_SCALE));
+  const biggerThumbAtLimit = $derived(atScaleLimit(reading.thumbScale, 1, THUMB_SCALE));
+
+  /**
+   * How big the picture actually ends up, in pixels.
+   *
+   * A percentage on its own is abstract — it multiplies the row scale and a
+   * 48px base — so the row says what it means: the width the next thumbnail
+   * will have.
+   */
+  const thumbPx = $derived(thumbWidthPx(reading.rowScale, reading.thumbScale));
   const atDefaults = $derived(
     isDefaultLayout({
       textScale: reading.textScale,
@@ -122,40 +134,57 @@
       </div>
     </div>
 
-    <div class="row">
-      <span class="key">Pictures</span>
-      <div class="seg" role="group" aria-label="Picture position in list">
-        {#each THUMB_SIDES as side (side)}
+    <div class="group">
+      <span class="group-label" id="pictures-label">Pictures</span>
+
+      <div class="row">
+        <span class="key">Position</span>
+        <div class="seg wide" role="group" aria-labelledby="pictures-label">
+          {#each THUMB_SIDES as side (side)}
+            <button
+              class:on={reading.thumbSide === side}
+              aria-pressed={reading.thumbSide === side}
+              onclick={() => reading.setThumbSide(side)}
+              title={`Pictures on the ${THUMB_SIDE_LABELS[side].toLowerCase()}`}
+            >{THUMB_SIDE_LABELS[side]}</button>
+          {/each}
+        </div>
+      </div>
+
+      <div class="row">
+        <span class="key" id="picture-size-label">Size</span>
+        <div
+          class="stepper"
+          role="group"
+          aria-labelledby="picture-size-label"
+          title={reading.thumbSide === "off"
+            ? "Pictures are off — this size applies when you turn them back on"
+            : `${thumbPercent} of the row size (${thumbPx}px wide)`}
+        >
           <button
-            class:on={reading.thumbSide === side}
-            aria-pressed={reading.thumbSide === side}
-            onclick={() => reading.setThumbSide(side)}
-            title={`Pictures ${THUMB_SIDE_LABELS[side].toLowerCase()}`}
-          >{THUMB_SIDE_LABELS[side]}</button>
-        {/each}
+            onclick={() => reading.stepThumbScale(-1)}
+            disabled={smallerThumbAtLimit}
+            aria-label="Smaller pictures"
+          >−</button>
+          <span class="value">{thumbPercent}</span>
+          <button onclick={() => reading.stepThumbScale(1)} disabled={biggerThumbAtLimit} aria-label="Bigger pictures">
+            +
+          </button>
+        </div>
       </div>
-    </div>
 
-    <div class="row">
-      <span class="key" id="picture-size-label">Picture size</span>
-      <div class="stepper" role="group" aria-labelledby="picture-size-label">
-        <button onclick={() => reading.stepThumbScale(-1)} aria-label="Smaller pictures">−</button>
-        <span class="value">{thumbPercent}</span>
-        <button onclick={() => reading.stepThumbScale(1)} aria-label="Bigger pictures">+</button>
+      <div class="row">
+        <span class="key">Above text</span>
+        <button
+          class="toggle"
+          class:on={reading.articleImage}
+          aria-pressed={reading.articleImage}
+          onclick={() => reading.toggleArticleImage()}
+          title="Show the post's picture above the text when the feed sends one"
+        >
+          {reading.articleImage ? "On" : "Off"}
+        </button>
       </div>
-    </div>
-
-    <div class="row">
-      <span class="key">Picture in article</span>
-      <button
-        class="toggle"
-        class:on={reading.articleImage}
-        aria-pressed={reading.articleImage}
-        onclick={() => reading.toggleArticleImage()}
-        title="Show the post's picture above the text"
-      >
-        {reading.articleImage ? "On" : "Off"}
-      </button>
     </div>
 
     <div class="row">
@@ -304,6 +333,25 @@
     padding: 5px 0;
   }
 
+  /* A block of related rows. The hairline does the grouping so the labels can
+     stay short: "Position", "Size", "Above text" only read as one thing under
+     the word Pictures. */
+  .group {
+    margin-top: 5px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .group-label {
+    display: block;
+    padding: 2px 0 1px;
+    font-size: 9.5px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    opacity: 0.75;
+  }
+
   .row.end {
     margin-top: 4px;
     padding-top: 8px;
@@ -363,6 +411,17 @@
     font: inherit;
     font-size: 11px;
     cursor: pointer;
+  }
+
+  /* Three words of unequal length: equal thirds so the group reads as one
+     control instead of three buttons that happen to sit together. */
+  .seg.wide {
+    flex: 0 0 132px;
+  }
+
+  .seg.wide button {
+    flex: 1 1 0;
+    padding: 0 2px;
   }
 
   .seg button.on {

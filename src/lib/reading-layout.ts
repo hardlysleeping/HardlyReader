@@ -38,6 +38,20 @@ export const ROW_SCALE: ScaleSpec = { min: 0.8, max: 1.4, step: 0.1, initial: 1 
  */
 export const THUMB_SCALE: ScaleSpec = { min: 0.6, max: 2, step: 0.2, initial: 1 };
 
+/**
+ * The picture's base size, before row and picture scaling.
+ *
+ * Exported so the panel can say "58px wide" using the same number the stylesheet
+ * multiplies — a readout computed from a different number would drift the first
+ * time either changed.
+ */
+export const THUMB_BASE_PX = 48;
+
+/** What the next row's picture will measure, for the panel's readout. */
+export function thumbWidthPx(rowScale: number, thumbScale: number): number {
+  return Math.round(THUMB_BASE_PX * clampScale(rowScale, ROW_SCALE) * clampScale(thumbScale, THUMB_SCALE));
+}
+
 export const LEADINGS: Record<Leading, number> = {
   tight: 1.4,
   normal: 1.65,
