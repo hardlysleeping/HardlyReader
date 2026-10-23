@@ -226,3 +226,24 @@ FreshRSS's cache with a third-party fallback planned for future local RSS.
 Priority order now on the board, 1-9: perf, band, thumbnails, tri-pane, pins (adapter v1.2 + local),
 collapse, password toggle, feed settings, parity. Sidebar edits never run concurrently — the file gets split
 into row components in whichever of tri-pane or band runs first.
+
+### Fast sync with the site (2026-10-22 19:00) — design only, not started
+
+Plan: `~/.hermes/plans/2026-10-22_1900-hardlyreader-sync-v1.md` (copy in the workspace).
+
+Why: the app only reads state at login and after its own writes, so a change made on the website
+is invisible until relaunch. Polling `/v1/state` to fix that is not viable — measured 6,173 bytes
+with 1,000 hidden ids — so the plan adds a 32-byte revision token instead.
+
+| # | Item | State | Notes |
+|---|---|---|---|
+| 36 | Adapter: `touch()` revision counters in both stores, `GET /v1/revision`, `If-None-Match` → 304 | todo | Blocked on VPS deploy approval + backup. Harness first |
+| 37 | Client `SyncEngine`: 5 s focused / 20 s idle / 0 when hidden, immediate poll on focus, visibility and `online`, backoff 5→60 s, single in-flight | todo | Unit tests with an injected clock |
+| 38 | Diff-apply and targeted feed refresh: Strict mode → refresh subscriptions; Light → only if the changed category holds the open stream | todo | Reuses the existing generation guard |
+| 39 | Integration test with two clients: hide via curl, assert the app reflects it inside the target window | todo | Docker harness, separate port |
+| 40 | Feed-list cadence decision (60 s while focused vs on demand) | todo | Question 3 in the plan; changes the cost profile |
+
+Conflict rules recorded in the plan §3.3: server wins for hidden/favourite/lock/view/indent
+(unless a local indent override exists); the device keeps band collapse, feed pins, open stream
+and drafts. Rejected there too, with reasons: SSE, long-poll, WebSocket, full-state polling,
+extension-side push, and SQLite mtime watching.
