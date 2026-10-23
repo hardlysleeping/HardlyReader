@@ -4,6 +4,7 @@ import { landingItem, step } from "../lib/reading-order";
 import { attemptOrder } from "../lib/stream-cycle";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
 import { SYNC_IDLE, SYNC_TOTAL, type SyncState } from "../lib/sync-progress";
+import { floods } from "./floods.svelte";
 import { theme } from "./theme.svelte";
 
 import {
@@ -577,6 +578,9 @@ export class ReaderState {
     const menu = this.menu;
     if (menu === null) return null;
     const target = menu.target;
+    // Where the menu was: the flood leaves from the point that was clicked, not
+    // from the middle of the screen.
+    const origin = { x: menu.x, y: menu.y };
 
     switch (action.type) {
       case "confirm-remove":
@@ -593,9 +597,12 @@ export class ReaderState {
       }
       case "hidden":
         this.menu = null;
-        return target.kind === "category" ? this.setCategoryHidden(target.label, action.hidden) : null;
+        if (target.kind !== "category") return null;
+        floods.emit(action.hidden ? "hidden" : "revealed", origin);
+        return this.setCategoryHidden(target.label, action.hidden);
       case "pin":
         this.menu = null;
+        floods.emit(action.pinned ? "pin" : "unpin", origin);
         if (target.kind === "category") {
           await this.setCategoryPinned(target.label, action.pinned);
           return null;
@@ -604,6 +611,7 @@ export class ReaderState {
         return null;
       case "favorite":
         this.menu = null;
+        floods.emit(action.favorite ? "pin" : "unpin", origin);
         return target.kind === "category" ? this.setCategoryFavorite(target.label, action.favorite) : null;
       case "indent":
         // Indent is applied live from the slider and leaves the menu open, so
@@ -621,7 +629,7 @@ export class ReaderState {
    * is told. If the server refuses (no passcode) the flag rolls back and the
    * reason is shown, rather than the UI lying until the next refresh.
    */
-  async lockHidden(): Promise<void> {
+  async lockHidden(origin: Point | null = null): Promise<void> {
     const session = this.session;
     if (session === null || !this.hiddenAvailable || this.hiddenBusy) return;
 
@@ -633,6 +641,7 @@ export class ReaderState {
       const result = await apiLockHidden(transport, session);
       this.hiddenCategories = result.hiddenCategories;
       this.lockNotice = null;
+      floods.emit("lock", origin);
       // Locking hides categories server-side too, so the feed list can change.
       this.hiddenWriteGen += 1;
       this.scheduleHiddenCatchUp();
@@ -652,7 +661,7 @@ export class ReaderState {
    * Unlocks with a passcode. Deliberately not optimistic: unlocking without
    * checking the code would be a cosmetic lock.
    */
-  async unlockHidden(passcode: string): Promise<boolean> {
+  async unlockHidden(passcode: string, origin: Point | null = null): Promise<boolean> {
     const session = this.session;
     if (session === null || !this.hiddenAvailable || this.hiddenBusy) return false;
 
@@ -661,6 +670,7 @@ export class ReaderState {
     try {
       const result = await apiUnlockHidden(transport, session, passcode);
       this.hiddenCategories = result.hiddenCategories;
+      floods.emit("unlock", origin);
       return true;
     } catch (error) {
       if (error instanceof ApiError) {
@@ -1215,6 +1225,8 @@ export class ReaderState {
     } finally {
       const finished = this.sync.total;
       this.sync = { active: false, done: finished, total: finished, step: "" };
+      // Arrives under the control that started it, at the top right.
+      floods.emit("sync");
     }
   }
 

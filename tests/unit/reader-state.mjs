@@ -86,6 +86,27 @@ function buildThemeModule() {
   return pathToFileURL(out).href;
 }
 
+/**
+ * The flood store is a runes module the reader imports, so it is compiled the
+ * same way and pointed at by absolute path.
+ */
+function buildFloodsModule() {
+  const source = readFileSync(join(ROOT, "src/state/floods.svelte.ts"), "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    fileName: "floods.svelte.ts",
+  });
+  const compiled = compileModule(outputText, { generate: "client", filename: "floods.svelte.ts" });
+  const code = compiled.js.code.replaceAll(
+    '"../lib/floods"',
+    JSON.stringify(absolute("src/lib/floods.ts")),
+  );
+  mkdirSync(GEN_DIR, { recursive: true });
+  const out = join(GEN_DIR, "floods.mjs");
+  writeFileSync(out, code);
+  return pathToFileURL(out).href;
+}
+
 function buildReaderModule() {
   const source = readFileSync(join(ROOT, "src/state/reader.svelte.ts"), "utf8");
   const { outputText } = ts.transpileModule(source, {
@@ -102,6 +123,7 @@ function buildReaderModule() {
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
     .replaceAll('"./theme.svelte"', JSON.stringify(buildThemeModule()))
+    .replaceAll('"./floods.svelte"', JSON.stringify(buildFloodsModule()))
     .replaceAll('"../lib/stream-cycle"', JSON.stringify(absolute("src/lib/stream-cycle.ts")))
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
@@ -450,6 +472,36 @@ try {
     else globalThis.localStorage = original;
   }
 }
+
+  // Action feedback: the burst of light starts where the click was, and only for
+  // actions that actually change something.
+  const { floods } = await import(buildFloodsModule());
+  floods.clear();
+  reader.menu = { x: 141, y: 322, target: { kind: "category", label: "Technology" }, confirming: false };
+  try {
+    await reader.applyMenuAction({ type: "hidden", hidden: true });
+  } catch {
+    // the write wants a transport; the flood is emitted before it is attempted
+  }
+  check(
+    floods.floods.length === 1 &&
+      floods.floods[0].kind === "hidden" &&
+      floods.floods[0].x === 141 &&
+      floods.floods[0].y === 322,
+    `hiding a category flashes from the click point (${JSON.stringify(floods.floods)})`,
+  );
+
+  floods.clear();
+  reader.menu = { x: 90, y: 210, target: { kind: "feed", id: "feed/2" }, confirming: false };
+  await reader.applyMenuAction({ type: "pin", pinned: true });
+  check(floods.floods[0]?.kind === "pin", "pinning a feed flashes too");
+
+  floods.clear();
+  reader.menu = { x: 90, y: 210, target: { kind: "feed", id: "feed/2" }, confirming: false };
+  await reader.applyMenuAction({ type: "confirm-remove" });
+  check(floods.floods.length === 0, "a menu step that changes nothing flashes nothing");
+  reader.menu = null;
+  floods.clear();
 
   reader.stop();
   check("stop() resets hidden state", reader.hiddenAvailable === false && reader.hiddenError === null);

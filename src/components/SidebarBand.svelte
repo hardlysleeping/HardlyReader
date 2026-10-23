@@ -33,7 +33,7 @@
   async function submitUnlock(event: SubmitEvent) {
     event.preventDefault();
     if (code === "" || reader.hiddenBusy) return;
-    const ok = await reader.unlockHidden(code);
+    const ok = await reader.unlockHidden(code, pointOf(event));
     if (ok) {
       code = "";
       lockOpen = false;
@@ -58,13 +58,20 @@
    * updated after this app started. Trusting the state read at sign-in is how
    * the panel ends up inviting you to set a passcode you already have.
    */
+  /** Where the click was, so the confirmation light leaves from there. */
+  function pointOf(event: MouseEvent | SubmitEvent): { x: number; y: number } | null {
+    const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
+    if (!rect) return null;
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
   function openLockPanel(): void {
     lockOpen = !lockOpen;
     if (lockOpen) void reader.loadHiddenState();
   }
 
-  async function lockNow() {
-    await reader.lockHidden();
+  async function lockNow(event: MouseEvent) {
+    await reader.lockHidden(pointOf(event));
     if (reader.hiddenLocked) lockOpen = false;
   }
 </script>
