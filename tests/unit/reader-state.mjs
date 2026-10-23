@@ -521,6 +521,54 @@ try {
   }
 }
 
+// --- how read state is decided --------------------------------------------
+// Manual is what a fresh install gets, and the old bare `autoMarkRead` boolean
+// is not honoured: it was one icon beside the star, and it sat on for the owner
+// without his meaning it. Only an explicit mode counts.
+{
+  const store = new Map();
+  const original = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+  };
+  const KEY = "hardlyreader.reading.v1";
+  const { reading: prefs } = await import(buildReadingModule());
+  const before = prefs.autoMarkRead;
+  try {
+    prefs.autoMarkRead = false;
+    store.clear();
+    prefs.load();
+    check("with nothing saved, posts stay unread until you say so", prefs.autoMarkRead === false);
+
+    store.set(KEY, JSON.stringify({ autoMarkRead: true }));
+    prefs.load();
+    check("a leftover auto-marking toggle is not read as a choice", prefs.autoMarkRead === false);
+
+    store.set(KEY, JSON.stringify({ markReadMode: "auto" }));
+    prefs.load();
+    check("a chosen mode of auto is honoured", prefs.autoMarkRead === true);
+
+    store.set(KEY, JSON.stringify({ markReadMode: "manual" }));
+    prefs.load();
+    check("a chosen mode of manual is honoured", prefs.autoMarkRead === false);
+
+    store.set(KEY, JSON.stringify({ markReadMode: "sometimes" }));
+    prefs.load();
+    check("nonsense falls back to manual", prefs.autoMarkRead === false);
+
+    prefs.setAutoMarkRead(true);
+    const written = JSON.parse(store.get(KEY) ?? "null");
+    check("choosing auto is written as a mode, not a loose flag", written?.markReadMode === "auto", String(written?.markReadMode));
+    check("...and no stale flag rides along", !("autoMarkRead" in (written ?? {})), JSON.stringify(written?.autoMarkRead));
+  } finally {
+    prefs.autoMarkRead = before;
+    if (original === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = original;
+  }
+}
+
   // Action feedback: the burst of light starts where the click was, and only for
   // actions that actually change something.
   const { floods } = await import(buildFloodsModule());

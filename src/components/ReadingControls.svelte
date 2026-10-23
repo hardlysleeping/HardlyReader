@@ -240,6 +240,27 @@
       </button>
     </div>
 
+    <!-- Read state is a reading preference like any other, so it lives here with
+         its options named instead of leaving an icon to be discovered. Manual is
+         the default: opening a post is not reading it. -->
+    <div class="row">
+      <span class="key">Mark read</span>
+      <div class="seg" role="group" aria-label="When a post is marked read">
+        <button
+          class:on={!reading.autoMarkRead}
+          aria-pressed={!reading.autoMarkRead}
+          onclick={() => reading.setAutoMarkRead(false)}
+          title="Posts stay unread until you mark them"
+        >Manual</button>
+        <button
+          class:on={reading.autoMarkRead}
+          aria-pressed={reading.autoMarkRead}
+          onclick={() => reading.setAutoMarkRead(true)}
+          title={`Mark a post read once it has been open for ${reading.autoMarkSeconds} seconds`}
+        >Auto {reading.autoMarkSeconds}s</button>
+      </div>
+    </div>
+
     <!-- At the bottom because it governs the whole panel rather than one row:
          every − and + above moves by this much. -->
     <div class="row step-row">
