@@ -1,6 +1,7 @@
 import {
-  MIN, GUTTER, NEEDED, MINIMUMS, effectiveMode, clampWidths, dragPane, resetPane, nudge, gridTemplate,
-  guttersFor, geometricMinimum, defaultModeFor, needed, minimums,
+  MIN, GUTTER, NEEDED, MINIMUMS, THRESHOLDS, THRESHOLD_LIMITS, effectiveMode, clampWidths, dragPane,
+  resetPane, nudge, gridTemplate, guttersFor, geometricMinimum, defaultModeFor, needed, minimums,
+  clampThresholds, widthFor,
 } from "../../src/lib/panes.ts";
 
 let failures = 0;
@@ -19,6 +20,48 @@ check("two panes need one gutter", geometricMinimum(2) === MIN.sidebar + MIN.lis
 check("three-pane floor clears the geometry", NEEDED.desktop[3] >= geometricMinimum(3) && NEEDED.desktop[3] === 1000);
 check("two-pane floor clears the geometry", NEEDED.desktop[2] >= geometricMinimum(2) && NEEDED.desktop[2] === 700, String(NEEDED.desktop[2]));
 check("gutter count per mode", guttersFor(3) === 12 && guttersFor(2) === 6 && guttersFor(1) === 0);
+
+// Thresholds are settings now, so every one of these has to hold for values the
+// user chose, not only for the defaults.
+const late = { two: 900, three: 1500 };
+check("custom thresholds decide the mode", effectiveMode(3, 1200, "desktop", late) === 2, String(effectiveMode(3, 1200, "desktop", late)));
+check("custom thresholds still allow three when met", effectiveMode(3, 1500, "desktop", late) === 3);
+check("below the custom two threshold it is one pane", effectiveMode(3, 899, "desktop", late) === 1);
+check(
+  "defaults when no thresholds are passed",
+  effectiveMode(3, 1000) === 3 && effectiveMode(3, 999) === 2 && effectiveMode(3, 699) === 1,
+);
+
+check("the sliders' floor and ceiling are enforced", () => {
+  const low = clampThresholds({ two: 10, three: 20 });
+  const high = clampThresholds({ two: 9000, three: 9000 });
+  return (
+    low.two === THRESHOLD_LIMITS.two.min &&
+    low.three === THRESHOLD_LIMITS.two.min + THRESHOLD_LIMITS.gap &&
+    high.two === THRESHOLD_LIMITS.two.max &&
+    high.three === THRESHOLD_LIMITS.three.max
+  );
+});
+check("three always stays clear of two", () => {
+  const pulled = clampThresholds({ two: 800, three: 810 });
+  return pulled.three === 800 + THRESHOLD_LIMITS.gap;
+});
+check("junk falls back to the device defaults", () => {
+  const fallback = clampThresholds({ two: Number.NaN, three: "x" }, "phone");
+  return fallback.two === THRESHOLDS.phone.two && fallback.three === THRESHOLDS.phone.three;
+});
+
+check("a mode's width is what the switch resizes to", () => {
+  return (
+    widthFor(1, "desktop", late) === NEEDED.desktop[1] &&
+    widthFor(2, "desktop", late) === 900 &&
+    widthFor(3, "desktop", late) === 1500 &&
+    widthFor(1, "phone") === NEEDED.phone[1]
+  );
+});
+check("one pane's width is fixed, not tunable", widthFor(1, "desktop", { two: 400, three: 500 }) === NEEDED.desktop[1]);
+
+check("a window exactly on a custom threshold shows that many", effectiveMode(2, 900, "desktop", late) === 2);
 
 // A narrow window does not get three panes, whichever mode was asked for.
 check("3 requested, roomy window", effectiveMode(3, 1440) === 3);

@@ -10,9 +10,12 @@
 
 import {
   DEFAULT_WIDTHS,
+  THRESHOLDS,
   type Device,
   type PaneMode,
+  type PaneThresholds,
   type PaneWidths,
+  clampThresholds,
   clampWidths,
   defaultModeFor,
   effectiveMode,
@@ -20,6 +23,7 @@ import {
   minimums,
   nudge,
   resetPane,
+  widthFor,
 } from "../lib/panes";
 
 const STORAGE_KEY = "hardlyreader.layout.v1";
@@ -27,6 +31,8 @@ const STORAGE_KEY = "hardlyreader.layout.v1";
 interface SavedLayout {
   mode: PaneMode;
   widths: PaneWidths;
+  /** Where the second and third pane appear, in CSS pixels. */
+  thresholds?: Partial<PaneThresholds>;
   /** True once the user has picked a mode themselves. */
   chosen?: boolean;
 }
@@ -58,6 +64,12 @@ class LayoutState {
   widths = $state<PaneWidths>({ ...DEFAULT_WIDTHS });
   /** Width of the pane container, in CSS pixels. */
   available = $state(1440);
+  /**
+   * The width at which a second and a third pane appear. Device-local, like the
+   * pane widths themselves: "wide enough for three" on a 27" screen is not wide
+   * enough on a laptop.
+   */
+  thresholds = $state<PaneThresholds>({ ...THRESHOLDS.desktop });
   device = $state<Device>("desktop");
   /**
    * False until the user picks a mode. While it is false the mode follows the
@@ -68,7 +80,25 @@ class LayoutState {
 
   /** What can actually be drawn at this width. */
   get mode(): PaneMode {
-    return effectiveMode(this.desired, this.available, this.device);
+    return effectiveMode(this.desired, this.available, this.device, this.thresholds);
+  }
+
+  /** The window width a mode needs, under the current thresholds. */
+  widthFor(mode: PaneMode): number {
+    return widthFor(mode, this.device, this.thresholds);
+  }
+
+  /** One threshold, or both when the other has to move out of the way. */
+  setThreshold(which: keyof PaneThresholds, px: number): void {
+    this.thresholds = clampThresholds({ ...this.thresholds, [which]: px }, this.device);
+    this.widths = clampWidths(this.widths, this.mode, this.available, this.device);
+    this.save();
+  }
+
+  resetThresholds(): void {
+    this.thresholds = { ...THRESHOLDS[this.device] };
+    this.widths = clampWidths(this.widths, this.mode, this.available, this.device);
+    this.save();
   }
 
   /** True when the user asked for more panes than fit. */
@@ -88,7 +118,12 @@ class LayoutState {
     const size = windowSize();
     this.device = detectDevice();
     this.available = size.width;
-    this.desired = defaultModeFor({ phone: this.device === "phone", ...size });
+    this.thresholds = { ...THRESHOLDS[this.device] };
+    this.desired = defaultModeFor({
+      phone: this.device === "phone",
+      ...size,
+      thresholds: this.thresholds,
+    });
     this.widths = clampWidths(defaultWidths(this.device), this.mode, size.width, this.device);
     if (typeof localStorage === "undefined") return;
     try {
@@ -98,6 +133,9 @@ class LayoutState {
       if (saved.chosen === true && isMode(saved.mode)) {
         this.chosen = true;
         this.desired = saved.mode;
+      }
+      if (saved.thresholds !== undefined) {
+        this.thresholds = clampThresholds(saved.thresholds, this.device);
       }
       const widths = saved.widths;
       if (widths && typeof widths.sidebar === "number" && typeof widths.list === "number") {
@@ -129,7 +167,7 @@ class LayoutState {
     // portrait one column, landscape three.
     if (!this.chosen && this.device === "phone") {
       const size = windowSize();
-      const next = defaultModeFor({ phone: true, ...size });
+      const next = defaultModeFor({ phone: true, ...size, thresholds: this.thresholds });
       if (next !== this.desired) {
         this.desired = next;
         this.widths = clampWidths(this.widths, this.mode, px, this.device);
@@ -178,7 +216,12 @@ class LayoutState {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ mode: this.desired, widths: this.widths, chosen: this.chosen }),
+        JSON.stringify({
+          mode: this.desired,
+          widths: this.widths,
+          thresholds: this.thresholds,
+          chosen: this.chosen,
+        }),
       );
     } catch {
       // Storage full or blocked: the layout still works for this session.

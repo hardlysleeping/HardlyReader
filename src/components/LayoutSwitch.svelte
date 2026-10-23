@@ -1,6 +1,21 @@
 <script lang="ts">
   import type { PaneMode } from "../lib/panes";
+  import { fitWindowTo } from "../lib/window-fit";
   import { layout } from "../state/layout.svelte";
+
+  /**
+   * A mode button does two things: it records the choice, then it makes the
+   * window match it where that is possible. Recorded first so a window that
+   * cannot be resized (a browser tab) still switches — it just stays squeezed.
+   *
+   * Two pixels of slack: the pane container is measured a hair narrower than
+   * the window, and landing exactly on the threshold would flip back to the
+   * smaller mode.
+   */
+  async function choose(mode: PaneMode) {
+    layout.setMode(mode);
+    await fitWindowTo(layout.widthFor(mode) + 2);
+  }
 
   const modes: { mode: PaneMode; label: string; hint: string }[] = [
     { mode: 1, label: "1", hint: "One column: feeds, then posts, then the article" },
@@ -13,12 +28,12 @@
   {#each modes as item (item.mode)}
     <button
       class="mode"
-      class:on={layout.desired === item.mode}
-      aria-pressed={layout.desired === item.mode}
+      class:on={layout.mode === item.mode}
+      aria-pressed={layout.mode === item.mode}
       title={layout.squeezed && layout.desired === item.mode
         ? `${item.hint} — this window is too narrow, showing ${layout.mode}`
         : item.hint}
-      onclick={() => layout.setMode(item.mode)}
+      onclick={() => void choose(item.mode)}
     >
       {item.label}
     </button>
