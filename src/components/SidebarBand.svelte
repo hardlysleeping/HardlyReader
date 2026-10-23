@@ -55,12 +55,26 @@
   }
 </script>
 
-{#if reader.bandCollapsed}
-  <button class="handle" onclick={() => reader.toggleBand()} aria-expanded="false" aria-label="Show sidebar controls">
-    <span class="grip" aria-hidden="true"></span>
+<!-- The caret is a bar across the top of the band, not a button in the corner:
+     collapsed, the bar is all that is left, and the controls drop out from
+     under it. The arrow points up while they are showing (hide them) and down
+     while they are hidden (bring them back), so the direction always describes
+     what a click will do. -->
+<div class="bandbox" class:collapsed={reader.bandCollapsed} class:locked={reader.hiddenLocked}>
+  <button
+    class="bar"
+    onclick={() => reader.toggleBand()}
+    aria-expanded={!reader.bandCollapsed}
+    aria-label={reader.bandCollapsed ? "Show sidebar controls" : "Hide sidebar controls"}
+    title={reader.bandCollapsed ? "Show controls" : "Hide controls"}
+  >
+    <svg class="caret" class:up={!reader.bandCollapsed} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 9l6 6 6-6" />
+    </svg>
   </button>
-{:else}
-  <div class="band" class:locked>
+
+  {#if !reader.bandCollapsed}
+    <div class="band">
     <button
       class="ctl"
       class:active={hiddenView !== "hidden"}
@@ -118,11 +132,9 @@
       </svg>
       {#if !locked}<span class="lbl">{PIN_VIEW_LABELS[pinView]}</span>{/if}
     </button>
-
-    <button class="fold" onclick={() => reader.toggleBand()} aria-expanded="true" aria-label="Hide sidebar controls" title="Hide controls">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
-    </button>
   </div>
+  {/if}
+</div>
 
   {#if lockOpen}
     <div class="lockpanel" role="region" aria-label="Lock">
@@ -172,7 +184,6 @@
       <button class="close" onclick={() => ((lockOpen = false), (changing = false), (code = ""))}>Close</button>
     </div>
   {/if}
-{/if}
 
 <style>
   .lockpanel .code {
@@ -222,20 +233,59 @@
     color: var(--danger, #e06c75);
   }
 
-  .band {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr 22px;
-    align-items: stretch;
-    gap: 4px;
+  .bandbox {
     margin: 6px 8px 8px;
-    padding: 4px;
     border: 1px solid var(--border);
     border-radius: 8px;
+    overflow: hidden;
     background: var(--band, #2f2f2f);
   }
 
-  .band.locked {
+  .bandbox.locked {
     background: var(--band-locked, #212121);
+  }
+
+  /* Full-width caret bar: the handle for the whole band, in both states. */
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 14px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-dim);
+    opacity: 0.5;
+    cursor: pointer;
+  }
+
+  .bandbox.collapsed .bar {
+    height: 20px;
+  }
+
+  .bar:hover,
+  .bar:focus-visible {
+    opacity: 1;
+    background: var(--hover);
+  }
+
+  .bar .caret {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.15s ease;
+  }
+
+  .bar .caret.up {
+    transform: rotate(180deg);
+  }
+
+  .band {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: stretch;
+    gap: 4px;
+    padding: 0 4px 4px;
   }
 
   .ctl {
@@ -291,48 +341,6 @@
     font-size: 10px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-  }
-
-  .fold {
-    align-self: start;
-    padding: 2px;
-    border: 0;
-    background: none;
-    color: var(--text-dim);
-    opacity: 0.6;
-    cursor: pointer;
-  }
-
-  .fold:hover {
-    opacity: 1;
-  }
-
-  .fold svg {
-    width: 14px;
-    height: 14px;
-  }
-
-  .handle {
-    display: flex;
-    justify-content: center;
-    width: 100%;
-    padding: 4px 0 6px;
-    border: 0;
-    background: none;
-    cursor: pointer;
-  }
-
-  .grip {
-    width: 36px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--border);
-    transition: background 0.15s;
-  }
-
-  .handle:hover .grip,
-  .handle:focus-visible .grip {
-    background: var(--text-dim);
   }
 
   .lockpanel {
