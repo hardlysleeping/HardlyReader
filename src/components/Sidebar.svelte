@@ -1,7 +1,7 @@
 <script lang="ts">
   import SidebarBand from "./SidebarBand.svelte";
   import ThemeToggle from "./ThemeToggle.svelte";
-  import { READING_LIST, STATE_STARRED, type Subscription } from "../api/freshrss";
+  import { READING_LIST, STATE_STARRED, isRead, type StreamItem, type Subscription } from "../api/freshrss";
   import {
     LongPressTracker,
     anchorForRect,
@@ -11,6 +11,7 @@
   import { parseFeedUrls } from "../lib/add-feeds";
   import { buildOpml, opmlFileName, parseOpml } from "../lib/opml";
   import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
+  import { relativeTime } from "../lib/format";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
   import { searchFeeds } from "../lib/search";
@@ -72,7 +73,19 @@
     void search.setDeep(!search.deep, reader.subscriptions, reader.session);
   }
 
-  let { onNavigate }: { onNavigate?: () => void } = $props();
+  /**
+   * `inlinePosts` is the one-panel layout: there is no posts column to step
+   * into, so a feed opens under itself and the reader is the only thing that
+   * replaces the sidebar.
+   */
+  let { inlinePosts = false }: { inlinePosts?: boolean } = $props();
+
+  /**
+   * The feed whose posts are showing underneath it. One at a time: the sidebar
+   * is a list where you look at one feed's posts, not a tree of every post you
+   * have ever had open — several open at once would bury the feeds below.
+   */
+  let expandedFeed = $state<string | null>(null);
 
 
   /** The add-feed form: closed until asked for, so the sidebar stays a list. */
@@ -102,7 +115,6 @@
 
   async function open(streamId: string, title: string) {
     await reader.openStream(streamId, title);
-    onNavigate?.();
   }
 
   function openCategory(category: CategoryGroup) {
@@ -119,6 +131,45 @@
       return;
     }
     void open(feed.id, feed.title);
+  }
+
+  /**
+   * One panel: the feed unfolds where it sits. Opening its stream is what
+   * fetches the posts — the same request the posts column would have made — but
+   * the sidebar stays put, so nothing slides out from under the finger.
+   */
+  async function toggleFeed(feed: Subscription) {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    if (expandedFeed === feed.id) {
+      expandedFeed = null;
+      return;
+    }
+    expandedFeed = feed.id;
+    await reader.openStream(feed.id, feed.title);
+  }
+
+  /**
+   * From a search hit, in one panel: the results are the list, so choosing one
+   * has to leave the search and put the feed in front of you, unfolded — the
+   * post-inside-a-post case (text matches) lands on the feed that holds it.
+   */
+  function jumpTo(feed: Subscription) {
+    search.clear();
+    const category = reader.categories.find((group) =>
+      group.feeds.some((child) => child.id === feed.id),
+    );
+    if (category !== undefined && reader.isCategoryCollapsed(category.id)) {
+      reader.toggleCategory(category.id);
+    }
+    void toggleFeed(feed);
+  }
+
+  /** A post under an open feed: the reader is the one thing that takes over. */
+  function openPost(item: StreamItem) {
+    reader.select(item);
   }
 
 
@@ -428,7 +479,7 @@
           <button
             class="row feed hit"
             class:active={reader.activeStream === hit.feed.id}
-            onclick={() => open(hit.feed.id, hit.feed.title)}
+            onclick={() => (inlinePosts ? jumpTo(hit.feed) : open(hit.feed.id, hit.feed.title))}
           >
             <span class="label">{hit.feed.title}</span>
             {#if hit.via === "category"}
@@ -525,7 +576,9 @@
             class="row feed"
             class:active={reader.activeStream === feed.id}
             class:pinned={reader.isFeedPinned(feed.id)}
-            onclick={() => openFeed(feed)}
+            class:unfolded={inlinePosts && expandedFeed === feed.id}
+            onclick={() => (inlinePosts ? void toggleFeed(feed) : openFeed(feed))}
+            aria-expanded={inlinePosts ? expandedFeed === feed.id : undefined}
             onpointerenter={() => reader.prefetchStream(feed.id)}
             onfocus={() => reader.prefetchStream(feed.id)}
             oncontextmenu={(event) => onFeedContextMenu(event, feed)}
@@ -568,6 +621,28 @@
               <span class="count">{reader.countFor(feed.id)}</span>
             {/if}
           </button>
+
+          {#if inlinePosts && expandedFeed === feed.id}
+            <div class="posts" aria-label={`Posts in ${feed.title}`}>
+              {#if reader.loadingList && reader.items.length === 0}
+                <p class="posts-note">Loading…</p>
+              {:else if reader.listItems.length === 0}
+                <p class="posts-note">No posts.</p>
+              {:else}
+                {#each reader.listItems as item (item.id)}
+                  <button
+                    class="post"
+                    class:read={isRead(item)}
+                    onclick={() => openPost(item)}
+                    title={item.title}
+                  >
+                    <span class="post-title">{item.title || "(untitled)"}</span>
+                    <span class="post-time">{relativeTime(item.timestampUsec, item.published)}</span>
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          {/if}
         {/each}
       {/if}
     </div>
@@ -918,6 +993,72 @@
 
   .feed.active {
     color: var(--accent-text);
+  }
+
+  .feed.unfolded {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* Posts under an open feed, in the one-panel layout. Indented to the same
+     column as the feed's name so the nesting is legible without the feed's icon
+     column being repeated, and quiet enough that the feeds below still read as
+     the list's spine. */
+  .posts {
+    display: flex;
+    flex-direction: column;
+    padding: 2px 6px 4px calc(30px + var(--feed-indent, 12px));
+    gap: 1px;
+  }
+
+  .post {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .post:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .post.read {
+    color: var(--muted);
+  }
+
+  .post-title {
+    flex: 1;
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.35;
+  }
+
+  .post-time {
+    flex: none;
+    color: var(--muted);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .posts-note {
+    margin: 0;
+    padding: 3px 6px 5px;
+    color: var(--muted);
+    font-size: 11.5px;
   }
 
   .label {

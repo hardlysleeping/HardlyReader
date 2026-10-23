@@ -2,46 +2,33 @@
  * The one-column walk.
  *
  * Three columns show feeds, posts and the article side by side. On one column
- * they are three screens stacked in that order, and navigation has to move
- * between them the way the panes sit: one step at a time, out and back. Jumping
- * from an article straight to the feed list skips a screen the reader was just
- * looking at, which feels like the app losing their place — so this module owns
- * the step, and nothing else decides it.
+ * the posts screen does not exist: a feed opens its posts underneath itself in
+ * the feed list, so there are two levels — the list, with one feed unfolded, and
+ * the article. Back and the crumb step between those two and nothing else.
  */
 
-export type OnePaneLevel = "feeds" | "posts" | "article";
+export type OnePaneLevel = "feeds" | "article";
 
-export function levelOf(selectedId: string | null, showingPosts: boolean): OnePaneLevel {
-  if (selectedId !== null) return "article";
-  return showingPosts ? "posts" : "feeds";
+export function levelOf(selectedId: string | null): OnePaneLevel {
+  return selectedId === null ? "feeds" : "article";
 }
 
 /** Where back goes from a level; `null` means there is nowhere further out. */
-export function stepBackTarget(level: OnePaneLevel): "close-article" | "show-feeds" | null {
-  switch (level) {
-    case "article":
-      return "close-article";
-    case "posts":
-      return "show-feeds";
-    case "feeds":
-      return null;
-  }
+export function stepBackTarget(level: OnePaneLevel): "close-article" | null {
+  return level === "article" ? "close-article" : null;
 }
 
 /** The bar's one-line description of where you are. */
 export function whereLabel(
   level: OnePaneLevel,
-  streamTitle: string,
+  feedTitle: string,
   articleTitle: string | null,
 ): string {
   if (level === "feeds") return "Feeds";
-  if (level === "posts") return streamTitle;
-  return articleTitle === null ? streamTitle : `${streamTitle} › ${articleTitle}`;
+  return articleTitle === null ? feedTitle : `${feedTitle} › ${articleTitle}`;
 }
 
 /** The back button's tooltip, phrased as the destination rather than the action. */
-export function backLabel(level: OnePaneLevel, streamTitle: string): string {
-  if (level === "article") return `Back to ${streamTitle}`;
-  if (level === "posts") return "Back to feeds";
-  return "Already at feeds";
+export function backLabel(level: OnePaneLevel, feedTitle: string): string {
+  return level === "article" ? `Back to ${feedTitle}` : "Already at feeds";
 }
