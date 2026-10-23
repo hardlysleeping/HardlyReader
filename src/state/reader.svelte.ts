@@ -126,6 +126,22 @@ function itemCategories(item: StreamItem): string[] {
   return (item.categories ?? []).filter((c) => c.startsWith("user/-/label/"));
 }
 
+/**
+ * What to say when a lock call fails.
+ *
+ * `route_not_found` is not the user's problem to decode: it means the deployed
+ * extension predates the app's lock route, and the server's own words for that
+ * are "Unknown route." — which sounds like the app is broken rather than the
+ * server being behind.
+ */
+export function lockFailure(error: unknown): string {
+  if (error instanceof ApiError && error.code === "route_not_found") {
+    return "This server's Hardly Read extension has no lock route yet — update the extension on the server.";
+  }
+  if (error instanceof ApiError) return error.message;
+  return "Could not lock. Nothing was changed.";
+}
+
 export class ReaderState {
   session = $state<Session | null>(null);
 
@@ -622,8 +638,11 @@ export class ReaderState {
       this.scheduleHiddenCatchUp();
     } catch (error) {
       this.hiddenCategories = previous;
-      this.lockNotice =
-        error instanceof ApiError ? error.message : "Could not lock. Nothing was changed.";
+      this.lockNotice = lockFailure(error);
+      // A server that does not know the route is a server whose extension is
+      // behind the app. Re-reading its state is how the panel stops offering a
+      // passcode it already has, without needing an app restart.
+      if (error instanceof ApiError) void this.loadHiddenState();
     } finally {
       this.hiddenBusy = false;
     }
@@ -649,7 +668,8 @@ export class ReaderState {
         if (error.state !== null) {
           this.hiddenCategories = error.state;
         }
-        this.lockNotice = error.code === "wrong_passcode" ? "Wrong passcode." : error.message;
+        this.lockNotice = error.code === "wrong_passcode" ? "Wrong passcode." : lockFailure(error);
+        if (error.code === "route_not_found") void this.loadHiddenState();
       } else {
         this.lockNotice = "Could not unlock. Check your connection.";
       }
