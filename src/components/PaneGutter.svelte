@@ -65,7 +65,7 @@
   aria-orientation="vertical"
   aria-label={label}
   aria-valuenow={layout.width(which)}
-  aria-valuemin={200}
+  aria-valuemin={layout.minSidebar}
   aria-valuemax={layout.available}
   tabindex="0"
   {onpointerdown}

@@ -10,11 +10,14 @@
 
 import {
   DEFAULT_WIDTHS,
+  type Device,
   type PaneMode,
   type PaneWidths,
   clampWidths,
+  defaultModeFor,
   effectiveMode,
   gridTemplate,
+  minimums,
   nudge,
   resetPane,
 } from "../lib/panes";
@@ -24,17 +27,30 @@ const STORAGE_KEY = "hardlyreader.layout.v1";
 interface SavedLayout {
   mode: PaneMode;
   widths: PaneWidths;
+  /** True once the user has picked a mode themselves. */
+  chosen?: boolean;
+}
+
+/** Phone, for layout purposes: a coarse pointer and a small shortest side. */
+function detectDevice(): Device {
+  if (typeof window === "undefined" || typeof matchMedia !== "function") return "desktop";
+  const coarse = matchMedia("(pointer: coarse)").matches;
+  const shortest = Math.min(window.screen?.width ?? 1440, window.screen?.height ?? 900);
+  return coarse && shortest <= 500 ? "phone" : "desktop";
+}
+
+/** Narrower default columns on a phone: 380px of a 390px screen is not a sidebar. */
+function defaultWidths(device: Device): PaneWidths {
+  return device === "phone" ? { sidebar: 168, list: 240 } : { ...DEFAULT_WIDTHS };
 }
 
 function isMode(value: unknown): value is PaneMode {
   return value === 1 || value === 2 || value === 3;
 }
 
-/** First run: whatever this window looks like today, then it is the user's. */
-function initialMode(width: number): PaneMode {
-  if (width >= 1200) return 3;
-  if (width >= 840) return 2;
-  return 1;
+function windowSize(): { width: number; height: number } {
+  if (typeof window === "undefined") return { width: 1440, height: 900 };
+  return { width: window.innerWidth, height: window.innerHeight };
 }
 
 class LayoutState {
@@ -42,10 +58,17 @@ class LayoutState {
   widths = $state<PaneWidths>({ ...DEFAULT_WIDTHS });
   /** Width of the pane container, in CSS pixels. */
   available = $state(1440);
+  device = $state<Device>("desktop");
+  /**
+   * False until the user picks a mode. While it is false the mode follows the
+   * device — portrait phone opens in one column, landscape in three — and a
+   * rotation is free to change it. Once they choose, rotation leaves it alone.
+   */
+  chosen = $state(false);
 
   /** What can actually be drawn at this width. */
   get mode(): PaneMode {
-    return effectiveMode(this.desired, this.available);
+    return effectiveMode(this.desired, this.available, this.device);
   }
 
   /** True when the user asked for more panes than fit. */
@@ -62,19 +85,28 @@ class LayoutState {
   }
 
   load(): void {
-    const width = typeof window === "undefined" ? 1440 : window.innerWidth;
-    this.available = width;
-    this.desired = initialMode(width);
-    this.widths = clampWidths({ ...DEFAULT_WIDTHS }, this.mode, width);
+    const size = windowSize();
+    this.device = detectDevice();
+    this.available = size.width;
+    this.desired = defaultModeFor({ phone: this.device === "phone", ...size });
+    this.widths = clampWidths(defaultWidths(this.device), this.mode, size.width, this.device);
     if (typeof localStorage === "undefined") return;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw === null) return;
       const saved = JSON.parse(raw) as Partial<SavedLayout>;
-      if (isMode(saved.mode)) this.desired = saved.mode;
+      if (saved.chosen === true && isMode(saved.mode)) {
+        this.chosen = true;
+        this.desired = saved.mode;
+      }
       const widths = saved.widths;
       if (widths && typeof widths.sidebar === "number" && typeof widths.list === "number") {
-        this.widths = clampWidths({ sidebar: widths.sidebar, list: widths.list }, this.mode, this.available);
+        this.widths = clampWidths(
+          { sidebar: widths.sidebar, list: widths.list },
+          this.mode,
+          this.available,
+          this.device,
+        );
       }
     } catch {
       // A corrupt setting is not worth a dialog: fall back to the defaults.
@@ -83,30 +115,58 @@ class LayoutState {
 
   setMode(mode: PaneMode): void {
     this.desired = mode;
-    this.widths = clampWidths(this.widths, this.mode, this.available);
+    this.chosen = true;
+    this.widths = clampWidths(this.widths, this.mode, this.available, this.device);
     this.save();
   }
 
-  /** Called from a ResizeObserver on the pane container. */
+  /** Called from a ResizeObserver on the pane container, and on rotation. */
   setAvailable(px: number): void {
-    if (px === this.available || !Number.isFinite(px) || px <= 0) return;
+    if (!Number.isFinite(px) || px <= 0) return;
+    const changed = px !== this.available;
     this.available = px;
-    this.widths = clampWidths(this.widths, this.mode, px);
+    // On a phone that has not been told otherwise, the orientation decides:
+    // portrait one column, landscape three.
+    if (!this.chosen && this.device === "phone") {
+      const size = windowSize();
+      const next = defaultModeFor({ phone: true, ...size });
+      if (next !== this.desired) {
+        this.desired = next;
+        this.widths = clampWidths(this.widths, this.mode, px, this.device);
+        return;
+      }
+    }
+    if (changed) this.widths = clampWidths(this.widths, this.mode, px, this.device);
   }
 
   /** Absolute width during a drag: the gutter sends where the edge is, not a delta. */
   dragTo(which: "sidebar" | "list", width: number): void {
-    this.widths = clampWidths({ ...this.widths, [which]: width }, this.mode, this.available);
+    this.widths = clampWidths({ ...this.widths, [which]: width }, this.mode, this.available, this.device);
   }
 
   reset(which: "sidebar" | "list"): void {
-    this.widths = clampWidths({ ...this.widths, [which]: resetPane(which) }, this.mode, this.available);
+    const fallback = defaultWidths(this.device)[which];
+    this.widths = clampWidths(
+      { ...this.widths, [which]: this.device === "phone" ? fallback : resetPane(which) },
+      this.mode,
+      this.available,
+      this.device,
+    );
     this.save();
   }
 
   nudge(which: "sidebar" | "list", direction: -1 | 1, big = false): void {
-    this.widths = clampWidths(nudge(this.widths, which, direction, big), this.mode, this.available);
+    this.widths = clampWidths(
+      nudge(this.widths, which, direction, big),
+      this.mode,
+      this.available,
+      this.device,
+    );
     this.save();
+  }
+
+  get minSidebar(): number {
+    return minimums(this.device).sidebar;
   }
 
   width(which: "sidebar" | "list"): number {
@@ -116,7 +176,10 @@ class LayoutState {
   private save(): void {
     if (typeof localStorage === "undefined") return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: this.desired, widths: this.widths }));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ mode: this.desired, widths: this.widths, chosen: this.chosen }),
+      );
     } catch {
       // Storage full or blocked: the layout still works for this session.
     }
