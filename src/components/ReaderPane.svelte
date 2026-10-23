@@ -39,18 +39,30 @@
     return el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
   }
 
+  function atStart(el: HTMLElement): boolean {
+    return el.scrollTop <= 2;
+  }
+
   /**
-   * Scrolling past the end of an article pulls towards the next one.
+   * Scrolling past either end of an article pulls towards its neighbour.
    *
-   * It is deliberately not linear: each pixel of wheel travel adds less than the
-   * last, so the final stretch needs a push rather than a flick, and the filling
-   * line at the bottom of the pane shows how far through that push you are. A
-   * pause gives the pull back, so a stray scroll while reading does not leave a
-   * half-loaded switch waiting.
+   * Both directions work the same way and share one accumulator: down at the
+   * end pulls towards the next post, up at the top pulls towards the previous
+   * one, and reversing eats the pull already made instead of starting a second
+   * counter. It is deliberately not linear — each pixel of travel adds less than
+   * the last — so the final stretch needs a push rather than a flick, and the
+   * filling line shows how far through that push you are: at the bottom edge for
+   * downwards, the top edge for upwards. A pause gives the pull back, so a stray
+   * scroll while reading does not leave a half-loaded switch waiting.
    */
   function onwheel(event: WheelEvent): void {
     const el = scroller;
-    if (!reading.advanceOnScroll || !el || event.deltaY <= 0 || !atEnd(el)) {
+    if (!reading.advanceOnScroll || !el || event.deltaY === 0) {
+      resetPull();
+      return;
+    }
+    const pullingDown = event.deltaY > 0;
+    if (pullingDown ? !atEnd(el) : !atStart(el)) {
       resetPull();
       return;
     }
@@ -61,20 +73,33 @@
       pullTimer = null;
     }, 700);
     if (!shouldAdvance(pull)) return;
+    const direction = pull > 0 ? 1 : -1;
     resetPull();
-    void reader.advanceArticle(1);
+    void reader.advanceArticle(direction);
   }
 
-  // A new article starts at its top, and neither the scroll flags nor a
-  // part-finished pull may carry over into it.
+  // A new article opens at the edge you arrived from: its top when moving
+  // forwards, its end when scrolling up into it, so the reading direction never
+  // reverses underneath you. Neither the scroll flags nor a part-finished pull
+  // carry over.
   $effect(() => {
     const id = reader.selectedId;
     if (id === null) return;
+    const edge = reader.landingEdge;
     resetPull();
     const el = scroller;
     if (!el) return;
-    el.scrollTop = 0;
-    reader.setArticleScroll(true, el.scrollHeight <= el.clientHeight + 2);
+    el.scrollTop = edge === "bottom" ? el.scrollHeight : 0;
+    reader.setArticleScroll(el.scrollTop <= 2, el.scrollHeight <= el.clientHeight + 2);
+  });
+
+  // The read-after-dwell timer follows the open post and the preference: moving
+  // on re-arms it, and turning the preference off disarms it without marking
+  // whatever happened to be open.
+  $effect(() => {
+    reader.selectedId;
+    reading.autoMarkRead;
+    reader.syncDwell();
   });
 
   const item = $derived(reader.selected);
@@ -134,13 +159,13 @@
       <button
         class="icon"
         aria-label="Previous article"
-        title="Previous article — ↑ to change feed, these move through posts and into the previous feed"
+        title="Previous article — moves through posts and into the previous feed, wrapping round before the first"
         onclick={() => void reader.advanceArticle(-1)}
       >↑</button>
       <button
         class="icon"
         aria-label="Next article"
-        title="Next article — continues into the next feed at the end of this one"
+        title="Next article — continues into the next feed at the end of this one, and wraps round after the last"
         onclick={() => void reader.advanceArticle(1)}
       >↓</button>
       <div class="spacer"></div>
@@ -155,6 +180,16 @@
         onclick={() => reading.toggleAdvance()}
       >⇣</button>
       <button
+        class="icon auto"
+        class:on={reading.autoMarkRead}
+        aria-pressed={reading.autoMarkRead}
+        aria-label="Mark read after three seconds on a post"
+        title={reading.autoMarkRead
+          ? "Posts are marked read after three seconds on screen — click to keep them unread until you say so"
+          : "Posts stay unread however far you scroll — click to mark read after three seconds on screen"}
+        onclick={() => reading.toggleAutoMarkRead()}
+      >⏱</button>
+      <button
         class="icon star"
         class:on={isStarred(item)}
         aria-pressed={isStarred(item)}
@@ -166,7 +201,7 @@
         class="icon"
         aria-label={isRead(item) ? "Mark unread" : "Mark read"}
         title={isRead(item) ? "Mark unread" : "Mark read"}
-        onclick={() => reader.setRead(item, !isRead(item))}
+        onclick={() => (isRead(item) ? reader.setRead(item, false) : reader.markRead(item))}
       >{isRead(item) ? "◯" : "●"}</button>
       {#if link}
         <button class="icon" aria-label="Open original" title="Open original" onclick={() => openExternal(link)}>
@@ -194,7 +229,16 @@
       <p>Select an article.</p>
     </div>
   {/if}
-  <div class="pull" class:visible={pull > 0} style:--p={progressOf(pull)} aria-hidden="true"></div>
+  {#if reader.traversalEnded}
+    <p class="ended" role="status">That is every post in this view.</p>
+  {/if}
+  <div
+    class="pull"
+    class:visible={pull !== 0}
+    class:up={pull < 0}
+    style:--p={progressOf(pull)}
+    aria-hidden="true"
+  ></div>
 </section>
 
 <style>
@@ -226,6 +270,26 @@
 
   .pull.visible {
     opacity: 0.9;
+  }
+
+  /* Scrolling up fills from the top edge, so the direction is visible as well as
+     the amount. */
+  .pull.up {
+    top: 0;
+    bottom: auto;
+    transform-origin: right center;
+  }
+
+  .ended {
+    position: absolute;
+    right: 0;
+    bottom: 10px;
+    left: 0;
+    margin: 0;
+    text-align: center;
+    font-size: 11.5px;
+    color: var(--muted);
+    pointer-events: none;
   }
 
   @media (prefers-reduced-motion: reduce) {

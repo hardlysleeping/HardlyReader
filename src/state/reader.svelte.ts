@@ -1,6 +1,8 @@
 import { SvelteMap } from "svelte/reactivity";
 
 import { landingItem, step } from "../lib/reading-order";
+import { attemptOrder } from "../lib/stream-cycle";
+import { AUTO_MARK_MS, shouldArmDwell, successorId } from "../lib/dwell";
 import { theme } from "./theme.svelte";
 
 import {
@@ -1280,6 +1282,26 @@ export class ReaderState {
     return streams;
   }
 
+  /**
+   * What continuous reading may walk into: the sidebar's order, but without the
+   * feeds inside a category the user has folded away.
+   *
+   * A folded category is a statement that those feeds are out of the way, so
+   * scrolling into them would surface rows that are not on screen. Unfolding the
+   * category puts them back in the walk, in the position they already occupy.
+   */
+  get traversalStreams(): { id: string; title: string }[] {
+    const streams = [
+      { id: READING_LIST, title: "Reading list" },
+      { id: STATE_STARRED, title: "Starred" },
+    ];
+    for (const category of this.categories) {
+      if (this.isCategoryCollapsed(category.id)) continue;
+      for (const feed of category.feeds) streams.push({ id: feed.id, title: feed.title });
+    }
+    return streams;
+  }
+
   /** How far the open article has been scrolled, reported by the reader pane. */
   articleAtEnd = $state(false);
   articleAtStart = $state(true);
@@ -1291,7 +1313,7 @@ export class ReaderState {
 
   /** Up/Down: the neighbouring feed, keeping the article open if one was. */
   async stepStream(delta: -1 | 1): Promise<void> {
-    const streams = this.streamList;
+    const streams = this.traversalStreams;
     const index = streams.findIndex((s) => s.id === this.activeStream);
     const target = streams[index + delta];
     if (!target || target.id === this.activeStream) return;
@@ -1345,36 +1367,167 @@ export class ReaderState {
     );
     if (next.kind === "item") {
       const item = this.listItems.find((candidate) => candidate.id === next.itemId);
-      if (item) this.select(item);
+      if (item) this.select(item, direction === -1 ? "bottom" : "top");
       return;
     }
     if (next.kind === "end") await this.crossToNextStream(direction);
   }
 
-  /** Open the neighbouring feed and land on the post nearest the direction of travel. */
+  /**
+   * Leave this feed for the next one that has something in the current view.
+   *
+   * Wrapping is the point: the last feed's last post leads into the first
+   * feed, and the first feed's first post leads back to the last, so continuous
+   * reading has no dead end. The walk is bounded by the number of streams, so
+   * "nothing left anywhere" is a definite answer — the unread view when the
+   * account is cleared — rather than an endless hunt.
+   */
   private async crossToNextStream(direction: -1 | 1): Promise<void> {
-    const streams = this.streamList;
+    const streams = this.traversalStreams;
     const index = streams.findIndex((s) => s.id === this.activeStream);
-    const target = streams[index + direction];
-    if (!target) return;
-    await this.openStream(target.id, target.title);
-    const landing = landingItem(
-      { id: target.id, title: target.title, items: this.listItems },
-      direction,
-    );
-    const item = landing === null ? undefined : this.listItems.find((candidate) => candidate.id === landing);
-    if (item) this.select(item);
+    const wasReading = this.selectedId !== null;
+    const originId = this.activeStream;
+    const originTitle = this.activeTitle;
+    const openId = this.selectedId;
+    for (const at of attemptOrder(streams.length, index, direction)) {
+      const candidate = streams[at];
+      if (this.isKnownEmpty(candidate.id)) continue;
+      await this.openStream(candidate.id, candidate.title);
+      if (this.listItems.length === 0) continue;
+      this.traversalEnded = false;
+      if (wasReading) {
+        const landing = landingItem(
+          { id: candidate.id, title: candidate.title, items: this.listItems },
+          direction,
+        );
+        const item = landing === null ? undefined : this.listItems.find((candidate2) => candidate2.id === landing);
+        if (item) this.select(item, direction === -1 ? "bottom" : "top");
+      }
+      return;
+    }
+    // Nothing anywhere: put the reader back where it was. Hunting through the
+    // walk leaves the *last tried* feed open, which would strand the reader in a
+    // feed they never asked for just because the unread list ran out.
+    if (this.activeStream !== originId) await this.openStream(originId, originTitle);
+    const stillOpen = openId !== null ? this.listItems.find((entry) => entry.id === openId) : undefined;
+    if (stillOpen) this.selectedId = openId;
+    this.traversalEnded = true;
   }
 
-  select(item: StreamItem): void {
-    this.selectedId = item.id;
-    if (!isRead(item)) {
-      void this.setRead(item, true);
+  /**
+   * A feed whose unread count is known to be zero cannot land anything in the
+   * unread view, so it is stepped over without a request. An unknown count is
+   * still tried: guessing there would skip feeds the sidebar has not counted.
+   */
+  private isKnownEmpty(id: string): boolean {
+    if (reading.articleFilter !== "unread") return false;
+    return this.counts.get(id) === 0;
+  }
+
+  /** `bottom` when the post was entered by scrolling up into it, so the pane
+   * opens at its end rather than its title. */
+  landingEdge = $state<"top" | "bottom">("top");
+
+  /**
+   * True when continuous reading ran out: every stream was tried and none had a
+   * post left in the current view. Only reachable in the unread view, because
+   * the other views always have something to wrap back to.
+   */
+  traversalEnded = $state(false);
+
+  private dwellTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Arm (or re-arm) the read-after-dwell timer for the open post. */
+  private armDwell(item: StreamItem): void {
+    this.clearDwell();
+    if (
+      !shouldArmDwell({
+        enabled: reading.autoMarkRead,
+        alreadyRead: isRead(item),
+        isOpen: this.selectedId === item.id,
+      })
+    ) {
+      return;
     }
+    this.dwellTimer = setTimeout(() => {
+      this.dwellTimer = null;
+      void this.markAfterDwell(item);
+    }, AUTO_MARK_MS);
+  }
+
+  private clearDwell(): void {
+    if (this.dwellTimer !== null) {
+      clearTimeout(this.dwellTimer);
+      this.dwellTimer = null;
+    }
+  }
+
+  /**
+   * Re-check the timer against the current settings and post.
+   *
+   * Called when the preference is toggled: switching it on starts the clock for
+   * the post already open, switching it off takes the clock away without
+   * marking anything.
+   */
+  syncDwell(): void {
+    const item = this.selected;
+    if (!item) {
+      this.clearDwell();
+      return;
+    }
+    if (!reading.autoMarkRead) {
+      this.clearDwell();
+      return;
+    }
+    if (isRead(item)) {
+      this.clearDwell();
+      return;
+    }
+    if (this.dwellTimer === null) this.armDwell(item);
+  }
+
+  /** The dwell elapsed: mark read, and step off the post if the view drops it. */
+  private async markAfterDwell(item: StreamItem): Promise<void> {
+    if (this.selectedId !== item.id || !reading.autoMarkRead || isRead(item)) return;
+    await this.markRead(item);
+  }
+
+  /**
+   * Mark the open post read from the reader's own control.
+   *
+   * In the unread view the post leaves the list the moment it is marked, so the
+   * reader lands on the next post instead of staring at one that is no longer
+   * in the list it came from. Nothing to land on means the next feed, which is
+   * the same journey scrolling would have taken.
+   */
+  async markRead(item: StreamItem): Promise<void> {
+    if (isRead(item) || this.busyItems.get(item.id)) return;
+    const next = successorId(this.listItems, item.id);
+    await this.setRead(item, true);
+    if (this.selectedId !== item.id) return;
+    if (this.listItems.some((candidate) => candidate.id === item.id)) return;
+    if (next) {
+      const candidate = this.listItems.find((entry) => entry.id === next);
+      if (candidate) {
+        this.select(candidate);
+        return;
+      }
+    }
+    await this.crossToNextStream(1);
+  }
+
+  select(item: StreamItem, edge: "top" | "bottom" = "top"): void {
+    this.selectedId = item.id;
+    this.landingEdge = edge;
+    this.traversalEnded = false;
+    // Opening a post is not reading it: the dwell timer decides that, and only
+    // when the read preference asks for it.
+    this.armDwell(item);
   }
 
   closeReader(): void {
     this.selectedId = null;
+    this.clearDwell();
   }
 
   private adjustUnread(item: StreamItem, delta: number): void {

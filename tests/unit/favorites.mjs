@@ -97,6 +97,8 @@ function buildReaderModule() {
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
     .replaceAll('"./theme.svelte"', JSON.stringify(buildThemeModule()))
+    .replaceAll('"../lib/stream-cycle"', JSON.stringify(absolute("src/lib/stream-cycle.ts")))
+    .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
     .replaceAll('"./hidden-write"', JSON.stringify(absolute("src/state/hidden-write.ts")))
     .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))

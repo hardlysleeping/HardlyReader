@@ -101,6 +101,8 @@ function buildReaderModule() {
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
     .replaceAll('"./theme.svelte"', JSON.stringify(buildThemeModule()))
+    .replaceAll('"../lib/stream-cycle"', JSON.stringify(absolute("src/lib/stream-cycle.ts")))
+    .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
     .replaceAll('"./hidden-write"', JSON.stringify(absolute("src/state/hidden-write.ts")))
     .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
@@ -217,6 +219,188 @@ try {
   }));
   await pending;
   check("the pending load settles", reader.loadingList === false);
+
+// --- continuous reading: both directions, wrapping, and stopping ------------
+// The rule is "there is no dead end except an empty unread view". That is a
+// statement about the reader's own walk, so it is checked here against a fake
+// server rather than inferred from the arithmetic in stream-cycle.ts.
+{
+  const { reading } = await import(buildReadingModule());
+
+  const post = (feed, id) => ({
+    id,
+    title: id,
+    categories: [],
+    origin: { streamId: feed, title: feed },
+    timestampUsec: "1700000000000000",
+    published: 1700000000,
+    summary: { content: "" },
+  });
+
+  const READING_LIST_ID = "user/-/state/com.google/reading-list";
+  const byStream = {
+    [READING_LIST_ID]: [post("feed/1", "r1"), post("feed/2", "r2")],
+    "feed/1": [post("feed/1", "a1")],
+    "feed/2": [post("feed/2", "b1")],
+    "feed/3": [post("feed/3", "c1")],
+  };
+
+  const seen = [];
+  globalThis.fetch = async (url) => {
+    const text = decodeURIComponent(String(url));
+    seen.push(text);
+    if (text.includes("edit-tag")) {
+      return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
+    }
+    const key = text.replace(/^.*stream\/contents\//, "").split("?")[0];
+    return new Response(JSON.stringify({ id: key, items: byStream[key] ?? [] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const r = new ReaderState();
+  r.session = { serverUrl: "https://example.invalid", token: "token", username: "user" };
+  r.subscriptions = [
+    subscription("feed/1", "First", "Tech"),
+    subscription("feed/2", "Second", "Tech"),
+    subscription("feed/3", "Third", "Tech"),
+  ];
+  reading.setArticleFilter("all");
+  reading.autoMarkRead = false;
+
+  const order = r.traversalStreams.map((stream) => stream.id);
+  check("traversal covers the reading list, starred, then the feeds", order.length === 5, order.join(" "));
+
+  // Forwards at the end of a feed: into the next feed, on its first post.
+  await r.openStream("feed/1", "First");
+  const a1 = r.listItems[0];
+  r.select(a1);
+  const taggedOnSelect = seen.filter((url) => url.includes("edit-tag")).length;
+  await r.advanceArticle(1);
+  check("the end of a feed goes to the next feed", r.activeStream === "feed/2", r.activeStream);
+  check("and lands on its first post", r.selectedId === "b1", String(r.selectedId));
+  check("opening a post does not mark it read while auto-mark is off", taggedOnSelect === 0, `edit-tag calls=${taggedOnSelect}`);
+
+  // Backwards at the start of a feed: into the previous feed, on its last post.
+  await r.openStream("feed/2", "Second");
+  r.select(r.listItems[0]);
+  await r.advanceArticle(-1);
+  check("the start of a feed goes back to the previous feed", r.activeStream === "feed/1", r.activeStream);
+  check("and lands on its last post", r.selectedId === "a1", String(r.selectedId));
+  check("arriving upwards opens the post at its end", r.landingEdge === "bottom", r.landingEdge);
+  check("arriving downwards opens it at the top", (r.select(r.listItems[0]), r.landingEdge === "top"));
+
+  // The last post of the last feed wraps to the first stream, not to nothing.
+  await r.openStream("feed/3", "Third");
+  r.select(r.listItems[0]);
+  await r.advanceArticle(1);
+  check("the last feed wraps round to the first stream", r.activeStream === READING_LIST_ID, r.activeStream);
+  check("and lands on a post there", r.selectedId === "r1", String(r.selectedId));
+
+  // ...and backwards from the very first post wraps to the very last feed.
+  await r.advanceArticle(-1);
+  check("the first stream wraps back to the last feed", r.activeStream === "feed/3", r.activeStream);
+  check("landing on its last post", r.selectedId === "c1", String(r.selectedId));
+
+  // A collapsed category is out of the walk: its feeds are not on screen.
+  const categoryId = r.categories[0].id;
+  r.collapsedCategories = { [categoryId]: true };
+  const collapsedOrder = r.traversalStreams.map((stream) => stream.id);
+  check("a folded category leaves the walk", !collapsedOrder.includes("feed/1"), collapsedOrder.join(" "));
+  r.collapsedCategories = {};
+
+  // The unread view is the one place the walk can end: nothing anywhere.
+  reading.setArticleFilter("unread");
+  r.counts = new Map([
+    [READING_LIST_ID, 0],
+    ["feed/1", 0],
+    ["feed/2", 0],
+    ["feed/3", 0],
+  ]);
+  await r.openStream("feed/3", "Third");
+  r.select(r.listItems[0]);
+  await r.advanceArticle(1);
+  check("a cleared unread view stops instead of looping", r.traversalEnded === true, String(r.traversalEnded));
+  check("and stays where it was", r.activeStream === "feed/3", r.activeStream);
+
+  // With unread posts elsewhere it keeps going instead of stopping.
+  r.traversalEnded = false;
+  r.counts = new Map([[READING_LIST_ID, 2]]);
+  await r.advanceArticle(1);
+  check("an unread post somewhere else keeps the walk going", r.activeStream === READING_LIST_ID, r.activeStream);
+  check("and the end flag is cleared", r.traversalEnded === false);
+
+  // Marking read in the unread view drops the post from the list, so the reader
+  // must land on the next one rather than on a post it can no longer show.
+  await r.openStream(READING_LIST_ID, "Reading list");
+  r.select(r.listItems[0]);
+  const beforeMark = seen.filter((url) => url.includes("edit-tag")).length;
+  await r.markRead(r.listItems[0]);
+  check("marking read sends the tag change", seen.filter((url) => url.includes("edit-tag")).length === beforeMark + 1);
+  check("the marked post leaves the unread list", !r.listItems.some((entry) => entry.id === "r1"), r.listItems.map((entry) => entry.id).join(","));
+  check("the reader moves to the next post", r.selectedId === "r2", String(r.selectedId));
+
+  // Turning the dwell rule on without a post open must not arm anything.
+  reading.autoMarkRead = false;
+  r.closeReader();
+  r.syncDwell();
+  check("no post, no timer", r.dwellTimer === null || r.dwellTimer === undefined);
+
+
+  // --- the dwell itself -----------------------------------------------------
+  // Three seconds without moving, and only when asked for. The timer is captured
+  // rather than waited out, so the suite stays fast and still proves the delay
+  // and the firing.
+  {
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    let armed = null;
+    globalThis.setTimeout = (fn, ms) => {
+      armed = { fn, ms };
+      return 1;
+    };
+    globalThis.clearTimeout = () => {
+      armed = null;
+    };
+    try {
+      await r.openStream(READING_LIST_ID, "Reading list");
+      const open = r.listItems[0];
+      r.select(open);
+      check("with the preference off, nothing is armed", armed === null);
+
+      reading.autoMarkRead = true;
+      r.syncDwell();
+      check("switching the preference on arms the post already open", armed?.ms === 3000, String(armed?.ms));
+
+      reading.autoMarkRead = false;
+      r.syncDwell();
+      check("switching it off disarms without marking", armed === null);
+
+      reading.autoMarkRead = true;
+      r.select(open);
+      check("opening a post arms a three-second timer", armed?.ms === 3000, String(armed?.ms));
+      const before = seen.filter((url) => url.includes("edit-tag")).length;
+      armed.fn();
+      await new Promise((resolve) => realSetTimeout(resolve, 20));
+      const after = seen.filter((url) => url.includes("edit-tag")).length;
+      check("the post is marked read when the timer fires", after === before + 1, `${before}->${after}`);
+
+      // Moving on before it fires must cancel, not mark the old post later.
+      const later = r.listItems.find((entry) => !["r1", "r2"].includes(entry.id)) ?? r.listItems[0];
+      r.select(later);
+      const armedForLater = armed;
+      r.closeReader();
+      check("leaving the post cancels its timer", armed === null, String(armedForLater?.ms));
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+      reading.autoMarkRead = false;
+    }
+  }
+
+  reading.setArticleFilter("all");
+}
 
 // --- collapsed categories roundtrip ----------------------------------------
 // "It should stay collapsed" is a promise about a *new* instance, not about the

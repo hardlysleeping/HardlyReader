@@ -21,14 +21,28 @@ class ReadingState {
    */
   articleFilter = $state<ArticleFilter>("all");
 
+  /**
+   * Mark a post read after it has been open for `AUTO_MARK_MS`.
+   *
+   * Off by default and stayed off for the owner: the whole reason he wanted it
+   * optional is that scrolling is not reading, and a post flipped past should
+   * still be there when he comes back for it.
+   */
+  autoMarkRead = $state(false);
+
   load(): void {
     if (typeof localStorage === "undefined") return;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw === null) return;
-      const saved = JSON.parse(raw) as { advanceOnScroll?: unknown; articleFilter?: unknown };
+      const saved = JSON.parse(raw) as {
+        advanceOnScroll?: unknown;
+        articleFilter?: unknown;
+        autoMarkRead?: unknown;
+      };
       if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
+      if (typeof saved.autoMarkRead === "boolean") this.autoMarkRead = saved.autoMarkRead;
     } catch {
       // Same rule as the layout: a corrupt preference is not worth a dialog.
     }
@@ -36,6 +50,11 @@ class ReadingState {
 
   toggleAdvance(): void {
     this.advanceOnScroll = !this.advanceOnScroll;
+    this.save();
+  }
+
+  toggleAutoMarkRead(): void {
+    this.autoMarkRead = !this.autoMarkRead;
     this.save();
   }
 
@@ -50,7 +69,11 @@ class ReadingState {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ advanceOnScroll: this.advanceOnScroll, articleFilter: this.articleFilter }),
+        JSON.stringify({
+          advanceOnScroll: this.advanceOnScroll,
+          articleFilter: this.articleFilter,
+          autoMarkRead: this.autoMarkRead,
+        }),
       );
     } catch {
       // Best effort: the setting still applies for this session.

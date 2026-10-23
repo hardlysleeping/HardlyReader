@@ -1,5 +1,6 @@
 import {
-  PULL_THRESHOLD, RESISTANCE, accumulate, contribution, progressOf, shouldAdvance, travelToAdvance,
+  PULL_THRESHOLD, RESISTANCE, accumulate, contribution, directionOf, progressOf, shouldAdvance,
+  travelToAdvance,
 } from "../../src/lib/scroll-advance.ts";
 
 let failures = 0;
@@ -21,8 +22,17 @@ check("progress outside 0..1 is clamped", contribution(-5) === 1 && contribution
 // Accumulating.
 check("a delta adds less than itself", accumulate(0, 100) === 100 && accumulate(200, 100) < 300);
 check("the pull never exceeds the threshold", accumulate(PULL_THRESHOLD - 1, 10_000) === PULL_THRESHOLD);
-check("scrolling up does not count", accumulate(120, -500) === 120);
-check("the pull cannot go negative", accumulate(0, -500) === 0);
+check("scrolling up builds the pull backwards", accumulate(0, -100) === -100);
+check("the pull stops at the threshold downwards", accumulate(-(PULL_THRESHOLD - 1), -10_000) === -PULL_THRESHOLD);
+check("reversing eats the pull already made", accumulate(120, -60) > 0 && accumulate(120, -60) < 120);
+check("...an equal reversal does not sweep the pull away at once", accumulate(120, -120) > 0);
+check("...but continuing back through zero does", accumulate(120, -1000) < 0);
+check("a reversal cannot overshoot the other way in one tick", accumulate(100, -10_000) === -PULL_THRESHOLD);
+check("a zero delta leaves the pull alone", accumulate(77, 0) === 77);
+check("advance fires upwards at the threshold", shouldAdvance(-PULL_THRESHOLD) === true);
+check("advance does not fire early upwards", shouldAdvance(-(PULL_THRESHOLD - 1)) === false);
+check("progress is direction-blind", progressOf(-PULL_THRESHOLD / 2) === 0.5);
+check("direction is read from the sign", directionOf(-3) === -1 && directionOf(3) === 1 && directionOf(0) === 0);
 
 // It is not linear: the same travel at the end moves the pull less than at the start.
 const early = accumulate(0, 40) - 0;
@@ -58,6 +68,16 @@ check("progress is a fraction", progressOf(PULL_THRESHOLD / 2) === 0.5 && progre
 // A short threshold behaves the same way, just sooner.
 const shortTravel = travelToAdvance(120);
 check("a smaller threshold still resists", shortTravel > 120 && shortTravel < 120 * 2.7, String(shortTravel));
+
+// Upwards costs exactly what downwards costs: the curve is on the magnitude, so
+// there is no "easier" direction to surprise anyone.
+let upPull = 0;
+let upNotches = 0;
+while (!shouldAdvance(upPull) && upNotches < 20) {
+  upPull = accumulate(upPull, -100);
+  upNotches += 1;
+}
+check("scrolling up takes the same run of notches", upNotches === notches, `${upNotches} vs ${notches}`);
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

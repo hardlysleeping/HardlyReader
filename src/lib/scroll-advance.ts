@@ -29,23 +29,37 @@ export function contribution(progress: number): number {
 /**
  * Add a wheel delta to the pull, in the same pixel units.
  *
- * The result never exceeds `PULL_THRESHOLD`; `shouldAdvance()` decides when the
- * accumulated pull is enough.
+ * The pull is signed: positive towards the next article, negative towards the
+ * previous one, so one accumulator serves both ends of the article without a
+ * second threshold and curve to keep in step. The magnitude never exceeds
+ * `PULL_THRESHOLD`; `shouldAdvance()` decides when it is enough.
+ *
+ * Reversing direction first eats the pull already made rather than starting a
+ * fresh counter — otherwise a flick down and back up would switch articles.
  */
 export function accumulate(pull: number, deltaY: number, threshold = PULL_THRESHOLD): number {
-  if (!(deltaY > 0)) return Math.max(0, pull);
-  const progress = Math.min(Math.max(pull / threshold, 0), 1);
+  if (!(threshold > 0)) return 0;
+  if (deltaY === 0) return pull;
+  const progress = progressOf(pull, threshold);
   const next = pull + deltaY * contribution(progress);
-  return Math.min(next, threshold);
+  return Math.max(-threshold, Math.min(next, threshold));
 }
 
+/** How full the pull is, 0..1, regardless of direction. */
 export function progressOf(pull: number, threshold = PULL_THRESHOLD): number {
   if (!(threshold > 0)) return 0;
-  return Math.min(Math.max(pull / threshold, 0), 1);
+  return Math.min(Math.abs(pull) / threshold, 1);
+}
+
+/** `1` when the pull would go forward, `-1` back, `0` when there is none. */
+export function directionOf(pull: number): -1 | 0 | 1 {
+  if (pull > 0) return 1;
+  if (pull < 0) return -1;
+  return 0;
 }
 
 export function shouldAdvance(pull: number, threshold = PULL_THRESHOLD): boolean {
-  return pull >= threshold;
+  return Math.abs(pull) >= threshold;
 }
 
 /**
