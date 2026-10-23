@@ -58,7 +58,8 @@ function buildReaderModule() {
     .replaceAll('"./hidden-write"', JSON.stringify(absolute("src/state/hidden-write.ts")))
     .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
     .replaceAll('"./favorites"', JSON.stringify(absolute("src/state/favorites.ts")))
-    .replaceAll('"./write"', JSON.stringify(absolute("src/state/write.ts")));
+    .replaceAll('"./write"', JSON.stringify(absolute("src/state/write.ts")))
+    .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")));
 }
 
 function subscription(id, title, label) {
@@ -128,6 +129,28 @@ try {
 
   reader.hiddenCategories = parseState({ available: false });
   check("a server that reports the extension gone filters nothing again", labels(reader.categories) === "Art,Technology,Uncategorized");
+
+
+  // Stream cache: returning to a stream you just visited must not hit the network.
+  // This is the behaviour behind "switching categories feels slow" — it is
+  // measured here as a request count, not as a feeling.
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return new Response(JSON.stringify({ items: [], continuation: null }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  reader.session = { serverUrl: "https://example.invalid", token: "token", username: "user" };
+
+  await reader.openStream("feed/1", "Ars Technica");
+  check("a cold stream costs one request", calls.length === 1, `calls=${calls.length}`);
+  await reader.openStream("feed/2", "MoMA");
+  check("switching to a different stream costs one more", calls.length === 2, `calls=${calls.length}`);
+  await reader.openStream("feed/1", "Ars Technica");
+  check("returning to a cached stream costs nothing", calls.length === 2, `calls=${calls.length}`);
+  check("and is reported as a cache hit", reader.lastStreamSource === "cache", reader.lastStreamSource);
 
   reader.stop();
   check("stop() resets hidden state", reader.hiddenAvailable === false && reader.hiddenError === null);

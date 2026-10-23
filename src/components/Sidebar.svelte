@@ -168,6 +168,8 @@
           class="row group-title"
           class:active={reader.activeStream === category.id}
           onclick={() => openCategory(category)}
+          onpointerenter={() => reader.prefetchStream(category.id)}
+          onfocus={() => reader.prefetchStream(category.id)}
           oncontextmenu={(event) => onCategoryContextMenu(event, category)}
           onkeydown={(event) => onCategoryKeydown(event, category)}
           onpointerdown={(event) => onCategoryPointerDown(event, category)}
@@ -204,6 +206,8 @@
             class="row feed"
             class:active={reader.activeStream === feed.id}
             onclick={() => openFeed(feed)}
+            onpointerenter={() => reader.prefetchStream(feed.id)}
+            onfocus={() => reader.prefetchStream(feed.id)}
             oncontextmenu={(event) => onFeedContextMenu(event, feed)}
             onkeydown={(event) => onFeedKeydown(event, feed)}
             onpointerdown={(event) => onFeedPointerDown(event, feed)}

@@ -54,7 +54,8 @@ function buildReaderModule() {
     .replaceAll('"./hidden-write"', JSON.stringify(absolute("src/state/hidden-write.ts")))
     .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
     .replaceAll('"./favorites"', JSON.stringify(absolute("src/state/favorites.ts")))
-    .replaceAll('"./write"', JSON.stringify(absolute("src/state/write.ts")));
+    .replaceAll('"./write"', JSON.stringify(absolute("src/state/write.ts")))
+    .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")));
 }
 
 const api = await import(absolute("src/api/hardlyread.ts"));

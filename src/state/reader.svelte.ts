@@ -46,10 +46,21 @@ import {
   type FavoritesWriteOutcome,
 } from "./favorites";
 import { effectiveView, visibleGroups } from "./hidden";
+import { StreamCache } from "./stream-cache";
 import { applyHiddenWrite, withCategoryHidden, withView, type HiddenWriteOutcome } from "./hidden-write";
 import type { WriteOutcome } from "./write";
 
 export const PAGE_SIZE = 50;
+/** Cached streams stay usable for a minute; after that they revalidate on open. */
+const STREAM_CACHE_TTL_MS = 60_000;
+const STREAM_CACHE_MAX = 20;
+/** Speculative fetches never exceed this many concurrent requests. */
+const PREFETCH_MAX_INFLIGHT = 2;
+
+/** Abort surfaces as a DOMException; it is not an error worth showing. */
+function aborted(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
 
 export interface CategoryGroup {
   id: string;
@@ -548,6 +559,53 @@ export class ReaderState {
     }
   }
 
+  /**
+   * Articles already fetched, keyed by stream.
+   *
+   * Switching category or feed used to wait for a round-trip every time, which is
+   * what made the sidebar feel slow. A cached stream paints immediately and is
+   * revalidated in the background, so the common case costs nothing.
+   */
+  private streamCache = new StreamCache(STREAM_CACHE_TTL_MS, STREAM_CACHE_MAX);
+  /** Only the newest load may paint; older responses are dropped. */
+  private streamToken = 0;
+  private inFlight = new Map<string, AbortController>();
+
+  /** Measured, not guessed: the last stream load, and where it came from. */
+  lastStreamMs = $state(0);
+  lastStreamSource = $state<"cache" | "network">("network");
+
+  private rememberStream(stream: string, items: StreamItem[], continuation: string | undefined): void {
+    this.streamCache.set(stream, items, continuation);
+  }
+
+  /** Keeps the cache in step after a local edit (read, star, page load). */
+  private cacheActiveStream(): void {
+    if (this.activeStream !== "") this.rememberStream(this.activeStream, this.items, this.continuation);
+  }
+
+  /**
+   * Warm a stream before it is opened. Best effort: never throws, never more than
+   * a couple of requests in flight.
+   */
+  prefetchStream(streamId: string): void {
+    if (!this.session || streamId === "" || streamId === this.activeStream) return;
+    if (this.inFlight.size >= PREFETCH_MAX_INFLIGHT) return;
+    if (this.streamCache.fresh(streamId) !== undefined) return;
+    if (this.inFlight.has(streamId)) return;
+    const session = this.session;
+    const controller = new AbortController();
+    this.inFlight.set(streamId, controller);
+    void getStreamContents(transport, session, streamId, { count: PAGE_SIZE, signal: controller.signal })
+      .then((page) => this.rememberStream(streamId, page.items, page.continuation))
+      .catch(() => {
+        /* prefetch is speculative: a failure is not worth showing anyone */
+      })
+      .finally(() => {
+        if (this.inFlight.get(streamId) === controller) this.inFlight.delete(streamId);
+      });
+  }
+
   async refresh(): Promise<void> {
     await Promise.all([this.loadSidebar(), this.reloadStream()]);
   }
@@ -563,21 +621,49 @@ export class ReaderState {
     await this.reloadStream();
   }
 
-  async reloadStream(): Promise<void> {
+  async reloadStream(options: { force?: boolean } = {}): Promise<void> {
     if (!this.session) return;
-    this.loadingList = true;
+    const stream = this.activeStream;
+    const token = ++this.streamToken;
+
+    const cached = this.streamCache.peek(stream);
+    const fresh = this.streamCache.fresh(stream) !== undefined;
+    if (cached !== undefined) {
+      this.items = cached.items;
+      this.continuation = cached.continuation;
+    }
+    if (fresh && options.force !== true) {
+      this.loadingList = false;
+      this.error = null;
+      this.lastStreamSource = "cache";
+      return;
+    }
+
+    // A cached stream revalidates silently; only a cold one shows the spinner.
+    this.loadingList = cached === undefined;
     this.error = null;
+    this.inFlight.get(stream)?.abort();
+    const controller = new AbortController();
+    this.inFlight.set(stream, controller);
+    const started = performance.now();
     try {
-      const page = await getStreamContents(transport, this.session, this.activeStream, {
+      const page = await getStreamContents(transport, this.session, stream, {
         count: PAGE_SIZE,
+        signal: controller.signal,
       });
+      if (token !== this.streamToken || this.activeStream !== stream) return;
       this.items = page.items;
       this.continuation = page.continuation;
+      this.rememberStream(stream, page.items, page.continuation);
+      this.lastStreamSource = "network";
+      this.lastStreamMs = Math.round(performance.now() - started);
     } catch (error) {
+      if (token !== this.streamToken || aborted(error)) return;
       this.error = message(error);
-      this.items = [];
+      if (cached === undefined) this.items = [];
     } finally {
-      this.loadingList = false;
+      if (this.inFlight.get(stream) === controller) this.inFlight.delete(stream);
+      if (token === this.streamToken) this.loadingList = false;
     }
   }
 
@@ -595,6 +681,7 @@ export class ReaderState {
         const seen = new Set(this.items.map((item) => item.id));
         this.items = [...this.items, ...page.items.filter((item) => !seen.has(item.id))];
         this.continuation = page.continuation;
+        this.cacheActiveStream();
       }
     } catch (error) {
       this.error = message(error);
@@ -678,6 +765,7 @@ export class ReaderState {
       });
       if (starred && this.activeStream === STATE_STARRED) {
         this.items = this.items.filter((entry) => entry.id !== item.id);
+        this.cacheActiveStream();
         if (this.selectedId === item.id) this.selectedId = null;
       }
       void this.loadSidebar();

@@ -120,9 +120,11 @@ export async function authorizedGet<T>(
   transport: Transport,
   session: Session,
   path: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<T> {
   const response = await transport(greaderUrl(session.serverUrl, path), {
     method: "GET",
+    signal: options.signal,
     headers: { Authorization: authHeader(session.token) },
   });
 
@@ -254,6 +256,8 @@ export interface StreamOptions {
   count?: number;
   continuation?: string;
   excludeRead?: boolean;
+  /** Lets the caller drop a response that is no longer wanted. */
+  signal?: AbortSignal;
 }
 
 export async function getStreamContents(
@@ -268,7 +272,7 @@ export async function getStreamContents(
     c: options.continuation,
     xt: options.excludeRead ? STATE_READ : undefined,
   });
-  return authorizedGet<StreamContents>(transport, session, path);
+  return authorizedGet<StreamContents>(transport, session, path, { signal: options.signal });
 }
 
 /** Read/write actions need a separate short-lived token from `/token`. */
