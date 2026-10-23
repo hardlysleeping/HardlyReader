@@ -33,6 +33,11 @@
 
   let open = $state(false);
 
+  /** Opened from the compact menu, where the Aa has no room to sit. */
+  export function openPanel() {
+    open = true;
+  }
+
   const textPercent = $derived(scalePercent(reading.textScale, TEXT_SCALE));
   const rowPercent = $derived(scalePercent(reading.rowScale, ROW_SCALE));
   const thumbPercent = $derived(scalePercent(reading.thumbScale, THUMB_SCALE));

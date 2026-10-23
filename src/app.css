@@ -123,6 +123,10 @@ body {
 }
 
 body {
+  /* Nothing in this app is wider than the window: panes share the width, the
+     header moves what does not fit into its menu. A horizontal scrollbar here
+     would mean a measurement is wrong, so it is not offered. */
+  overflow-x: hidden;
   background: var(--bg);
   color: var(--text);
   font-size: 15px;

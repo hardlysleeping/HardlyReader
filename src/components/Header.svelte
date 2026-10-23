@@ -6,6 +6,50 @@
   import ReadingControls from "./ReadingControls.svelte";
   import ThemePanel from "./ThemePanel.svelte";
 
+  // Typed by what the menu needs from them, so a component's instance type
+  // never has to be named here.
+  let readingControls = $state<{ openPanel: () => void } | undefined>();
+  let themePanel = $state<{ openSettings: () => void } | undefined>();
+
+  /**
+   * The compact menu.
+   *
+   * One panel is often a phone, or a window narrowed until it is one. There the
+   * bar cannot hold the settings without pushing itself wider than the window,
+   * so the controls that do not fit move in here behind the hamburger — the same
+   * panels, opened from a row instead of a glyph. Feeds stays the first row
+   * because that is what the hamburger was for.
+   */
+  let menuOpen = $state(false);
+  let sheet = $state<HTMLElement | null>(null);
+
+  function closeMenu() {
+    menuOpen = false;
+  }
+
+  function pick(action: () => void) {
+    closeMenu();
+    action();
+  }
+
+  /** An open menu closes on a press anywhere else, and on Escape. */
+  $effect(() => {
+    if (!menuOpen) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (sheet !== null && target !== null && !sheet.contains(target)) closeMenu();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  });
+
   let {
     title = "HardlyReader",
     subtitle = "",
@@ -80,7 +124,27 @@
   {#if pulse}
     <span class="pulse" aria-hidden="true" onanimationend={() => (pulse = false)}></span>
   {/if}
-  <button class="icon menu" onclick={() => ontogglesidebar?.()} aria-label="Show feeds">☰</button>
+  <div class="drawer" bind:this={sheet}>
+    <button
+      class="icon menu"
+      aria-haspopup="menu"
+      aria-expanded={menuOpen}
+      aria-label={menuOpen ? "Close menu" : "Menu"}
+      title="Menu"
+      onclick={() => (menuOpen = !menuOpen)}
+    >☰</button>
+    {#if menuOpen}
+      <div class="sheet" role="menu" aria-label="Menu">
+        <button role="menuitem" onclick={() => pick(() => ontogglesidebar?.())}>Feeds</button>
+        <button role="menuitem" onclick={() => pick(() => readingControls?.openPanel())}>Reading</button>
+        <button role="menuitem" onclick={() => pick(() => themePanel?.openSettings())}>Settings</button>
+        <button role="menuitem" onclick={() => pick(() => void refresh())} disabled={refreshing}>
+          {refreshing ? "Syncing…" : "Sync now"}
+        </button>
+        <button role="menuitem" onclick={() => pick(() => onsignout?.())}>Sign out</button>
+      </div>
+    {/if}
+  </div>
   <span class="brand">{title}</span>
   {#if subtitle}<span class="subtitle">{subtitle}</span>{/if}
   <!-- Signing out belongs with the account it signs out of, not at the far end
@@ -90,8 +154,12 @@
   <div class="spacer"></div>
 
   {@render controls?.()}
-  <ReadingControls />
-  <ThemePanel />
+  <!-- Hidden as a group when the bar is compact; their panels open from the
+       menu, and a fixed panel does not care that its trigger is not drawn. -->
+  <span class="tools">
+    <ReadingControls bind:this={readingControls} />
+    <ThemePanel bind:this={themePanel} />
+  </span>
 
   <!-- The count and the percentage for as long as the sync lasts. The bar for
        the same numbers is the seam under this header, drawn full width there
@@ -354,10 +422,98 @@
     }
   }
 
+  .drawer {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  /* The menu opens against the bar's left edge, over the panes rather than
+     pushing them: it is a list of doors, not a drawer. */
+  .sheet {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 70;
+    display: flex;
+    flex-direction: column;
+    min-width: 132px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    animation: sheet-in 120ms ease-out;
+  }
+
+  @keyframes sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
+  .sheet button {
+    padding: 6px 9px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .sheet button:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .sheet button:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  .tools {
+    display: contents;
+  }
+
   /* The drawer toggle only exists where the sidebar is a drawer. */
   @media (min-width: 840px) {
     .menu {
       display: none;
+    }
+
+    .drawer {
+      display: none;
+    }
+  }
+
+  /* Compact: the bar keeps what identifies the window and what changes the
+     layout, and the rest moves into the menu. Every item that leaves the bar
+     here is still one press away in the sheet — nothing is lost, which is the
+     point: a bar that answers a narrow window by widening itself past the
+     window is worse than a menu. */
+  @media (max-width: 560px) {
+    .bar {
+      gap: 5px;
+      padding: 0 8px;
+    }
+
+    .subtitle,
+    .signout,
+    .tools {
+      display: none;
+    }
+
+    .brand {
+      font-size: 12.5px;
+    }
+
+    .sync {
+      margin-left: 4px;
     }
   }
 </style>
