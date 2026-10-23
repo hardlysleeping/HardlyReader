@@ -385,8 +385,10 @@ try {
       r.select(open);
       check("the configured delay is the one used", armed?.ms === 9000, String(armed?.ms));
       check("the preference is remembered", reading.autoMarkSeconds === 9, String(reading.autoMarkSeconds));
-      reading.setAutoMarkSeconds(300);
-      check("an out-of-range delay is clamped", reading.autoMarkSeconds === 30, String(reading.autoMarkSeconds));
+      reading.setAutoMarkSeconds(45);
+      check("a delay beyond the slider is kept", reading.autoMarkSeconds === 45, String(reading.autoMarkSeconds));
+      reading.setAutoMarkSeconds(9999);
+      check("an absurd delay is clamped", reading.autoMarkSeconds === 600, String(reading.autoMarkSeconds));
       reading.setAutoMarkSeconds(3);
       r.select(open);
       const before = seen.filter((url) => url.includes("edit-tag")).length;

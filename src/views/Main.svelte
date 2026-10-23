@@ -135,6 +135,72 @@
     reader.closeReader();
   }
 
+  /**
+   * Back to the feed before this one.
+   *
+   * In one column the sidebar is off screen, so the feed you came from is not
+   * visible to tap. This closes any article and steps back through the stream
+   * history; with no history it is disabled rather than pretending.
+   */
+  async function backToFeed(): Promise<void> {
+    if (!reader.canGoBackToStream) return;
+    reader.closeReader();
+    await reader.previousStream();
+  }
+
+  /**
+   * Swipe, for the phone layout: right is "out of here", left is "onward".
+   *
+   * Only horizontal-dominant, deliberate gestures count — a vertical flick is
+   * the reader's own scrolling, and a short horizontal twitch is a mis-tap.
+   */
+  let swipeStart: { x: number; y: number; at: number } | null = null;
+
+  function ontouchstart(event: TouchEvent): void {
+    if (event.touches.length !== 1) {
+      swipeStart = null;
+      return;
+    }
+    const touch = event.touches[0];
+    swipeStart = { x: touch.clientX, y: touch.clientY, at: Date.now() };
+  }
+
+  function ontouchend(event: TouchEvent): void {
+    const start = swipeStart;
+    swipeStart = null;
+    if (start === null || event.changedTouches.length !== 1) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) < 64) return;
+    if (Math.abs(dx) < Math.abs(dy) * 1.6) return;
+    if (Date.now() - start.at > 800) return;
+    if (dx > 0) gestureBack();
+    else gestureForward();
+  }
+
+  /** Right-swipe: article → posts → previous feed → feeds. */
+  function gestureBack(): void {
+    if (reader.selectedId !== null) {
+      reader.back();
+      return;
+    }
+    if (reader.canGoBackToStream) {
+      void reader.previousStream();
+      return;
+    }
+    if (onePosts) onePosts = false;
+  }
+
+  /** Left-swipe: feeds → posts → the first post. */
+  function gestureForward(): void {
+    if (!onePosts) {
+      onePosts = true;
+      return;
+    }
+    if (reader.selectedId === null) void reader.enter();
+  }
+
   /** The hamburger is the one-column way back to the feeds. */
   function showFeeds() {
     if (layout.mode === 1) onePosts = false;
@@ -168,6 +234,18 @@
       <!-- One column, walked through: feeds, then the posts of one feed, then
            the article. Left and the crumb go back a level. -->
       <nav class="crumbs" aria-label="Location">
+        <button
+          class="crumb back"
+          onclick={() => void backToFeed()}
+          disabled={!reader.canGoBackToStream}
+          aria-label={reader.canGoBackToStream
+            ? `Back to ${reader.previousStreamTitle ?? "the previous feed"}`
+            : "No previous feed"}
+          title={reader.canGoBackToStream
+            ? `Back to ${reader.previousStreamTitle ?? "the previous feed"}`
+            : "No previous feed"}
+        >←</button>
+        <span class="sep" aria-hidden="true"></span>
         <button class="crumb" onclick={() => (onePosts = false)} disabled={!onePosts && reader.selectedId === null}>
           Feeds
         </button>
@@ -183,7 +261,10 @@
         {/if}
       </nav>
 
-      <div class="single">
+      <!-- The one-pane surface owns the swipe gesture; it is a container, not a
+           control, so there is no widget role to give it. -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="single" {ontouchstart} {ontouchend}>
         {#if reader.selectedId !== null}
           <ReaderPane onClose={closeReader} />
         {:else if onePosts}

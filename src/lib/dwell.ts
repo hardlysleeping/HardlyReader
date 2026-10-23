@@ -25,15 +25,19 @@ export const AUTO_MARK_MS = 3000;
  * before you moved on.
  */
 export const DWELL_SECONDS_DEFAULT = 3;
+
+/** Slider range, then the range a typed value may use. See `EFFORT_HARD_*`. */
 export const DWELL_SECONDS_MIN = 1;
 export const DWELL_SECONDS_MAX = 30;
+export const DWELL_SECONDS_HARD_MIN = 1;
+export const DWELL_SECONDS_HARD_MAX = 600;
 
 export function clampDwellSeconds(value: unknown): number {
   if (value === null || value === undefined || value === "") return DWELL_SECONDS_DEFAULT;
   const seconds = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(seconds)) return DWELL_SECONDS_DEFAULT;
   const rounded = Math.round(seconds);
-  return Math.min(Math.max(rounded, DWELL_SECONDS_MIN), DWELL_SECONDS_MAX);
+  return Math.min(Math.max(rounded, DWELL_SECONDS_HARD_MIN), DWELL_SECONDS_HARD_MAX);
 }
 
 /** Milliseconds for a configured number of seconds, clamped the same way. */

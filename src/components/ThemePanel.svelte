@@ -9,8 +9,23 @@
    */
   import type { ThemeMode } from "../lib/theme";
   import { THEME_MODES, THEME_MODE_LABELS } from "../lib/theme";
-  import { DWELL_SECONDS_MAX, DWELL_SECONDS_MIN } from "../lib/dwell";
-  import { EFFORT_MAX, EFFORT_MIN, thresholdFor, travelToAdvance } from "../lib/scroll-advance";
+  import {
+    DWELL_SECONDS_DEFAULT,
+    DWELL_SECONDS_HARD_MAX,
+    DWELL_SECONDS_HARD_MIN,
+    DWELL_SECONDS_MAX,
+    DWELL_SECONDS_MIN,
+  } from "../lib/dwell";
+  import {
+    EFFORT_DEFAULT,
+    EFFORT_HARD_MAX,
+    EFFORT_HARD_MIN,
+    EFFORT_MAX,
+    EFFORT_MIN,
+    thresholdFor,
+    travelToAdvance,
+    withinSlider,
+  } from "../lib/scroll-advance";
   import { reading } from "../state/reading.svelte";
   import { theme } from "../state/theme.svelte";
 
@@ -117,11 +132,33 @@
           min={EFFORT_MIN}
           max={EFFORT_MAX}
           step="0.1"
-          value={reading.scrollEffort}
+          value={withinSlider(reading.scrollEffort, EFFORT_MIN, EFFORT_MAX)}
           aria-label="How much scrolling it takes to reach the next post"
           oninput={(event) => reading.setScrollEffort(Number(event.currentTarget.value))}
         />
-        <code>×{reading.scrollEffort.toFixed(1)}</code>
+        <!-- The number is the exact setting and takes anything in the hard range,
+             including values the slider cannot reach. -->
+        <span class="num">
+          <span class="affix" aria-hidden="true">×</span>
+          <input
+            class="value"
+            type="number"
+            min={EFFORT_HARD_MIN}
+            max={EFFORT_HARD_MAX}
+            step="0.1"
+            value={reading.scrollEffort}
+            aria-label="Scroll effort multiplier, any value from 0.1 to 10"
+            onchange={(event) => reading.setScrollEffort(Number(event.currentTarget.value))}
+            onblur={(event) => (event.currentTarget.value = String(reading.scrollEffort))}
+          />
+        </span>
+        <button
+          class="again"
+          title={`Back to ×${EFFORT_DEFAULT.toFixed(1)}`}
+          aria-label="Reset scroll effort to the default"
+          disabled={reading.scrollEffort === EFFORT_DEFAULT}
+          onclick={() => reading.setScrollEffort(EFFORT_DEFAULT)}
+        >↺</button>
       </span>
     </div>
     <p class="hint">
@@ -137,11 +174,31 @@
           min={DWELL_SECONDS_MIN}
           max={DWELL_SECONDS_MAX}
           step="1"
-          value={reading.autoMarkSeconds}
+          value={withinSlider(reading.autoMarkSeconds, DWELL_SECONDS_MIN, DWELL_SECONDS_MAX)}
           aria-label="Seconds a post stays open before it is marked read"
           oninput={(event) => reading.setAutoMarkSeconds(Number(event.currentTarget.value))}
         />
-        <code>{reading.autoMarkSeconds}s</code>
+        <span class="num">
+          <input
+            class="value"
+            type="number"
+            min={DWELL_SECONDS_HARD_MIN}
+            max={DWELL_SECONDS_HARD_MAX}
+            step="1"
+            value={reading.autoMarkSeconds}
+            aria-label="Seconds before a post is marked read, any value from 1 to 600"
+            onchange={(event) => reading.setAutoMarkSeconds(Number(event.currentTarget.value))}
+            onblur={(event) => (event.currentTarget.value = String(reading.autoMarkSeconds))}
+          />
+          <span class="affix" aria-hidden="true">s</span>
+        </span>
+        <button
+          class="again"
+          title={`Back to ${DWELL_SECONDS_DEFAULT}s`}
+          aria-label="Reset the read delay to the default"
+          disabled={reading.autoMarkSeconds === DWELL_SECONDS_DEFAULT}
+          onclick={() => reading.setAutoMarkSeconds(DWELL_SECONDS_DEFAULT)}
+        >↺</button>
       </span>
     </div>
     <p class="hint">
@@ -237,8 +294,78 @@
   }
 
   .range {
-    width: 108px;
+    width: 74px;
     accent-color: var(--accent);
+  }
+
+  .num {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+  }
+
+  .affix {
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  /* A number you can tap and type into, sized like the text it replaced so the
+     row does not gain a box where there was a label. */
+  .value {
+    width: 38px;
+    padding: 1px 3px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    appearance: textfield;
+  }
+
+  .value:hover {
+    border-color: var(--border-soft);
+  }
+
+  .value:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+
+  .value::-webkit-outer-spin-button,
+  .value::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+
+  .again {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .again:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  .again:disabled {
+    opacity: 0.3;
+    cursor: default;
   }
 
   .hint {
