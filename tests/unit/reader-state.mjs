@@ -136,7 +136,8 @@ function buildReaderModule() {
     .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")))
     .replaceAll('"./pins"', JSON.stringify(absolute("src/state/pins.ts")))
     .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")))
-    .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")));
+    .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
+    .replaceAll('"../lib/opml"', JSON.stringify(absolute("src/lib/opml.ts")));
 }
 
 function subscription(id, title, label) {
