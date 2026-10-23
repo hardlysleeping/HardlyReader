@@ -190,6 +190,13 @@ export interface StreamItem {
   author?: string;
   summary?: { content: string };
   content?: { content: string };
+  /** Podcast/photo feeds: the post's own attachment. */
+  enclosure?: { href: string; type?: string }[];
+  /** Media RSS, when a feed speaks it. */
+  media?: {
+    thumbnail?: { url: string }[];
+    content?: { url: string; type?: string }[];
+  };
 }
 
 export interface StreamContents {

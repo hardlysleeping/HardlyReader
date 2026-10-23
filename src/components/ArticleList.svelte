@@ -2,6 +2,7 @@
   import type { StreamItem } from "../api/freshrss";
   import { isRead, isStarred } from "../api/freshrss";
   import { plainPreview, relativeTime } from "../lib/format";
+  import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
@@ -10,6 +11,28 @@
 
   function summary(item: StreamItem): string {
     return plainPreview(item.summary?.content ?? item.content?.content, 160);
+  }
+
+  /*
+   * The picture a row shows, worked out once per post. Regexes over the body
+   * HTML are cheap but not free, and a list re-renders on every scroll tick
+   * and read mark, so the answer is remembered against the item object itself.
+   */
+  const thumbnails = new WeakMap<StreamItem, string | null>();
+
+  function thumbnail(item: StreamItem): string | null {
+    const known = thumbnails.get(item);
+    if (known !== undefined) return known;
+    const found = thumbnailOf(item as ThumbSource).url;
+    thumbnails.set(item, found);
+    return found;
+  }
+
+  /** A hotlinked picture that fails is dropped, not left as a broken box. */
+  let broken = $state<string[]>([]);
+
+  function fail(id: string): void {
+    broken = [...broken, id];
   }
 
   /**
@@ -84,6 +107,19 @@
             {#if isStarred(item)}<span class="star" aria-label="Starred">★</span>{/if}
           </span>
         </span>
+        {#if thumbnail(item) !== null && !broken.includes(item.id)}
+          <span class="thumb" aria-hidden="true">
+            <img
+              src={thumbnail(item)}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              referrerpolicy="no-referrer"
+              draggable="false"
+              onerror={() => fail(item.id)}
+            />
+          </span>
+        {/if}
       </button>
     {/each}
 
@@ -260,9 +296,34 @@
 
   .body {
     display: flex;
+    flex: 1;
     flex-direction: column;
     gap: 3px;
     min-width: 0;
+  }
+
+  /* The picture the feed itself chose, small enough to be a hint rather than
+     the content: the title is still what you read. Rendered only when a feed
+     offered one, so text-only feeds keep the plain row instead of a row of
+     empty boxes. */
+  .thumb {
+    display: block;
+    flex: none;
+    align-self: center;
+    width: 48px;
+    height: 48px;
+    margin-left: 2px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--hover);
+  }
+
+  .thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    color: transparent;
   }
 
   .title {
