@@ -1,5 +1,6 @@
 <script lang="ts">
   import SidebarBand from "./SidebarBand.svelte";
+  import ThemeToggle from "./ThemeToggle.svelte";
   import { READING_LIST, STATE_STARRED, type Subscription } from "../api/freshrss";
   import {
     LongPressTracker,
@@ -250,6 +251,7 @@
       oninput={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value))}
     />
     <span class="px">{reader.sidebarIndent.px}</span>
+    <ThemeToggle />
   </div>
 
   {#if searching}
