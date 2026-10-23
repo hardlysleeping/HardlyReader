@@ -28,6 +28,7 @@ const CATEGORIES = [
 ];
 
 const HIDDEN_EXTENSION = 'Hidden Categories';
+const PINNED_EXTENSION = 'Pinned Categories';
 const API_EXTENSION = 'Hardly Read';
 
 $mode = $argv[1] ?? '';
@@ -117,7 +118,7 @@ function storeState(object $extension): array
 
 if ($mode === 'config') {
 	$system = enableExtensions(ROOT . '/data/config.php', [API_EXTENSION]);
-	$user = enableExtensions(ROOT . '/data/users/' . USER . '/config.php', [HIDDEN_EXTENSION, API_EXTENSION]);
+	$user = enableExtensions(ROOT . '/data/users/' . USER . '/config.php', [HIDDEN_EXTENSION, PINNED_EXTENSION, API_EXTENSION]);
 
 	// Fixture categories. FreshRSS has no API that creates an empty category,
 	// and subscribing to a real feed would make this depend on outbound
@@ -162,12 +163,39 @@ if ($mode === 'reset') {
 	]);
 	$pdo->exec('DELETE FROM hidden_cat');
 
+	// Pinned Categories is installed beside it, so its store is reset too: a rerun
+	// over a kept volume must start with nothing pinned, or the first assertion
+	// about an empty state would be reading the previous run's pins.
+	$favorites = ['available' => false];
+	$pinned = Minz_ExtensionManager::findExtension(PINNED_EXTENSION);
+	if ($pinned !== null && method_exists($pinned, 'store')) {
+		$favStore = $pinned->store();
+		if ($favStore->assertSchema() && $favStore->available()) {
+			$favPdo = new PDO('sqlite:' . $favStore->path(), null, null, [
+				PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+			]);
+			foreach (['fav_cat', 'cat_snap', 'feed_snap'] as $table) {
+				$favPdo->exec('DELETE FROM ' . $table);
+			}
+			$favStore->setView('all');
+			$favorites = [
+				'available' => true,
+				'store' => $favStore->path(),
+				'view' => $favStore->view(),
+				'ids' => array_map('intval', (array) $favStore->favIds()),
+			];
+		} else {
+			$favorites = ['available' => false, 'error' => $favStore->error()];
+		}
+	}
+
 	echo json_encode([
 		'store' => $store->path(),
 		'locked' => $store->isLocked(),
 		'view' => $store->view(),
 		'hiddenIds' => $store->hiddenIds(),
 		'categories' => storeState($extension),
+		'favorites' => $favorites,
 	], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;
 	exit(0);
 }
@@ -200,6 +228,21 @@ if ($dump['exists']) {
 	$dump['passcodeSet'] = null;
 	$dump['hiddenIds'] = [];
 	$dump['categories'] = [];
+}
+
+// Pinned Categories is dumped on the same read-only terms: report, never repair.
+$dump['favorites'] = ['available' => false];
+$pinned = Minz_ExtensionManager::findExtension(PINNED_EXTENSION);
+if ($pinned !== null && method_exists($pinned, 'store')) {
+	$favStore = $pinned->store();
+	$dump['favorites'] = $favStore->available()
+		? [
+			'available' => true,
+			'store' => $favStore->path(),
+			'view' => $favStore->view(),
+			'ids' => array_map('intval', (array) $favStore->favIds()),
+		]
+		: ['available' => false, 'error' => $favStore->error()];
 }
 
 echo json_encode($dump, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;

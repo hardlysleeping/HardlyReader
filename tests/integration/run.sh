@@ -11,6 +11,9 @@
 #   HARDLYREAD_HIDDEN_CATEGORIES_DIR
 #                                  Hidden Categories source directory (default
 #                                  ~/apps/freshrss/extensions-src/xExtension-HiddenCategories)
+#   HARDLYREAD_FAVORITE_CATEGORIES_DIR
+#                                  Pinned Categories source directory (default
+#                                  ~/apps/freshrss/extensions-src/xExtension-FavoriteCategories)
 #   HARDLYREAD_E2E_HEALTH_TIMEOUT  seconds to wait for the container (default 180)
 #   KEEP_CONTAINERS_ON_FAILURE=1   leave the stack running after a failure
 #
@@ -31,6 +34,7 @@ BASE_URL="http://127.0.0.1:$PORT"
 
 API_EXTENSION_DIR="$REPO_ROOT/extensions/xExtension-HardlyRead"
 HIDDEN_EXTENSION_DIR=${HARDLYREAD_HIDDEN_CATEGORIES_DIR:-$HOME/apps/freshrss/extensions-src/xExtension-HiddenCategories}
+PINNED_EXTENSION_DIR=${HARDLYREAD_FAVORITE_CATEGORIES_DIR:-$HOME/apps/freshrss/extensions-src/xExtension-FavoriteCategories}
 
 # Paths inside the container, matching what provision.php and compose.yml expect.
 EXTENSIONS_PATH=/var/www/FreshRSS/extensions
@@ -153,6 +157,12 @@ command -v node >/dev/null 2>&1 || die "node is not on PATH (the E2E scenario is
        xExtension-HiddenCategories that includes setCategoryHidden() and
        changeView(). Point HARDLYREAD_HIDDEN_CATEGORIES_DIR at one:
          HARDLYREAD_HIDDEN_CATEGORIES_DIR=/path/to/xExtension-HiddenCategories tests/integration/run.sh"
+[ -f "$PINNED_EXTENSION_DIR/extension.php" ] ||
+  die "Pinned Categories source not found at $PINNED_EXTENSION_DIR
+       the favourites assertions need it installed beside the adapter (a build
+       with setCategoryFavorite() and changeView()). Point
+       HARDLYREAD_FAVORITE_CATEGORIES_DIR at one, or at the repo's sibling
+       xExtension-FavoriteCategories checkout."
 
 if port_in_use "$PORT"; then
   # A kept stack from a previous failed run holds this port. Reusing it is the
@@ -170,6 +180,7 @@ mkdir -p "$ARTIFACTS_DIR"
 log "E2E: project=$PROJECT port=$PORT"
 log "  Hardly Read:      $API_EXTENSION_DIR"
 log "  Hidden Categories: $HIDDEN_EXTENSION_DIR"
+log "  Pinned Categories: $PINNED_EXTENSION_DIR"
 
 # Prepared from an empty volume every run, so a stale config cannot pass the
 # suite for us.
@@ -199,6 +210,11 @@ log "installing xExtension-HiddenCategories"
 docker exec "$ID" install -d "$EXTENSIONS_PATH/xExtension-HiddenCategories"
 tar -C "$HIDDEN_EXTENSION_DIR" --exclude=.git -cf - . |
   docker exec -i "$ID" tar -xf - -C "$EXTENSIONS_PATH/xExtension-HiddenCategories"
+
+log "installing xExtension-FavoriteCategories"
+docker exec "$ID" install -d "$EXTENSIONS_PATH/xExtension-FavoriteCategories"
+tar -C "$PINNED_EXTENSION_DIR" --exclude=.git -cf - . |
+  docker exec -i "$ID" tar -xf - -C "$EXTENSIONS_PATH/xExtension-FavoriteCategories"
 
 docker exec "$ID" install -d "$(dirname "$PROVISION_PATH")"
 docker cp "$INTEGRATION_DIR/provision.php" "$ID:$PROVISION_PATH"

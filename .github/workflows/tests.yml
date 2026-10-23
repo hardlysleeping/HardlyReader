@@ -28,17 +28,21 @@ jobs:
       # run at all, so say so once, out loud, instead of failing red on every push
       # and implying the adapter is broken. When the directory is there — a
       # checkout, a vendored copy, a future public release — it runs unchanged.
-      - name: Locate Hidden Categories
+      - name: Locate the extension sources
         id: hidden
         env:
           HIDDEN_DIR: /home/runner/apps/freshrss/extensions-src/xExtension-HiddenCategories
+          PINNED_DIR: /home/runner/apps/freshrss/extensions-src/xExtension-FavoriteCategories
         run: |
-          if [ -f "$HIDDEN_DIR/extension.php" ]; then
+          missing=""
+          [ -f "$HIDDEN_DIR/extension.php" ] || missing="$missing HiddenCategories"
+          [ -f "$PINNED_DIR/extension.php" ] || missing="$missing FavoriteCategories"
+          if [ -z "$missing" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
-            echo "Hidden Categories found at $HIDDEN_DIR"
+            echo "both extension sources present"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Hidden Categories not present at $HIDDEN_DIR"
+            echo "missing:$missing"
           fi
 
       - name: Run FreshRSS integration tests
@@ -52,14 +56,14 @@ jobs:
       - name: Note the skipped integration run
         if: steps.hidden.outputs.available != 'true'
         run: |
-          echo "::warning title=FreshRSS integration skipped::The end-to-end harness needs an xExtension-HiddenCategories checkout (setCategoryHidden()/changeView()) and that extension is not published, so only the unit suites and PHPUnit ran. Point HARDLYREAD_HIDDEN_CATEGORIES_DIR at a copy and run tests/integration/run.sh locally to cover the adapter end to end."
+          echo "::warning title=FreshRSS integration skipped::The end-to-end harness installs real Hidden Categories and Pinned Categories builds beside the adapter, and neither extension is published, so only the unit suites and PHPUnit ran. Point HARDLYREAD_HIDDEN_CATEGORIES_DIR and HARDLYREAD_FAVORITE_CATEGORIES_DIR at checkouts and run tests/integration/run.sh locally to cover the adapter end to end."
           {
             echo "### FreshRSS integration: skipped"
             echo
-            echo "The harness installs a real Hidden Categories build, which is not published."
+            echo "The harness installs real Hidden Categories and Pinned Categories builds, neither of which is published."
             echo "Unit suites and PHPUnit (8.2/8.3/8.4) ran; the adapter's end-to-end path did not."
             echo
-            echo "Run it locally: HARDLYREAD_HIDDEN_CATEGORIES_DIR=/path/to/xExtension-HiddenCategories tests/integration/run.sh"
+            echo "Run it locally: HARDLYREAD_HIDDEN_CATEGORIES_DIR=... HARDLYREAD_FAVORITE_CATEGORIES_DIR=... tests/integration/run.sh"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Collect FreshRSS diagnostics
