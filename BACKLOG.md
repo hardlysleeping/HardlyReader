@@ -125,5 +125,15 @@ Never point this at the live instance; the harness is disposable by design.
 | 17 | App v1.1: star, favourites view cycle, indent, add/remove feed | done | branch `b6ae3b9`, merge `a354b46`. svelte-check 0/0, build clean, 377 unit checks across 6 files |
 | 18 | Verify v1.1 against a real container | done (API) | `GET /v1/state` returns `favorites{available,view,ids,categories}` and `sidebarIndent{available,px:24}`; favourite on/off round-trips with `changed:false` on repeat; `PUT /v1/favorites/view` cycles all/only/without; 400 for id 0, bad view and non-boolean, 404 for an unknown category. Hidden categories still correct in the same state payload |
 
-Measured, not assumed: 377 unit checks, 96 PHPUnit tests, clean Svelte check and Vite build on merged
-master. Not measured: the v1.1 UI in a browser, and any v1.1 path on the live instance.
+Measured in a browser against the harness, after the API contract passed: the sidebar reads the server's
+`px: 24` and applies `--feed-indent: 24px`; the category menu shows Hide, Favorite and the three hidden views;
+starring Uncategorized updates the row to ★ and persists (`favorites.ids == [1]`); the header cycles the
+favourites view All -> Favorites -> No favorites with a visible label at each step; "+ Add feed" subscribes a
+real feed (18 -> 22 items, "This Week in Rust") and the confirmation dialog removes it again (back to 18).
+
+Operational note: the browser build reaches the adapter through the Vite `/freshrss` proxy or a same-origin
+host. Pointing the browser app straight at a different origin fails CORS before the adapter is reached — the
+native build is unaffected because its HTTP plugin ignores CORS. A PWA release needs the adapter's CORS
+headers or a same-origin deployment.
+
+Still not measured: any v1.1 path on the live instance.
