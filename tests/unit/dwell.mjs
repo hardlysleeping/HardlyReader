@@ -2,6 +2,8 @@ import {
   AUTO_MARK_MS,
   DWELL_SECONDS_DEFAULT,
   DWELL_SECONDS_MAX,
+  DWELL_SECONDS_HARD_MAX,
+  DWELL_SECONDS_HARD_MIN,
   DWELL_SECONDS_MIN,
   clampDwellSeconds,
   dwellMs,
@@ -28,13 +30,18 @@ check("the setting is in seconds", dwellMs(DWELL_SECONDS_DEFAULT) === AUTO_MARK_
 // The setting is the owner's, within bounds that stay usable.
 check("a chosen delay converts", dwellMs(7) === 7000);
 check("below the floor clamps up", clampDwellSeconds(0) === DWELL_SECONDS_MIN && clampDwellSeconds(-4) === DWELL_SECONDS_MIN);
-check("above the ceiling clamps down", clampDwellSeconds(999) === DWELL_SECONDS_MAX, String(clampDwellSeconds(999)));
+check("above the slider is still allowed", clampDwellSeconds(45) === 45, String(clampDwellSeconds(45)));
+check("above the hard ceiling clamps down", clampDwellSeconds(9999) === DWELL_SECONDS_HARD_MAX, String(clampDwellSeconds(9999)));
+check("the hard ceiling is ten minutes", DWELL_SECONDS_HARD_MAX === 600);
+check("the hard floor is a second", DWELL_SECONDS_HARD_MIN === 1);
 check("the floor is a second", DWELL_SECONDS_MIN === 1);
 check("the ceiling is half a minute", DWELL_SECONDS_MAX === 30);
 check("fractions round to whole seconds", clampDwellSeconds(4.4) === 4 && clampDwellSeconds(4.6) === 5);
 check("rubbish falls back to the default", clampDwellSeconds("nope") === DWELL_SECONDS_DEFAULT && clampDwellSeconds(null) === DWELL_SECONDS_DEFAULT);
 check("a numeric string is accepted", clampDwellSeconds("12") === 12);
-check("the clamped value drives the timer", dwellMs(999) === DWELL_SECONDS_MAX * 1000);
+check("the slider ceiling is untouched", DWELL_SECONDS_MAX === 30);
+check("the clamped value drives the timer", dwellMs(9999) === DWELL_SECONDS_HARD_MAX * 1000);
+check("a typed value beyond the slider drives it too", dwellMs(45) === 45_000);
 
 // Arming.
 check("off by default means never armed", shouldArmDwell({ enabled: false, alreadyRead: false, isOpen: true }) === false);

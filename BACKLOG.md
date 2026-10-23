@@ -339,3 +339,7 @@ shows a feed handover under 1.5s of induced latency.
 |---|---|---|---|
 | 67 | Search above the band; shorter collapse bar | **done** | The search field is now the sidebar's first element, above the hidden/favourites band it filters, with the band's own control strip below it. The collapse handle shrank from 14px to 8px closed→open (20px → 12px when the band is folded), and its caret from 14px to 11px, since it is a handle rather than a row. Measured in a mounted sidebar: order `find → bandbox → indent → section`, bar 8px/12px, caret 11px, and typing `art` still filters to the right feeds. |
 
+| # | Item | State | Notes |
+|---|---|---|---|
+| 68 | Options numbers are editable: any value, plus reset | **done** | The readout beside each slider is now a number you can tap and type into, and it takes values past the slider's range — the slider is for finding a feel, the number for saying what you want. Scroll effort: slider 0.5–2, typed 0.1–10. Mark read after: slider 1–30s, typed 1–600s. Out-of-range values pin the slider at its end while the number shows the truth. A `↺` beside each number returns it to the default (×1.0, 3s) and greys out when already there. Measured in a mounted Options panel: `4` → stored 4, slider 2, hint 29 notches; `90` → stored 90s, slider 30; `99`/`9999` → clamped 10 / 600; reset → 1 / 3 with storage back to defaults. |
+

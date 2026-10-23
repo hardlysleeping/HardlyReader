@@ -962,6 +962,7 @@ export class ReaderState {
 
   stop(): void {
     this.session = null;
+    this.streamHistory = [];
     this.subscriptions = [];
     this.tags = [];
     this.counts.clear();
@@ -1161,7 +1162,45 @@ export class ReaderState {
     await Promise.all([this.loadSidebar(), this.reloadStream()]);
   }
 
+  /**
+   * Streams left behind, most recent last.
+   *
+   * One column has no sidebar in view, so "where I just came from" has to be
+   * remembered rather than read off the screen: this is what the back control
+   * and a right-to-left swipe walk through. Bounded, because it is a way back,
+   * not a log.
+   */
+  streamHistory = $state<{ id: string; title: string }[]>([]);
+
+  /** True while walking back, so the step is not recorded as a new visit. */
+  private suppressHistory = false;
+
+  get canGoBackToStream(): boolean {
+    return this.streamHistory.length > 0;
+  }
+
+  get previousStreamTitle(): string | null {
+    return this.streamHistory[this.streamHistory.length - 1]?.title ?? null;
+  }
+
+  /** Go back to the feed before this one. False when there is nowhere to go. */
+  async previousStream(): Promise<boolean> {
+    const previous = this.streamHistory[this.streamHistory.length - 1];
+    if (previous === undefined) return false;
+    this.streamHistory = this.streamHistory.slice(0, -1);
+    this.suppressHistory = true;
+    try {
+      await this.openStream(previous.id, previous.title);
+    } finally {
+      this.suppressHistory = false;
+    }
+    return true;
+  }
+
   async openStream(streamId: string, title: string): Promise<void> {
+    if (!this.suppressHistory && this.activeStream !== null && this.activeStream !== streamId) {
+      this.streamHistory = [...this.streamHistory, { id: this.activeStream, title: this.activeTitle }].slice(-20);
+    }
     if (this.activeStream === streamId && this.items.length > 0) {
       this.activeTitle = title;
       return;

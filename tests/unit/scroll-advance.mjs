@@ -1,6 +1,7 @@
 import {
-  EFFORT_DEFAULT, EFFORT_MAX, EFFORT_MIN, PULL_THRESHOLD, RESISTANCE, accumulate, clampEffort,
-  contribution, directionOf, progressOf, shouldAdvance, thresholdFor, travelToAdvance,
+  EFFORT_DEFAULT, EFFORT_HARD_MAX, EFFORT_HARD_MIN, EFFORT_MAX, EFFORT_MIN, PULL_THRESHOLD,
+  RESISTANCE, accumulate, clampEffort, contribution, directionOf, progressOf, shouldAdvance,
+  thresholdFor, travelToAdvance, withinSlider,
 } from "../../src/lib/scroll-advance.ts";
 
 let failures = 0;
@@ -85,7 +86,14 @@ check("the default effort changes nothing", thresholdFor(EFFORT_DEFAULT) === PUL
 check("the default is 1", EFFORT_DEFAULT === 1);
 check("less effort shortens the pull", thresholdFor(0.5) === PULL_THRESHOLD / 2, String(thresholdFor(0.5)));
 check("more effort lengthens it", thresholdFor(2) === PULL_THRESHOLD * 2, String(thresholdFor(2)));
-check("effort is clamped to its range", clampEffort(9) === EFFORT_MAX && clampEffort(0.1) === EFFORT_MIN);
+check("effort beyond the slider is allowed", clampEffort(4) === 4, String(clampEffort(4)));
+check("effort below the slider is allowed", clampEffort(0.3) === 0.3, String(clampEffort(0.3)));
+check("effort clamps at the hard ceiling", clampEffort(99) === EFFORT_HARD_MAX, String(clampEffort(99)));
+check("effort clamps at the hard floor", clampEffort(0) === EFFORT_HARD_MIN, String(clampEffort(0)));
+check("the slider range is unchanged", EFFORT_MIN === 0.5 && EFFORT_MAX === 2);
+check("the slider pins an out-of-range value", withinSlider(4, EFFORT_MIN, EFFORT_MAX) === 2 && withinSlider(0.3, EFFORT_MIN, EFFORT_MAX) === 0.5);
+check("the slider passes a value inside its range through", withinSlider(1.4, EFFORT_MIN, EFFORT_MAX) === 1.4);
+check("the hard ceiling is ten", EFFORT_HARD_MAX === 10);
 check("effort is kept to one decimal", clampEffort(1.234) === 1.2, String(clampEffort(1.234)));
 check("rubbish effort falls back to the default", clampEffort("nope") === EFFORT_DEFAULT && clampEffort(null) === EFFORT_DEFAULT);
 const easyTravel = travelToAdvance(thresholdFor(0.5));

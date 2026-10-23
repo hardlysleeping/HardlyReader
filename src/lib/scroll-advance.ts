@@ -26,15 +26,32 @@ export const PULL_THRESHOLD = 280;
  * the behaviour that was tuned by hand.
  */
 export const EFFORT_DEFAULT = 1;
+
+/**
+ * The slider's range, and the range a typed value may use.
+ *
+ * The slider is for finding a feel by dragging; the number beside it is for
+ * saying what you actually want, which may sit outside the slider — someone on
+ * a mouse wheel may want ×4, someone on a trackpad ×0.3. The hard bounds only
+ * stop values that break the gesture: below 0.1 one notch would leave a post,
+ * and above 10 a "next post" would never arrive.
+ */
 export const EFFORT_MIN = 0.5;
 export const EFFORT_MAX = 2;
+export const EFFORT_HARD_MIN = 0.1;
+export const EFFORT_HARD_MAX = 10;
 
 export function clampEffort(value: unknown): number {
   if (value === null || value === undefined || value === "") return EFFORT_DEFAULT;
   const effort = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(effort)) return EFFORT_DEFAULT;
   const rounded = Math.round(effort * 10) / 10;
-  return Math.min(Math.max(rounded, EFFORT_MIN), EFFORT_MAX);
+  return Math.min(Math.max(rounded, EFFORT_HARD_MIN), EFFORT_HARD_MAX);
+}
+
+/** What the slider should show for a value that may be outside its range. */
+export function withinSlider(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 /** The pull threshold for a chosen effort. 1 = `PULL_THRESHOLD` unchanged. */
