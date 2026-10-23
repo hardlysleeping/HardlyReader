@@ -2,13 +2,16 @@
   import { isRead, isStarred } from "../api/freshrss";
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, sanitizeArticle } from "../lib/sanitize";
+  import { accumulate, progressOf, shouldAdvance } from "../lib/scroll-advance";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
 
   let { onClose }: { onClose?: () => void } = $props();
 
   let scroller = $state<HTMLElement | null>(null);
-  let lastAdvance = 0;
+  /** Wheel travel accumulated at the bottom, in pixels, against the pull curve. */
+  let pull = $state(0);
+  let pullTimer: ReturnType<typeof setTimeout> | null = null;
 
   function reduceMotion(): boolean {
     return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -18,7 +21,18 @@
   function onscroll(): void {
     const el = scroller;
     if (!el) return;
-    reader.setArticleScroll(el.scrollTop <= 2, el.scrollTop + el.clientHeight >= el.scrollHeight - 2);
+    const end = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+    reader.setArticleScroll(el.scrollTop <= 2, end);
+    // Leaving the bottom gives the pull back: it is a gesture, not a latch.
+    if (!end) pull = 0;
+  }
+
+  function resetPull(): void {
+    pull = 0;
+    if (pullTimer !== null) {
+      clearTimeout(pullTimer);
+      pullTimer = null;
+    }
   }
 
   function atEnd(el: HTMLElement): boolean {
@@ -26,25 +40,37 @@
   }
 
   /**
-   * Scrolling past the end of an article moves to the next one, and past the end
-   * of a feed into the next feed. It only fires when the article itself cannot
-   * scroll further, and it is debounced so one trackpad flick cannot skip three
-   * articles.
+   * Scrolling past the end of an article pulls towards the next one.
+   *
+   * It is deliberately not linear: each pixel of wheel travel adds less than the
+   * last, so the final stretch needs a push rather than a flick, and the filling
+   * line at the bottom of the pane shows how far through that push you are. A
+   * pause gives the pull back, so a stray scroll while reading does not leave a
+   * half-loaded switch waiting.
    */
   function onwheel(event: WheelEvent): void {
     const el = scroller;
-    if (!reading.advanceOnScroll || !el || event.deltaY <= 0 || !atEnd(el)) return;
-    const now = Date.now();
-    if (now - lastAdvance < 350) return;
-    lastAdvance = now;
+    if (!reading.advanceOnScroll || !el || event.deltaY <= 0 || !atEnd(el)) {
+      resetPull();
+      return;
+    }
+    pull = accumulate(pull, event.deltaY);
+    if (pullTimer !== null) clearTimeout(pullTimer);
+    pullTimer = setTimeout(() => {
+      pull = 0;
+      pullTimer = null;
+    }, 700);
+    if (!shouldAdvance(pull)) return;
+    resetPull();
     void reader.advanceArticle(1);
   }
 
-  // A new article starts at its top, and the scroll flags must not carry over
-  // from the previous one or Space would immediately advance again.
+  // A new article starts at its top, and neither the scroll flags nor a
+  // part-finished pull may carry over into it.
   $effect(() => {
     const id = reader.selectedId;
     if (id === null) return;
+    resetPull();
     const el = scroller;
     if (!el) return;
     el.scrollTop = 0;
@@ -168,16 +194,44 @@
       <p>Select an article.</p>
     </div>
   {/if}
+  <div class="pull" class:visible={pull > 0} style:--p={progressOf(pull)} aria-hidden="true"></div>
 </section>
 
 <style>
   .reader {
+    position: relative;
     display: flex;
     flex-direction: column;
     min-width: 0;
     height: 100%;
     overflow: hidden;
     background: var(--bg);
+  }
+
+  /* The feedback for the pull: fills left to right as the next article gets
+     closer, and only exists while a pull is in progress. */
+  .pull {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    transform: scaleX(var(--p, 0));
+    transform-origin: left center;
+    background: var(--accent, #0078e0);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 80ms linear, opacity 120ms ease;
+  }
+
+  .pull.visible {
+    opacity: 0.9;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pull {
+      transition: none;
+    }
   }
 
   .toolbar {
