@@ -323,3 +323,7 @@ shows a feed handover under 1.5s of induced latency.
 |---|---|---|---|
 | 63 | Dwell delay as a setting | **done** | The three seconds are a control in Options, 1–30 in whole seconds, default 3, stored with the other reading preferences. Changing it re-times the post already open rather than waiting for the next one, and the reader's ⏱ tooltip quotes the real number instead of a hardcoded "three". Bounds are clamped in one place so a stored 0 or a stored 999 cannot make auto-mark useless: under a second marks posts you only flipped past, over half a minute never fires before you move on. 10 new checks |
 
+| # | Item | State | Notes |
+|---|---|---|---|
+| 64 | Scroll effort as a setting | **done** | How much wheel travel it takes to leave a post is a multiplier in Options, ×0.5 to ×2.0, default **×1.0** — the value tuned by hand, so nothing moves for the owner. It scales the pull threshold only, so the curve and the indicator behave identically at every setting and both directions scale together; the panel states the cost in wheel notches (7 at default, 15 at ×2) rather than in pixels. Measured in a mounted pane: one notch fills 0.357 of the pull at ×1.0 and 0.179 at ×2.0. 11 new checks |
+

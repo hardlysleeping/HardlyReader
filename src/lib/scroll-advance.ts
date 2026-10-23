@@ -17,6 +17,31 @@
  */
 export const PULL_THRESHOLD = 280;
 
+/**
+ * How hard it is to leave a post, as a multiplier on the threshold.
+ *
+ * One knob rather than two: scaling the threshold scales the whole gesture —
+ * the pull fills the same way and the same curve applies, it simply takes more
+ * (or less) wheel travel to get there. Kept at 1 by default, which is exactly
+ * the behaviour that was tuned by hand.
+ */
+export const EFFORT_DEFAULT = 1;
+export const EFFORT_MIN = 0.5;
+export const EFFORT_MAX = 2;
+
+export function clampEffort(value: unknown): number {
+  if (value === null || value === undefined || value === "") return EFFORT_DEFAULT;
+  const effort = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(effort)) return EFFORT_DEFAULT;
+  const rounded = Math.round(effort * 10) / 10;
+  return Math.min(Math.max(rounded, EFFORT_MIN), EFFORT_MAX);
+}
+
+/** The pull threshold for a chosen effort. 1 = `PULL_THRESHOLD` unchanged. */
+export function thresholdFor(effort: number): number {
+  return Math.round(PULL_THRESHOLD * clampEffort(effort));
+}
+
 /** How much heavier the pull gets by the end. 0 = linear, 2.5 = heavy. */
 export const RESISTANCE = 3.2;
 

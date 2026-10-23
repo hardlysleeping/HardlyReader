@@ -8,6 +8,7 @@
 
 import { isArticleFilter, type ArticleFilter } from "../lib/article-filter";
 import { clampDwellSeconds, DWELL_SECONDS_DEFAULT } from "../lib/dwell";
+import { clampEffort, EFFORT_DEFAULT } from "../lib/scroll-advance";
 
 const STORAGE_KEY = "hardlyreader.reading.v1";
 
@@ -40,6 +41,14 @@ class ReadingState {
    */
   autoMarkSeconds = $state(DWELL_SECONDS_DEFAULT);
 
+  /**
+   * How much wheel travel it takes to leave a post, as a multiplier.
+   *
+   * 1 keeps the tuned default; below makes posts easier to leave, above holds
+   * you in one longer. Both directions scale together.
+   */
+  scrollEffort = $state(EFFORT_DEFAULT);
+
   load(): void {
     if (typeof localStorage === "undefined") return;
     try {
@@ -50,11 +59,13 @@ class ReadingState {
         articleFilter?: unknown;
         autoMarkRead?: unknown;
         autoMarkSeconds?: unknown;
+        scrollEffort?: unknown;
       };
       if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
       if (typeof saved.autoMarkRead === "boolean") this.autoMarkRead = saved.autoMarkRead;
       if (saved.autoMarkSeconds !== undefined) this.autoMarkSeconds = clampDwellSeconds(saved.autoMarkSeconds);
+      if (saved.scrollEffort !== undefined) this.scrollEffort = clampEffort(saved.scrollEffort);
     } catch {
       // Same rule as the layout: a corrupt preference is not worth a dialog.
     }
@@ -67,6 +78,13 @@ class ReadingState {
 
   toggleAutoMarkRead(): void {
     this.autoMarkRead = !this.autoMarkRead;
+    this.save();
+  }
+
+  setScrollEffort(effort: number): void {
+    const next = clampEffort(effort);
+    if (this.scrollEffort === next) return;
+    this.scrollEffort = next;
     this.save();
   }
 
@@ -93,6 +111,7 @@ class ReadingState {
           articleFilter: this.articleFilter,
           autoMarkRead: this.autoMarkRead,
           autoMarkSeconds: this.autoMarkSeconds,
+          scrollEffort: this.scrollEffort,
         }),
       );
     } catch {

@@ -56,7 +56,8 @@ function buildReadingModule() {
   const compiled = compileModule(outputText, { generate: "client", filename: "reading.svelte.ts" });
   const code = compiled.js.code
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
-    .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")));
+    .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
+    .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
   const out = join(GEN_DIR, "reading.mjs");
   writeFileSync(out, code);

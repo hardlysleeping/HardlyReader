@@ -10,6 +10,7 @@
   import type { ThemeMode } from "../lib/theme";
   import { THEME_MODES, THEME_MODE_LABELS } from "../lib/theme";
   import { DWELL_SECONDS_MAX, DWELL_SECONDS_MIN } from "../lib/dwell";
+  import { EFFORT_MAX, EFFORT_MIN, thresholdFor, travelToAdvance } from "../lib/scroll-advance";
   import { reading } from "../state/reading.svelte";
   import { theme } from "../state/theme.svelte";
 
@@ -106,6 +107,26 @@
         <button class="segbtn" class:on={theme.current.vocabulary === "favourites"} aria-pressed={theme.current.vocabulary === "favourites"} onclick={() => theme.set("vocabulary", "favourites")}>Favourites</button>
       </div>
     </div>
+
+    <div class="row">
+      <span class="key">Scroll effort</span>
+      <span class="pick">
+        <input
+          class="range"
+          type="range"
+          min={EFFORT_MIN}
+          max={EFFORT_MAX}
+          step="0.1"
+          value={reading.scrollEffort}
+          aria-label="How much scrolling it takes to reach the next post"
+          oninput={(event) => reading.setScrollEffort(Number(event.currentTarget.value))}
+        />
+        <code>×{reading.scrollEffort.toFixed(1)}</code>
+      </span>
+    </div>
+    <p class="hint">
+      About {Math.round(travelToAdvance(thresholdFor(reading.scrollEffort)) / 100)} wheel notches to leave a post — the same both ways.
+    </p>
 
     <div class="row">
       <span class="key">Mark read after</span>
