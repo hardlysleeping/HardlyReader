@@ -2,7 +2,7 @@
   import { isRead, isStarred } from "../api/freshrss";
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, sanitizeArticle } from "../lib/sanitize";
-  import { accumulate, progressOf, shouldAdvance } from "../lib/scroll-advance";
+  import { accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
 
@@ -11,6 +11,8 @@
   let scroller = $state<HTMLElement | null>(null);
   /** Wheel travel accumulated at the bottom, in pixels, against the pull curve. */
   let pull = $state(0);
+  /** The setting decides how much travel the pull is worth. */
+  const threshold = $derived(thresholdFor(reading.scrollEffort));
   let pullTimer: ReturnType<typeof setTimeout> | null = null;
 
   function reduceMotion(): boolean {
@@ -66,13 +68,13 @@
       resetPull();
       return;
     }
-    pull = accumulate(pull, event.deltaY);
+    pull = accumulate(pull, event.deltaY, threshold);
     if (pullTimer !== null) clearTimeout(pullTimer);
     pullTimer = setTimeout(() => {
       pull = 0;
       pullTimer = null;
     }, 700);
-    if (!shouldAdvance(pull)) return;
+    if (!shouldAdvance(pull, threshold)) return;
     const direction = pull > 0 ? 1 : -1;
     resetPull();
     void reader.advanceArticle(direction);
@@ -236,7 +238,7 @@
     class="pull"
     class:visible={pull !== 0}
     class:up={pull < 0}
-    style:--p={progressOf(pull)}
+    style:--p={progressOf(pull, threshold)}
     aria-hidden="true"
   ></div>
 </section>

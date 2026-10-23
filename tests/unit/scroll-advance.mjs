@@ -1,6 +1,6 @@
 import {
-  PULL_THRESHOLD, RESISTANCE, accumulate, contribution, directionOf, progressOf, shouldAdvance,
-  travelToAdvance,
+  EFFORT_DEFAULT, EFFORT_MAX, EFFORT_MIN, PULL_THRESHOLD, RESISTANCE, accumulate, clampEffort,
+  contribution, directionOf, progressOf, shouldAdvance, thresholdFor, travelToAdvance,
 } from "../../src/lib/scroll-advance.ts";
 
 let failures = 0;
@@ -78,6 +78,22 @@ while (!shouldAdvance(upPull) && upNotches < 20) {
   upNotches += 1;
 }
 check("scrolling up takes the same run of notches", upNotches === notches, `${upNotches} vs ${notches}`);
+
+// Effort: one multiplier on the threshold, so the tuned default is untouched and
+// both directions scale together.
+check("the default effort changes nothing", thresholdFor(EFFORT_DEFAULT) === PULL_THRESHOLD, String(thresholdFor(EFFORT_DEFAULT)));
+check("the default is 1", EFFORT_DEFAULT === 1);
+check("less effort shortens the pull", thresholdFor(0.5) === PULL_THRESHOLD / 2, String(thresholdFor(0.5)));
+check("more effort lengthens it", thresholdFor(2) === PULL_THRESHOLD * 2, String(thresholdFor(2)));
+check("effort is clamped to its range", clampEffort(9) === EFFORT_MAX && clampEffort(0.1) === EFFORT_MIN);
+check("effort is kept to one decimal", clampEffort(1.234) === 1.2, String(clampEffort(1.234)));
+check("rubbish effort falls back to the default", clampEffort("nope") === EFFORT_DEFAULT && clampEffort(null) === EFFORT_DEFAULT);
+const easyTravel = travelToAdvance(thresholdFor(0.5));
+const hardTravel = travelToAdvance(thresholdFor(2));
+check("the harder setting really takes more scrolling", hardTravel > easyTravel * 3, `${easyTravel} vs ${hardTravel}`);
+check("the easy setting is still a deliberate pull", easyTravel > 300, String(easyTravel));
+check("the hardest setting is not absurd", hardTravel < 1600, String(hardTravel));
+check("the default effort still needs the tuned travel", Math.abs(travelToAdvance(thresholdFor(1)) - travel) <= 1);
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
