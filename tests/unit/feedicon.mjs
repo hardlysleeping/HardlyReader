@@ -23,7 +23,7 @@ function check(name, ok, detail = "") {
   }
 }
 
-const TAILNET = "https://cenvalweb.example.ts.net:8449";
+const TAILNET = "https://freshrss.example.net:8449";
 
 check("missing icon is undefined", feedIconSrc(undefined, TAILNET) === undefined);
 check("empty icon is undefined", feedIconSrc("   ", TAILNET) === undefined);

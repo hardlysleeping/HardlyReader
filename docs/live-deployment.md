@@ -1,6 +1,6 @@
 # Live deployment: HardlyReader adapter and the extensions it wears
 
-What is installed on the FreshRSS instance behind `cenvalweb`, what was backed up
+What is installed on the FreshRSS instance behind your FreshRSS host, what was backed up
 immediately before each change, and how to undo each one. Commands are written to
 run from the workstation; the container is `freshrss` and the web root inside it
 is `/var/www/FreshRSS`.
@@ -63,7 +63,7 @@ deliberately not overwritten.
 ## Revert: Favorite Categories only
 
 ```bash
-ssh root@100.79.162.94 'docker exec freshrss cp -p \
+ssh your-user@your-server 'docker exec freshrss cp -p \
   /var/www/FreshRSS/extensions/xExtension-FavoriteCategories/.bak-hardlyread-v11-20261022-173752.php \
   /var/www/FreshRSS/extensions/xExtension-FavoriteCategories/extension.php'
 ```
@@ -74,7 +74,7 @@ for the methods before calling them); hidden categories are unaffected.
 ## Revert: adapter to v1.0
 
 ```bash
-ssh root@100.79.162.94 'docker exec freshrss tar -xzf \
+ssh your-user@your-server 'docker exec freshrss tar -xzf \
   /var/www/FreshRSS/extensions/.bak-hardlyread-adapter-v10-20261022-173752.tgz \
   -C /var/www/FreshRSS/extensions && docker exec freshrss chown -R www-data:www-data \
   /var/www/FreshRSS/extensions/xExtension-HardlyRead'
@@ -83,7 +83,7 @@ ssh root@100.79.162.94 'docker exec freshrss tar -xzf \
 ## Remove the adapter entirely
 
 ```bash
-ssh root@100.79.162.94 'docker exec freshrss cp -p \
+ssh your-user@your-server 'docker exec freshrss cp -p \
   /var/www/FreshRSS/data/config.php.bak-hardlyread-v11-20261022-173752 \
   /var/www/FreshRSS/data/config.php && docker exec freshrss rm -rf \
   /var/www/FreshRSS/extensions/xExtension-HardlyRead'
@@ -103,13 +103,13 @@ registry name:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' \
-  'http://100.79.162.94:8081/api/misc.php/Hardly%20Read/v1/state'
+  'http://your-server:8081/api/misc.php/Hardly%20Read/v1/state'
 ```
 
 The web UI must still render:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' http://100.79.162.94:8081/i/
+curl -s -o /dev/null -w '%{http_code}\n' http://your-server:8081/i/
 ```
 
 Both extensions must report the public methods the adapter calls. Run inside the

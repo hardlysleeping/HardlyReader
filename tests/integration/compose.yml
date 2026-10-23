@@ -18,7 +18,7 @@ services:
       FRESHRSS_USER: |-
         --user itest
         --password itest-password
-        --api-password itest-api-password
+        --api-password hardlyread-test-password
         --no-default-feeds
         --language en
     volumes:

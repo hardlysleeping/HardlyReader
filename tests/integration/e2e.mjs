@@ -19,7 +19,7 @@ import { execFileSync } from "node:child_process";
 
 const BASE = process.env.HARDLYREAD_E2E_BASE_URL ?? "http://127.0.0.1:18081";
 const USER = "itest";
-const API_PASSWORD = "itest-api-password";
+const API_PASSWORD = "hardlyread-test-password";
 const API = `${BASE}/api/misc.php/Hardly%20Read/v1`;
 const STORE_DUMP = process.env.HARDLYREAD_STORE_DUMP ?? "";
 

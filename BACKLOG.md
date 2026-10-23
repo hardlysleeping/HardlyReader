@@ -1,4 +1,4 @@
-# Backlog
+e as# Backlog
 
 MVP scope per the commit checklist. Linux + FreshRSS + HiddenCategories only; iOS, Android,
 Favorites, Sidebar Indent, offline caching and background sync are explicitly out of scope until
@@ -75,7 +75,7 @@ Favorites, Sidebar Indent, NewsBlur, local RSS, offline articles, iOS, Android, 
 ## Local development
 
 `tests/integration/compose.yml` runs an ephemeral FreshRSS 1.30.1 on
-`http://127.0.0.1:18080` with user `itest` / API password `itest-api-password`.
+`http://127.0.0.1:18080` with user `itest` / API password `hardlyread-test-password`.
 
 ```bash
 docker compose -f tests/integration/compose.yml up -d

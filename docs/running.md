@@ -38,8 +38,8 @@ pnpm tauri dev
 In the native build the server URL is the real one, because Tauri's HTTP plugin is
 not subject to CORS:
 
-- `https://cenvalweb.tail900410.ts.net:8449/` over the tailnet, or
-- `http://100.79.162.94:8081/` on the LAN/VPN
+- `https://your-freshrss-host.example.ts.net:8449/` over the tailnet, or
+- `http://your-server:8081/` on the LAN/VPN
 
 The window's capability allowlist already permits `http://*:*` and `https://*:*`.
 

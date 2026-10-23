@@ -30,7 +30,7 @@ import {
 
 const BASE = process.env.HARDLYREAD_SERVER ?? "http://127.0.0.1:18080";
 const USER = process.env.HARDLYREAD_USER ?? "itest";
-const PASS = process.env.HARDLYREAD_API_PASSWORD ?? "itest-api-password";
+const PASS = process.env.HARDLYREAD_API_PASSWORD ?? "hardlyread-test-password";
 /** Feed used for the subscribe round-trip; set to "" to skip it. */
 const FEED_URL = process.env.HARDLYREAD_FEED_URL ?? "https://news.ycombinator.com/rss";
 
