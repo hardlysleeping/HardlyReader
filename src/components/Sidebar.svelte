@@ -311,7 +311,9 @@
           class:active={reader.activeStream === category.id}
           class:pinned
           class:is-hidden={hiddenCat}
-          onclick={() => openCategory(category)}
+          onclick={() => toggle(category.id)}
+          aria-expanded={!folded}
+          aria-label={folded ? `Expand ${category.label}` : `Collapse ${category.label}`}
           onpointerenter={() => reader.prefetchStream(category.id)}
           onfocus={() => reader.prefetchStream(category.id)}
           oncontextmenu={(event) => onCategoryContextMenu(event, category)}
@@ -323,7 +325,12 @@
           onpointerleave={cancelPress}
           aria-haspopup="menu"
         >
-          <span class="chevron" class:closed={folded} aria-hidden="true">▾</span>
+          <!-- The same caret the sidebar's own control strip uses: one glyph,
+               one meaning. Pointing down it will unfold, pointing up it will
+               fold — the arrow always describes the click. -->
+          <svg class="fold" class:up={!folded} viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
           {#if pinned}
             <svg
               class="pin"
@@ -336,13 +343,15 @@
             </svg>
           {/if}
           <span class="label">{category.label}</span>
-          <span class="count">{reader.countFor(category.id)}</span>
         </button>
         <button
-          class="toggle"
-          aria-label={folded ? "Expand" : "Collapse"}
-          onclick={() => toggle(category.id)}
-        ></button>
+          class="open"
+          onclick={() => openCategory(category)}
+          title={`Open posts in ${category.label}`}
+          aria-label={`Open posts in ${category.label}`}
+        >
+          <span class="count">{reader.countFor(category.id)}</span>
+        </button>
       </div>
 
       {#if !folded}
@@ -539,14 +548,20 @@
     font-weight: 600;
   }
 
+  /* The row and the count sit side by side: the row is the fold, the count
+     opens the category's posts. Whole-row tap, nothing lost. */
   .group {
     position: relative;
+    display: flex;
+    align-items: stretch;
   }
 
   .group-title {
+    flex: 1;
+    min-width: 0;
+    width: auto;
     padding-left: 8px;
-    /* Room for the star, so a long category name never slides under it. */
-    padding-right: 34px;
+    padding-right: 6px;
   }
 
   .group-title .label {
@@ -578,7 +593,7 @@
     color: var(--tone-hidden);
   }
 
-  .group-title.is-hidden .chevron {
+  .group-title.is-hidden .fold {
     color: var(--tone-hidden);
   }
 
@@ -597,34 +612,56 @@
     color: color-mix(in srgb, var(--tone-favourite) 65%, var(--text-dim));
   }
 
-  .chevron {
-    width: 12px;
-    font-size: 10px;
+  /* The control strip's caret, a size up so it reads at a glance in a dense
+     tree, and drawn as a stroke rather than a font glyph so it looks the same
+     everywhere. Down means a click unfolds, up means a click folds. */
+  .fold {
+    flex: none;
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
     color: var(--muted);
-    transition: transform 0.12s ease;
+    transition: transform 0.15s ease;
   }
 
-  .chevron.closed {
-    transform: rotate(-90deg);
+  .fold.up {
+    transform: rotate(180deg);
   }
 
-  /* The star sits at the row's right edge; the chevron's own toggle button
-     stays on the left, so neither steals the other's clicks. */
+  @media (prefers-reduced-motion: reduce) {
+    .fold {
+      transition: none;
+    }
+  }
 
-
-
-
-  /* A full-size sibling catches clicks on the chevron only, so the row itself
-     stays a single click target for opening the category stream. */
-  .toggle {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 24px;
-    height: 100%;
+  /* The count is its own target: the row folds, the number opens the category's
+     posts, so folding takes the whole row without losing the other action. */
+  .open {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex: none;
+    min-width: 34px;
+    padding: 0 10px 0 4px;
     border: 0;
     background: none;
+    color: var(--muted);
+    font: inherit;
     cursor: pointer;
+  }
+
+  .open:hover {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  .open .count {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
   }
 
   /* Feed rows take the server's indent on top of the base inset; category rows
