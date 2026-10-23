@@ -274,3 +274,22 @@ respond instantly → FreshRSS web agrees → a web-side change shows in the app
 **Do not rebuild:** tri-pane, `SidebarBand`, lock/passcode UI, collapsible categories, feed favicons,
 indent control, local pins, stream cache/prefetch, password reveal, caret bar — all built (rows 19-33).
 Extract `SyncEngine` as a new module; do not rewrite `ReaderState`.
+
+## Layout, resizing, continuous reading, keyboard (2026-10-22 21:30)
+
+Plan: `~/.hermes/plans/2026-10-22_2130-hardlyread-panes-and-keyboard-v1.md` (copy in the workspace).
+
+| # | Item | State | Notes |
+|---|---|---|---|
+| 48 | Explicit pane mode 1 / 2 / 3, persisted, with effective-vs-desired clamping | todo | Today the layout is a media query. New `src/state/layout.svelte.ts`; mobile drawer stays |
+| 49 | Resizable gutters between panes | todo | 6px hit area, pointer capture, rAF, per-pane minimums, double-click reset, `role="separator"` + arrow resize when focused |
+| 50 | Three-pane as a real mode: article opens to the right, list never replaced | todo | ≥1200px already looks like this by accident; make it a choice and keep the list visible |
+| 51 | One-pane traversal with breadcrumb (feeds › posts › article) | todo | Same arrow semantics as the other modes |
+| 52 | Continuous reading across feeds | todo | Advance on wheel-at-end / Space-at-end / Up-Down buttons; at a stream boundary call `openStream()` for the next feed and land on its first item; 350ms debounce; `advanceOnScroll` setting; failed load leaves the article and shows the error |
+| 53 | Keyboard map as one pure resolver | todo | ↑/↓ = previous/next **feed** in every mode; →/Enter = enter post or feed; ← = back out one level; Home/End; Esc. Ignored while typing or while the menu is open. `src/lib/keys.ts` + `keys.mjs` |
+| 54 | Tests for the layout core | todo | `panes.mjs` (clamp/resize/re-clamp on resize), `keys.mjs` (every key × mode × guards), `reading-order.mjs` (flatten order, stream boundary, failed next stream) |
+
+Acceptance for the whole set: switching 3→2→1 never reloads a stream or loses the open article; a
+reload restores mode and widths; every key row works in all three modes; one throttled browser run
+shows a feed handover under 1.5s of induced latency.
+
