@@ -548,9 +548,21 @@ export class ReaderState {
     }
   }
 
-  /** Opens the menu for a category row. Does nothing without the extension. */
+  /**
+   * Opens the menu for a category row.
+   *
+   * The hidden state is re-read here rather than trusted: hide/show is the item
+   * people reach for from this menu, and a stale `available: false` from a failed
+   * state call at sign-in would silently remove it. The read is cheap and the
+   * menu is already open by the time it lands.
+   */
   openCategoryMenu(label: string, point: Point): void {
     this.menu = { x: point.x, y: point.y, target: { kind: "category", label }, confirming: false };
+    // Only when the state is missing: re-reading a state that is already there
+    // would put a request behind every right-click.
+    if (this.session !== null && !this.hiddenAvailable && !this.hiddenBusy) {
+      void this.loadHiddenState();
+    }
   }
 
   /** Opens the menu for a feed row: removal, and the confirmation of it. */

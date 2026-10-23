@@ -244,9 +244,11 @@ export function categoryMenu(
   const usable = state.available && id !== null;
 
   const notes: string[] = [];
-  if (state.available && id === null) {
+  if (!state.available) {
+    notes.push("The Hidden Categories extension is not answering, so nothing can be hidden right now.");
+  } else if (id === null) {
     notes.push("This category has no id on the server, so it cannot be hidden.");
-  } else if (state.available && state.locked) {
+  } else if (state.locked) {
     notes.push("Hidden Categories is locked; the server will refuse changes.");
   }
 
@@ -267,14 +269,16 @@ export function categoryMenu(
       checked: false,
       disabled: false,
     },
-    toggle: state.available
-      ? {
-          action: { type: "hidden", hidden: !hidden },
-          label: hidden ? "Show" : "Hide",
-          checked: false,
-          disabled: !usable,
-        }
-      : null,
+    // Always offered: hiding is the one thing a category row is for, and an item
+    // that disappears when the extension is slow or absent reads as "this app
+    // cannot hide things" rather than "the server is not answering". It is
+    // disabled, with the reason in the note, only when there is nowhere to write.
+    toggle: {
+      action: { type: "hidden", hidden: !hidden },
+      label: hidden ? "Show" : "Hide",
+      checked: false,
+      disabled: !usable,
+    },
     pin: null,
     remove: null,
     confirm: [],

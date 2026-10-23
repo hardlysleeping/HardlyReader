@@ -117,8 +117,9 @@ try {
 
   {
     const body = draw(categoryMenu(parseState({ available: false }), "Technology", false));
-    check("without Hidden Categories only Pin is drawn", count(body, 'role="menuitem"') === 1 && body.includes(">Pin<"));
-    check("...and it is usable", count(body, "disabled") === 0, String(count(body, "disabled")));
+    check("without Hidden Categories both rows are drawn", count(body, 'role="menuitem"') === 2 && body.includes(">Pin<"));
+    check("...Hide is the disabled one", count(body, "disabled") === 1, String(count(body, "disabled")));
+    check("...and the note explains it", /not answering/.test(body), "no note");
   }
 
   {
