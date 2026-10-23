@@ -16,13 +16,9 @@
  * doing geometry inside event handlers.
  */
 import {
-  HIDDEN_VIEWS,
   categoryIdForLabel,
-  favoriteIdForLabel,
   isHiddenCategory,
-  type FavoritesState,
   type HiddenCategoriesState,
-  type HiddenView,
 } from "../api/hardlyread";
 
 /* ---------------------------------------------------------------------------
@@ -189,8 +185,7 @@ export function placeMenu(anchor: Point, menu: Size, viewport: Size): Point {
 
 export type MenuAction =
   | { type: "hidden"; hidden: boolean }
-  | { type: "view"; view: HiddenView }
-  | { type: "favorite"; favorite: boolean }
+  | { type: "pin"; pinned: boolean }
   | { type: "remove-feed" }
   | { type: "confirm-remove" }
   | { type: "cancel-remove" };
@@ -211,86 +206,47 @@ export interface MenuModel {
   note: string | null;
   /** Hide/Show. Null for a feed row. */
   toggle: MenuItemModel | null;
-  /** Favorite/Unfavorite. Null when the extension is not in play at all. */
-  favorite: MenuItemModel | null;
-  views: MenuItemModel[];
+  /** Pin/Unpin. Always offered: pins fall back to this device without the extension. */
+  pin: MenuItemModel | null;
   /** Remove, for a feed row. Replaced by `confirm` once it is chosen. */
   remove: MenuItemModel | null;
   /** The second half of a removal: confirm or back out. Empty otherwise. */
   confirm: MenuItemModel[];
 }
 
-const VIEW_LABELS: Record<HiddenView, string> = {
-  hidden: "Hidden",
-  revealed: "Revealed",
-  only: "Only",
-};
 
 /**
- * The menu for one category row.
+ * The menu for one category row: hide or show it, pin or unpin it.
  *
- * `checked` follows `effectiveView`, not `view`: while locked the two differ,
- * and the one the extension is applying is the one worth a tick. Locked items
- * stay enabled — the server answers 423 with authoritative state and the write
- * layer reconciles it, which beats a dead menu with no explanation.
- *
- * `favorites` is optional so a caller with no favorites block at all gets no
- * favorite item, rather than an item it cannot describe. Once it is passed,
- * the item is drawn even when the extension is unavailable, disabled, so the
- * user learns why instead of wondering where it went.
+ * Views are not here on purpose. Revealing hidden categories from a row menu
+ * defeats the point of hiding them; the view lives on the sidebar band, next to
+ * the lock.
  */
-export function categoryMenu(
-  state: HiddenCategoriesState,
-  label: string,
-  favorites?: FavoritesState,
-): MenuModel {
+export function categoryMenu(state: HiddenCategoriesState, label: string, pinned: boolean): MenuModel {
   const id = categoryIdForLabel(state, label);
   const hidden = isHiddenCategory(state, label);
   const usable = state.available && id !== null;
 
   const notes: string[] = [];
-  if (!state.available) {
-    notes.push("Hidden Categories is not available on this server.");
-  } else if (id === null) {
+  if (state.available && id === null) {
     notes.push("This category has no id on the server, so it cannot be hidden.");
-  } else if (state.locked) {
-    notes.push("The extension is locked; the server will refuse changes.");
-  }
-
-  let favorite: MenuItemModel | null = null;
-  if (favorites !== undefined) {
-    const favoriteId = favoriteIdForLabel(favorites, label);
-    const isFavorite = favoriteId !== null && favorites.ids.includes(favoriteId);
-    if (!favorites.available) {
-      notes.push("Favorite Categories is not available on this server.");
-    } else if (favoriteId === null) {
-      notes.push("This category has no id on the server, so it cannot be favorited.");
-    }
-    favorite = {
-      action: { type: "favorite", favorite: !isFavorite },
-      label: isFavorite ? "Unfavorite" : "Favorite",
-      checked: false,
-      disabled: !favorites.available || favoriteId === null,
-    };
+  } else if (state.available && state.locked) {
+    notes.push("Hidden Categories is locked; the server will refuse changes.");
   }
 
   return {
     kind: "category",
     label,
     note: notes.length === 0 ? null : notes.join(" "),
-    toggle: {
-      action: { type: "hidden", hidden: !hidden },
-      label: hidden ? "Show" : "Hide",
-      checked: false,
-      disabled: !usable,
-    },
-    favorite,
-    views: HIDDEN_VIEWS.map((view) => ({
-      action: { type: "view", view },
-      label: VIEW_LABELS[view],
-      checked: state.available && view === state.effectiveView,
-      disabled: !state.available,
-    })),
+    toggle: state.available
+      ? {
+          action: { type: "hidden", hidden: !hidden },
+          label: hidden ? "Show" : "Hide",
+          checked: false,
+          disabled: !usable,
+        }
+      : null,
+    pin: { action: { type: "pin", pinned: !pinned }, label: pinned ? "Unpin" : "Pin", checked: false, disabled: false },
     remove: null,
     confirm: [],
   };
@@ -304,14 +260,15 @@ export function categoryMenu(
  * for the removal, then confirming it. `confirm` is that second step; it holds
  * both answers, so backing out is as reachable as going ahead.
  */
-export function feedMenu(title: string, confirming: boolean): MenuModel {
+export function feedMenu(title: string, confirming: boolean, pinned = false): MenuModel {
   return {
     kind: "feed",
     label: title,
     note: confirming ? "This removes the feed and its unread items from the server." : null,
     toggle: null,
-    favorite: null,
-    views: [],
+    pin: confirming
+      ? null
+      : { action: { type: "pin", pinned: !pinned }, label: pinned ? "Unpin" : "Pin", checked: false, disabled: false },
     remove: confirming
       ? null
       : {

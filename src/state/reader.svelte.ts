@@ -47,6 +47,16 @@ import {
 } from "./favorites";
 import { effectiveView, visibleGroups } from "./hidden";
 import { StreamCache } from "./stream-cache";
+import {
+  arrangeByPins,
+  emptyPins,
+  nextPinView,
+  parsePins,
+  withPinned,
+  type LocalPins,
+  type PinView,
+} from "./pins";
+import { pruneStreams, readCached, scopeKey, writeCached } from "./persist";
 import { applyHiddenWrite, withCategoryHidden, withView, type HiddenWriteOutcome } from "./hidden-write";
 import type { WriteOutcome } from "./write";
 
@@ -56,6 +66,24 @@ const STREAM_CACHE_TTL_MS = 60_000;
 const STREAM_CACHE_MAX = 20;
 /** Speculative fetches never exceed this many concurrent requests. */
 const PREFETCH_MAX_INFLIGHT = 2;
+/** Past this many feeds, categories start folded so the sidebar draws quickly. */
+const LARGE_SIDEBAR_FEEDS = 150;
+
+interface DiskStream {
+  items: StreamItem[];
+  continuation?: string;
+}
+
+interface SidebarSnapshot {
+  subscriptions: Subscription[];
+  tags: Tag[];
+  counts: { id: string; count: number }[];
+  api?: {
+    hiddenCategories: HiddenCategoriesState;
+    favorites: FavoritesState;
+    sidebarIndent: SidebarIndentState;
+  };
+}
 
 /** Abort surfaces as a DOMException; it is not an error worth showing. */
 function aborted(error: unknown): boolean {
@@ -120,6 +148,17 @@ export class ReaderState {
   favoritesBusy = $state(false);
 
   /**
+   * Pins kept on this device: every feed pin, and category pins when the
+   * server has no Favorite Categories to hold them.
+   */
+  localPins = $state<LocalPins>(emptyPins());
+
+  /** The sidebar band (hidden / lock / pin) folded away, per account. */
+  bandCollapsed = $state(false);
+  /** Categories folded shut, per account, so a big sidebar stays short. */
+  collapsedCategories = $state<Record<string, boolean>>({});
+
+  /**
    * Sidebar feed indentation. Always holds a usable number: the fallback when
    * the extension is absent, the clamped server value when it is not.
    */
@@ -147,8 +186,8 @@ export class ReaderState {
     const menu = this.menu;
     if (menu === null) return null;
     return menu.target.kind === "category"
-      ? categoryMenu(this.hiddenCategories, menu.target.label, this.favorites)
-      : feedMenu(menu.target.title, menu.confirming);
+      ? categoryMenu(this.hiddenCategories, menu.target.label, this.isCategoryPinned(menu.target.label))
+      : feedMenu(menu.target.title, menu.confirming, this.isFeedPinned(menu.target.id));
   }
 
   /** The view the extension is actually applying. */
@@ -200,9 +239,122 @@ export class ReaderState {
     return id !== null && this.favorites.ids.includes(id);
   }
 
+  /** Where category pins live: the server's favourites when it has them. */
+  get pinSource(): "server" | "local" {
+    return this.favorites.available ? "server" : "local";
+  }
+
+  isCategoryPinned(label: string): boolean {
+    return this.pinSource === "server"
+      ? this.isFavorite(label)
+      : this.localPins.categories.includes(label);
+  }
+
+  isFeedPinned(streamId: string): boolean {
+    return this.localPins.feeds.includes(streamId);
+  }
+
+  get pinView(): PinView {
+    return this.pinSource === "server" ? this.favorites.view : this.localPins.view;
+  }
+
+  /** How many categories are pinned, for the status strip. */
+  get pinnedCount(): number {
+    return this.allCategories.filter((group) => this.isCategoryPinned(group.label)).length +
+      this.localPins.feeds.length;
+  }
+
+  /** How many categories the extension hides. Never drawn while locked. */
+  get hiddenCount(): number {
+    return this.hiddenCategories.available ? this.hiddenCategories.hiddenIds.length : 0;
+  }
+
+  get hiddenLocked(): boolean {
+    return this.hiddenCategories.available && this.hiddenCategories.locked;
+  }
+
+  /** Pins or unpins a category on the server when it can, locally otherwise. */
+  async setCategoryPinned(label: string, pinned: boolean): Promise<void> {
+    if (this.pinSource === "server" && this.favoriteId(label) !== null) {
+      await this.setCategoryFavorite(label, pinned);
+      return;
+    }
+    this.updateLocalPins({ categories: withPinned(this.localPins.categories, label, pinned) });
+  }
+
+  setFeedPinned(streamId: string, pinned: boolean): void {
+    this.updateLocalPins({ feeds: withPinned(this.localPins.feeds, streamId, pinned) });
+  }
+
+  /** One click on the band's pin control: the next view in the cycle. */
+  async cyclePinView(): Promise<void> {
+    const next = nextPinView(this.pinView);
+    if (this.pinSource === "server") {
+      await this.setFavoritesView(next);
+      return;
+    }
+    this.updateLocalPins({ view: next });
+  }
+
+  toggleBand(): void {
+    this.bandCollapsed = !this.bandCollapsed;
+    this.savePrefs();
+  }
+
+  toggleCategory(id: string): void {
+    this.collapsedCategories = { ...this.collapsedCategories, [id]: !this.isCategoryCollapsed(id) };
+    this.savePrefs();
+  }
+
+  /**
+   * Large sidebars start folded: drawing thousands of feed rows is what made a
+   * big account slow to show. Small ones start open, as before.
+   */
+  isCategoryCollapsed(id: string): boolean {
+    const stored = this.collapsedCategories[id];
+    return stored ?? this.subscriptions.length > LARGE_SIDEBAR_FEEDS;
+  }
+
+  private updateLocalPins(change: Partial<LocalPins>): void {
+    this.localPins = { ...this.localPins, ...change };
+    this.savePrefs();
+  }
+
+  private prefsKey(): string | null {
+    const session = this.session;
+    return session === null ? null : `hardlyreader:prefs:${session.serverUrl}|${session.email}`;
+  }
+
+  private loadPrefs(): void {
+    const key = this.prefsKey();
+    if (key === null || typeof localStorage === "undefined") return;
+    try {
+      const raw = JSON.parse(localStorage.getItem(key) ?? "null") as Record<string, unknown> | null;
+      this.localPins = parsePins(raw?.pins);
+      this.bandCollapsed = raw?.bandCollapsed === true;
+      const collapsed = raw?.collapsed;
+      this.collapsedCategories =
+        typeof collapsed === "object" && collapsed !== null ? (collapsed as Record<string, boolean>) : {};
+    } catch {
+      this.localPins = emptyPins();
+    }
+  }
+
+  private savePrefs(): void {
+    const key = this.prefsKey();
+    if (key === null || typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(
+        key,
+        JSON.stringify({ pins: this.localPins, bandCollapsed: this.bandCollapsed, collapsed: this.collapsedCategories }),
+      );
+    } catch {
+      /* storage full or blocked: preferences just do not persist */
+    }
+  }
+
   /** Opens the menu for a category row. Does nothing without the extension. */
   openCategoryMenu(label: string, point: Point): void {
-    if (!this.hiddenAvailable) return;
     this.menu = { x: point.x, y: point.y, target: { kind: "category", label }, confirming: false };
   }
 
@@ -249,12 +401,11 @@ export class ReaderState {
       case "hidden":
         this.menu = null;
         return target.kind === "category" ? this.setCategoryHidden(target.label, action.hidden) : null;
-      case "favorite":
+      case "pin":
         this.menu = null;
-        return target.kind === "category" ? this.setCategoryFavorite(target.label, action.favorite) : null;
-      case "view":
-        this.menu = null;
-        return this.setHiddenView(action.view);
+        if (target.kind === "category") await this.setCategoryPinned(target.label, action.pinned);
+        else this.setFeedPinned(target.id, action.pinned);
+        return null;
     }
   }
 
@@ -396,7 +547,12 @@ export class ReaderState {
 
   /** The sidebar's categories, with the hidden-categories view applied. */
   get categories(): CategoryGroup[] {
-    return visibleGroups(this.allCategories, this.hiddenCategories);
+    return arrangeByPins(
+      visibleGroups(this.allCategories, this.hiddenCategories),
+      this.pinView,
+      (label) => this.isCategoryPinned(label),
+      (id) => this.isFeedPinned(id),
+    );
   }
 
   countFor(id: string): number {
@@ -413,7 +569,46 @@ export class ReaderState {
   async start(session: Session): Promise<void> {
     this.session = session;
     this.error = null;
+    this.loadPrefs();
+    // Paint what we had last time before asking the network for anything.
+    await this.hydrateSidebar();
     await Promise.all([this.loadSidebar(), this.openStream(READING_LIST, "Reading list")]);
+  }
+
+  private diskKey(name: string): string | null {
+    const session = this.session;
+    return session === null ? null : scopeKey(session.serverUrl, session.email, name);
+  }
+
+  private async hydrateSidebar(): Promise<void> {
+    const key = this.diskKey("sidebar");
+    if (key === null) return;
+    const cached = await readCached<SidebarSnapshot>(key);
+    if (cached === undefined || this.subscriptions.length > 0) return;
+    const snapshot = cached.value;
+    this.subscriptions = snapshot.subscriptions;
+    this.tags = snapshot.tags;
+    this.setCounts(snapshot.counts);
+    if (snapshot.api !== undefined) {
+      this.hiddenCategories = snapshot.api.hiddenCategories;
+      this.favorites = snapshot.api.favorites;
+      this.sidebarIndent = snapshot.api.sidebarIndent;
+    }
+  }
+
+  private persistSidebar(counts: { id: string; count: number }[]): void {
+    const key = this.diskKey("sidebar");
+    if (key === null) return;
+    void writeCached<SidebarSnapshot>(key, {
+      subscriptions: this.subscriptions,
+      tags: this.tags,
+      counts,
+      api: {
+        hiddenCategories: this.hiddenCategories,
+        favorites: this.favorites,
+        sidebarIndent: this.sidebarIndent,
+      },
+    });
   }
 
   stop(): void {
@@ -433,6 +628,9 @@ export class ReaderState {
     this.feedBusy = false;
     this.addFeedError = null;
     this.menu = null;
+    this.localPins = emptyPins();
+    this.bandCollapsed = false;
+    this.collapsedCategories = {};
   }
 
   async loadSidebar(): Promise<void> {
@@ -448,6 +646,7 @@ export class ReaderState {
       this.subscriptions = subscriptions;
       this.tags = tags;
       this.setCounts(counts);
+      this.persistSidebar(counts);
     } catch (error) {
       this.error = message(error);
     }
@@ -577,6 +776,10 @@ export class ReaderState {
 
   private rememberStream(stream: string, items: StreamItem[], continuation: string | undefined): void {
     this.streamCache.set(stream, items, continuation);
+    const key = this.diskKey(`stream:${stream}`);
+    const prefix = this.diskKey("stream:");
+    if (key === null || prefix === null) return;
+    void writeCached<DiskStream>(key, { items, continuation }).then(() => pruneStreams(prefix));
   }
 
   /** Keeps the cache in step after a local edit (read, star, page load). */
@@ -626,8 +829,26 @@ export class ReaderState {
     const stream = this.activeStream;
     const token = ++this.streamToken;
 
-    const cached = this.streamCache.peek(stream);
-    const fresh = this.streamCache.fresh(stream) !== undefined;
+    let cached = this.streamCache.peek(stream);
+    if (cached === undefined) {
+      // Never show one stream's articles under another's title, even for the
+      // few milliseconds a disk read takes.
+      if (this.items.length > 0) {
+        this.items = [];
+        this.continuation = undefined;
+      }
+      this.loadingList = true;
+      // Not in memory this session: the disk may still have it from last time.
+      const key = this.diskKey(`stream:${stream}`);
+      const disk = key === null ? undefined : await readCached<DiskStream>(key);
+      if (token !== this.streamToken || this.activeStream !== stream) return;
+      if (disk !== undefined) {
+        this.streamCache.set(stream, disk.value.items, disk.value.continuation);
+        // Seeded from disk: paint now, but always revalidate.
+        cached = { ...disk.value, at: 0 };
+      }
+    }
+    const fresh = this.streamCache.fresh(stream) !== undefined && cached?.at !== 0;
     if (cached !== undefined) {
       this.items = cached.items;
       this.continuation = cached.continuation;

@@ -55,7 +55,9 @@ function buildReaderModule() {
     .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
     .replaceAll('"./favorites"', JSON.stringify(absolute("src/state/favorites.ts")))
     .replaceAll('"./write"', JSON.stringify(absolute("src/state/write.ts")))
-    .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")));
+    .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")))
+    .replaceAll('"./pins"', JSON.stringify(absolute("src/state/pins.ts")))
+    .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")));
 }
 
 const api = await import(absolute("src/api/hardlyread.ts"));
@@ -403,40 +405,21 @@ const hiddenState = api.parseState({
 });
 
 {
-  const menu = categoryMenu(hiddenState, "Comics", parseFavorites(favoritesBody({ ids: [] })));
-  check("a category row offers Favorite", menu.favorite?.label === "Favorite", String(menu.favorite?.label));
-  check("...enabled when the extension is there", menu.favorite?.disabled === false);
+  // The row menu says Pin; whether the pin lands on the server or on this
+  // device is the reader's business, so the model only needs the current state.
+  const menu = categoryMenu(hiddenState, "Comics", false);
+  check("a category row offers Pin", menu.pin?.label === "Pin", String(menu.pin?.label));
+  check("...enabled", menu.pin?.disabled === false);
   check("...and no note", menu.note === null, String(menu.note));
-}
-
-{
-  const menu = categoryMenu(hiddenState, "Comics", parseFavorites(favoritesBody()));
-  check("a favorite offers Unfavorite", menu.favorite?.label === "Unfavorite", String(menu.favorite?.label));
-  check("Unfavorite asks for favorite:false", menu.favorite?.action.type === "favorite" && menu.favorite.action.favorite === false);
-}
-
-{
-  const menu = categoryMenu(hiddenState, "Comics", unavailableFavorites());
-  check("without the favorites extension the item is disabled", menu.favorite?.disabled === true);
-  check("...and the note says why", /Favorite Categories is not available/.test(menu.note ?? ""), String(menu.note));
-}
-
-{
-  const menu = categoryMenu(hiddenState, "Cooking", parseFavorites(favoritesBody()));
-  check("a category with no id cannot be favorited", menu.favorite?.disabled === true);
-  check("...and the note says so", /cannot be favorited/.test(menu.note ?? ""), String(menu.note));
-}
-
-{
-  const menu = categoryMenu(hiddenState, "Comics");
-  check("a caller with no favorites block gets no favorite item", menu.favorite === null);
+  check("a pinned row offers Unpin", categoryMenu(hiddenState, "Comics", true).pin?.label === "Unpin");
 }
 
 {
   const asked = feedMenu("Ars Technica", false);
   check("a feed row offers removal", asked.remove?.label === "Remove feed…", String(asked.remove?.label));
   check("...and no confirmation yet", asked.confirm.length === 0);
-  check("...and none of the category items", asked.toggle === null && asked.favorite === null && asked.views.length === 0);
+  check("...and no hide item", asked.toggle === null);
+  check("...but it can be pinned", asked.pin?.label === "Pin");
   check("...and no note before asking", asked.note === null, String(asked.note));
 
   const confirming = feedMenu("Ars Technica", true);
@@ -678,13 +661,45 @@ try {
   }
 
   {
+    // Server pins: with Favorite Categories enabled, a pin is the extension's
+    // favourite, so the FreshRSS web sidebar agrees with the app.
+    const reader = fresh();
+    check("pins live on the server when the extension is there", reader.pinSource === "server");
+    reply = () => ({ status: 200, body: { ok: true, changed: true, favorites: favoritesBody({ ids: [7], categories: [{ id: 3, name: "Comics", favorite: false }, { id: 7, name: "Art", favorite: true }] }) } });
+    reader.openCategoryMenu("Art", { x: 0, y: 0 });
+    check("the menu offers Pin", reader.menuModel?.pin?.label === "Pin");
+    await reader.applyMenuAction({ type: "pin", pinned: true });
+    check("a pin writes the favourite on the server", calls.length === 1 && calls[0].url.endsWith("/v1/favorites/7") && calls[0].body === '{"favorite":true}', calls.map((c) => c.url).join(","));
+    check("Art is pinned", reader.isCategoryPinned("Art") === true);
+    check("pinned categories sort first", reader.categories.map((g) => g.label).join(",") === "Art,Technology", reader.categories.map((g) => g.label).join(","));
+    check("nothing was kept locally", reader.localPins.categories.length === 0);
+  }
+
+  {
+    // Local pins: no extension, no request, the pin still works on this device.
     const reader = fresh();
     reader.favorites = unavailableFavorites();
-    reader.openCategoryMenu("Comics", { x: 0, y: 0 });
-    check("the category menu still opens for hidden state", reader.menu !== null);
-    check("...with the favorite item disabled, not missing", reader.menuModel?.favorite?.disabled === true);
-    check("...and the reason in the note", /Favorite Categories is not available/.test(reader.menuModel?.note ?? ""), String(reader.menuModel?.note));
+    check("pins fall back to this device", reader.pinSource === "local");
+    reader.openCategoryMenu("Technology", { x: 0, y: 0 });
+    check("the category menu opens without the favourites extension", reader.menu !== null && reader.menuModel?.pin?.disabled === false);
+    await reader.applyMenuAction({ type: "pin", pinned: true });
+    check("a local pin sends nothing", calls.length === 0, `${calls.length} request(s)`);
+    check("Technology is pinned locally", reader.isCategoryPinned("Technology") && reader.localPins.categories.includes("Technology"));
+    check("pinned categories sort first", reader.categories[0].label === "Technology", reader.categories.map((g) => g.label).join(","));
+
+    await reader.cyclePinView();
+    check("the band's pin control filters to pinned only", reader.pinView === "only" && reader.categories.map((g) => g.label).join(",") === "Technology", reader.categories.map((g) => g.label).join(","));
+    await reader.cyclePinView();
+    check("...then to unpinned only", reader.pinView === "without" && reader.categories.map((g) => g.label).join(",") === "Art", reader.categories.map((g) => g.label).join(","));
+    await reader.cyclePinView();
+    check("...then back to mixed", reader.pinView === "all" && reader.categories.length === 2);
+    check("the view never touched the server", calls.length === 0);
+
+    reader.setFeedPinned("feed/1", true);
+    check("a feed pin is local", reader.isFeedPinned("feed/1") && calls.length === 0);
+    check("the pinned count covers categories and feeds", reader.pinnedCount === 2, String(reader.pinnedCount));
   }
+
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });
 }

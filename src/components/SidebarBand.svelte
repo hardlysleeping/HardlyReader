@@ -1,0 +1,247 @@
+<script lang="ts">
+  import type { HiddenView } from "../api/hardlyread";
+  import { PIN_VIEW_LABELS, nextPinView } from "../state/pins";
+  import { reader } from "../state/reader.svelte";
+
+  /** Hidden Categories' own words for its three views, in its own order. */
+  const HIDDEN_CYCLE: HiddenView[] = ["hidden", "revealed", "only"];
+  const HIDDEN_LABELS: Record<HiddenView, string> = {
+    hidden: "Hidden",
+    revealed: "Revealed",
+    only: "Only",
+  };
+
+  let lockOpen = $state(false);
+
+  const hiddenView = $derived(reader.hiddenView);
+  const nextHidden = $derived(HIDDEN_CYCLE[(HIDDEN_CYCLE.indexOf(hiddenView) + 1) % HIDDEN_CYCLE.length]);
+  const locked = $derived(reader.hiddenLocked);
+  const pinView = $derived(reader.pinView);
+
+  function cycleHidden() {
+    if (!reader.hiddenAvailable || locked) return;
+    void reader.setHiddenView(nextHidden);
+  }
+
+  function cyclePins() {
+    void reader.cyclePinView();
+  }
+</script>
+
+{#if reader.bandCollapsed}
+  <button class="handle" onclick={() => reader.toggleBand()} aria-expanded="false" aria-label="Show sidebar controls">
+    <span class="grip" aria-hidden="true"></span>
+  </button>
+{:else}
+  <div class="band" class:locked>
+    <button
+      class="ctl"
+      class:active={hiddenView !== "hidden"}
+      onclick={cycleHidden}
+      disabled={!reader.hiddenAvailable || locked || reader.hiddenBusy}
+      title={reader.hiddenAvailable
+        ? locked
+          ? "Locked"
+          : `${HIDDEN_LABELS[hiddenView]} — click for ${HIDDEN_LABELS[nextHidden]}`
+        : "Hidden Categories is not enabled on this server"}
+      aria-label={`Hidden categories: ${HIDDEN_LABELS[hiddenView]}`}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        {#if hiddenView === "hidden"}
+          <path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3.1 4.2M6.6 6.6C4.3 8 2.7 10.2 2 12c1 2.5 5 7 10 7a9.9 9.9 0 0 0 5.4-1.6" />
+        {:else}
+          <path d="M2 12c1-2.5 5-7 10-7s9 4.5 10 7c-1 2.5-5 7-10 7S3 14.5 2 12z" />
+          <circle cx="12" cy="12" r="3" />
+        {/if}
+      </svg>
+      {#if !locked}<span class="lbl">{HIDDEN_LABELS[hiddenView]}</span>{/if}
+    </button>
+
+    <button
+      class="ctl lock"
+      class:active={locked}
+      onclick={() => (lockOpen = !lockOpen)}
+      disabled={!reader.hiddenAvailable}
+      aria-expanded={lockOpen}
+      title={locked ? "Locked" : "Unlocked"}
+      aria-label={locked ? "Hidden categories are locked" : "Hidden categories are unlocked"}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        {#if locked}
+          <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+        {:else}
+          <path d="M8 11V8a4 4 0 0 1 7.5-2" />
+        {/if}
+      </svg>
+    </button>
+
+    <button
+      class="ctl"
+      class:active={pinView !== "all"}
+      onclick={cyclePins}
+      disabled={reader.favoritesBusy}
+      title={`${PIN_VIEW_LABELS[pinView]} — click for ${PIN_VIEW_LABELS[nextPinView(pinView)]}${
+        reader.pinSource === "local" ? " (pins kept on this device)" : ""
+      }`}
+      aria-label={`Pins: ${PIN_VIEW_LABELS[pinView]}`}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
+      </svg>
+      {#if !locked}<span class="lbl">{PIN_VIEW_LABELS[pinView]}</span>{/if}
+    </button>
+
+    <button class="fold" onclick={() => reader.toggleBand()} aria-expanded="true" aria-label="Hide sidebar controls" title="Hide controls">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
+    </button>
+  </div>
+
+  {#if lockOpen}
+    <div class="lockpanel" role="region" aria-label="Lock">
+      {#if locked}
+        <p>Hidden Categories is locked. Unlock it in FreshRSS; unlocking with your passcode from here is next on the list.</p>
+      {:else}
+        <p>Unlocked. Locking is set in FreshRSS, under Hidden Categories.</p>
+      {/if}
+      <button class="close" onclick={() => (lockOpen = false)}>Close</button>
+    </div>
+  {/if}
+{/if}
+
+<style>
+  .band {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr 22px;
+    align-items: stretch;
+    gap: 4px;
+    margin: 6px 8px 8px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--band, #2f2f2f);
+  }
+
+  .band.locked {
+    background: var(--band-locked, #212121);
+  }
+
+  .ctl {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: 40px;
+    padding: 4px 6px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .ctl.lock {
+    min-width: 40px;
+  }
+
+  .ctl:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  .ctl.active {
+    color: var(--text);
+    border-color: var(--accent, #0062b7);
+  }
+
+  .ctl:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .locked .ctl {
+    min-height: 30px;
+  }
+
+  svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .lbl {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .fold {
+    align-self: start;
+    padding: 2px;
+    border: 0;
+    background: none;
+    color: var(--text-dim);
+    opacity: 0.6;
+    cursor: pointer;
+  }
+
+  .fold:hover {
+    opacity: 1;
+  }
+
+  .fold svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .handle {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    padding: 4px 0 6px;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+
+  .grip {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    transition: background 0.15s;
+  }
+
+  .handle:hover .grip,
+  .handle:focus-visible .grip {
+    background: var(--text-dim);
+  }
+
+  .lockpanel {
+    margin: -2px 8px 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .lockpanel p {
+    margin: 0 0 6px;
+  }
+
+  .close {
+    border: 0;
+    background: none;
+    color: var(--accent, #0078e0);
+    font: inherit;
+    padding: 0;
+    cursor: pointer;
+  }
+</style>

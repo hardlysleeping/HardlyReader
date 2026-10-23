@@ -166,16 +166,16 @@
     >{toggle.label}</button>
   {/if}
 
-  {#if model.favorite}
-    {@const favorite = model.favorite}
+  {#if model.pin}
+    {@const pin = model.pin}
     <button
       class="item"
       role="menuitem"
-      disabled={favorite.disabled || busy}
-      onclick={() => onselect(favorite.action)}
+      disabled={pin.disabled || busy}
+      onclick={() => onselect(pin.action)}
     >
-      <span class="tick" aria-hidden="true">{favorite.checked ? "✓" : ""}</span>
-      <span class="option">{favorite.label}</span>
+      <span class="pin-glyph" aria-hidden="true">📌</span>
+      <span class="option">{pin.label}</span>
     </button>
   {/if}
 
@@ -202,26 +202,6 @@
           disabled={item.disabled || busy}
           onclick={() => onselect(item.action)}
         >{item.label}</button>
-      {/each}
-    </div>
-  {/if}
-
-  {#if model.views.length > 0}
-    <div class="separator" role="separator"></div>
-
-    <div role="group" aria-label="View">
-      <p class="group-label" aria-hidden="true">View</p>
-      {#each model.views as item (item.label)}
-        <button
-          class="item checkable"
-          role="menuitemradio"
-          aria-checked={item.checked}
-          disabled={item.disabled || busy}
-          onclick={() => onselect(item.action)}
-        >
-          <span class="tick" aria-hidden="true">{item.checked ? "✓" : ""}</span>
-          <span class="option">{item.label}</span>
-        </button>
       {/each}
     </div>
   {/if}
@@ -283,9 +263,6 @@
     cursor: default;
   }
 
-  .checkable {
-    padding-left: 2px;
-  }
 
   .danger {
     color: #d9534f;
@@ -296,23 +273,11 @@
     background: rgb(217 83 79 / 14%);
   }
 
-  .tick {
-    width: 14px;
-    font-size: 11px;
-    color: var(--accent-text);
-  }
 
   .option {
     flex: 1;
   }
 
-  .group-label {
-    margin: 4px 8px 2px;
-    font-size: 10.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-  }
 
   .separator {
     height: 1px;

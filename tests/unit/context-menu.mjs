@@ -15,6 +15,7 @@ import {
   anchorForRect,
   armsLongPress,
   categoryMenu,
+  feedMenu,
   isMenuKey,
   placeMenu,
 } from "../../src/lib/contextmenu.ts";
@@ -231,7 +232,7 @@ function state(overrides = {}) {
 }
 
 {
-  const menu = categoryMenu(state(), "Technology");
+  const menu = categoryMenu(state(), "Technology", false);
   check("a shown row says Show", menu.toggle.label === "Show", menu.toggle.label);
   check("Show asks the server for hidden:false", menu.toggle.action.type === "hidden" && menu.toggle.action.hidden === false);
   check("Show is enabled when the category is known", menu.toggle.disabled === false);
@@ -240,37 +241,46 @@ function state(overrides = {}) {
 }
 
 {
-  const menu = categoryMenu(state(), "Art");
+  const menu = categoryMenu(state(), "Art", false);
   check("a hidden-capable row says Hide", menu.toggle.label === "Hide", menu.toggle.label);
   check("Hide asks the server for hidden:true", menu.toggle.action.hidden === true);
 }
 
 {
-  const menu = categoryMenu(state(), "Uncategorized");
+  const menu = categoryMenu(state(), "Uncategorized", false);
   check("an unknown category cannot be toggled", menu.toggle.disabled === true);
   check("...and the note says why", /no id/.test(menu.note ?? ""), String(menu.note));
-  check("the views are still offered", menu.views.length === 3 && menu.views.every((item) => item.disabled === false));
+  check("...but it can still be pinned", menu.pin.disabled === false);
 }
 
 {
-  const menu = categoryMenu(parseState({ available: false }), "Technology");
-  check("without the extension nothing is usable", menu.toggle.disabled === true && menu.views.every((item) => item.disabled === true));
-  check("...and the note says so", /not available/.test(menu.note ?? ""), String(menu.note));
-  check("...and no view is ticked", menu.views.every((item) => item.checked === false));
+  const menu = categoryMenu(parseState({ available: false }), "Technology", false);
+  check("without Hidden Categories there is no hide item at all", menu.toggle === null);
+  check("...pinning is still offered, because pins fall back to this device", menu.pin !== null && menu.pin.disabled === false);
+  check("...and nothing complains about a missing extension", menu.note === null, String(menu.note));
 }
 
 {
-  const menu = categoryMenu(state(), "Technology");
-  check("the view selector uses the extension's three words", menu.views.map((item) => item.label).join(",") === "Hidden,Revealed,Only", menu.views.map((item) => item.label).join(","));
-  check("the applied view is ticked", menu.views.filter((item) => item.checked).map((item) => item.label).join(",") === "Hidden");
-  check("view items carry the view value", menu.views[1].action.type === "view" && menu.views[1].action.view === "revealed");
+  // Views do not belong in a row menu: revealing hidden rows from a row menu
+  // defeats hiding them. They live on the sidebar band.
+  const menu = categoryMenu(state(), "Technology", false);
+  check("a category menu offers no view entries", !("views" in menu));
+  check("an unpinned category offers Pin", menu.pin.label === "Pin" && menu.pin.action.pinned === true);
+  check("a pinned category offers Unpin", categoryMenu(state(), "Technology", true).pin.label === "Unpin");
+  check("Unpin asks for pinned:false", categoryMenu(state(), "Technology", true).pin.action.pinned === false);
 }
 
 {
-  const menu = categoryMenu(state({ view: "revealed", effectiveView: "hidden", locked: true }), "Technology");
+  const menu = categoryMenu(state({ view: "revealed", effectiveView: "hidden", locked: true }), "Technology", false);
   check("a locked extension is announced", /locked/.test(menu.note ?? ""), String(menu.note));
-  check("the tick follows effectiveView while locked", menu.views.filter((item) => item.checked).map((item) => item.label).join(",") === "Hidden");
-  check("locked items stay clickable so the server can answer", menu.views.every((item) => item.disabled === false));
+  check("locked items stay clickable so the server can answer", menu.toggle.disabled === false);
+}
+
+{
+  const menu = feedMenu("Ars Technica", false, false);
+  check("a feed can be pinned", menu.pin?.label === "Pin");
+  check("a pinned feed can be unpinned", feedMenu("Ars Technica", false, true).pin?.label === "Unpin");
+  check("confirming a removal hides the pin item", feedMenu("Ars Technica", true, false).pin === null);
 }
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

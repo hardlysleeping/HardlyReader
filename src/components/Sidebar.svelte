@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SidebarBand from "./SidebarBand.svelte";
   import { READING_LIST, STATE_STARRED, type Subscription } from "../api/freshrss";
   import {
     LongPressTracker,
@@ -10,7 +11,6 @@
 
   let { onNavigate }: { onNavigate?: () => void } = $props();
 
-  let collapsed = $state<Record<string, boolean>>({});
 
   /** The add-feed form: closed until asked for, so the sidebar stays a list. */
   let adding = $state(false);
@@ -24,7 +24,7 @@
   let press: LongPressTracker | null = null;
 
   function toggle(id: string) {
-    collapsed = { ...collapsed, [id]: !collapsed[id] };
+    reader.toggleCategory(id);
   }
 
   async function open(streamId: string, title: string) {
@@ -48,10 +48,6 @@
     void open(feed.id, feed.title);
   }
 
-  /** Favorites the category, or takes the star back. */
-  function toggleFavorite(category: CategoryGroup) {
-    void reader.setCategoryFavorite(category.label, !reader.isFavorite(category.label));
-  }
 
   /**
    * Right-click. A category row needs the extension: without it there is
@@ -59,7 +55,6 @@
    * a dead one. A feed row always has removal to offer.
    */
   function onCategoryContextMenu(event: MouseEvent, category: CategoryGroup) {
-    if (!reader.hiddenAvailable) return;
     event.preventDefault();
     reader.openCategoryMenu(category.label, { x: event.clientX, y: event.clientY });
   }
@@ -71,7 +66,7 @@
 
   /** Shift+F10 and the context-menu key: same menu, anchored to the row. */
   function onCategoryKeydown(event: KeyboardEvent, category: CategoryGroup) {
-    if (!reader.hiddenAvailable || !isMenuKey(event)) return;
+    if (!isMenuKey(event)) return;
     event.preventDefault();
     const anchor = anchorForRect((event.currentTarget as HTMLElement).getBoundingClientRect());
     reader.openCategoryMenu(category.label, anchor);
@@ -101,7 +96,6 @@
   }
 
   function onCategoryPointerDown(event: PointerEvent, category: CategoryGroup) {
-    if (!reader.hiddenAvailable) return;
     armPress(event, (point) => reader.openCategoryMenu(category.label, point));
   }
 
@@ -140,6 +134,8 @@
 </script>
 
 <nav class="sidebar" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
+  <SidebarBand />
+
   <div class="section">
     <button
       class="row strong"
@@ -160,8 +156,8 @@
   </div>
 
   {#each reader.categories as category (category.id)}
-    {@const isFavorite = reader.isFavorite(category.label)}
-    {@const favoriteReady = reader.favoriteId(category.label) !== null}
+    {@const pinned = reader.isCategoryPinned(category.label)}
+    {@const folded = reader.isCategoryCollapsed(category.id)}
     <div class="section">
       <div class="group">
         <button
@@ -177,30 +173,21 @@
           onpointerup={cancelPress}
           onpointercancel={cancelPress}
           onpointerleave={cancelPress}
-          aria-haspopup={reader.hiddenAvailable ? "menu" : undefined}
+          aria-haspopup="menu"
         >
-          <span class="chevron" class:closed={collapsed[category.id]} aria-hidden="true">▾</span>
+          <span class="chevron" class:closed={folded} aria-hidden="true">▾</span>
+          {#if pinned}<span class="pin" title="Pinned" aria-label="Pinned">📌</span>{/if}
           <span class="label">{category.label}</span>
           <span class="count">{reader.countFor(category.id)}</span>
         </button>
-        {#if reader.favoritesAvailable}
-          <button
-            class="star"
-            class:on={isFavorite}
-            aria-label={isFavorite ? `Unfavorite ${category.label}` : `Favorite ${category.label}`}
-            aria-pressed={isFavorite}
-            disabled={reader.favoritesBusy || !favoriteReady}
-            onclick={() => toggleFavorite(category)}
-          >{isFavorite ? "★" : "☆"}</button>
-        {/if}
         <button
           class="toggle"
-          aria-label={collapsed[category.id] ? "Expand" : "Collapse"}
+          aria-label={folded ? "Expand" : "Collapse"}
           onclick={() => toggle(category.id)}
         ></button>
       </div>
 
-      {#if !collapsed[category.id]}
+      {#if !folded}
         {#each category.feeds as feed (feed.id)}
           <button
             class="row feed"
@@ -218,6 +205,7 @@
             aria-haspopup="menu"
             title={feed.title}
           >
+            {#if reader.isFeedPinned(feed.id)}<span class="pin" aria-label="Pinned">📌</span>{/if}
             <span class="label">{feed.title}</span>
             {#if reader.countFor(feed.id) > 0}
               <span class="count">{reader.countFor(feed.id)}</span>
@@ -231,6 +219,16 @@
   {#if reader.subscriptions.length === 0 && !reader.loadingList}
     <p class="empty">No feeds yet.</p>
   {/if}
+
+  <div class="status" aria-live="polite">
+    {#if reader.hiddenAvailable && !reader.hiddenLocked && reader.hiddenCount > 0}
+      <span class="stat">Hidden <b>{reader.hiddenCount}</b></span>
+      {#if reader.hiddenCategories.mode === "strict"}<span class="badge">Enforced</span>{/if}
+    {/if}
+    {#if reader.pinnedCount > 0}
+      <span class="stat">Pinned <b>{reader.pinnedCount}</b></span>
+    {/if}
+  </div>
 
   <div class="add">
     {#if adding}
@@ -264,6 +262,42 @@
 </nav>
 
 <style>
+  .pin {
+    font-size: 10px;
+    line-height: 1;
+    opacity: 0.8;
+  }
+
+  .status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin: 14px 16px 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--text-dim);
+  }
+
+  .status:empty {
+    display: none;
+  }
+
+  .stat b {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .badge {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--hover);
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
   .sidebar {
     height: 100%;
     overflow-y: auto;
@@ -332,34 +366,9 @@
 
   /* The star sits at the row's right edge; the chevron's own toggle button
      stays on the left, so neither steals the other's clicks. */
-  .star {
-    position: absolute;
-    top: 50%;
-    right: 6px;
-    transform: translateY(-50%);
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--muted);
-    font-size: 13px;
-    line-height: 1;
-    cursor: pointer;
-  }
 
-  .star.on {
-    color: var(--star);
-  }
 
-  .star:hover:not(:disabled) {
-    color: var(--star);
-  }
 
-  .star:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
 
   /* A full-size sibling catches clicks on the chevron only, so the row itself
      stays a single click target for opening the category stream. */

@@ -59,7 +59,9 @@ function buildReaderModule() {
     .replaceAll('"./hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
     .replaceAll('"./favorites"', JSON.stringify(absolute("src/state/favorites.ts")))
     .replaceAll('"./write"', JSON.stringify(absolute("src/state/write.ts")))
-    .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")));
+    .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")))
+    .replaceAll('"./pins"', JSON.stringify(absolute("src/state/pins.ts")))
+    .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")));
 }
 
 function subscription(id, title, label) {
@@ -158,9 +160,10 @@ try {
   let releasePending;
   globalThis.fetch = () => new Promise((resolve) => { releasePending = resolve; });
   const pending = reader.openStream("feed/3", "Untagged");
-  await Promise.resolve();
   check("switching drops the previous stream's items immediately", reader.items.length === 0, `items=${reader.items.length}`);
   check("and says it is loading", reader.loadingList === true);
+  // The disk lookup comes first; let it settle so the network request is made.
+  for (let i = 0; i < 20 && releasePending === undefined; i += 1) await new Promise((r) => setTimeout(r, 0));
   releasePending(new Response(JSON.stringify({ items: [], continuation: null }), {
     status: 200,
     headers: { "Content-Type": "application/json" },

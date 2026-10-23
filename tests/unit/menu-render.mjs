@@ -17,7 +17,7 @@ import { pathToFileURL } from "node:url";
 import { compile, preprocess } from "svelte/compiler";
 import { render } from "svelte/server";
 import ts from "typescript";
-import { parseFavorites, parseState } from "../../src/api/hardlyread.ts";
+import { parseState } from "../../src/api/hardlyread.ts";
 import { categoryMenu, feedMenu } from "../../src/lib/contextmenu.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
@@ -89,7 +89,7 @@ try {
   const count = (haystack, needle) => haystack.split(needle).length - 1;
 
   {
-    const body = draw(categoryMenu(state(), "Technology"));
+    const body = draw(categoryMenu(state(), "Technology", false));
     check("the menu is rendered as a menu", body.includes('role="menu"'));
     check("it is named after the category", body.includes('aria-label="Actions for Technology"'));
     check("it is positioned at the anchor", body.includes("left: 10px; top: 20px"), body.match(/style="[^"]*left[^"]*"/)?.[0] ?? "no style");
@@ -97,72 +97,40 @@ try {
     check("a hidden category offers Show", body.includes(">Show<") && !body.includes(">Hide<"));
     check("the toggle is a menu item", body.includes('role="menuitem"'));
     check("the toggle is enabled", !/<button[^>]*role="menuitem"[^>]*disabled/.test(body));
-    check("three views are drawn", count(body, 'role="menuitemradio"') === 3, String(count(body, 'role="menuitemradio"')));
-    check("the applied view is ticked exactly once", count(body, 'aria-checked="true"') === 1, String(count(body, 'aria-checked="true"')));
-    check("the view words match the extension", body.includes(">Hidden<") && body.includes(">Revealed<") && body.includes(">Only<"));
+    check("no view radios are drawn", count(body, 'role="menuitemradio"') === 0, String(count(body, 'role="menuitemradio"')));
+    check("Pin is drawn", body.includes(">Pin<"));
+    check("exactly two items: hide/show and pin", count(body, 'role="menuitem"') === 2, String(count(body, 'role="menuitem"')));
   }
 
   {
-    const body = draw(categoryMenu(state(), "Art"));
+    const body = draw(categoryMenu(state(), "Art", true));
     check("a shown category offers Hide", body.includes(">Hide<"));
-    check("...and the view tick is still unique", count(body, 'aria-checked="true"') === 1);
+    check("a pinned category offers Unpin", body.includes(">Unpin<"));
   }
 
   {
-    const body = draw(categoryMenu(state(), "Uncategorized"));
+    const body = draw(categoryMenu(state(), "Uncategorized", false));
     check("an unknown category renders a disabled toggle", /<button[^>]*role="menuitem"[^>]*disabled/.test(body));
     check("...with the reason as a note", body.includes("This category has no id on the server"));
-    check("...and the views stay usable", count(body, "disabled") === 1, String(count(body, "disabled")));
+    check("...and pin stays usable", count(body, "disabled") === 1, String(count(body, "disabled")));
   }
 
   {
-    const body = draw(categoryMenu(parseState({ available: false }), "Technology"));
-    check("without the extension every item is disabled", count(body, "disabled") === 4, String(count(body, "disabled")));
-    check("...and nothing is ticked", count(body, 'aria-checked="true"') === 0);
-    check("...and the note says why", body.includes("not available on this server"));
+    const body = draw(categoryMenu(parseState({ available: false }), "Technology", false));
+    check("without Hidden Categories only Pin is drawn", count(body, 'role="menuitem"') === 1 && body.includes(">Pin<"));
+    check("...and it is usable", count(body, "disabled") === 0, String(count(body, "disabled")));
   }
 
   {
-    const body = draw(categoryMenu(state({ view: "revealed", effectiveView: "revealed" }), "Technology"));
-    check("a revealed view ticks its own row", /aria-checked="true"[\s\S]{0,200}?Revealed/.test(body));
+    const busy = draw(categoryMenu(state(), "Technology", false), { busy: true });
+    check("a write in flight disables the items", count(busy, "disabled") === 2, String(count(busy, "disabled")));
   }
 
   {
-    const busy = draw(categoryMenu(state(), "Technology"), { busy: true });
-    check("a write in flight disables the items", count(busy, "disabled") === 4, String(count(busy, "disabled")));
-  }
-
-  {
-    const body = draw(categoryMenu(state(), "<b>Art</b>"));
+    const body = draw(categoryMenu(state(), "<b>Art</b>", false));
     check("a category name cannot open a tag", body.includes("&lt;b>Art&lt;/b>"));
     check("...and no raw tag survives", !body.includes("<b>Art"));
     check("...and it is escaped in the aria-label too", body.includes('aria-label="Actions for &lt;b>Art&lt;/b>"'));
-  }
-
-  {
-    const favorites = (overrides = {}) =>
-      parseFavorites({
-        available: true,
-        view: "all",
-        ids: [7],
-        categories: [
-          { id: 12, name: "Technology", favorite: false },
-          { id: 7, name: "Art", favorite: true },
-        ],
-        ...overrides,
-      });
-
-    const body = draw(categoryMenu(state(), "Art", favorites()));
-    check("the favorite item is drawn", body.includes(">Unfavorite<"));
-    check("...as a menu item", count(body, 'role="menuitem"') === 2, String(count(body, 'role="menuitem"')));
-    check("...enabled", !/role="menuitem"[^>]*disabled/.test(body));
-
-    const other = draw(categoryMenu(state(), "Technology", favorites()));
-    check("a non-favorite offers Favorite", other.includes(">Favorite<"));
-
-    const missing = draw(categoryMenu(state(), "Technology", parseFavorites({ available: false })));
-    check("without the extension the item is rendered disabled", count(missing, "disabled") === 1, String(count(missing, "disabled")));
-    check("...with the reason as a note", missing.includes("Favorite Categories is not available"));
   }
 
   {
@@ -170,7 +138,8 @@ try {
     check("a feed menu is titled with the feed", asked.includes(">Ars Technica<"));
     check("...offering removal", asked.includes("Remove feed…"));
     check("...with no views", count(asked, 'role="menuitemradio"') === 0);
-    check("...and no hidden/favorite items", !asked.includes(">Hide<") && !asked.includes(">Favorite<"));
+    check("...and no hide item", !asked.includes(">Hide<"));
+    check("...but a feed can be pinned", asked.includes(">Pin<"));
   }
 
   {
