@@ -16,9 +16,19 @@ export interface PaneWidths {
 
 export const GUTTER = 6;
 
-/** Below these a pane stops being usable: labels truncate, titles wrap to four lines. */
+/**
+ * Below these a pane stops being usable: labels truncate, titles wrap to four
+ * lines.
+ *
+ * The sidebar's 240 is the band's own floor, measured rather than guessed: two
+ * equal halves around a 44px lock, with 6px gaps and the band's 8px side
+ * margins, leave each half 82px at 240 — and the longest word either half can
+ * hold ("Unpinned") is 56px of 10px uppercase plus 20px of padding, 78px. At the
+ * old 200 the halves were 62px and the labels were already giving up their ends,
+ * which is what made the band look squeezed before the rest of the sidebar was.
+ */
 export const MIN: Record<"sidebar" | "list" | "article", number> = {
-  sidebar: 200,
+  sidebar: 240,
   list: 260,
   article: 320,
 };
