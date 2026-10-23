@@ -3,6 +3,7 @@
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, sanitizeArticle } from "../lib/sanitize";
   import { accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
+  import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
 
@@ -112,6 +113,25 @@
 
   const link = $derived(item?.alternate?.[0]?.href ?? item?.canonical?.[0]?.href ?? "");
 
+  /** A picture the feed sent, swapped out when the file is gone. */
+  let brokenLeads = new Set<string>();
+
+  /**
+   * The lead picture above the text.
+   *
+   * Suppressed when the article body already contains that same picture: many
+   * feeds repeat their enclosure image as the first thing in the content, and
+   * showing it twice reads as a rendering bug rather than a feature.
+   */
+  const lead = $derived.by(() => {
+    if (!reading.articleImage || !item) return null;
+    const url = thumbnailOf(item as ThumbSource).url;
+    if (!url || brokenLeads.has(item.id)) return null;
+    const html = body;
+    if (html.includes(url) || html.includes(url.replace(/&/g, "&amp;"))) return null;
+    return url;
+  });
+
   async function openExternal(url: string): Promise<void> {
     if (!isExternalHttp(url)) return;
     if ("__TAURI_INTERNALS__" in globalThis) {
@@ -219,6 +239,21 @@
         {#if item.author}<span>· {item.author}</span>{/if}
         <span>· {absoluteTime(item.timestampUsec, item.published)}</span>
       </p>
+
+      {#if lead}
+        <img
+          class="lead"
+          src={lead}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerpolicy="no-referrer"
+          draggable="false"
+          onerror={() => {
+            if (item) brokenLeads = new Set(brokenLeads).add(item.id);
+          }}
+        />
+      {/if}
 
       {#if body}
         <div class="content" use:attach={body}></div>
@@ -357,6 +392,20 @@
     font-size: clamp(19px, 2.1vw, 24px);
     line-height: 1.25;
     letter-spacing: -0.015em;
+  }
+
+  /* The lead picture: the feed's own image, bled to the article's edges so it
+     reads as a header rather than as part of the prose. `--thumb-scale` is the
+     same setting the list rows use, so turning pictures up in the popout widens
+     this too instead of leaving it at one size. */
+  .lead {
+    display: block;
+    width: 100%;
+    max-height: calc(260px * var(--thumb-scale, 1));
+    margin: 0 0 20px;
+    border-radius: 8px;
+    object-fit: cover;
+    background: var(--hover);
   }
 
   .byline {

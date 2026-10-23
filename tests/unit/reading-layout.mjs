@@ -17,6 +17,12 @@ import {
   isTextAlign,
   readingStyle,
   readingVars,
+  THUMB_SCALE,
+  THUMB_SIDES,
+  THUMB_SIDE_INITIAL,
+  THUMB_SIDE_LABELS,
+  ARTICLE_IMAGE_INITIAL,
+  isThumbSide,
   scalePercent,
   stepScale,
 } from "../../src/lib/reading-layout.ts";
@@ -138,10 +144,50 @@ check("a bad leading or alignment in memory still yields usable CSS", () => {
   assert.equal(vars["--read-align"], ALIGN_INITIAL);
 });
 
-check("the style string is five declarations", () => {
+check("the style string is six declarations", () => {
   const style = readingStyle({ ...LAYOUT_INITIAL });
-  assert.equal(style.split(";").length, 5);
+  assert.equal(style.split(";").length, 6);
   assert.ok(style.startsWith("--read-scale:1;"));
+});
+
+check("the picture has a size of its own, separate from the row", () => {
+  const vars = readingVars({ ...LAYOUT_INITIAL, thumbScale: 1.6 });
+  assert.equal(vars["--thumb-scale"], "1.6");
+  assert.equal(vars["--row-scale"], "1", "sizing the picture must not resize the row type");
+});
+
+check("the picture scale is clamped to its own range, not the row's", () => {
+  assert.equal(readingVars({ ...LAYOUT_INITIAL, thumbScale: 99 })["--thumb-scale"], String(THUMB_SCALE.max));
+  assert.equal(readingVars({ ...LAYOUT_INITIAL, thumbScale: 0 })["--thumb-scale"], String(THUMB_SCALE.min));
+  assert.equal(THUMB_SCALE.min < ROW_SCALE.min, true, "a picture may shrink further than the row may");
+});
+
+check("its steps land on the scale and stop at the ends", () => {
+  assert.equal(stepScale(THUMB_SCALE.initial, 1, THUMB_SCALE), 1.2);
+  assert.equal(stepScale(THUMB_SCALE.initial, -1, THUMB_SCALE), 0.8);
+  assert.equal(stepScale(THUMB_SCALE.max, 1, THUMB_SCALE), THUMB_SCALE.max);
+  assert.equal(stepScale(THUMB_SCALE.min, -1, THUMB_SCALE), THUMB_SCALE.min);
+});
+
+check("every side is a known side, and junk falls back", () => {
+  assert.equal(THUMB_SIDES.length, 3);
+  assert.equal(THUMB_SIDES.includes("off"), true);
+  assert.equal(isThumbSide("left"), true);
+  assert.equal(isThumbSide("sideways"), false);
+  assert.equal(isThumbSide(undefined), false);
+  assert.equal(THUMB_SIDE_LABELS[THUMB_SIDE_INITIAL], "Right", "the shipped position is unchanged");
+});
+
+check("the article picture is on by default and is a setting", () => {
+  assert.equal(ARTICLE_IMAGE_INITIAL, true);
+  assert.equal(isDefaultLayout({ ...LAYOUT_INITIAL, articleImage: false }), false);
+});
+
+check("Reset restores the picture size but leaves its side alone", () => {
+  const dirty = { ...LAYOUT_INITIAL, thumbScale: 1.8, thumbSide: "left" };
+  assert.equal(isDefaultLayout(dirty), false, "a moved picture is not defaults");
+  const reset = { ...dirty, thumbScale: THUMB_SCALE.initial };
+  assert.equal(isDefaultLayout(reset), true, "size is a quantity; the side is a position he chose");
 });
 
 check("defaults are recognised, so Reset can be disabled", () => {

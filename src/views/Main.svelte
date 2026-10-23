@@ -233,6 +233,7 @@
       leading: reading.leading,
       indent: reading.indentParagraphs,
       align: reading.textAlign,
+      thumbScale: reading.thumbScale,
     }),
   )
     .map(([name, value]) => `${name}:${value}`)

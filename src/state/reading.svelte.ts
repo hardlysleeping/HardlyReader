@@ -10,16 +10,21 @@ import { isArticleFilter, type ArticleFilter } from "../lib/article-filter";
 import { clampDwellSeconds, DWELL_SECONDS_DEFAULT } from "../lib/dwell";
 import {
   ALIGN_INITIAL,
+  ARTICLE_IMAGE_INITIAL,
   INDENT_INITIAL,
   LEADING_INITIAL,
   ROW_SCALE,
   TEXT_SCALE,
+  THUMB_SCALE,
+  THUMB_SIDE_INITIAL,
   clampScale,
   isLeading,
   isTextAlign,
+  isThumbSide,
   stepScale,
   type Leading,
   type TextAlign,
+  type ThumbSide,
 } from "../lib/reading-layout";
 import { clampEffort, EFFORT_DEFAULT } from "../lib/scroll-advance";
 
@@ -83,6 +88,20 @@ class ReadingState {
   /** Which way article text hangs. */
   textAlign = $state<TextAlign>(ALIGN_INITIAL);
 
+  /**
+   * The picture's own size, multiplied on top of the row scale.
+   *
+   * Independent of the row because "bigger picture" and "bigger text" are
+   * different asks; it rides the row scale so rows still stay in proportion.
+   */
+  thumbScale = $state(THUMB_SCALE.initial);
+
+  /** Left, right, or off. Off is not the same as "no picture": feeds decide that. */
+  thumbSide = $state<ThumbSide>(THUMB_SIDE_INITIAL);
+
+  /** A lead picture above the article text in the reading pane. */
+  articleImage = $state(ARTICLE_IMAGE_INITIAL);
+
   load(): void {
     if (typeof localStorage === "undefined") return;
     try {
@@ -99,6 +118,9 @@ class ReadingState {
         leading?: unknown;
         indentParagraphs?: unknown;
         textAlign?: unknown;
+        thumbScale?: unknown;
+        thumbSide?: unknown;
+        articleImage?: unknown;
       };
       if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
@@ -110,6 +132,9 @@ class ReadingState {
       if (isLeading(saved.leading)) this.leading = saved.leading;
       if (typeof saved.indentParagraphs === "boolean") this.indentParagraphs = saved.indentParagraphs;
       if (isTextAlign(saved.textAlign)) this.textAlign = saved.textAlign;
+      this.thumbScale = clampScale(saved.thumbScale, THUMB_SCALE);
+      if (isThumbSide(saved.thumbSide)) this.thumbSide = saved.thumbSide;
+      if (typeof saved.articleImage === "boolean") this.articleImage = saved.articleImage;
     } catch {
       // Same rule as the layout: a corrupt preference is not worth a dialog.
     }
@@ -165,6 +190,27 @@ class ReadingState {
     return next;
   }
 
+  /** − / + for the picture alone. Returns the value actually applied. */
+  stepThumbScale(direction: 1 | -1): number {
+    const next = stepScale(this.thumbScale, direction, THUMB_SCALE);
+    if (next !== this.thumbScale) {
+      this.thumbScale = next;
+      this.save();
+    }
+    return next;
+  }
+
+  setThumbSide(side: ThumbSide): void {
+    if (!isThumbSide(side) || this.thumbSide === side) return;
+    this.thumbSide = side;
+    this.save();
+  }
+
+  toggleArticleImage(): void {
+    this.articleImage = !this.articleImage;
+    this.save();
+  }
+
   setLeading(leading: Leading): void {
     if (!isLeading(leading) || this.leading === leading) return;
     this.leading = leading;
@@ -182,13 +228,15 @@ class ReadingState {
     this.save();
   }
 
-  /** Back to 100%, normal spacing, no indent, left. */
+  /** Back to 100%, normal spacing, no indent, left. Picture side is a position, not a size, so it stays. */
   resetReadingLayout(): void {
     this.textScale = TEXT_SCALE.initial;
     this.rowScale = ROW_SCALE.initial;
     this.leading = LEADING_INITIAL;
     this.indentParagraphs = INDENT_INITIAL;
     this.textAlign = ALIGN_INITIAL;
+    this.thumbScale = THUMB_SCALE.initial;
+    this.articleImage = ARTICLE_IMAGE_INITIAL;
     this.save();
   }
 
@@ -208,6 +256,9 @@ class ReadingState {
           leading: this.leading,
           indentParagraphs: this.indentParagraphs,
           textAlign: this.textAlign,
+          thumbScale: this.thumbScale,
+          thumbSide: this.thumbSide,
+          articleImage: this.articleImage,
         }),
       );
     } catch {
