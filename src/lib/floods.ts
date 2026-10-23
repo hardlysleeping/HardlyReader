@@ -39,7 +39,7 @@ export const MAX_FLOODS = 3;
 const TONES: Record<FloodKind, string> = {
   hidden: "var(--tone-hidden, #e5484d)",
   revealed: "var(--accent, #0078e0)",
-  pin: "var(--tone-favourite, #0078e0)",
+  pin: "var(--tone-pinned, #0078e0)",
   unpin: "var(--accent, #0078e0)",
 };
 

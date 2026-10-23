@@ -10,13 +10,13 @@
  *    dedicated context-menu key) that every right-click user expects but that
  *    is easy to forget exists.
  * 3. `categoryMenu` decides the items and their wording, in the extension's own
- *    vocabulary (`Hide` / `Show`, view `hidden` / `revealed` / `only`).
+ *    words (`Hide` / `Show`, view `hidden` / `revealed` / `only`).
  *
  * `placeMenu` lives here too, so the component measures and calls rather than
  * doing geometry inside event handlers.
  */
 import { categoryIdForLabel, isHiddenCategory, type HiddenCategoriesState } from "../api/hardlyread";
-import { pinWords, type Vocabulary } from "./theme";
+import { pinWords } from "./theme";
 
 /* ---------------------------------------------------------------------------
  * Long press
@@ -183,6 +183,7 @@ export function placeMenu(anchor: Point, menu: Size, viewport: Size): Point {
 export type MenuAction =
   | { type: "hidden"; hidden: boolean }
   | { type: "pin"; pinned: boolean }
+  /** The server-side form of a pin, when the extension keeps it. */
   | { type: "favorite"; favorite: boolean }
   | { type: "remove-feed" }
   | { type: "confirm-remove" }
@@ -199,7 +200,7 @@ export interface MenuItemModel {
 }
 
 export interface MenuModel {
-  /** A category row offers hide/show, favorite and the views; a feed row offers removal. */
+  /** A category row offers hide/show and the mark; a feed row offers removal. */
   kind: "category" | "feed";
   label: string;
   /** Why the items cannot be used, when they cannot. */
@@ -208,10 +209,12 @@ export interface MenuModel {
   toggle: MenuItemModel | null;
   /**
    * The mark on a category row. One state, one item: a category is either
-   * marked or it is not. Where the mark is kept decides the note, not the
-   * meaning — Favorite Categories owns it on the server when it is installed,
-   * and this device keeps it otherwise. The wording follows the theme's
-   * vocabulary (Pin/Pinned or Favourite/Favourites).
+   * pinned or it is not. Where the mark is kept decides the action, not the
+   * meaning — the Pinned Categories extension owns it on the server when it is
+   * installed, and this device keeps it otherwise. It is called a pin either way.
+   *
+   * Named `favorite` because that is the extension's own word for the same
+   * fact, and the action it sends is the one the extension answers to.
    */
   favorite: MenuItemModel | null;
   /** Pin/Unpin for a feed row, which is always this device: feeds have no
@@ -236,9 +239,8 @@ export function categoryMenu(
   label: string,
   pinned: boolean,
   favorite: boolean | null = null,
-  vocabulary: Vocabulary = "pinned",
 ): MenuModel {
-  const words = pinWords(vocabulary);
+  const words = pinWords();
   const id = categoryIdForLabel(state, label);
   const hidden = isHiddenCategory(state, label);
   const usable = state.available && id !== null;
@@ -256,16 +258,15 @@ export function categoryMenu(
     kind: "category",
     label,
     note: notes.length === 0 ? null : notes.join(" "),
-    // One entry, whichever storage it lands in. A favourite and a pin are the
-    // same fact about a category; calling them two things made the sidebar show
-    // a blue sticker for one and nothing for the other.
+    // One entry, whichever storage it lands in. There is one mark on a
+    // category, and it is a pin.
     favorite: {
       action:
         favorite === null
           ? { type: "pin", pinned: !pinned }
           : { type: "favorite", favorite: !favorite },
       label: (favorite ?? pinned) ? words.remove : words.add,
-      glyph: vocabulary === "favourites" ? "★" : "📌",
+      glyph: "📌",
       checked: false,
       disabled: false,
     },
@@ -297,9 +298,8 @@ export function feedMenu(
   title: string,
   confirming: boolean,
   pinned = false,
-  vocabulary: Vocabulary = "pinned",
 ): MenuModel {
-  const words = pinWords(vocabulary);
+  const words = pinWords();
   return {
     kind: "feed",
     label: title,

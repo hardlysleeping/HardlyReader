@@ -6,7 +6,7 @@
    *
    * The swatch is one click from the accent it edits, which is the thing most
    * people change; the panel behind it holds the colours that carry meaning —
-   * hidden, favourite, the two lock states — plus the two wording choices.
+   * hidden, pinned, the two lock states.
    */
   import type { ThemeMode } from "../lib/theme";
   import { THEME_MODES, THEME_MODE_LABELS } from "../lib/theme";
@@ -72,12 +72,12 @@
   }
 
   const swatches: {
-    key: "accent" | "hidden" | "favourite" | "lockOpen" | "lockClosed" | "unlock" | "sync";
+    key: "accent" | "hidden" | "pinned" | "lockOpen" | "lockClosed" | "unlock" | "sync";
     label: string;
   }[] = [
     { key: "accent", label: "Accent" },
     { key: "hidden", label: "Hidden" },
-    { key: "favourite", label: "Favourite" },
+    { key: "pinned", label: "Pinned" },
     { key: "lockOpen", label: "Lock open" },
     { key: "lockClosed", label: "Lock locked" },
     { key: "unlock", label: "Unlocked" },
@@ -285,18 +285,6 @@
         aria-labelledby="settings-tab-reading"
       >
       <div class="row">
-        <span class="key">Marker</span>
-        <div class="seg" role="group" aria-label="Marker">
-          <button class="segbtn" class:on={theme.current.marker === "pin"} aria-pressed={theme.current.marker === "pin"} onclick={() => theme.set("marker", "pin")}>Pin</button>
-          <button class="segbtn" class:on={theme.current.marker === "star"} aria-pressed={theme.current.marker === "star"} onclick={() => theme.set("marker", "star")}>Star</button>
-        </div>
-      </div>      <div class="row">
-        <span class="key">Call them</span>
-        <div class="seg" role="group" aria-label="Wording">
-          <button class="segbtn" class:on={theme.current.vocabulary === "pinned"} aria-pressed={theme.current.vocabulary === "pinned"} onclick={() => theme.set("vocabulary", "pinned")}>Pinned</button>
-          <button class="segbtn" class:on={theme.current.vocabulary === "favourites"} aria-pressed={theme.current.vocabulary === "favourites"} onclick={() => theme.set("vocabulary", "favourites")}>Favourites</button>
-        </div>
-      </div>      <div class="row">
         <span class="key">Scroll effort</span>
         <span class="pick">
           <input

@@ -210,14 +210,14 @@ export class ReaderState {
   /** Last lock/unlock message, so a wrong passcode is visible rather than silent. */
   lockNotice = $state<string | null>(null);
 
-  /** Favorite Categories state, from the same `/v1/state` read. */
+  /** Pinned Categories state, from the same `/v1/state` read. */
   favorites = $state<FavoritesState>(unavailableFavorites());
   /** True while a favorite/view write is in flight. */
   favoritesBusy = $state(false);
 
   /**
    * Pins kept on this device: every feed pin, and category pins when the
-   * server has no Favorite Categories to hold them.
+   * server has no Pinned Categories to hold them.
    */
   localPins = $state<LocalPins>(emptyPins());
 
@@ -279,13 +279,11 @@ export class ReaderState {
           menu.target.label,
           this.isCategoryPinned(menu.target.label),
           this.favorites.available ? this.isFavorite(menu.target.label) : null,
-          theme.current.vocabulary,
         )
       : feedMenu(
           menu.target.title,
           menu.confirming,
           this.isFeedPinned(menu.target.id),
-          theme.current.vocabulary,
         );
   }
 
@@ -346,11 +344,11 @@ export class ReaderState {
   /**
    * Whether a category carries the mark — the one mark a category has.
    *
-   * "Favourite" and "pinned" are not two facts: the extension's favourite is
-   * the same thing the sidebar floats to the top and draws with a blue sticker,
-   * and the theme only renames it. Where it is stored depends on the server:
-   * Favorite Categories keeps it, and with that extension absent the same mark
-   * is kept here so the sidebar still works.
+   * One fact, one word: a category is pinned. Where it is stored depends on the
+   * server — Pinned Categories keeps it, and with that extension absent the
+   * same mark is kept here so the sidebar still works. The extension's own
+   * field is still called `favorite`; that is the wire name, not a second
+   * meaning.
    */
   isCategoryPinned(label: string): boolean {
     return this.favorites.available ? this.isFavorite(label) : this.localPins.categories.includes(label);
@@ -361,9 +359,9 @@ export class ReaderState {
   }
 
   /**
-   * Which rows the sidebar is showing: all, favourites only, or favourites
-   * hidden. This reads the extension's view when it exists — that is a filter
-   * over favourites, not the storage for a pin, which stays local.
+   * Which rows the sidebar is showing: all, pinned only, or pinned hidden. This
+   * reads the extension's view when it exists — that is a filter over pins, not
+   * the storage for a pin, which stays local.
    */
   get pinView(): PinView {
     return this.favorites.available ? this.favorites.view : this.localPins.view;
@@ -391,7 +389,7 @@ export class ReaderState {
   /**
    * Marks or unmarks a category.
    *
-   * One state, written where it can be seen: through Favorite Categories when
+   * One state, written where it can be seen: through Pinned Categories when
    * it is installed, so the FreshRSS website shows the same thing, and on this
    * device when it is not.
    */
