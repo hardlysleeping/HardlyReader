@@ -1,6 +1,6 @@
 /**
- * Reading layout: how big the text is, how loose the lines are, whether
- * paragraphs are indented, and which way the text hangs.
+ * Reading layout: how big the text is, how loose the lines are, and which way
+ * the text hangs.
  *
  * These are view preferences, not article data, so they are device-local and
  * global: one setting follows you across feeds, categories and posts. Per-post
@@ -110,10 +110,6 @@ export const ARTICLE_IMAGE_INITIAL = true;
 
 export const ALIGN_INITIAL: TextAlign = "left";
 export const LEADING_INITIAL: Leading = "normal";
-export const INDENT_INITIAL = false;
-
-/** First-line indent applied when the toggle is on, relative to the text size. */
-export const PARAGRAPH_INDENT = "1.2em";
 
 export function isTextAlign(value: unknown): value is TextAlign {
   return typeof value === "string" && (TEXT_ALIGNS as readonly string[]).includes(value);
@@ -172,7 +168,6 @@ export interface ReadingLayout {
   textScale: number;
   rowScale: number;
   leading: Leading;
-  indent: boolean;
   align: TextAlign;
   thumbScale: number;
   thumbSide: ThumbSide;
@@ -185,7 +180,6 @@ export const LAYOUT_INITIAL: ReadingLayout = {
   textScale: TEXT_SCALE.initial,
   rowScale: ROW_SCALE.initial,
   leading: LEADING_INITIAL,
-  indent: INDENT_INITIAL,
   align: ALIGN_INITIAL,
   thumbScale: THUMB_SCALE.initial,
   thumbSide: THUMB_SIDE_INITIAL,
@@ -198,7 +192,6 @@ export function isDefaultLayout(layout: ReadingLayout): boolean {
     clampScale(layout.textScale, TEXT_SCALE) === TEXT_SCALE.initial &&
     clampScale(layout.rowScale, ROW_SCALE) === ROW_SCALE.initial &&
     layout.leading === LEADING_INITIAL &&
-    layout.indent === INDENT_INITIAL &&
     layout.align === ALIGN_INITIAL &&
     clampScale(layout.thumbScale, THUMB_SCALE) === THUMB_SCALE.initial &&
     layout.articleImage === ARTICLE_IMAGE_INITIAL &&
@@ -217,7 +210,6 @@ export function readingVars(layout: Partial<ReadingLayout>): Record<string, stri
   return {
     "--read-scale": String(clampScale(layout.textScale, TEXT_SCALE)),
     "--read-leading": String(LEADINGS[layout.leading ?? LEADING_INITIAL] ?? LEADINGS[LEADING_INITIAL]),
-    "--read-indent": layout.indent ? PARAGRAPH_INDENT : "0",
     "--read-align": isTextAlign(layout.align) ? layout.align : ALIGN_INITIAL,
     "--row-scale": String(clampScale(layout.rowScale, ROW_SCALE)),
     "--thumb-scale": String(clampScale(layout.thumbScale, THUMB_SCALE)),
