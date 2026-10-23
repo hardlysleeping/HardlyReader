@@ -152,6 +152,22 @@ try {
   check("returning to a cached stream costs nothing", calls.length === 2, `calls=${calls.length}`);
   check("and is reported as a cache hit", reader.lastStreamSource === "cache", reader.lastStreamSource);
 
+
+  // A slow stream must not leave the previous stream's articles on screen: that
+  // reads as "the click did nothing".
+  let releasePending;
+  globalThis.fetch = () => new Promise((resolve) => { releasePending = resolve; });
+  const pending = reader.openStream("feed/3", "Untagged");
+  await Promise.resolve();
+  check("switching drops the previous stream's items immediately", reader.items.length === 0, `items=${reader.items.length}`);
+  check("and says it is loading", reader.loadingList === true);
+  releasePending(new Response(JSON.stringify({ items: [], continuation: null }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  }));
+  await pending;
+  check("the pending load settles", reader.loadingList === false);
+
   reader.stop();
   check("stop() resets hidden state", reader.hiddenAvailable === false && reader.hiddenError === null);
 } finally {

@@ -631,6 +631,12 @@ export class ReaderState {
     if (cached !== undefined) {
       this.items = cached.items;
       this.continuation = cached.continuation;
+    } else if (this.items.length > 0) {
+      // Switching to a stream we have never loaded: drop the previous stream's
+      // articles now. Leaving them on screen under the new title reads as "the
+      // click did nothing" until the response lands.
+      this.items = [];
+      this.continuation = undefined;
     }
     if (fresh && options.force !== true) {
       this.loadingList = false;

@@ -29,6 +29,17 @@
   </header>
 
   <div class="items">
+    {#if reader.loadingList && reader.items.length === 0}
+      <div class="skeleton" aria-hidden="true">
+        {#each Array(6) as _, index (index)}
+          <div class="skeleton-row">
+            <span class="bar w-80"></span>
+            <span class="bar w-60"></span>
+            <span class="bar w-30"></span>
+          </div>
+        {/each}
+      </div>
+    {/if}
     {#each reader.items as item (item.id)}
       <button
         class="item"
@@ -62,6 +73,39 @@
 </section>
 
 <style>
+  .skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 12px;
+  }
+
+  .skeleton-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .bar {
+    height: 9px;
+    border-radius: 5px;
+    background: var(--hover, #2f2f2f);
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+
+  .w-80 { width: 80%; }
+  .w-60 { width: 60%; }
+  .w-30 { width: 30%; height: 7px; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.45; }
+    50% { opacity: 0.85; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bar { animation: none; opacity: 0.55; }
+  }
+
   .list {
     display: flex;
     flex-direction: column;
