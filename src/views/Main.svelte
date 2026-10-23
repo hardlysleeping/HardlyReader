@@ -10,6 +10,7 @@
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
   import { isTypingTarget, resolveKey, resolveShiftKey } from "../lib/keys";
+  import { chrome } from "../state/chrome.svelte";
   import { layout } from "../state/layout.svelte";
   import { reading } from "../state/reading.svelte";
   import { reader } from "../state/reader.svelte";
@@ -32,6 +33,7 @@
   });
 
   onMount(() => {
+    chrome.load();
     layout.load();
     reading.load();
     void reader.start(session);

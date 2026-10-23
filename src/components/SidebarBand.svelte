@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HiddenView } from "../api/hardlyread";
+  import { chrome } from "../state/chrome.svelte";
   import { PIN_VIEW_LABELS, nextPinView } from "../state/pins";
   import { reader } from "../state/reader.svelte";
 
@@ -60,20 +61,20 @@
      under it. The arrow points up while they are showing (hide them) and down
      while they are hidden (bring them back), so the direction always describes
      what a click will do. -->
-<div class="bandbox" class:collapsed={reader.bandCollapsed} class:locked={reader.hiddenLocked}>
+<div class="bandbox" class:collapsed={chrome.bandCollapsed} class:locked={reader.hiddenLocked}>
   <button
     class="bar"
-    onclick={() => reader.toggleBand()}
-    aria-expanded={!reader.bandCollapsed}
-    aria-label={reader.bandCollapsed ? "Show sidebar controls" : "Hide sidebar controls"}
-    title={reader.bandCollapsed ? "Show controls" : "Hide controls"}
+    onclick={() => chrome.toggleBand()}
+    aria-expanded={!chrome.bandCollapsed}
+    aria-label={chrome.bandCollapsed ? "Show sidebar controls" : "Hide sidebar controls"}
+    title={chrome.bandCollapsed ? "Show controls" : "Hide controls"}
   >
-    <svg class="caret" class:up={!reader.bandCollapsed} viewBox="0 0 24 24" aria-hidden="true">
+    <svg class="caret" class:up={!chrome.bandCollapsed} viewBox="0 0 24 24" aria-hidden="true">
       <path d="M6 9l6 6 6-6" />
     </svg>
   </button>
 
-  {#if !reader.bandCollapsed}
+  {#if !chrome.bandCollapsed}
     <div class="band">
     <button
       class="ctl"
