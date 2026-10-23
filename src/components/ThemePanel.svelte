@@ -38,12 +38,16 @@
         matchMedia("(prefers-color-scheme: dark)").matches),
   );
 
-  const swatches: { key: "accent" | "hidden" | "favourite" | "lockOpen" | "lockClosed"; label: string }[] = [
+  const swatches: {
+    key: "accent" | "hidden" | "favourite" | "lockOpen" | "lockClosed" | "sync";
+    label: string;
+  }[] = [
     { key: "accent", label: "Accent" },
     { key: "hidden", label: "Hidden" },
     { key: "favourite", label: "Favourite" },
     { key: "lockOpen", label: "Lock open" },
     { key: "lockClosed", label: "Lock locked" },
+    { key: "sync", label: "Sync" },
   ];
 
   function swapMode() {

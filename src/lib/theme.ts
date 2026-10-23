@@ -2,7 +2,8 @@
  * Colours and words the user owns.
  *
  * The accents are not decoration: the tone tells you what a control *is* — red
- * is hidden, blue is favourite/pin, yellow and orange are the lock — so the
+ * is hidden, blue is favourite/pin, yellow and orange are the lock, green is
+ * sync — so the
  * meaningful ones are separately settable rather than derived from one hue.
  * `accent` is the fourth: the colour of focus, selection and "chosen" states.
  *
@@ -25,6 +26,8 @@ export interface Theme {
   favourite: string;
   lockOpen: string;
   lockClosed: string;
+  /** The sync control: its glyph, its ring and its progress fill. */
+  sync: string;
   /** Glyph for a pinned row. */
   marker: Marker;
   /** What a pin is called: the app's own word, or the extension's. */
@@ -38,6 +41,7 @@ export const DEFAULT_THEME: Theme = {
   favourite: "#0078e0",
   lockOpen: "#e6b93f",
   lockClosed: "#f08c2e",
+  sync: "#28a06b",
   marker: "pin",
   vocabulary: "pinned",
 };
@@ -71,6 +75,7 @@ export function parseTheme(raw: unknown): Theme {
     favourite: colour(saved.favourite, DEFAULT_THEME.favourite),
     lockOpen: colour(saved.lockOpen, DEFAULT_THEME.lockOpen),
     lockClosed: colour(saved.lockClosed, DEFAULT_THEME.lockClosed),
+    sync: colour(saved.sync, DEFAULT_THEME.sync),
     marker: saved.marker === "star" ? "star" : "pin",
     vocabulary: saved.vocabulary === "favourites" ? "favourites" : "pinned",
   };
@@ -90,6 +95,7 @@ export function themeVariables(theme: Theme): Record<string, string> {
     "--tone-favourite": theme.favourite,
     "--tone-lock-open": theme.lockOpen,
     "--tone-lock-closed": theme.lockClosed,
+    "--tone-sync": theme.sync,
   };
 }
 

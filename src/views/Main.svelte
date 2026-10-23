@@ -6,6 +6,7 @@
   import CategoryMenu from "../components/CategoryMenu.svelte";
   import Header from "../components/Header.svelte";
   import LayoutSwitch from "../components/LayoutSwitch.svelte";
+  import LoadAura from "../components/LoadAura.svelte";
   import PaneGutter from "../components/PaneGutter.svelte";
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
@@ -228,6 +229,9 @@
     {onsignout}
     ontogglesidebar={showFeeds}
   />
+
+  <!-- The seam under the bar doubles as the activity light. -->
+  <LoadAura />
 
   {#if reader.error}
     <div class="error" role="alert">

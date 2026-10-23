@@ -3,6 +3,7 @@ import { SvelteMap } from "svelte/reactivity";
 import { landingItem, step } from "../lib/reading-order";
 import { attemptOrder } from "../lib/stream-cycle";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
+import { SYNC_IDLE, SYNC_TOTAL, type SyncState } from "../lib/sync-progress";
 import { theme } from "./theme.svelte";
 
 import {
@@ -994,15 +995,19 @@ export class ReaderState {
     this.collapsedCategories = {};
   }
 
-  async loadSidebar(): Promise<void> {
+  async loadSidebar(onProgress?: (step: string) => void): Promise<void> {
     if (!this.session) return;
+    const landed = (step: string) => <T>(value: T): T => {
+      onProgress?.(step);
+      return value;
+    };
     try {
       const [subscriptions, tags, counts] = await Promise.all([
-        listSubscriptions(transport, this.session),
-        listTags(transport, this.session),
-        getUnreadCounts(transport, this.session),
+        listSubscriptions(transport, this.session).then(landed("Tags")),
+        listTags(transport, this.session).then(landed("Unread counts")),
+        getUnreadCounts(transport, this.session).then(landed("Extensions")),
         // Never throws; an install without the extension is not an error.
-        this.loadApiState(),
+        this.loadApiState().then(landed("Posts")),
       ]);
       this.subscriptions = subscriptions;
       this.tags = tags;
@@ -1170,8 +1175,27 @@ export class ReaderState {
       });
   }
 
+  /**
+   * A sync, counted step by step.
+   *
+   * Every fetch this triggers reports back as it lands, so the header can show
+   * a real fraction instead of an indefinite spinner. `SYNC_TOTAL` is the
+   * number of fetches, which is fixed; the work inside each is not, so there is
+   * nothing finer to report honestly.
+   */
+  sync = $state<SyncState>({ ...SYNC_IDLE });
+
   async refresh(): Promise<void> {
-    await Promise.all([this.loadSidebar(), this.reloadStream()]);
+    this.sync = { active: true, done: 0, total: SYNC_TOTAL, step: "Feeds" };
+    const tick = (step: string): void => {
+      this.sync = { ...this.sync, done: this.sync.done + 1, step };
+    };
+    try {
+      await Promise.all([this.loadSidebar(tick), this.reloadStream({ onProgress: () => tick("Posts") })]);
+    } finally {
+      const finished = this.sync.total;
+      this.sync = { active: false, done: finished, total: finished, step: "" };
+    }
   }
 
   /**
@@ -1223,7 +1247,7 @@ export class ReaderState {
     await this.reloadStream();
   }
 
-  async reloadStream(options: { force?: boolean } = {}): Promise<void> {
+  async reloadStream(options: { force?: boolean; onProgress?: () => void } = {}): Promise<void> {
     if (!this.session) return;
     const stream = this.activeStream;
     const token = ++this.streamToken;
@@ -1258,10 +1282,20 @@ export class ReaderState {
       this.items = [];
       this.continuation = undefined;
     }
+    // The step is reported once per call, whether the answer came from cache or
+    // the network: the bar counts fetches that have settled, not bytes.
+    let reported = false;
+    const report = (): void => {
+      if (reported) return;
+      reported = true;
+      options.onProgress?.();
+    };
+
     if (fresh && options.force !== true) {
       this.loadingList = false;
       this.error = null;
       this.lastStreamSource = "cache";
+      report();
       return;
     }
 
@@ -1290,6 +1324,7 @@ export class ReaderState {
     } finally {
       if (this.inFlight.get(stream) === controller) this.inFlight.delete(stream);
       if (token === this.streamToken) this.loadingList = false;
+      report();
     }
   }
 
