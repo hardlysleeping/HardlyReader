@@ -10,43 +10,31 @@ function check(name, ok, detail = "") {
   }
 }
 
-// The three levels are the three panes, in the order they sit on screen.
-check("no article and the feed list showing is the feeds level", levelOf(null, false) === "feeds");
-check("a feed open with no article is the posts level", levelOf(null, true) === "posts");
-check("an open article is the article level", levelOf("item/42", true) === "article");
-check("an article wins even if the posts flag was cleared", levelOf("item/42", false) === "article");
+// One column has two levels. A feed unfolds its posts where it sits, so there is
+// no posts screen and nothing may pretend there is one.
+check("the feed list is the feeds level", levelOf(null) === "feeds");
+check("an open article is the article level", levelOf("item/42") === "article");
 
-// Back is a single pane step, never a jump over one.
+// Back is one step, never a jump.
 check("back from an article closes it", stepBackTarget("article") === "close-article");
-check("back from posts returns to feeds", stepBackTarget("posts") === "show-feeds");
 check("back from feeds has nowhere to go", stepBackTarget("feeds") === null);
 
-// Walking in and back out visits every level, one at a time. This is the whole
-// point of the module: no step may skip a screen.
-let level = levelOf(null, false);
+// Walking in and back out, one level at a time.
+let level = levelOf(null);
 const walk = [level];
-for (let press = 0; press < 2; press += 1) {
-  level = level === "feeds" ? "posts" : "article";
+level = levelOf("item/7");
+walk.push(level);
+for (let press = 0; press < 1; press += 1) {
+  level = stepBackTarget(level) === "close-article" ? "feeds" : "feeds";
   walk.push(level);
 }
-for (let press = 0; press < 2; press += 1) {
-  const target = stepBackTarget(level);
-  level = target === "close-article" ? "posts" : "feeds";
-  walk.push(level);
-}
-check(
-  "the walk passes through every level in both directions",
-  walk.join(">") === "feeds>posts>article>posts>feeds",
-  walk.join(">"),
-);
+check("the walk is feeds then article then feeds", walk.join(">") === "feeds>article>feeds", walk.join(">"));
 
 // What the bar says.
 check("at feeds it says Feeds", whereLabel("feeds", "Ars", null) === "Feeds");
-check("at posts it names the feed", whereLabel("posts", "Ars", null) === "Ars");
 check("at an article it names feed and post", whereLabel("article", "Ars", "Big news") === "Ars › Big news");
 check("a missing article title falls back to the feed", whereLabel("article", "Ars", null) === "Ars");
 check("the back tooltip names the destination", backLabel("article", "Ars") === "Back to Ars");
-check("back from posts names the feed list", backLabel("posts", "Ars") === "Back to feeds");
 check("back at the root is honest about it", backLabel("feeds", "Ars") === "Already at feeds");
 
 console.log(`${checks - failures}/${checks} checks passed`);

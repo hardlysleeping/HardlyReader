@@ -25,8 +25,11 @@
     onsignout,
   }: { session: Session; account: UserInfo | null; onsignout?: () => void } = $props();
 
-  /** In one-column mode, whether the posts level is showing rather than the feeds. */
-  let onePosts = $state(false);
+  /**
+   * One column has two levels, not three: the feed list (where a feed opens its
+   * posts in place) and the article. There is no posts screen to step into, so
+   * nothing tracks it.
+   */
   let panes = $state<HTMLElement | null>(null);
 
   const mode = $derived(layout.mode);
@@ -94,29 +97,25 @@
         return;
       case "stream":
         event.preventDefault();
-        onePosts = true;
         void reader.stepStream(intent.delta);
         return;
       case "first":
         event.preventDefault();
-        onePosts = true;
         void reader.firstStream();
         return;
       case "last":
         event.preventDefault();
-        onePosts = true;
         void reader.lastStream();
         return;
       case "enter":
         event.preventDefault();
-        if (mode === 1) onePosts = true;
         void reader.enter();
         return;
       case "back":
         event.preventDefault();
-        // Out of the article first; with the feeds off screen, a second press
-        // leaves the posts level too.
-        if (!reader.back() && mode === 1) onePosts = false;
+        // Out of the article. In one column that is the feed list again, with
+        // the feed you were reading still open where you left it.
+        reader.back();
         return;
       case "escape":
         if (reader.menu !== null) {
@@ -125,7 +124,6 @@
           return;
         }
         if (reader.back()) event.preventDefault();
-        else if (mode === 1) onePosts = false;
         return;
       case "page":
         event.preventDefault();
@@ -147,19 +145,10 @@
    * article to the feed list skips a screen you were just looking at, which
    * reads as the app losing your place.
    */
-  const level = $derived(levelOf(reader.selectedId, onePosts));
+  const level = $derived(levelOf(reader.selectedId));
 
   function stepBack(): void {
-    switch (stepBackTarget(level)) {
-      case "close-article":
-        reader.closeReader();
-        return;
-      case "show-feeds":
-        onePosts = false;
-        return;
-      case null:
-        return;
-    }
+    if (stepBackTarget(level) === "close-article") reader.closeReader();
   }
 
   /**
@@ -221,18 +210,14 @@
     stepBack();
   }
 
-  /** Left-swipe: feeds → posts → the first post. */
+  /** Left-swipe: onward, into the first post of what is open. */
   function gestureForward(): void {
-    if (!onePosts) {
-      onePosts = true;
-      return;
-    }
     if (reader.selectedId === null) void reader.enter();
   }
 
   /** The hamburger is the one-column way back to the feeds. */
   function showFeeds() {
-    if (layout.mode === 1) onePosts = false;
+    if (layout.mode === 1) reader.closeReader();
     else layout.setMode(1);
   }
 </script>
@@ -314,14 +299,12 @@
       <div class="single" {ontouchstart} {ontouchend}>
         {#if reader.selectedId !== null}
           <ReaderPane onClose={closeReader} onLock={lockFromArticle} />
-        {:else if onePosts}
-          <ArticleList />
         {:else}
-          <Sidebar onNavigate={() => (onePosts = true)} />
+          <Sidebar inlinePosts />
         {/if}
       </div>
     {:else if mode === 2}
-      <Sidebar onNavigate={() => (onePosts = true)} />
+      <Sidebar />
       <PaneGutter which="sidebar" />
       <!-- The second column is the posts column and becomes the article: the
            two-column behaviour, now chosen rather than inferred from width. -->
@@ -331,7 +314,7 @@
         <ArticleList />
       {/if}
     {:else}
-      <Sidebar onNavigate={() => (onePosts = true)} />
+      <Sidebar />
       <PaneGutter which="sidebar" />
       <ArticleList />
       <PaneGutter which="list" />
