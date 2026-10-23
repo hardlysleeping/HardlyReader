@@ -122,7 +122,7 @@
   /* Cut-out pills, matching the band: outline until chosen, filled when on. */
   .filter {
     padding: 3px 8px;
-    border: 1px solid color-mix(in srgb, var(--accent, #0078e0) 45%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
     border-radius: 999px;
     background: transparent;
     color: var(--text-dim);
@@ -136,7 +136,7 @@
 
   .filter:hover {
     color: var(--text);
-    background: color-mix(in srgb, var(--accent, #0078e0) 14%, transparent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
 
   .filter:active {
@@ -145,8 +145,8 @@
 
   .filter.on {
     color: var(--text);
-    background: color-mix(in srgb, var(--accent, #0078e0) 26%, transparent);
-    border-color: var(--accent, #0078e0);
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+    border-color: var(--accent);
   }
 
   .skeleton {

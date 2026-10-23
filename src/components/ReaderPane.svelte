@@ -218,7 +218,7 @@
     height: 3px;
     transform: scaleX(var(--p, 0));
     transform-origin: left center;
-    background: var(--accent, #0078e0);
+    background: var(--accent);
     opacity: 0;
     pointer-events: none;
     transition: transform 80ms linear, opacity 120ms ease;

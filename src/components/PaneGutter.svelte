@@ -103,7 +103,7 @@
   .gutter:hover .line,
   .gutter:focus-visible .line,
   .gutter.dragging .line {
-    background: var(--accent, #0078e0);
+    background: var(--accent);
   }
 
   .gutter:focus-visible {

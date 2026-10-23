@@ -1,6 +1,7 @@
 import { SvelteMap } from "svelte/reactivity";
 
 import { landingItem, step } from "../lib/reading-order";
+import { theme } from "./theme.svelte";
 
 import {
   READING_LIST,
@@ -245,6 +246,7 @@ export class ReaderState {
           menu.target.label,
           this.isCategoryPinned(menu.target.label),
           this.favorites.available ? this.isFavorite(menu.target.label) : null,
+          theme.current.vocabulary,
         )
       : feedMenu(
           menu.target.title,
@@ -252,6 +254,7 @@ export class ReaderState {
           this.isFeedPinned(menu.target.id),
           this.sidebarIndent.px,
           this.sidebarIndent.available,
+          theme.current.vocabulary,
         );
   }
 

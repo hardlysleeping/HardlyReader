@@ -1,3 +1,14 @@
+/*
+ * Palettes.
+ *
+ * Light is the base; `Auto` follows the OS through the media query, and an
+ * explicit choice stamps `data-theme` on <html> (see state/theme.svelte.ts)
+ * which wins over the media query because the attribute adds specificity.
+ *
+ * Only the *chosen* colours are variables set from the theme: every shade below
+ * them is a `color-mix()` against those, so one accent change reaches rings,
+ * fills, glows and underlights without a second palette in JavaScript.
+ */
 :root {
   --bg: #fdfdfd;
   --surface: #f4f4f5;
@@ -8,16 +19,25 @@
   --text: #1c1c1f;
   --text-dim: #46464e;
   --muted: #6b6b74;
-  --accent: #0f7b6c;
-  --accent-soft: #e2f1ee;
-  --accent-text: #0a5f54;
   --star: #d19a00;
-  color-scheme: light dark;
+
+  /* Chosen by the theme; these defaults match DEFAULT_THEME. */
+  --accent: #0078e0;
+  --tone-hidden: #e5484d;
+  --tone-favourite: #0078e0;
+  --tone-lock-open: #e6b93f;
+  --tone-lock-closed: #f08c2e;
+
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-text: var(--accent);
+
+  color-scheme: light;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/* Auto: no explicit choice, so the OS decides. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #17171a;
     --surface: #1f1f23;
     --bg-alt: #1f1f23;
@@ -27,11 +47,39 @@
     --text: #e7e7ea;
     --text-dim: #c2c2cb;
     --muted: #9a9aa4;
-    --accent: #4fd1b8;
-    --accent-soft: #1d3b36;
-    --accent-text: #7fe0cd;
     --star: #e8b93c;
+    color-scheme: dark;
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #17171a;
+  --surface: #1f1f23;
+  --bg-alt: #1f1f23;
+  --border: #33333a;
+  --border-soft: #26262b;
+  --hover: #25252b;
+  --text: #e7e7ea;
+  --text-dim: #c2c2cb;
+  --muted: #9a9aa4;
+  --star: #e8b93c;
+  color-scheme: dark;
+}
+
+/* Explicit light: the same palette as the base, spelled out so it also wins on
+   a machine whose OS is dark. */
+:root[data-theme="light"] {
+  --bg: #fdfdfd;
+  --surface: #f4f4f5;
+  --bg-alt: #f4f4f5;
+  --border: #d8d8dc;
+  --border-soft: #ebebee;
+  --hover: #eeeef0;
+  --text: #1c1c1f;
+  --text-dim: #46464e;
+  --muted: #6b6b74;
+  --star: #d19a00;
+  color-scheme: light;
 }
 
 * {
