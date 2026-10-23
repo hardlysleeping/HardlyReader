@@ -61,6 +61,40 @@ jobs:
           docker compose -f tests/integration/compose.yml down \
             --volumes --remove-orphans || true
 
+  frontend:
+    name: Frontend / Svelte
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check Svelte and TypeScript
+        run: pnpm check
+
+      - name: Build
+        run: pnpm build
+
+      # Runs each suite in its own process: a suite that throws must fail the
+      # job, not be hidden behind the last line of a pipe.
+      - name: Unit suites
+        run: pnpm test
+
   phpunit:
     name: PHPUnit / PHP ${{ matrix.php }}
     runs-on: ubuntu-latest

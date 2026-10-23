@@ -122,10 +122,10 @@
       class:active={pinView !== "all"}
       onclick={cyclePins}
       disabled={reader.favoritesBusy}
-      title={`${PIN_VIEW_LABELS[pinView]} — click for ${PIN_VIEW_LABELS[nextPinView(pinView)]}${
-        reader.pinSource === "local" ? " (pins kept on this device)" : ""
-      }`}
-      aria-label={`Pins: ${PIN_VIEW_LABELS[pinView]}`}
+      title={`Favourites: ${PIN_VIEW_LABELS[pinView]} — click for ${
+        PIN_VIEW_LABELS[nextPinView(pinView)]
+      }${reader.favorites.available ? "" : " (Favorite Categories is not enabled)"}`}
+      aria-label={`Favourites: ${PIN_VIEW_LABELS[pinView]}`}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />

@@ -72,11 +72,12 @@ interface Group<F> {
  * within each category. Both sorts are stable, so the existing alphabetical
  * order survives inside each band.
  */
-export function arrangeByPins<F extends { id: string }, G extends Group<F>>(
+export function arrangeByPins<F extends { id: string; title: string }, G extends Group<F>>(
   groups: readonly G[],
   view: PinView,
   isCategoryPinned: (label: string) => boolean,
   isFeedPinned: (id: string) => boolean,
+  isFavourite: (label: string) => boolean = () => false,
 ): G[] {
   const filtered = groups.filter((group) => {
     if (view === "all") return true;
@@ -84,11 +85,24 @@ export function arrangeByPins<F extends { id: string }, G extends Group<F>>(
     return view === "only" ? pinned : !pinned;
   });
 
-  const rank = (pinned: boolean): number => (pinned ? 0 : 1);
+  // Favourites float above everything, then this device's pins, then the rest.
+  // A favourite is a server fact and a pin is local, so they rank separately
+  // instead of one standing in for the other.
+  const rank = (favourite: boolean, pinned: boolean): number => (favourite ? 0 : pinned ? 1 : 2);
   return filtered
     .map((group) => ({
       ...group,
-      feeds: [...group.feeds].sort((a, b) => rank(isFeedPinned(a.id)) - rank(isFeedPinned(b.id))),
+      feeds: [
+        ...group.feeds,
+      ].sort(
+        (a, b) => rank(false, isFeedPinned(a.id)) - rank(false, isFeedPinned(b.id)) ||
+          a.title.localeCompare(b.title),
+      ),
     }))
-    .sort((a, b) => rank(isCategoryPinned(a.label)) - rank(isCategoryPinned(b.label)));
+    .sort(
+      (a, b) =>
+        rank(isFavourite(a.label), isCategoryPinned(a.label)) -
+          rank(isFavourite(b.label), isCategoryPinned(b.label)) ||
+        a.label.localeCompare(b.label),
+    );
 }

@@ -661,25 +661,42 @@ try {
   }
 
   {
-    // Server pins: with Favorite Categories enabled, a pin is the extension's
-    // favourite, so the FreshRSS web sidebar agrees with the app.
+    // A pin and a favourite are different facts. Pinning is this device's own
+    // state even when Favorite Categories is installed: it must never become a
+    // write to the extension, or "pin" is just a second name for "favourite"
+    // and the app writes to an extension it is meant to run without.
     const reader = fresh();
-    check("pins live on the server when the extension is there", reader.pinSource === "server");
     reply = () => ({ status: 200, body: { ok: true, changed: true, favorites: favoritesBody({ ids: [7], categories: [{ id: 3, name: "Comics", favorite: false }, { id: 7, name: "Art", favorite: true }] }) } });
     reader.openCategoryMenu("Art", { x: 0, y: 0 });
-    check("the menu offers Pin", reader.menuModel?.pin?.label === "Pin");
+    check("the menu offers Favourite on its own", reader.menuModel?.favorite?.label === "Favourite");
+    check("the menu still offers Pin", reader.menuModel?.pin?.label === "Pin");
+
     await reader.applyMenuAction({ type: "pin", pinned: true });
-    check("a pin writes the favourite on the server", calls.length === 1 && calls[0].url.endsWith("/v1/favorites/7") && calls[0].body === '{"favorite":true}', calls.map((c) => c.url).join(","));
+    check("a pin sends nothing to the server", calls.length === 0, `${calls.length} request(s)`);
     check("Art is pinned", reader.isCategoryPinned("Art") === true);
+    check("the pin is kept on this device", reader.localPins.categories.includes("Art"));
     check("pinned categories sort first", reader.categories.map((g) => g.label).join(",") === "Art,Technology", reader.categories.map((g) => g.label).join(","));
-    check("nothing was kept locally", reader.localPins.categories.length === 0);
+
+    reader.openCategoryMenu("Art", { x: 0, y: 0 });
+    await reader.applyMenuAction({ type: "favorite", favorite: true });
+    check(
+      "favouriting writes the favourite on the server",
+      calls.length === 1 && calls[0].url.endsWith("/v1/favorites/7") && calls[0].body === '{"favorite":true}',
+      calls.map((c) => c.url).join(","),
+    );
+    check("being a favourite does not pin it", reader.isFavorite("Art") === true);
+    check(
+      "favourites sort above pins and the rest",
+      reader.categories.map((g) => g.label).join(",") === "Art,Technology",
+      reader.categories.map((g) => g.label).join(","),
+    );
   }
 
   {
     // Local pins: no extension, no request, the pin still works on this device.
     const reader = fresh();
     reader.favorites = unavailableFavorites();
-    check("pins fall back to this device", reader.pinSource === "local");
+    check("with no favourites extension there is no Favourite item", reader.menuModel?.favorite === null || reader.menuModel === null);
     reader.openCategoryMenu("Technology", { x: 0, y: 0 });
     check("the category menu opens without the favourites extension", reader.menu !== null && reader.menuModel?.pin?.disabled === false);
     await reader.applyMenuAction({ type: "pin", pinned: true });
