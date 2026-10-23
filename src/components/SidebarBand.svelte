@@ -318,8 +318,15 @@
     --tone: #0078e0;
   }
 
+  /* Lock reads as a state at a glance: yellow while open, orange once locked.
+     The locked fill comes from `.on`, so the tone swap is the whole change. */
   .ctl.lock {
+    --tone: #e6b93f;
     min-width: 44px;
+  }
+
+  .ctl.lock.on {
+    --tone: #f08c2e;
   }
 
   .ctl:hover:not(:disabled) {
