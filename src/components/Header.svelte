@@ -78,13 +78,15 @@
 </header>
 
 <style>
+  /* A title bar, not a toolbar: enough height to hold a 34px control with air
+     around it, and no more. */
   .bar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    height: 48px;
-    flex: 0 0 48px;
-    padding: 0 12px;
+    gap: 7px;
+    height: 42px;
+    flex: 0 0 42px;
+    padding: 0 10px;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
   }
@@ -140,8 +142,8 @@
 
   .signout {
     flex: 0 0 auto;
-    margin-left: 8px;
-    padding: 3px 8px;
+    margin-left: 6px;
+    padding: 2px 7px;
     border: 1px solid var(--border-soft);
     border-radius: 7px;
     background: none;
@@ -171,7 +173,7 @@
     flex: 0 0 auto;
     width: 34px;
     height: 34px;
-    margin-left: 10px;
+    margin-left: 8px;
     padding: 0;
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -248,7 +250,7 @@
     display: inline-flex;
     align-items: center;
     flex: 0 0 auto;
-    margin-left: 10px;
+    margin-left: 8px;
     animation: arrive 160ms ease-out;
   }
 
