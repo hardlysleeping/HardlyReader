@@ -281,6 +281,7 @@ function state(overrides = {}) {
   check("a feed can be pinned", menu.pin?.label === "Pin");
   check("a pinned feed can be unpinned", feedMenu("Ars Technica", false, true).pin?.label === "Unpin");
   check("confirming a removal hides the pin item", feedMenu("Ars Technica", true, false).pin === null);
+  check("the menu model has no indent field at all", !("indent" in menu));
 }
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

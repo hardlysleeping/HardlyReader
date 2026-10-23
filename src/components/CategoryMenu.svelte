@@ -17,7 +17,6 @@
     busy = false,
     onselect,
     onclose,
-    onindent = () => {},
   }: {
     x: number;
     y: number;
@@ -25,7 +24,6 @@
     busy?: boolean;
     onselect: (action: MenuAction) => void;
     onclose: () => void;
-    onindent?: (px: number) => void;
   } = $props();
 
   let menuEl = $state<HTMLDivElement | null>(null);
@@ -194,23 +192,6 @@
     </button>
   {/if}
 
-  {#if model.indent}
-    {@const indent = model.indent}
-    <div class="indent" role="group" aria-label="Sidebar indent">
-      <span class="indent-label">Indent</span>
-      <input
-        type="range"
-        min={indent.min}
-        max={indent.max}
-        step="1"
-        value={indent.px}
-        aria-label="Sidebar indent in pixels"
-        oninput={(event) => onindent(Number(event.currentTarget.value))}
-      />
-      <span class="indent-value">{indent.px}px</span>
-    </div>
-  {/if}
-
   {#if model.remove}
     {@const remove = model.remove}
     <div class="separator" role="separator"></div>
@@ -244,34 +225,6 @@
 </div>
 
 <style>
-  /* Indent lives in the menu because it is a sidebar setting, not a menu action:
-     it applies as the slider moves and never closes the menu. */
-  .indent {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    font-size: 12px;
-    color: var(--muted, #999);
-  }
-
-  .indent-label {
-    flex: 0 0 auto;
-  }
-
-  .indent input[type="range"] {
-    flex: 1 1 auto;
-    min-width: 0;
-    accent-color: var(--accent);
-  }
-
-  .indent-value {
-    flex: 0 0 auto;
-    min-width: 2.6em;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
   .menu {
     position: fixed;
     z-index: 41;
@@ -323,7 +276,6 @@
     cursor: default;
   }
 
-
   .danger {
     color: #d9534f;
   }
@@ -333,11 +285,9 @@
     background: rgb(217 83 79 / 14%);
   }
 
-
   .option {
     flex: 1;
   }
-
 
   .separator {
     height: 1px;

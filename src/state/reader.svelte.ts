@@ -272,8 +272,6 @@ export class ReaderState {
           menu.target.title,
           menu.confirming,
           this.isFeedPinned(menu.target.id),
-          this.sidebarIndent.px,
-          this.sidebarIndent.available,
           theme.current.vocabulary,
         );
   }
@@ -613,11 +611,6 @@ export class ReaderState {
         this.menu = null;
         floods.emit(action.favorite ? "pin" : "unpin", origin);
         return target.kind === "category" ? this.setCategoryFavorite(target.label, action.favorite) : null;
-      case "indent":
-        // Indent is applied live from the slider and leaves the menu open, so
-        // this only exists to keep the union total.
-        this.setSidebarIndentPx(action.px);
-        return null;
     }
   }
 

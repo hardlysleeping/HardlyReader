@@ -140,6 +140,9 @@ try {
     check("...with no views", count(asked, 'role="menuitemradio"') === 0);
     check("...and no hide item", !asked.includes(">Hide<"));
     check("...but a feed can be pinned", asked.includes(">Pin<"));
+    // Indent is a sidebar setting with its own strip; it has no business in a
+    // right-click menu, where a mis-drag would change every feed's indent.
+    check("...and no indent control", !asked.includes("Indent") && !asked.includes('type="range"'));
   }
 
   {

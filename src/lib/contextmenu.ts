@@ -15,14 +15,7 @@
  * `placeMenu` lives here too, so the component measures and calls rather than
  * doing geometry inside event handlers.
  */
-import {
-  categoryIdForLabel,
-  isHiddenCategory,
-  SIDEBAR_INDENT_FALLBACK_PX,
-  SIDEBAR_INDENT_MAX_PX,
-  SIDEBAR_INDENT_MIN_PX,
-  type HiddenCategoriesState,
-} from "../api/hardlyread";
+import { categoryIdForLabel, isHiddenCategory, type HiddenCategoriesState } from "../api/hardlyread";
 import { pinWords, type Vocabulary } from "./theme";
 
 /* ---------------------------------------------------------------------------
@@ -189,7 +182,6 @@ export function placeMenu(anchor: Point, menu: Size, viewport: Size): Point {
 
 export type MenuAction =
   | { type: "hidden"; hidden: boolean }
-  | { type: "indent"; px: number }
   | { type: "pin"; pinned: boolean }
   | { type: "favorite"; favorite: boolean }
   | { type: "remove-feed" }
@@ -204,14 +196,6 @@ export interface MenuItemModel {
   disabled: boolean;
   /** Optional leading glyph, when the item's meaning has a marker. */
   glyph?: string;
-}
-
-export interface IndentControl {
-  px: number;
-  min: number;
-  max: number;
-  /** True when the value came from the Sidebar Indent extension. */
-  serverBacked: boolean;
 }
 
 export interface MenuModel {
@@ -233,11 +217,6 @@ export interface MenuModel {
   /** Pin/Unpin for a feed row, which is always this device: feeds have no
    * server-side home for a mark. Null for a category row. */
   pin: MenuItemModel | null;
-  /**
-   * Sidebar indentation, for a feed row. Indent applies to every feed, so this
-   * is one control shown per feed rather than a per-feed setting.
-   */
-  indent: IndentControl | null;
   /** Remove, for a feed row. Replaced by `confirm` once it is chosen. */
   remove: MenuItemModel | null;
   /** The second half of a removal: confirm or back out. Empty otherwise. */
@@ -297,7 +276,6 @@ export function categoryMenu(
         }
       : null,
     pin: null,
-    indent: null,
     remove: null,
     confirm: [],
   };
@@ -315,8 +293,6 @@ export function feedMenu(
   title: string,
   confirming: boolean,
   pinned = false,
-  indentPx = SIDEBAR_INDENT_FALLBACK_PX,
-  indentServerBacked = false,
   vocabulary: Vocabulary = "pinned",
 ): MenuModel {
   const words = pinWords(vocabulary);
@@ -326,14 +302,6 @@ export function feedMenu(
     note: confirming ? "This removes the feed and its unread items from the server." : null,
     toggle: null,
     favorite: null,
-    indent: confirming
-      ? null
-      : {
-          px: indentPx,
-          min: SIDEBAR_INDENT_MIN_PX,
-          max: SIDEBAR_INDENT_MAX_PX,
-          serverBacked: indentServerBacked,
-        },
     pin: confirming
       ? null
       : { action: { type: "pin", pinned: !pinned }, label: pinned ? words.remove : words.add, checked: false, disabled: false },
