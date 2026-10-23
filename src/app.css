@@ -1,0 +1,68 @@
+:root {
+  --bg: #fdfdfd;
+  --surface: #f4f4f5;
+  --bg-alt: #f4f4f5;
+  --border: #d8d8dc;
+  --border-soft: #ebebee;
+  --hover: #eeeef0;
+  --text: #1c1c1f;
+  --text-dim: #46464e;
+  --muted: #6b6b74;
+  --accent: #0f7b6c;
+  --accent-soft: #e2f1ee;
+  --accent-text: #0a5f54;
+  --star: #d19a00;
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17171a;
+    --surface: #1f1f23;
+    --bg-alt: #1f1f23;
+    --border: #33333a;
+    --border-soft: #26262b;
+    --hover: #25252b;
+    --text: #e7e7ea;
+    --text-dim: #c2c2cb;
+    --muted: #9a9aa4;
+    --accent: #4fd1b8;
+    --accent-soft: #1d3b36;
+    --accent-text: #7fe0cd;
+    --star: #e8b93c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

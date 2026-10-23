@@ -1,0 +1,542 @@
+<script lang="ts">
+  import SidebarBand from "./SidebarBand.svelte";
+  import { READING_LIST, STATE_STARRED, type Subscription } from "../api/freshrss";
+  import {
+    LongPressTracker,
+    anchorForRect,
+    armsLongPress,
+    isMenuKey,
+  } from "../lib/contextmenu";
+  import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
+  import { reader, type CategoryGroup } from "../state/reader.svelte";
+
+  let { onNavigate }: { onNavigate?: () => void } = $props();
+
+
+  /** The add-feed form: closed until asked for, so the sidebar stays a list. */
+  let adding = $state(false);
+  let feedUrl = $state("");
+
+  /**
+   * Feed ids whose icon failed to load. A dead icon falls back to the letter
+   * tile instead of leaving a broken-image gap in the list.
+   */
+  let brokenIcons = $state<Record<string, boolean>>({});
+
+  function iconFor(feed: Subscription): string | undefined {
+    return feedIconSrc(feed.iconUrl, reader.session?.serverUrl ?? "");
+  }
+
+  /**
+   * Set when a long press has opened the menu, so the click that the browser
+   * still sends on lift does not also open the category stream.
+   */
+  let swallowClick = false;
+  let press: LongPressTracker | null = null;
+
+  function toggle(id: string) {
+    reader.toggleCategory(id);
+  }
+
+  async function open(streamId: string, title: string) {
+    await reader.openStream(streamId, title);
+    onNavigate?.();
+  }
+
+  function openCategory(category: CategoryGroup) {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    void open(category.id, category.label);
+  }
+
+  function openFeed(feed: Subscription) {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    void open(feed.id, feed.title);
+  }
+
+
+  /**
+   * Right-click. A category row needs the extension: without it there is
+   * nothing to offer, so the native menu is left alone rather than replaced by
+   * a dead one. A feed row always has removal to offer.
+   */
+  function onCategoryContextMenu(event: MouseEvent, category: CategoryGroup) {
+    event.preventDefault();
+    reader.openCategoryMenu(category.label, { x: event.clientX, y: event.clientY });
+  }
+
+  function onFeedContextMenu(event: MouseEvent, feed: Subscription) {
+    event.preventDefault();
+    reader.openFeedMenu({ id: feed.id, title: feed.title }, { x: event.clientX, y: event.clientY });
+  }
+
+  /** Shift+F10 and the context-menu key: same menu, anchored to the row. */
+  function onCategoryKeydown(event: KeyboardEvent, category: CategoryGroup) {
+    if (!isMenuKey(event)) return;
+    event.preventDefault();
+    const anchor = anchorForRect((event.currentTarget as HTMLElement).getBoundingClientRect());
+    reader.openCategoryMenu(category.label, anchor);
+  }
+
+  function onFeedKeydown(event: KeyboardEvent, feed: Subscription) {
+    if (!isMenuKey(event)) return;
+    event.preventDefault();
+    const anchor = anchorForRect((event.currentTarget as HTMLElement).getBoundingClientRect());
+    reader.openFeedMenu({ id: feed.id, title: feed.title }, anchor);
+  }
+
+  /** Arms a long press for whichever row the pointer went down on. */
+  function armPress(event: PointerEvent, openMenu: (point: { x: number; y: number }) => void) {
+    if (!armsLongPress(event.pointerType)) return;
+    swallowClick = false;
+    press?.cancel();
+    press = new LongPressTracker((point) => {
+      swallowClick = true;
+      openMenu(point);
+    });
+    press.start({
+      pointerType: event.pointerType,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+  }
+
+  function onCategoryPointerDown(event: PointerEvent, category: CategoryGroup) {
+    armPress(event, (point) => reader.openCategoryMenu(category.label, point));
+  }
+
+  function onFeedPointerDown(event: PointerEvent, feed: Subscription) {
+    armPress(event, (point) => reader.openFeedMenu({ id: feed.id, title: feed.title }, point));
+  }
+
+  function onPointerMove(event: PointerEvent) {
+    press?.move({
+      pointerType: event.pointerType,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+  }
+
+  function cancelPress() {
+    press?.cancel();
+  }
+
+  function startAdding() {
+    adding = true;
+    reader.clearAddFeedError();
+  }
+
+  function cancelAdding() {
+    adding = false;
+    feedUrl = "";
+    reader.clearAddFeedError();
+  }
+
+  async function submitFeed(event: SubmitEvent) {
+    event.preventDefault();
+    const added = await reader.addFeed(feedUrl);
+    if (added) cancelAdding();
+  }
+</script>
+
+<nav class="sidebar" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
+  <SidebarBand />
+
+  <div class="section">
+    <button
+      class="row strong"
+      class:active={reader.activeStream === READING_LIST}
+      onclick={() => open(READING_LIST, "Reading list")}
+    >
+      <span class="label">Reading list</span>
+      <span class="count">{reader.countFor(READING_LIST)}</span>
+    </button>
+    <button
+      class="row strong"
+      class:active={reader.activeStream === STATE_STARRED}
+      onclick={() => open(STATE_STARRED, "Starred")}
+    >
+      <span class="label">Starred</span>
+      <span class="count">{reader.countFor(STATE_STARRED)}</span>
+    </button>
+  </div>
+
+  {#each reader.categories as category (category.id)}
+    {@const pinned = reader.isCategoryPinned(category.label)}
+    {@const folded = reader.isCategoryCollapsed(category.id)}
+    <div class="section">
+      <div class="group">
+        <button
+          class="row group-title"
+          class:active={reader.activeStream === category.id}
+          onclick={() => openCategory(category)}
+          onpointerenter={() => reader.prefetchStream(category.id)}
+          onfocus={() => reader.prefetchStream(category.id)}
+          oncontextmenu={(event) => onCategoryContextMenu(event, category)}
+          onkeydown={(event) => onCategoryKeydown(event, category)}
+          onpointerdown={(event) => onCategoryPointerDown(event, category)}
+          onpointermove={onPointerMove}
+          onpointerup={cancelPress}
+          onpointercancel={cancelPress}
+          onpointerleave={cancelPress}
+          aria-haspopup="menu"
+        >
+          <span class="chevron" class:closed={folded} aria-hidden="true">▾</span>
+          {#if pinned}<span class="pin" title="Pinned" aria-label="Pinned">📌</span>{/if}
+          <span class="label">{category.label}</span>
+          <span class="count">{reader.countFor(category.id)}</span>
+        </button>
+        <button
+          class="toggle"
+          aria-label={folded ? "Expand" : "Collapse"}
+          onclick={() => toggle(category.id)}
+        ></button>
+      </div>
+
+      {#if !folded}
+        {#each category.feeds as feed (feed.id)}
+          <button
+            class="row feed"
+            class:active={reader.activeStream === feed.id}
+            onclick={() => openFeed(feed)}
+            onpointerenter={() => reader.prefetchStream(feed.id)}
+            onfocus={() => reader.prefetchStream(feed.id)}
+            oncontextmenu={(event) => onFeedContextMenu(event, feed)}
+            onkeydown={(event) => onFeedKeydown(event, feed)}
+            onpointerdown={(event) => onFeedPointerDown(event, feed)}
+            onpointermove={onPointerMove}
+            onpointerup={cancelPress}
+            onpointercancel={cancelPress}
+            onpointerleave={cancelPress}
+            aria-haspopup="menu"
+            title={feed.title}
+          >
+            {#if reader.isFeedPinned(feed.id)}<span class="pin" aria-label="Pinned">📌</span>{/if}
+            {#if iconFor(feed) !== undefined && !brokenIcons[feed.id]}
+              <img
+                class="icon"
+                src={iconFor(feed)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onerror={() => (brokenIcons = { ...brokenIcons, [feed.id]: true })}
+              />
+            {:else}
+              <span class="icon letter" style="--hue: {feedHue(feed.title)}" aria-hidden="true"
+                >{feedInitial(feed.title)}</span
+              >
+            {/if}
+            <span class="label">{feed.title}</span>
+            {#if reader.countFor(feed.id) > 0}
+              <span class="count">{reader.countFor(feed.id)}</span>
+            {/if}
+          </button>
+        {/each}
+      {/if}
+    </div>
+  {/each}
+
+  {#if reader.subscriptions.length === 0 && !reader.loadingList}
+    <p class="empty">No feeds yet.</p>
+  {/if}
+
+  <div class="status" aria-live="polite">
+    {#if reader.hiddenAvailable && !reader.hiddenLocked && reader.hiddenCount > 0}
+      <span class="stat">Hidden <b>{reader.hiddenCount}</b></span>
+      {#if reader.hiddenCategories.mode === "strict"}<span class="badge">Enforced</span>{/if}
+    {/if}
+    {#if reader.pinnedCount > 0}
+      <span class="stat">Pinned <b>{reader.pinnedCount}</b></span>
+    {/if}
+  </div>
+
+  <div class="add">
+    {#if adding}
+      <form onsubmit={submitFeed}>
+        <label class="visually-hidden" for="feed-url">Feed URL</label>
+        <input
+          id="feed-url"
+          type="url"
+          class="url"
+          placeholder="https://example.com/feed.xml"
+          bind:value={feedUrl}
+          disabled={reader.feedBusy}
+          autocomplete="off"
+        />
+        <div class="add-actions">
+          <button type="submit" class="submit" disabled={reader.feedBusy}>
+            {reader.feedBusy ? "Adding…" : "Add"}
+          </button>
+          <button type="button" class="cancel" onclick={cancelAdding} disabled={reader.feedBusy}>
+            Cancel
+          </button>
+        </div>
+        {#if reader.addFeedError}
+          <p class="add-error" role="alert">{reader.addFeedError}</p>
+        {/if}
+      </form>
+    {:else}
+      <button class="add-open" onclick={startAdding}>+ Add feed</button>
+    {/if}
+  </div>
+</nav>
+
+<style>
+  .pin {
+    font-size: 10px;
+    line-height: 1;
+    opacity: 0.8;
+  }
+
+  .status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin: 14px 16px 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--text-dim);
+  }
+
+  .status:empty {
+    display: none;
+  }
+
+  .stat b {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .badge {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--hover);
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .sidebar {
+    height: 100%;
+    overflow-y: auto;
+    padding: 8px 0 24px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+  }
+
+  .section + .section {
+    margin-top: 2px;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 12px 7px 16px;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .row:hover {
+    background: var(--hover);
+  }
+
+  .row.active {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+
+  .row.strong .label {
+    font-weight: 600;
+  }
+
+  .group {
+    position: relative;
+  }
+
+  .group-title {
+    padding-left: 8px;
+    /* Room for the star, so a long category name never slides under it. */
+    padding-right: 34px;
+  }
+
+  .group-title .label {
+    font-weight: 600;
+    text-transform: none;
+  }
+
+  .chevron {
+    width: 12px;
+    font-size: 10px;
+    color: var(--muted);
+    transition: transform 0.12s ease;
+  }
+
+  .chevron.closed {
+    transform: rotate(-90deg);
+  }
+
+  /* The star sits at the row's right edge; the chevron's own toggle button
+     stays on the left, so neither steals the other's clicks. */
+
+
+
+
+  /* A full-size sibling catches clicks on the chevron only, so the row itself
+     stays a single click target for opening the category stream. */
+  .toggle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 24px;
+    height: 100%;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+
+  /* Feed rows take the server's indent on top of the base inset; category rows
+     do not, because that is the hierarchy the indent exists to express. */
+  .feed {
+    padding-left: calc(34px + var(--feed-indent, 12px));
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+
+  .feed.active {
+    color: var(--accent-text);
+  }
+
+  .label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .count {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+
+  .empty {
+    padding: 12px 16px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .add {
+    padding: 14px 12px 0;
+  }
+
+  .add-open {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px dashed var(--border);
+    border-radius: 7px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .add-open:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .url {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .add-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .submit,
+  .cancel {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+
+  .submit:hover:not(:disabled),
+  .cancel:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .submit:disabled,
+  .cancel:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .add-error {
+    margin: 6px 0 0;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: #d9534f;
+    overflow-wrap: anywhere;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* Feed icons: cached image when FreshRSS has one, deterministic letter tile
+     otherwise, so no row is ever a broken image. */
+  .icon {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    object-fit: contain;
+  }
+
+  .icon.letter {
+    display: grid;
+    place-items: center;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    background: hsl(var(--hue) 32% 26%);
+    color: hsl(var(--hue) 45% 82%);
+  }
+</style>
