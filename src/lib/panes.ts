@@ -70,6 +70,68 @@ export function needed(mode: PaneMode, device: Device = "desktop"): number {
 }
 
 /**
+ * The two widths the user can tune: where a second pane appears and where a
+ * third does.
+ *
+ * One pane has no threshold of its own — it is what is left when neither of
+ * these is met, and its floor (`NEEDED[device][1]`) is the smallest honest
+ * single column, the same shape as a phone. That one stays fixed; these two are
+ * settings because "wide enough for two" is a taste, not a law.
+ */
+export interface PaneThresholds {
+  two: number;
+  three: number;
+}
+
+export const THRESHOLDS: Record<Device, PaneThresholds> = {
+  desktop: { two: NEEDED.desktop[2], three: NEEDED.desktop[3] },
+  phone: { two: NEEDED.phone[2], three: NEEDED.phone[3] },
+};
+
+/**
+ * What the sliders may say. The floor on "two" is a window that can hold a
+ * sidebar and a list and nothing else; "three" must stay clear of "two" by
+ * enough that one drag cannot make them equal and flip the layout twice.
+ */
+export const THRESHOLD_LIMITS = {
+  two: { min: 360, max: 2000 },
+  three: { min: 440, max: 2600 },
+  gap: 80,
+};
+
+/** Runtime values from storage, a slider or a corrupt string, made legal. */
+export function clampThresholds(
+  input: Partial<PaneThresholds>,
+  device: Device = "desktop",
+): PaneThresholds {
+  const fallback = THRESHOLDS[device];
+  const whole = (value: unknown, or: number): number =>
+    typeof value === "number" && Number.isFinite(value) ? Math.round(value) : or;
+  const { min: twoMin, max: twoMax } = THRESHOLD_LIMITS.two;
+  const { max: threeMax } = THRESHOLD_LIMITS.three;
+  const two = Math.min(Math.max(whole(input.two, fallback.two), twoMin), twoMax);
+  const three = Math.min(
+    Math.max(whole(input.three, fallback.three), two + THRESHOLD_LIMITS.gap),
+    threeMax,
+  );
+  return { two, three };
+}
+
+/**
+ * The narrowest window in which a mode is honest, under the current settings.
+ * This is also the width the layout switch asks the window to become.
+ */
+export function widthFor(
+  mode: PaneMode,
+  device: Device = "desktop",
+  thresholds: PaneThresholds = THRESHOLDS[device],
+): number {
+  if (mode === 3) return thresholds.three;
+  if (mode === 2) return thresholds.two;
+  return NEEDED[device][1];
+}
+
+/**
  * First-run mode. iPhone (and anything phone-sized) opens portrait in one
  * column and landscape in three; everything else follows the window. This is
  * only a default — the switch keeps all three available afterwards.
@@ -78,10 +140,13 @@ export function defaultModeFor(input: {
   phone: boolean;
   width: number;
   height: number;
+  /** The user's own thresholds, when they have any. */
+  thresholds?: PaneThresholds;
 }): PaneMode {
   if (input.phone) return input.width > input.height ? 3 : 1;
-  if (input.width >= 1200) return 3;
-  if (input.width >= 840) return 2;
+  const thresholds = input.thresholds ?? THRESHOLDS.desktop;
+  if (input.width >= thresholds.three) return 3;
+  if (input.width >= thresholds.two) return 2;
   return 1;
 }
 
@@ -100,9 +165,10 @@ export function effectiveMode(
   desired: PaneMode,
   available: number,
   device: Device = "desktop",
+  thresholds: PaneThresholds = THRESHOLDS[device],
 ): PaneMode {
-  if (desired >= 3 && available >= NEEDED[device][3]) return 3;
-  if (desired >= 2 && available >= NEEDED[device][2]) return 2;
+  if (desired >= 3 && available >= thresholds.three) return 3;
+  if (desired >= 2 && available >= thresholds.two) return 2;
   return 1;
 }
 

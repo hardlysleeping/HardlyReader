@@ -29,6 +29,8 @@
   } from "../lib/scroll-advance";
   import { reading } from "../state/reading.svelte";
   import { theme } from "../state/theme.svelte";
+  import { layout } from "../state/layout.svelte";
+  import { THRESHOLDS, THRESHOLD_LIMITS } from "../lib/panes";
 
   let open = $state(false);
 
@@ -92,6 +94,91 @@
         </span>
       </label>
     {/each}
+
+    <!-- Where a pane count begins. One pane has no number here on purpose: it
+         is what is left when neither threshold is met, and its width is the
+         smallest honest single column — the phone shape, fixed. -->
+    <div class="row">
+      <span class="key">Two panes from</span>
+      <span class="pick">
+        <input
+          class="range wide"
+          type="range"
+          min={THRESHOLD_LIMITS.two.min}
+          max={THRESHOLD_LIMITS.two.max}
+          step="10"
+          value={layout.thresholds.two}
+          aria-label="Window width at which a second pane appears"
+          oninput={(event) => layout.setThreshold("two", Number(event.currentTarget.value))}
+        />
+        <span class="num">
+          <input
+            class="value"
+            type="number"
+            min={THRESHOLD_LIMITS.two.min}
+            max={THRESHOLD_LIMITS.two.max}
+            step="10"
+            value={layout.thresholds.two}
+            aria-label="Two-pane threshold in pixels"
+            onchange={(event) => layout.setThreshold("two", Number(event.currentTarget.value))}
+            onblur={(event) => (event.currentTarget.value = String(layout.thresholds.two))}
+          />
+          <span class="affix" aria-hidden="true">px</span>
+        </span>
+        <button
+          class="again"
+          title={`Back to ${THRESHOLDS[layout.device].two}px`}
+          aria-label="Reset the two-pane threshold"
+          disabled={layout.thresholds.two === THRESHOLDS[layout.device].two}
+          onclick={() => layout.setThreshold("two", THRESHOLDS[layout.device].two)}
+        >↺</button>
+      </span>
+    </div>
+
+    <div class="row">
+      <span class="key">Three panes from</span>
+      <span class="pick">
+        <input
+          class="range wide"
+          type="range"
+          min={THRESHOLD_LIMITS.three.min}
+          max={THRESHOLD_LIMITS.three.max}
+          step="10"
+          value={layout.thresholds.three}
+          aria-label="Window width at which a third pane appears"
+          oninput={(event) => layout.setThreshold("three", Number(event.currentTarget.value))}
+        />
+        <span class="num">
+          <input
+            class="value"
+            type="number"
+            min={THRESHOLD_LIMITS.three.min}
+            max={THRESHOLD_LIMITS.three.max}
+            step="10"
+            value={layout.thresholds.three}
+            aria-label="Three-pane threshold in pixels"
+            onchange={(event) => layout.setThreshold("three", Number(event.currentTarget.value))}
+            onblur={(event) => (event.currentTarget.value = String(layout.thresholds.three))}
+          />
+          <span class="affix" aria-hidden="true">px</span>
+        </span>
+        <button
+          class="again"
+          title={`Back to ${THRESHOLDS[layout.device].three}px`}
+          aria-label="Reset the three-pane threshold"
+          disabled={layout.thresholds.three === THRESHOLDS[layout.device].three}
+          onclick={() => layout.setThreshold("three", THRESHOLDS[layout.device].three)}
+        >↺</button>
+      </span>
+    </div>
+
+    <!-- The feedback is the layout itself: drag a threshold past this window's
+         width and the panes change while you drag. The line says where you are
+         in numbers so the change is not a mystery. -->
+    <p class="hint">
+      This window is {Math.round(layout.available)}px — showing {layout.mode}
+      {layout.mode === 1 ? "pane" : "panes"}. Below {layout.thresholds.two}px it is always one.
+    </p>
 
     <!-- The lines between panes are the one place the accent appears without
          being asked: on, they take a quarter of it; off, they are the plain
@@ -301,6 +388,10 @@
   .range {
     width: 74px;
     accent-color: var(--accent);
+  }
+
+  .range.wide {
+    width: 96px;
   }
 
   .num {
