@@ -1,4 +1,13 @@
-import { AUTO_MARK_MS, shouldArmDwell, successorId } from "../../src/lib/dwell.ts";
+import {
+  AUTO_MARK_MS,
+  DWELL_SECONDS_DEFAULT,
+  DWELL_SECONDS_MAX,
+  DWELL_SECONDS_MIN,
+  clampDwellSeconds,
+  dwellMs,
+  shouldArmDwell,
+  successorId,
+} from "../../src/lib/dwell.ts";
 
 let failures = 0;
 let checks = 0;
@@ -13,7 +22,19 @@ function check(name, ok, detail = "") {
 // Three seconds, and the reason is the accident case: the timer is long enough
 // that a post flipped past never qualifies.
 check("the dwell is three seconds", AUTO_MARK_MS === 3000, String(AUTO_MARK_MS));
-check("long enough to notice", AUTO_MARK_MS >= 3000);
+check("the default setting matches the constant", DWELL_SECONDS_DEFAULT === AUTO_MARK_MS / 1000);
+check("the setting is in seconds", dwellMs(DWELL_SECONDS_DEFAULT) === AUTO_MARK_MS);
+
+// The setting is the owner's, within bounds that stay usable.
+check("a chosen delay converts", dwellMs(7) === 7000);
+check("below the floor clamps up", clampDwellSeconds(0) === DWELL_SECONDS_MIN && clampDwellSeconds(-4) === DWELL_SECONDS_MIN);
+check("above the ceiling clamps down", clampDwellSeconds(999) === DWELL_SECONDS_MAX, String(clampDwellSeconds(999)));
+check("the floor is a second", DWELL_SECONDS_MIN === 1);
+check("the ceiling is half a minute", DWELL_SECONDS_MAX === 30);
+check("fractions round to whole seconds", clampDwellSeconds(4.4) === 4 && clampDwellSeconds(4.6) === 5);
+check("rubbish falls back to the default", clampDwellSeconds("nope") === DWELL_SECONDS_DEFAULT && clampDwellSeconds(null) === DWELL_SECONDS_DEFAULT);
+check("a numeric string is accepted", clampDwellSeconds("12") === 12);
+check("the clamped value drives the timer", dwellMs(999) === DWELL_SECONDS_MAX * 1000);
 
 // Arming.
 check("off by default means never armed", shouldArmDwell({ enabled: false, alreadyRead: false, isOpen: true }) === false);

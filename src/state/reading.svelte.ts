@@ -7,6 +7,7 @@
  */
 
 import { isArticleFilter, type ArticleFilter } from "../lib/article-filter";
+import { clampDwellSeconds, DWELL_SECONDS_DEFAULT } from "../lib/dwell";
 
 const STORAGE_KEY = "hardlyreader.reading.v1";
 
@@ -30,6 +31,15 @@ class ReadingState {
    */
   autoMarkRead = $state(false);
 
+  /**
+   * How long a post must stay open before it counts as read, in seconds.
+   *
+   * A setting rather than a constant because reading speed is personal: three
+   * seconds suits skimming headlines, longer suits prose. It only matters while
+   * the ⏱ button is on.
+   */
+  autoMarkSeconds = $state(DWELL_SECONDS_DEFAULT);
+
   load(): void {
     if (typeof localStorage === "undefined") return;
     try {
@@ -39,10 +49,12 @@ class ReadingState {
         advanceOnScroll?: unknown;
         articleFilter?: unknown;
         autoMarkRead?: unknown;
+        autoMarkSeconds?: unknown;
       };
       if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
       if (typeof saved.autoMarkRead === "boolean") this.autoMarkRead = saved.autoMarkRead;
+      if (saved.autoMarkSeconds !== undefined) this.autoMarkSeconds = clampDwellSeconds(saved.autoMarkSeconds);
     } catch {
       // Same rule as the layout: a corrupt preference is not worth a dialog.
     }
@@ -55,6 +67,13 @@ class ReadingState {
 
   toggleAutoMarkRead(): void {
     this.autoMarkRead = !this.autoMarkRead;
+    this.save();
+  }
+
+  setAutoMarkSeconds(seconds: number): void {
+    const next = clampDwellSeconds(seconds);
+    if (this.autoMarkSeconds === next) return;
+    this.autoMarkSeconds = next;
     this.save();
   }
 
@@ -73,6 +92,7 @@ class ReadingState {
           advanceOnScroll: this.advanceOnScroll,
           articleFilter: this.articleFilter,
           autoMarkRead: this.autoMarkRead,
+          autoMarkSeconds: this.autoMarkSeconds,
         }),
       );
     } catch {
