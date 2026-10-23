@@ -668,7 +668,7 @@ export class ReaderState {
    * Unlocks with a passcode. Deliberately not optimistic: unlocking without
    * checking the code would be a cosmetic lock.
    */
-  async unlockHidden(passcode: string, origin: Point | null = null): Promise<boolean> {
+  async unlockHidden(passcode: string): Promise<boolean> {
     const session = this.session;
     if (session === null || !this.hiddenAvailable || this.hiddenBusy) return false;
 
@@ -677,7 +677,8 @@ export class ReaderState {
     try {
       const result = await apiUnlockHidden(transport, session, passcode);
       this.hiddenCategories = result.hiddenCategories;
-      floods.emit("unlock", origin);
+      // No light from here: the band pulses green in place (SidebarBand), which
+      // is the app answering rather than the window celebrating.
       return true;
     } catch (error) {
       if (error instanceof ApiError) {

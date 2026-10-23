@@ -15,6 +15,47 @@
   let lockOpen = $state(false);
   let code = $state("");
 
+  /**
+   * The band answers a lock and an unlock with one small pulse of its own
+   * colour — red going down, green coming back — rather than a light thrown
+   * across the window. It is the band that changed, so the band is what
+   * answers.
+   */
+  let pulse = $state<"lock" | "unlock" | null>(null);
+
+  /** Whether the controls are being pulled out right now (see `.opening`). */
+  let opening = $state(false);
+  let reveal = $state<HTMLElement | undefined>(undefined);
+  /** Natural height of the controls, so the expand can overshoot and settle. */
+  let bandH = $state(0);
+
+  let wasLocked = reader.hiddenLocked;
+  let wasCollapsed = chrome.bandCollapsed;
+
+  $effect(() => {
+    const lockedNow = reader.hiddenLocked;
+    if (lockedNow !== wasLocked) {
+      wasLocked = lockedNow;
+      pulse = lockedNow ? "lock" : "unlock";
+    }
+  });
+
+  $effect(() => {
+    const collapsedNow = chrome.bandCollapsed;
+    if (collapsedNow !== wasCollapsed) {
+      wasCollapsed = collapsedNow;
+      // Only the way out gets the spring: closing by hand should feel like
+      // putting something away, not like it is fighting back.
+      if (!collapsedNow) opening = true;
+    }
+  });
+
+  $effect(() => {
+    if (chrome.bandCollapsed || reveal === undefined) return;
+    const measured = reveal.scrollHeight;
+    if (measured > 0 && measured !== bandH) bandH = measured;
+  });
+
   const hiddenView = $derived(reader.hiddenView);
   const nextHidden = $derived(HIDDEN_CYCLE[(HIDDEN_CYCLE.indexOf(hiddenView) + 1) % HIDDEN_CYCLE.length]);
   const locked = $derived(reader.hiddenLocked);
@@ -27,13 +68,6 @@
 
   function cyclePins() {
     void reader.cyclePinView();
-  }
-
-  /** Where the click was, so the confirmation light leaves from there. */
-  function pointOf(event: MouseEvent | SubmitEvent): { x: number; y: number } | null {
-    const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
-    if (!rect) return null;
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   }
 
   /**
@@ -60,7 +94,7 @@
   async function submitUnlock(event: SubmitEvent) {
     event.preventDefault();
     if (code === "" || reader.hiddenBusy) return;
-    const ok = await reader.unlockHidden(code, pointOf(event));
+    const ok = await reader.unlockHidden(code);
     if (ok) {
       code = "";
       lockOpen = false;
@@ -85,6 +119,13 @@
      while they are hidden (bring them back), so the direction always describes
      what a click will do. -->
 <div class="bandbox" class:collapsed={chrome.bandCollapsed} class:locked={locked}>
+  {#if pulse}
+    <span
+      class="pulse {pulse}"
+      aria-hidden="true"
+      onanimationend={() => (pulse = null)}
+    ></span>
+  {/if}
   <!-- The caret is a bar across the top of the band, and it is always here —
        locked, collapsed, or neither. It used to be replaced by the unlock form
        while locked, which left no way to fold the band exactly when you might
@@ -104,6 +145,13 @@
     </svg>
   </button>
   {#if !chrome.bandCollapsed}
+    <div
+      class="reveal"
+      class:opening
+      bind:this={reveal}
+      style="--band-h: {bandH}px"
+      onanimationend={() => (opening = false)}
+    >
     {#if locked}
       <form class="unlockbar" onsubmit={submitUnlock} aria-label="Locked">
       <svg class="key" viewBox="0 0 24 24" aria-hidden="true">
@@ -182,6 +230,7 @@
       </button>
       </div>
     {/if}
+    </div>
   {/if}
 </div>
 
@@ -322,7 +371,89 @@
   /* No box: the band is three separate cut-outs on the sidebar's own
      background, so nothing is drawn around them but their own outline. */
   .bandbox {
+    position: relative;
     margin: 0 8px 6px;
+  }
+
+  /* Lock and unlock answer here: a thin ring that grows a hair and fades on the
+     band's own edge. Red for the curtain going down, green for it coming back —
+     the same two colours the controls already use, so nothing new is taught.
+     Nothing is drawn over the window, and it is over in a third of a second. */
+  .pulse {
+    position: absolute;
+    inset: -2px;
+    border-radius: 12px;
+    pointer-events: none;
+    animation: band-pulse 360ms ease-out both;
+  }
+
+  .pulse.lock {
+    --pulse-tone: var(--tone-hidden, #e5484d);
+  }
+
+  .pulse.unlock {
+    --pulse-tone: var(--tone-unlock, #3fbf6f);
+  }
+
+  @keyframes band-pulse {
+    0% {
+      opacity: 1;
+      box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--pulse-tone) 75%, transparent),
+        0 0 8px color-mix(in srgb, var(--pulse-tone) 26%, transparent);
+    }
+    100% {
+      opacity: 0;
+      box-shadow:
+        inset 0 0 0 3px color-mix(in srgb, var(--pulse-tone) 0%, transparent),
+        0 0 16px color-mix(in srgb, var(--pulse-tone) 0%, transparent);
+    }
+  }
+
+  /* The controls are pulled out from under the bar: clipped while they move,
+     overshooting their own height and a couple of percent of scale before they
+     settle. Quick — a quarter of a second — and the overshoot is small enough
+     that it reads as weight, not as a bounce. */
+  .reveal {
+    overflow: hidden;
+  }
+
+  .reveal.opening {
+    animation: band-unfold 260ms cubic-bezier(0.22, 0.8, 0.3, 1) both;
+    transform-origin: top center;
+  }
+
+  @keyframes band-unfold {
+    0% {
+      max-height: 0;
+      opacity: 0;
+      transform: translateY(-3px) scaleY(0.92);
+    }
+    58% {
+      max-height: calc(var(--band-h, 80px) + 7px);
+      opacity: 1;
+      transform: translateY(1px) scaleY(1.035);
+    }
+    82% {
+      max-height: var(--band-h, 80px);
+      transform: translateY(0) scaleY(0.995);
+    }
+    100% {
+      max-height: var(--band-h, 80px);
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pulse {
+      animation: none;
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pulse-tone) 45%, transparent);
+    }
+
+    .reveal.opening {
+      animation: none;
+    }
   }
 
   /* Full-width caret bar: the handle for the whole band, in both states. Kept

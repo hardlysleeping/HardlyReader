@@ -27,6 +27,7 @@
   --tone-favourite: #0078e0;
   --tone-lock-open: #e6b93f;
   --tone-lock-closed: #f08c2e;
+  --tone-unlock: #3fbf6f;
   --tone-sync: #28a06b;
 
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);

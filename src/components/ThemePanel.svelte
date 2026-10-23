@@ -33,7 +33,7 @@
   let open = $state(false);
 
   const swatches: {
-    key: "accent" | "hidden" | "favourite" | "lockOpen" | "lockClosed" | "sync";
+    key: "accent" | "hidden" | "favourite" | "lockOpen" | "lockClosed" | "unlock" | "sync";
     label: string;
   }[] = [
     { key: "accent", label: "Accent" },
@@ -41,6 +41,7 @@
     { key: "favourite", label: "Favourite" },
     { key: "lockOpen", label: "Lock open" },
     { key: "lockClosed", label: "Lock locked" },
+    { key: "unlock", label: "Unlocked" },
     { key: "sync", label: "Sync" },
   ];
 </script>

@@ -7,7 +7,7 @@
  * functions decide, which is what makes the trimming and clamping testable.
  */
 
-export type FloodKind = "hidden" | "revealed" | "pin" | "unpin" | "sync" | "unlock";
+export type FloodKind = "hidden" | "revealed" | "pin" | "unpin" | "sync";
 
 export interface Point {
   x: number;
@@ -42,17 +42,16 @@ const TONES: Record<FloodKind, string> = {
   pin: "var(--tone-favourite, #0078e0)",
   unpin: "var(--accent, #0078e0)",
   sync: "var(--tone-sync, #0078e0)",
-  unlock: "var(--tone-lock-open, #e6b93f)",
 };
 
 /**
  * How loud each kind is by default.
  *
  * Hiding a feed or pinning one is a small, deliberate act and gets the full
- * glow. Unlocking is different: it happens when you come back to the app, and a
- * burst of light across the window for that is noise — it gets a third.
- * Locking gets nothing at all; the shutter closing over the band is the
- * feedback, and light escaping from a lock reads as the wrong message entirely.
+ * glow. The lock pair gets nothing at all: both are answered by the band itself
+ * — the shutter closing on lock, and a green pulse on its own edge on unlock.
+ * Light thrown across the window for either reads as the wrong message: one
+ * says something escaped, the other says the app celebrated being opened.
  */
 const STRENGTHS: Record<FloodKind, number> = {
   hidden: 1,
@@ -60,7 +59,6 @@ const STRENGTHS: Record<FloodKind, number> = {
   pin: 1,
   unpin: 1,
   sync: 1,
-  unlock: 0.32,
 };
 
 export function floodStrength(kind: FloodKind): number {
