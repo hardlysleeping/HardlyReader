@@ -172,6 +172,53 @@ try {
   await pending;
   check("the pending load settles", reader.loadingList === false);
 
+// --- collapsed state roundtrip ---------------------------------------------
+// The band and the category groups both live in the prefs blob. These checks
+// exist because "it should stay collapsed" is a promise about a *new* instance,
+// not about the one that was clicked. The stub has to be installed before the
+// reader is constructed: `stop()` and `start()` both touch storage.
+{
+  const store = new Map();
+  const original = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+  };
+  try {
+    const session = { serverUrl: "https://reader.test", email: "u@reader.test" };
+    const first = new ReaderState();
+    first.session = session;
+    first.toggleBand();
+    first.toggleCategory("category/1");
+
+    const key = "hardlyreader:prefs:https://reader.test|u@reader.test";
+    const written = JSON.parse(store.get(key) ?? "null");
+    check("collapsing the band writes the preference", written?.bandCollapsed === true, JSON.stringify(written));
+    check("collapsing a category writes the preference", written?.collapsed?.["category/1"] === true);
+
+    const second = new ReaderState();
+    second.session = session;
+    second.loadPrefs();
+    check("a new instance starts with the band still collapsed", second.bandCollapsed === true);
+    check("a new instance starts with the category still collapsed", second.isCategoryCollapsed("category/1") === true);
+
+    // Expanding again must persist too, or the next launch would undo it.
+    first.toggleBand();
+    first.toggleCategory("category/1");
+    const third = new ReaderState();
+    third.session = session;
+    third.loadPrefs();
+    check(
+      "expanding persists as well",
+      third.bandCollapsed === false && third.isCategoryCollapsed("category/1") === false,
+    );
+  } finally {
+    if (original === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = original;
+  }
+}
+
   reader.stop();
   check("stop() resets hidden state", reader.hiddenAvailable === false && reader.hiddenError === null);
 } finally {
