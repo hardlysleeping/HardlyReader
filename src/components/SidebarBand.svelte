@@ -50,7 +50,7 @@
       void reader.loadHiddenState();
       return;
     }
-    await reader.lockHidden(pointOf(event));
+    await reader.lockHidden();
     // Locking does not fold the band from here: the band itself folds on the
     // lock transition (see Sidebar), which also restores the fold state the user
     // chose when the curtain comes back up. This only closes the panel.

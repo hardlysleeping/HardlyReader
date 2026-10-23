@@ -18,7 +18,7 @@
     <span
       class="flood"
       data-kind={flood.kind}
-      style="--x: {flood.x}px; --y: {flood.y}px; --tone: {floodTone(flood.kind)}; --life: {LIFE}ms"
+      style="--x: {flood.x}px; --y: {flood.y}px; --tone: {floodTone(flood.kind)}; --life: {LIFE}ms; --strength: {flood.strength}"
       onanimationend={() => floods.retire(flood.id)}
     ></span>
   {/each}
@@ -37,9 +37,11 @@
     position: absolute;
     left: var(--x);
     top: var(--y);
-    width: 170px;
-    height: 170px;
-    margin: -85px 0 0 -85px;
+    /* A quiet flood is a smaller light as well as a dimmer one: shrinking the
+       disc keeps the shape readable instead of showing a faint full-size circle. */
+    width: calc(170px * (0.55 + 0.45 * var(--strength, 1)));
+    height: calc(170px * (0.55 + 0.45 * var(--strength, 1)));
+    translate: -50% -50%;
     border-radius: 50%;
     /* Light, not a coloured blob: bright centre, tinted edge, nothing at the
        rim, so it reads as a glow leaving rather than a circle appearing. */
@@ -63,10 +65,10 @@
       transform: translate3d(0, 12px, 0) scale(0.42);
     }
     16% {
-      opacity: 0.9;
+      opacity: calc(0.9 * var(--strength, 1));
     }
     55% {
-      opacity: 0.42;
+      opacity: calc(0.42 * var(--strength, 1));
     }
     100% {
       opacity: 0;
