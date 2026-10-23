@@ -200,7 +200,12 @@ export class ReaderState {
     const menu = this.menu;
     if (menu === null) return null;
     return menu.target.kind === "category"
-      ? categoryMenu(this.hiddenCategories, menu.target.label, this.isCategoryPinned(menu.target.label))
+      ? categoryMenu(
+          this.hiddenCategories,
+          menu.target.label,
+          this.isCategoryPinned(menu.target.label),
+          this.favorites.available ? this.isFavorite(menu.target.label) : null,
+        )
       : feedMenu(
           menu.target.title,
           menu.confirming,
@@ -259,23 +264,30 @@ export class ReaderState {
     return id !== null && this.favorites.ids.includes(id);
   }
 
-  /** Where category pins live: the server's favourites when it has them. */
-  get pinSource(): "server" | "local" {
-    return this.favorites.available ? "server" : "local";
-  }
-
+  /**
+   * Pins are this device's own state, always.
+   *
+   * They used to live in Favorite Categories when it was available, which made
+   * a pin a second name for a favourite and wrote to an extension the app is
+   * supposed to run without. A pin now only decides what floats to the top and
+   * whether an item survives the hidden filter; being a favourite is a
+   * separate, server-synced fact.
+   */
   isCategoryPinned(label: string): boolean {
-    return this.pinSource === "server"
-      ? this.isFavorite(label)
-      : this.localPins.categories.includes(label);
+    return this.localPins.categories.includes(label);
   }
 
   isFeedPinned(streamId: string): boolean {
     return this.localPins.feeds.includes(streamId);
   }
 
+  /**
+   * Which rows the sidebar is showing: all, favourites only, or favourites
+   * hidden. This reads the extension's view when it exists — that is a filter
+   * over favourites, not the storage for a pin, which stays local.
+   */
   get pinView(): PinView {
-    return this.pinSource === "server" ? this.favorites.view : this.localPins.view;
+    return this.favorites.available ? this.favorites.view : this.localPins.view;
   }
 
   /** How many categories are pinned, for the status strip. */
@@ -297,12 +309,8 @@ export class ReaderState {
     return this.hiddenCategories.available && this.hiddenCategories.locked;
   }
 
-  /** Pins or unpins a category on the server when it can, locally otherwise. */
-  async setCategoryPinned(label: string, pinned: boolean): Promise<void> {
-    if (this.pinSource === "server" && this.favoriteId(label) !== null) {
-      await this.setCategoryFavorite(label, pinned);
-      return;
-    }
+  /** Pins or unpins a category on this device. Never touches the server. */
+  setCategoryPinned(label: string, pinned: boolean): void {
     this.updateLocalPins({ categories: withPinned(this.localPins.categories, label, pinned) });
   }
 
@@ -322,10 +330,10 @@ export class ReaderState {
     this.updateLocalPins({ feeds: withPinned(this.localPins.feeds, streamId, pinned) });
   }
 
-  /** One click on the band's pin control: the next view in the cycle. */
+  /** One click on the band's favourites control: the next view in the cycle. */
   async cyclePinView(): Promise<void> {
     const next = nextPinView(this.pinView);
-    if (this.pinSource === "server") {
+    if (this.favorites.available) {
       await this.setFavoritesView(next);
       return;
     }
@@ -455,9 +463,12 @@ export class ReaderState {
         return target.kind === "category" ? this.setCategoryHidden(target.label, action.hidden) : null;
       case "pin":
         this.menu = null;
-        if (target.kind === "category") await this.setCategoryPinned(target.label, action.pinned);
+        if (target.kind === "category") this.setCategoryPinned(target.label, action.pinned);
         else this.setFeedPinned(target.id, action.pinned);
         return null;
+      case "favorite":
+        this.menu = null;
+        return target.kind === "category" ? this.setCategoryFavorite(target.label, action.favorite) : null;
       case "indent":
         // Indent is applied live from the slider and leaves the menu open, so
         // this only exists to keep the union total.
@@ -687,6 +698,7 @@ export class ReaderState {
       this.pinView,
       (label) => this.isCategoryPinned(label),
       (id) => this.isFeedPinned(id),
+      (label) => this.isFavorite(label),
     );
   }
 

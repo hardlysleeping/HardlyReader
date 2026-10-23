@@ -190,6 +190,7 @@ export type MenuAction =
   | { type: "hidden"; hidden: boolean }
   | { type: "indent"; px: number }
   | { type: "pin"; pinned: boolean }
+  | { type: "favorite"; favorite: boolean }
   | { type: "remove-feed" }
   | { type: "confirm-remove" }
   | { type: "cancel-remove" };
@@ -218,7 +219,13 @@ export interface MenuModel {
   note: string | null;
   /** Hide/Show. Null for a feed row. */
   toggle: MenuItemModel | null;
-  /** Pin/Unpin. Always offered: pins fall back to this device without the extension. */
+  /**
+   * Favourite/Unfavourite, server-synced through Favorite Categories. Null when
+   * that extension is not available: a favourite is a server fact, so there is
+   * nothing honest to offer locally.
+   */
+  favorite: MenuItemModel | null;
+  /** Pin/Unpin. Always offered, always this device: a different state to a favourite. */
   pin: MenuItemModel | null;
   /**
    * Sidebar indentation, for a feed row. Indent applies to every feed, so this
@@ -239,7 +246,12 @@ export interface MenuModel {
  * defeats the point of hiding them; the view lives on the sidebar band, next to
  * the lock.
  */
-export function categoryMenu(state: HiddenCategoriesState, label: string, pinned: boolean): MenuModel {
+export function categoryMenu(
+  state: HiddenCategoriesState,
+  label: string,
+  pinned: boolean,
+  favorite: boolean | null = null,
+): MenuModel {
   const id = categoryIdForLabel(state, label);
   const hidden = isHiddenCategory(state, label);
   const usable = state.available && id !== null;
@@ -255,6 +267,15 @@ export function categoryMenu(state: HiddenCategoriesState, label: string, pinned
     kind: "category",
     label,
     note: notes.length === 0 ? null : notes.join(" "),
+    favorite:
+      favorite === null
+        ? null
+        : {
+            action: { type: "favorite", favorite: !favorite },
+            label: favorite ? "Unfavourite" : "Favourite",
+            checked: false,
+            disabled: false,
+          },
     toggle: state.available
       ? {
           action: { type: "hidden", hidden: !hidden },
@@ -290,6 +311,7 @@ export function feedMenu(
     label: title,
     note: confirming ? "This removes the feed and its unread items from the server." : null,
     toggle: null,
+    favorite: null,
     indent: confirming
       ? null
       : {

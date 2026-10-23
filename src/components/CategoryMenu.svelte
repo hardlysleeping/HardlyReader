@@ -168,6 +168,19 @@
     >{toggle.label}</button>
   {/if}
 
+  {#if model.favorite}
+    {@const favorite = model.favorite}
+    <button
+      class="item"
+      role="menuitem"
+      disabled={favorite.disabled || busy}
+      onclick={() => onselect(favorite.action)}
+    >
+      <span class="pin-glyph" aria-hidden="true">📌</span>
+      <span class="option">{favorite.label}</span>
+    </button>
+  {/if}
+
   {#if model.pin}
     {@const pin = model.pin}
     <button
@@ -176,7 +189,7 @@
       disabled={pin.disabled || busy}
       onclick={() => onselect(pin.action)}
     >
-      <span class="pin-glyph" aria-hidden="true">📌</span>
+      <span class="pin-glyph" aria-hidden="true">🔖</span>
       <span class="option">{pin.label}</span>
     </button>
   {/if}
