@@ -15,3 +15,7 @@ require_once dirname(__DIR__) . '/lib/HardlyReadApi.php';
 require_once __DIR__ . '/Fakes/FakeHiddenCategoriesStore.php';
 require_once __DIR__ . '/Fakes/FakeHiddenCategoriesReadOnly.php';
 require_once __DIR__ . '/Fakes/FakeHiddenCategories.php';
+require_once __DIR__ . '/Fakes/FakeFavoritesStore.php';
+require_once __DIR__ . '/Fakes/FakeFavoriteCategoriesReadOnly.php';
+require_once __DIR__ . '/Fakes/FakeFavoriteCategories.php';
+require_once __DIR__ . '/Fakes/FakeSidebarIndent.php';

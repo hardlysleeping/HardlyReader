@@ -8,10 +8,11 @@ declare(strict_types=1);
  *
  * This extension owns no state of its own. It authenticates the caller with the
  * same GoogleLogin credential the GReader API accepts, then forwards intent to
- * the extension that owns that state (currently Hidden Categories). It never
- * writes feed priority, never opens the state database and never reimplements
- * the Strict/Light rules: HardlyReader asks for a result, Hidden Categories
- * decides how to reach it.
+ * the extension that owns that state: Hidden Categories (hide/unhide, view),
+ * Favorite Categories (favorite/unfavorite, view) and, read-only, Sidebar Feed
+ * Indent. It never writes feed priority, never opens another extension's state
+ * database and never reimplements its rules: HardlyReader asks for a result,
+ * the owning extension decides how to reach it.
  *
  * Routing, validation and status mapping live in lib/HardlyReadApi.php, which
  * has no FreshRSS dependency. This file is only the transport (superglobals,
@@ -24,6 +25,12 @@ class HardlyReadExtension extends Minz_Extension
 {
 	/** Registry key of the state-owning extension: metadata `name`, not entrypoint. */
 	private const HIDDEN_EXTENSION = 'Hidden Categories';
+
+	/** Registry key of the favorites extension. */
+	private const FAVORITES_EXTENSION = 'Favorite Categories';
+
+	/** Registry key of the read-only indent extension. */
+	private const INDENT_EXTENSION = 'Sidebar Feed Indent';
 
 	/** Request bodies above this are refused rather than parsed. */
 	private const MAX_BODY_BYTES = 16384;
@@ -57,8 +64,10 @@ class HardlyReadExtension extends Minz_Extension
 			}
 
 			$api = new HardlyReadApi(
-				fn (string $authorization): ?string => $this->authenticateGoogleLogin($authorization),
-				fn (string $username): ?object => $this->loadHiddenCategories($username),
+				authenticate: fn (string $authorization): ?string => $this->authenticateGoogleLogin($authorization),
+				loadHiddenCategories: fn (string $username): ?object => $this->loadHiddenCategories($username),
+				loadFavorites: fn (string $username): ?object => $this->loadUserExtension($username, self::FAVORITES_EXTENSION),
+				loadSidebarIndent: fn (string $username): ?object => $this->loadUserExtension($username, self::INDENT_EXTENSION),
 			);
 
 			$this->respond($api->dispatch($method, $path, $this->authorizationHeader(), $body));
@@ -193,26 +202,38 @@ class HardlyReadExtension extends Minz_Extension
 	/**
 	 * The Hidden Categories extension, but only when it is enabled for the
 	 * user who just authenticated.
+	 */
+	private function loadHiddenCategories(string $username): ?object
+	{
+		return $this->loadUserExtension($username, self::HIDDEN_EXTENSION);
+	}
+
+	/**
+	 * One user extension, by metadata display name, but only when it is
+	 * enabled for the user who just authenticated.
 	 *
 	 * findExtension() loads extension code regardless of enablement, so the
 	 * enabled check below is the access control, not a formality. enableByList()
 	 * is what actually registers the extension for this request: misc.php
 	 * enabled only Hardly Read.
+	 *
+	 * Nothing here assumes an extension is installed or enabled: an absent or
+	 * disabled one returns null, which the router reports as `available: false`.
 	 */
-	private function loadHiddenCategories(string $username): ?object
+	private function loadUserExtension(string $username, string $name): ?object
 	{
 		if ($username === '' || !FreshRSS_Context::hasUserConf()) {
 			return null;
 		}
 
 		$enabled = FreshRSS_Context::userConf()->extensions_enabled;
-		if (!is_array($enabled) || empty($enabled[self::HIDDEN_EXTENSION])) {
+		if (!is_array($enabled) || empty($enabled[$name])) {
 			return null;
 		}
 
-		Minz_ExtensionManager::enableByList([self::HIDDEN_EXTENSION => true], 'user');
+		Minz_ExtensionManager::enableByList([$name => true], 'user');
 
-		$extension = Minz_ExtensionManager::findExtension(self::HIDDEN_EXTENSION);
+		$extension = Minz_ExtensionManager::findExtension($name);
 
 		return $extension instanceof Minz_Extension ? $extension : null;
 	}
