@@ -23,9 +23,17 @@ final class HardlyReadApiTest extends TestCase
 	/** @var list<string> */
 	private array $loadedFor = [];
 
+	/** @var list<string> */
+	private array $favoritesLoadedFor = [];
+
+	/** @var list<string> */
+	private array $indentLoadedFor = [];
+
 	protected function setUp(): void
 	{
 		$this->loadedFor = [];
+		$this->favoritesLoadedFor = [];
+		$this->indentLoadedFor = [];
 	}
 
 	// ---------------------------------------------------------------- auth --
@@ -95,6 +103,8 @@ final class HardlyReadApiTest extends TestCase
 						['id' => 31, 'name' => 'Art', 'hidden' => true],
 					],
 				],
+				'favorites' => ['available' => false],
+				'sidebarIndent' => ['available' => false],
 			],
 			$response->body,
 		);
@@ -174,13 +184,20 @@ final class HardlyReadApiTest extends TestCase
 		self::assertSame([4, 12], $state['hiddenIds']);
 	}
 
-	public function testStateWorksWithoutHiddenCategories(): void
+	public function testStateWorksWithoutAnyExtension(): void
 	{
 		$response = $this->api(null)->dispatch('GET', '/v1/state', self::AUTH);
 
 		self::assertSame(200, $response->status);
+		// Both new keys are present and unavailable rather than missing: the
+		// client decides on `available`, never on a key being absent.
 		self::assertSame(
-			['apiVersion' => 1, 'hiddenCategories' => ['available' => false]],
+			[
+				'apiVersion' => 1,
+				'hiddenCategories' => ['available' => false],
+				'favorites' => ['available' => false],
+				'sidebarIndent' => ['available' => false],
+			],
 			$response->body,
 		);
 	}
@@ -532,6 +549,495 @@ final class HardlyReadApiTest extends TestCase
 		self::assertSame([12, true], $hidden->lastCategoryCall);
 	}
 
+	// ------------------------------------------------------------- favorites --
+
+	public function testStateReportsFavoritesState(): void
+	{
+		$favorites = new FakeFavoriteCategories(new FakeFavoritesStore([3, 7], 'only'));
+
+		$state = $this->api(null, favorites: $favorites)
+			->dispatch('GET', '/v1/state', self::AUTH)
+			->body['favorites'];
+
+		self::assertSame(
+			[
+				'available' => true,
+				'view' => 'only',
+				'ids' => [3, 7],
+				'categories' => [
+					['id' => 3, 'name' => 'Comics', 'favorite' => true],
+					['id' => 7, 'name' => 'Faves', 'favorite' => true],
+					['id' => 9, 'name' => 'News', 'favorite' => false],
+				],
+			],
+			$state,
+		);
+		self::assertSame(['alice'], $this->favoritesLoadedFor);
+	}
+
+	public function testStateDropsNonPositiveFavoriteIds(): void
+	{
+		$favorites = new FakeFavoriteCategories(new FakeFavoritesStore([0, -3, 3, '7']));
+
+		$state = $this->api(null, favorites: $favorites)
+			->dispatch('GET', '/v1/state', self::AUTH)
+			->body['favorites'];
+
+		self::assertSame([3, 7], $state['ids']);
+		self::assertTrue($state['categories'][0]['favorite']);
+		self::assertTrue($state['categories'][1]['favorite']);
+	}
+
+	public function testStateTreatsAnUnreadableFavoritesStoreAsUnavailable(): void
+	{
+		// store() is there, the two readers the adapter needs are not.
+		$stray = new class {
+			public function store(): object
+			{
+				return new class {
+				};
+			}
+		};
+
+		$state = $this->api(null, favorites: $stray)
+			->dispatch('GET', '/v1/state', self::AUTH)
+			->body['favorites'];
+
+		self::assertSame(['available' => false], $state);
+	}
+
+	public function testFavoritesStateOmitsCategoriesTheCollaboratorCannotList(): void
+	{
+		// Readable store, no categories() — ids are still known.
+		$favorites = new class(new FakeFavoritesStore([3])) {
+			public function __construct(private FakeFavoritesStore $store)
+			{
+			}
+
+			public function store(): FakeFavoritesStore
+			{
+				return $this->store;
+			}
+		};
+
+		$state = $this->api(null, favorites: $favorites)
+			->dispatch('GET', '/v1/state', self::AUTH)
+			->body['favorites'];
+
+		self::assertSame([], $state['categories']);
+		self::assertSame([3], $state['ids']);
+	}
+
+	public function testCanFavoriteCategory(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/3', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(200, $response->status);
+		self::assertSame([], $response->headers);
+		self::assertSame(
+			[
+				'ok' => true,
+				'changed' => true,
+				'favorites' => [
+					'available' => true,
+					'view' => 'all',
+					'ids' => [3],
+					'categories' => [
+						['id' => 3, 'name' => 'Comics', 'favorite' => true],
+						['id' => 7, 'name' => 'Faves', 'favorite' => false],
+						['id' => 9, 'name' => 'News', 'favorite' => false],
+					],
+				],
+			],
+			$response->body,
+		);
+		self::assertSame([3, true], $favorites->lastFavoriteCall);
+		self::assertSame(1, $favorites->favoriteCalls);
+	}
+
+	public function testRepeatingAFavoriteIsNotAChange(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+		$api = $this->api(null, favorites: $favorites);
+
+		$first = $api->dispatch('PUT', '/v1/favorites/3', self::AUTH, ['favorite' => true]);
+		$second = $api->dispatch('PUT', '/v1/favorites/3', self::AUTH, ['favorite' => true]);
+
+		self::assertTrue($first->body['changed']);
+		self::assertFalse($second->body['changed'], 'the store did not move, so changed must be false');
+		self::assertSame([3], $second->body['favorites']['ids']);
+	}
+
+	public function testCanUnfavoriteCategory(): void
+	{
+		$favorites = new FakeFavoriteCategories(new FakeFavoritesStore([3, 7]));
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/7', self::AUTH, ['favorite' => false]);
+
+		self::assertSame(200, $response->status);
+		self::assertTrue($response->body['changed']);
+		self::assertSame([3], $response->body['favorites']['ids']);
+		self::assertSame([7, false], $favorites->lastFavoriteCall);
+	}
+
+	public function testUnfavoritingSomethingThatWasNotAFavoriteIsNotAChange(): void
+	{
+		$favorites = new FakeFavoriteCategories(new FakeFavoritesStore([3]));
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/9', self::AUTH, ['favorite' => false]);
+
+		self::assertSame(200, $response->status);
+		self::assertFalse($response->body['changed']);
+		self::assertSame([3], $response->body['favorites']['ids']);
+	}
+
+	public function testZeroFavoriteIdIsRejectedAsInvalid(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/0', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(400, $response->status);
+		self::assertSame('invalid_category', $response->body['error']['code']);
+		self::assertSame(0, $favorites->favoriteCalls);
+	}
+
+	/**
+	 * @return array<string, array{string}>
+	 */
+	public static function malformedFavoriteIds(): array
+	{
+		return [
+			'negative' => ['-1'],
+			'trailing letters' => ['12abc'],
+			'decimal' => ['1.5'],
+			'space padded' => ['12%20'],
+		];
+	}
+
+	#[DataProvider('malformedFavoriteIds')]
+	public function testMalformedFavoriteIdsAreRejected(string $segment): void
+	{
+		$favorites = new FakeFavoriteCategories();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/' . $segment, self::AUTH, ['favorite' => true]);
+
+		self::assertSame(400, $response->status);
+		self::assertSame('invalid_category', $response->body['error']['code']);
+		self::assertSame(0, $favorites->favoriteCalls);
+	}
+
+	/**
+	 * @return array<string, array{array<string, mixed>}>
+	 */
+	public static function malformedFavoriteValues(): array
+	{
+		return [
+			'missing' => [[]],
+			'string' => [['favorite' => 'true']],
+			'int' => [['favorite' => 1]],
+			'null' => [['favorite' => null]],
+		];
+	}
+
+	/**
+	 * @param array<string, mixed> $body
+	 */
+	#[DataProvider('malformedFavoriteValues')]
+	public function testFavoriteWriteRequiresAnExplicitBoolean(array $body): void
+	{
+		$favorites = new FakeFavoriteCategories();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/3', self::AUTH, $body);
+
+		self::assertSame(400, $response->status);
+		self::assertSame('invalid_favorite_value', $response->body['error']['code']);
+		self::assertSame(0, $favorites->favoriteCalls);
+		self::assertSame([], $this->favoritesLoadedFor, 'validation must precede the collaborator read');
+	}
+
+	public function testUnknownFavoriteCategoryReturns404(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/5', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(404, $response->status);
+		self::assertSame('category_not_found', $response->body['error']['code']);
+		self::assertSame('Category does not exist.', $response->body['error']['message']);
+		self::assertSame(0, $favorites->favoriteCalls, 'a missing category is never written to');
+	}
+
+	public function testFavoriteWriteWithoutFavoritesReturns409(): void
+	{
+		$response = $this->api(null)
+			->dispatch('PUT', '/v1/favorites/3', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(409, $response->status);
+		self::assertSame('favorites_unavailable', $response->body['error']['code']);
+	}
+
+	public function testFavoriteWriteAgainstAnOldFavoritesReturns409(): void
+	{
+		$favorites = new FakeFavoriteCategoriesReadOnly();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/3', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(409, $response->status);
+		self::assertSame('extension_incompatible', $response->body['error']['code']);
+		self::assertStringContainsString('setCategoryFavorite', $response->body['error']['message']);
+	}
+
+	public function testFavoriteConvergenceFailureCarriesFavoritesState(): void
+	{
+		// Real shape: the store took the write, the feed sweep did not.
+		$favorites = new FakeFavoriteCategories();
+		$favorites->sweepFails = true;
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/3', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(409, $response->status);
+		self::assertSame('convergence_failed', $response->body['error']['code']);
+		self::assertTrue($response->body['favorites']['available']);
+		self::assertSame([3], $response->body['favorites']['ids']);
+	}
+
+	public function testFavoriteStoreFailureIsAnInternalError(): void
+	{
+		// Nothing saved and no convergence: the contract has no code for this.
+		$favorites = new FakeFavoriteCategories();
+		$favorites->setResult = [
+			'ok' => false,
+			'changed' => false,
+			'converged' => false,
+			'catId' => 3,
+			'favorite' => true,
+			'message' => 'Could not write the state database.',
+		];
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/3', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(500, $response->status);
+		self::assertSame('internal_error', $response->body['error']['code']);
+		self::assertSame('Could not write the state database.', $response->body['error']['message']);
+	}
+
+	public function testFavoriteRoutesRequireAuthentication(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+		$api = $this->api(null, authenticated: false, favorites: $favorites);
+
+		foreach (['/v1/favorites/3', '/v1/favorites/view'] as $path) {
+			$response = $api->dispatch('PUT', $path, '', ['favorite' => true, 'view' => 'only']);
+
+			self::assertSame(401, $response->status, $path);
+			self::assertSame('unauthorized', $response->body['error']['code'], $path);
+		}
+		self::assertSame([], $this->favoritesLoadedFor, 'no collaborator may be read before authentication');
+	}
+
+	public function testWrongMethodOnFavoriteCategoryReturns405WithAllowPut(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('GET', '/v1/favorites/3', self::AUTH);
+
+		self::assertSame(405, $response->status);
+		self::assertSame('method_not_allowed', $response->body['error']['code']);
+		self::assertSame('PUT', $response->headers['Allow']);
+		self::assertSame(0, $favorites->favoriteCalls);
+	}
+
+	public function testFavoriteWriteRouteRejectsTrailingSegments(): void
+	{
+		$response = $this->api(null, favorites: new FakeFavoriteCategories())
+			->dispatch('PUT', '/v1/favorites/3/extra', self::AUTH, ['favorite' => true]);
+
+		self::assertSame(404, $response->status);
+		self::assertSame('route_not_found', $response->body['error']['code']);
+	}
+
+	// ------------------------------------------------------- favorites view --
+
+	/**
+	 * @return array<string, array{array<string, mixed>}>
+	 */
+	public static function favoriteViews(): array
+	{
+		return [
+			'all' => [['view' => 'all']],
+			'only' => [['view' => 'only']],
+			'without' => [['view' => 'without']],
+		];
+	}
+
+	/**
+	 * @param array<string, mixed> $body
+	 */
+	#[DataProvider('favoriteViews')]
+	public function testCanChangeFavoritesView(array $body): void
+	{
+		$favorites = new FakeFavoriteCategories();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/view', self::AUTH, $body);
+
+		self::assertSame(200, $response->status);
+		self::assertSame(['ok' => true, 'favorites' => [
+			'available' => true,
+			'view' => $body['view'],
+			'ids' => [],
+			'categories' => [
+				['id' => 3, 'name' => 'Comics', 'favorite' => false],
+				['id' => 7, 'name' => 'Faves', 'favorite' => false],
+				['id' => 9, 'name' => 'News', 'favorite' => false],
+			],
+		]], $response->body);
+		self::assertSame($body['view'], $favorites->lastViewCall);
+		self::assertSame(1, $favorites->viewCalls);
+	}
+
+	/**
+	 * @return array<string, array{array<string, mixed>}>
+	 */
+	public static function malformedFavoriteViews(): array
+	{
+		return [
+			'missing' => [[]],
+			'hiding word' => [['view' => 'hidden']],
+			'unknown' => [['view' => 'everything']],
+			'empty' => [['view' => '']],
+			'not a string' => [['view' => 3]],
+			'wrong case' => [['view' => 'All']],
+		];
+	}
+
+	/**
+	 * @param array<string, mixed> $body
+	 */
+	#[DataProvider('malformedFavoriteViews')]
+	public function testUnknownFavoritesViewIsRejectedBeforeAnyStateIsRead(array $body): void
+	{
+		$favorites = new FakeFavoriteCategories();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/view', self::AUTH, $body);
+
+		self::assertSame(400, $response->status);
+		self::assertSame('invalid_view', $response->body['error']['code']);
+		self::assertSame(0, $favorites->viewCalls);
+		self::assertSame([], $this->favoritesLoadedFor, 'validation must precede the collaborator read');
+	}
+
+	public function testFavoritesViewWithoutFavoritesReturns409(): void
+	{
+		$response = $this->api(null)
+			->dispatch('PUT', '/v1/favorites/view', self::AUTH, ['view' => 'only']);
+
+		self::assertSame(409, $response->status);
+		self::assertSame('favorites_unavailable', $response->body['error']['code']);
+	}
+
+	public function testFavoritesViewAgainstAnOldFavoritesReturns409(): void
+	{
+		$favorites = new FakeFavoriteCategoriesReadOnly();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/view', self::AUTH, ['view' => 'only']);
+
+		self::assertSame(409, $response->status);
+		self::assertSame('extension_incompatible', $response->body['error']['code']);
+		self::assertStringContainsString('changeView', $response->body['error']['message']);
+	}
+
+	public function testFavoritesViewConvergenceFailureCarriesState(): void
+	{
+		// changeView() reports ok:false with converged:false, state saved.
+		$favorites = new FakeFavoriteCategories();
+		$favorites->viewSweepFails = true;
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/view', self::AUTH, ['view' => 'only']);
+
+		self::assertSame(409, $response->status);
+		self::assertSame('convergence_failed', $response->body['error']['code']);
+		self::assertSame('only', $response->body['favorites']['view']);
+	}
+
+	public function testFavoritesViewStoreFailureIsAnInternalError(): void
+	{
+		// Also ok:false with converged:false — but the store did not move, and
+		// that is what tells the two failures apart.
+		$favorites = new FakeFavoriteCategories();
+		$favorites->viewResult = [
+			'ok' => false,
+			'changed' => false,
+			'converged' => false,
+			'view' => 'all',
+			'message' => 'Could not save the view: nothing was changed.',
+		];
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('PUT', '/v1/favorites/view', self::AUTH, ['view' => 'only']);
+
+		self::assertSame(500, $response->status);
+		self::assertSame('internal_error', $response->body['error']['code']);
+		self::assertStringContainsString('Could not save the view', $response->body['error']['message']);
+	}
+
+	public function testWrongMethodOnFavoritesViewReturns405WithAllowPut(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+
+		$response = $this->api(null, favorites: $favorites)
+			->dispatch('GET', '/v1/favorites/view', self::AUTH);
+
+		self::assertSame(405, $response->status);
+		self::assertSame('PUT', $response->headers['Allow']);
+		self::assertSame(0, $favorites->viewCalls);
+	}
+
+	// -------------------------------------------------------- sidebar indent --
+
+	public function testStateReportsSidebarIndent(): void
+	{
+		$response = $this->api(null, sidebarIndent: new FakeSidebarIndent(28))
+			->dispatch('GET', '/v1/state', self::AUTH);
+
+		self::assertSame(200, $response->status);
+		self::assertSame(['available' => true, 'px' => 28], $response->body['sidebarIndent']);
+		self::assertSame(['alice'], $this->indentLoadedFor);
+	}
+
+	public function testStateTreatsAnUnreadableIndentAsUnavailable(): void
+	{
+		$stray = new class {
+			public function px(): int
+			{
+				return 28;
+			}
+		};
+
+		$state = $this->api(null, sidebarIndent: $stray)
+			->dispatch('GET', '/v1/state', self::AUTH)
+			->body['sidebarIndent'];
+
+		self::assertSame(['available' => false], $state);
+	}
+
 	// ------------------------------------------------------------- routing --
 
 	public function testUnknownRouteReturns404(): void
@@ -612,8 +1118,12 @@ final class HardlyReadApiTest extends TestCase
 
 	// ------------------------------------------------------------- helpers --
 
-	private function api(?object $hidden, bool $authenticated = true): HardlyReadApi
-	{
+	private function api(
+		?object $hidden,
+		bool $authenticated = true,
+		?object $favorites = null,
+		?object $sidebarIndent = null,
+	): HardlyReadApi {
 		return new HardlyReadApi(
 			authenticate: function (string $authorization) use ($authenticated): ?string {
 				if (!$authenticated || $authorization !== self::AUTH) {
@@ -626,6 +1136,16 @@ final class HardlyReadApiTest extends TestCase
 				$this->loadedFor[] = $username;
 
 				return $hidden;
+			},
+			loadFavorites: function (string $username) use ($favorites): ?object {
+				$this->favoritesLoadedFor[] = $username;
+
+				return $favorites;
+			},
+			loadSidebarIndent: function (string $username) use ($sidebarIndent): ?object {
+				$this->indentLoadedFor[] = $username;
+
+				return $sidebarIndent;
 			},
 		);
 	}
