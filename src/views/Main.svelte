@@ -333,7 +333,6 @@
       model={menu.model}
       busy={reader.hiddenBusy || reader.favoritesBusy || reader.feedBusy}
       onselect={(action) => void reader.applyMenuAction(action)}
-      onindent={(px) => reader.setSidebarIndentPx(px)}
       onclose={() => reader.closeCategoryMenu()}
     />
   {/if}
