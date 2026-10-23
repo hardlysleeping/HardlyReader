@@ -70,9 +70,7 @@ check("exactly the five chosen colours are written", Object.keys(vars).length ==
 check("no undefined values", Object.values(vars).every((v) => typeof v === "string" && v.startsWith("#")));
 
 check("pin wording is the app's own", pinWords("pinned").add === "Pin" && pinWords("pinned").count === "Pinned");
-check("pin wording keeps the server favourite bare", pinWords("pinned").server === "Favourite");
 check("favourites wording uses the extension's words", pinWords("favourites").add === "Favourite" && pinWords("favourites").count === "Favourites");
-check("favourites wording disambiguates the server favourite", pinWords("favourites").server === "Favourite (synced)");
 check("removal wording follows the choice", pinWords("favourites").remove === "Unfavourite" && pinWords("pinned").remove === "Unpin");
 
 check("pin and star draw different shapes", MARKER_PATH.pin !== MARKER_PATH.star);

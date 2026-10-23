@@ -108,13 +108,10 @@ export interface Words {
   add: string;
   /** Menu item that removes it. */
   remove: string;
-  /** How the server-backed extension favourite is labelled when the local mark
-   * has taken the word "favourite" for itself. */
-  server: string;
 }
 
 export function pinWords(vocabulary: Vocabulary): Words {
   return vocabulary === "favourites"
-    ? { count: "Favourites", add: "Favourite", remove: "Unfavourite", server: "Favourite (synced)" }
-    : { count: "Pinned", add: "Pin", remove: "Unpin", server: "Favourite" };
+    ? { count: "Favourites", add: "Favourite", remove: "Unfavourite" }
+    : { count: "Pinned", add: "Pin", remove: "Unpin" };
 }

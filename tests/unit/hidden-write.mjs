@@ -449,7 +449,7 @@ try {
     const reader = fresh();
     reader.hiddenCategories = parseState({ available: false });
     reader.openCategoryMenu("Technology", { x: 0, y: 0 });
-    check("without the extension the menu only offers Pin", reader.menuModel?.toggle === null && reader.menuModel?.pin !== null);
+    check("without the extension the menu only offers its mark", reader.menuModel?.toggle === null && reader.menuModel?.favorite?.action.type === "pin");
     check("no write without the extension", (await reader.setCategoryHidden("Technology", true)) === null);
     check("no request was made", calls.length === 0);
   }

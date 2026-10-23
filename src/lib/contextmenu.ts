@@ -202,6 +202,8 @@ export interface MenuItemModel {
   /** Selected state, for the view radios. */
   checked: boolean;
   disabled: boolean;
+  /** Optional leading glyph, when the item's meaning has a marker. */
+  glyph?: string;
 }
 
 export interface IndentControl {
@@ -221,14 +223,15 @@ export interface MenuModel {
   /** Hide/Show. Null for a feed row. */
   toggle: MenuItemModel | null;
   /**
-   * The server favourite, synced through Favorite Categories. It keeps a
-   * distinct label when the local mark has taken the word "favourite" itself,
-   * so two different things are never called the same thing. Null when
-   * that extension is not available: a favourite is a server fact, so there is
-   * nothing honest to offer locally.
+   * The mark on a category row. One state, one item: a category is either
+   * marked or it is not. Where the mark is kept decides the note, not the
+   * meaning — Favorite Categories owns it on the server when it is installed,
+   * and this device keeps it otherwise. The wording follows the theme's
+   * vocabulary (Pin/Pinned or Favourite/Favourites).
    */
   favorite: MenuItemModel | null;
-  /** Pin/Unpin. Always offered, always this device: a different state to a favourite. */
+  /** Pin/Unpin for a feed row, which is always this device: feeds have no
+   * server-side home for a mark. Null for a category row. */
   pin: MenuItemModel | null;
   /**
    * Sidebar indentation, for a feed row. Indent applies to every feed, so this
@@ -272,17 +275,19 @@ export function categoryMenu(
     kind: "category",
     label,
     note: notes.length === 0 ? null : notes.join(" "),
-    favorite:
-      favorite === null
-        ? null
-        : {
-            action: { type: "favorite", favorite: !favorite },
-            label: favorite
-              ? (vocabulary === "favourites" ? "Remove synced favourite" : "Unfavourite")
-              : words.server,
-            checked: false,
-            disabled: false,
-          },
+    // One entry, whichever storage it lands in. A favourite and a pin are the
+    // same fact about a category; calling them two things made the sidebar show
+    // a blue sticker for one and nothing for the other.
+    favorite: {
+      action:
+        favorite === null
+          ? { type: "pin", pinned: !pinned }
+          : { type: "favorite", favorite: !favorite },
+      label: (favorite ?? pinned) ? words.remove : words.add,
+      glyph: vocabulary === "favourites" ? "★" : "📌",
+      checked: false,
+      disabled: false,
+    },
     toggle: state.available
       ? {
           action: { type: "hidden", hidden: !hidden },
@@ -291,7 +296,7 @@ export function categoryMenu(
           disabled: !usable,
         }
       : null,
-    pin: { action: { type: "pin", pinned: !pinned }, label: pinned ? words.remove : words.add, checked: false, disabled: false },
+    pin: null,
     indent: null,
     remove: null,
     confirm: [],
