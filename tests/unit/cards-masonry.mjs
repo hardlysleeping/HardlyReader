@@ -624,5 +624,25 @@ check(
   /:global\(\.drag-panning\) \.cards \{\s*scroll-snap-type: none;/.test(read("src/components/ArticleList.svelte")),
 );
 
+
+// Read posts are dimmed at 0.48 in every view. In a comic view of a back
+// catalogue that is every card, so the card the pane is holding keeps its
+// weight and the dimming around it says which card is being read.
+check(
+  "the centred card is not dimmed for being read",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const readRule = src.indexOf(".row.read:hover,\n  .row.read.selected");
+    const heldRule = src.indexOf(".cards .row.held {\n    opacity: 1;");
+    return (
+      /class:held=\{heldId === item\.id\}/.test(src) &&
+      /heldId = card\?\.dataset\.id \?\? null;/.test(src) &&
+      /let heldId = \$state<string \| null>\(null\);/.test(src) &&
+      readRule > 0 &&
+      heldRule > readRule
+    );
+  })(),
+);
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

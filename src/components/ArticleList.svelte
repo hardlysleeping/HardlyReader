@@ -418,10 +418,20 @@ import { plainPreview, relativeTime } from "../lib/format";
    */
   let tallCard = $state(false);
   let snapFrame = 0;
+  /**
+   * The card the pane is holding in the middle.
+   *
+   * Read posts are dimmed by 0.48 everywhere — a list of comics that were all
+   * read, as a back-catalogue is, is then a list of dim cards. The one in the
+   * middle is the one being read, so it keeps its full weight and the dimming
+   * around it says which card that is.
+   */
+  let heldId = $state<string | null>(null);
 
   function syncSnap(): void {
     const card = view === "cards" ? currentCard() : null;
     tallCard = !!card && !cardFits(card);
+    heldId = card?.dataset.id ?? null;
   }
 
   function onCardsScroll(): void {
@@ -439,6 +449,7 @@ import { plainPreview, relativeTime } from "../lib/format";
     void reader.items.length;
     if (view !== "cards") {
       tallCard = false;
+      heldId = null;
       return;
     }
     const frame = requestAnimationFrame(syncSnap);
@@ -917,6 +928,7 @@ import { plainPreview, relativeTime } from "../lib/format";
         class="row"
         class:selected={reader.selectedId === item.id}
         class:read={isRead(item)}
+        class:held={heldId === item.id}
         class:stacked={placement === "top"}
         data-id={item.id}
         use:near={{ root: itemsEl, near: (isNear: boolean) => markNear(item.id, isNear) }}
@@ -1580,6 +1592,13 @@ import { plainPreview, relativeTime } from "../lib/format";
   .row.read:hover,
   .row.read.selected {
     opacity: 0.85;
+  }
+
+  /* The centred card is the one being read: it keeps its weight even when the
+     post is already read, so a comic view of nothing but read posts is not a
+     view of nothing but dim cards. */
+  .cards .row.held {
+    opacity: 1;
   }
 
   .row:hover {
