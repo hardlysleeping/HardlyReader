@@ -503,5 +503,32 @@ check(
     /\.cards \.preview \{[^}]*line-clamp: 3;/.test(read("src/components/ArticleList.svelte")),
 );
 
+/**
+ * A finger has no wheel. The column snaps card to card so letting go finishes
+ * the gesture, the same place the wheel steps to.
+ */
+check(
+  "the cards column snaps, and only as far as it needs to",
+  /\.cards \{[^}]*-?scroll-snap-type: y proximity;/.test(read("src/components/ArticleList.svelte")),
+);
+check(
+  "each card snaps to the middle, where the wheel puts it",
+  /\.cards \.row \{[^}]*scroll-snap-align: center;/.test(read("src/components/ArticleList.svelte")),
+);
+check(
+  "a card taller than the pane opts the column out of snapping",
+  /\.cards\[data-tallcard="true"\] \{\s*scroll-snap-type: none;/.test(read("src/components/ArticleList.svelte")) &&
+    /data-tallcard=\{tallCard \? "true" : undefined\}/.test(read("src/components/ArticleList.svelte")),
+);
+check(
+  "a masonry wall of cards does not snap at all",
+  /\.cards\.masonry \{\s*scroll-snap-type: none;/.test(read("src/components/ArticleList.svelte")),
+);
+check(
+  "the column reads its own scroll to know which card is in the middle",
+  /onscroll=\{onCardsScroll\}/.test(read("src/components/ArticleList.svelte")) &&
+    /function syncSnap\(\): void \{[\s\S]{0,200}cardFits\(card\)/.test(read("src/components/ArticleList.svelte")),
+);
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

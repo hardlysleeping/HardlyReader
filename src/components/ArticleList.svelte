@@ -391,6 +391,45 @@ import { plainPreview, relativeTime } from "../lib/format";
   }
 
   /**
+   * Whether the card in the middle is too tall for the pane.
+   *
+   * Snapping is a promise that letting go finishes the gesture: the card you
+   * were halfway through becomes the card you are on. That promise is wrong for
+   * a strip taller than the pane, where letting go mid-comic must stay
+   * mid-comic. So the column drops scroll snapping while one of those is in the
+   * middle and takes it back when the next card fits. The CSS reads this off a
+   * data attribute; the value only changes when it has to.
+   */
+  let tallCard = $state(false);
+  let snapFrame = 0;
+
+  function syncSnap(): void {
+    const card = view === "cards" ? currentCard() : null;
+    tallCard = !!card && !cardFits(card);
+  }
+
+  function onCardsScroll(): void {
+    if (view !== "cards" || snapFrame) return;
+    snapFrame = requestAnimationFrame(() => {
+      snapFrame = 0;
+      syncSnap();
+    });
+  }
+
+  // A view switch, a new stream or a resize puts different cards under the same
+  // scroll port, and none of them fire a scroll event of their own.
+  $effect(() => {
+    void view;
+    void reader.items.length;
+    if (view !== "cards") {
+      tallCard = false;
+      return;
+    }
+    const frame = requestAnimationFrame(syncSnap);
+    return () => cancelAnimationFrame(frame);
+  });
+
+  /**
    * Step one card and bring it to the middle of the pane.
    *
    * Scrolling the list moves the list. It does not open anything: a post opens
@@ -408,6 +447,7 @@ import { plainPreview, relativeTime } from "../lib/format";
     // Its picture starts loading before the scroll moves, not after it lands.
     prefetchFrom(target.dataset.id ?? undefined);
     centreCard(target);
+    syncSnap();
   }
 
   /**
@@ -731,6 +771,8 @@ import { plainPreview, relativeTime } from "../lib/format";
     class:compact={view === "list"}
     class:cards={view === "cards"}
     class:masonry={view === "cards" && cardLayout.masonry}
+    data-tallcard={tallCard ? "true" : undefined}
+    onscroll={onCardsScroll}
     class:grid={view === "grid"}
     class:square={view === "grid" && gridIsSquare(reading.gridColumns)}
     style:--grid-template={gridTemplate(reading.gridColumns)}
@@ -1329,7 +1371,7 @@ import { plainPreview, relativeTime } from "../lib/format";
   .items {
     flex: 1;
     overflow-y: auto;
-    padding-bottom: 32px;
+    padding-bottom: 12px;
     /* The scroll port is the measure of "how much you can see", so a picture
        can be capped against it rather than against the window: in a three-pane
        desktop window the list is most of the height, on a phone it is all of
@@ -1360,7 +1402,7 @@ import { plainPreview, relativeTime } from "../lib/format";
     min-width: 0;
     /* Row height, type and thumbnail are one scale: growing the picture without
        the type (or the other way round) makes the row look broken, not larger. */
-    padding: calc(12px * var(--row-scale, 1)) 10px;
+    padding: calc(6px * var(--row-scale, 1)) 6px;
     border: 0;
     background: none;
     color: inherit;
@@ -1653,6 +1695,13 @@ import { plainPreview, relativeTime } from "../lib/format";
        unchanged — the wheel, the pull and the keys all still work — only the
        drawn bar goes. */
     scrollbar-width: none;
+    /* A finger has no wheel. The wheel steps one card and centres it, so the
+       column lands with the next card's top edge just in view; a flick has no
+       such thing and stopped wherever momentum died, usually with two cards
+       half-shown. Proximity rather than mandatory: a comic taller than the pane
+       still has to be scrolled through by hand, and a mandatory snap would keep
+       dragging it back to its own middle. */
+    scroll-snap-type: y proximity;
     /* A card is the pane: no gutter down the sides, and none above the first or
        below the last, so its four edges sit on the same margin. The gap between
        cards is the only space in the column, which is why stepping one card puts
@@ -1665,12 +1714,21 @@ import { plainPreview, relativeTime } from "../lib/format";
     height: 0;
   }
 
+  /* A card taller than the pane is read by scrolling it, so it is exempt: the
+     list drops snapping while one is the card in the middle, and takes it back
+     when the next one fits. */
+  .cards[data-tallcard="true"] {
+    scroll-snap-type: none;
+  }
+
   .cards .row {
     /* The cards column is a flex container inside a scroll port with a definite
        height, so without this every row shrinks to nothing as if it were meant
        to fit: 40 posts became 40 slivers, and `loading="lazy"` had no reason to
        hold anything back because everything was "in view". */
     flex: none;
+    /* The same place the wheel steps to, so a thumb and a mouse land alike. */
+    scroll-snap-align: center;
     border-block: 1px solid var(--border-soft);
     border-inline: 0;
     border-radius: 0;
@@ -1941,6 +1999,14 @@ import { plainPreview, relativeTime } from "../lib/format";
     align-items: center;
     gap: 8px;
     padding: 2px 28px 2px 0;
+  }
+
+  /* A masonry column is a wall of cards, not a strip of them: each one is a
+     snap point a few tens of pixels from the next, and snapping would stop the
+     scroll every inch. It sits with the masonry rules, after the card rules it
+     overrides. */
+  .cards.masonry {
+    scroll-snap-type: none;
   }
 
   /* ------------------------------------------------------------- masonry --
