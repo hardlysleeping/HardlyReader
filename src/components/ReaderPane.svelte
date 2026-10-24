@@ -39,12 +39,23 @@
    */
   let pageWidth = $state(0);
 
+  /**
+   * The page's own height, for the same reason as its width: a comic page has to
+   * be read whole, and "whole" is this frame, not the window. In a three-pane
+   * layout the article is half the height it is on a phone, so a picture capped
+   * against the window would still run off the bottom.
+   */
+  let pageHeight = $state(0);
+
   $effect(() => {
     const page = scroller;
     if (page === null) return;
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (entry !== undefined) pageWidth = Math.round(entry.contentRect.width);
+      if (entry !== undefined) {
+        pageWidth = Math.round(entry.contentRect.width);
+        pageHeight = Math.round(entry.contentRect.height);
+      }
     });
     observer.observe(page);
     return () => observer.disconnect();
@@ -428,6 +439,7 @@
     <article
       bind:this={scroller}
       style:--page-width={pageWidth > 0 ? `${pageWidth}px` : null}
+      style:--page-height={pageHeight > 0 ? `${pageHeight}px` : null}
       data-scroll="article"
       {onscroll}
       {onwheel}
@@ -642,7 +654,11 @@
     display: block;
     width: var(--page-width, 100%);
     max-width: none;
-    max-height: none;
+    /* One page at a time: a comic taller than the frame is fitted to it and
+       centred, so the whole page is readable without scrolling. Its width, and
+       so its scale, is the largest that both edges allow — which for a page is
+       the frame's height. */
+    max-height: var(--page-height, none);
     height: auto;
     margin-block: 0 20px;
     margin-inline: calc((100% - var(--page-width, 100%)) / 2);
@@ -679,7 +695,13 @@
     display: block;
     width: var(--page-width, 100%);
     max-width: none;
+    /* Same rule as the lead: a page fits the frame rather than running past its
+       bottom. Contained, not cropped — the bars either side of a tall page are
+       the price of showing all of it, and the alternative is a page you scroll
+       to find the end of. */
+    max-height: var(--page-height, none);
     height: auto;
+    object-fit: contain;
     margin-block: 1em;
     margin-inline: calc((100% - var(--page-width, 100%)) / 2);
   }

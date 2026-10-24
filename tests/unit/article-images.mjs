@@ -301,6 +301,26 @@ check(
   /style:--page-width=\{pageWidth > 0/.test(pane) && /new ResizeObserver/.test(pane),
 );
 
+/**
+ * A comic page in the article pane is read whole, not scrolled to find the end
+ * of: the picture is capped by the frame's own height, measured on the pane
+ * because in a three-pane layout the article is half the window's height.
+ */
+check(
+  "the pane measures its own height, not the window's",
+  /let pageHeight = \$state\(0\);/.test(pane) &&
+    /pageHeight = Math\.round\(entry\.contentRect\.height\);/.test(pane) &&
+    /style:--page-height=\{pageHeight > 0 \? `\$\{pageHeight\}px` : null\}/.test(pane),
+);
+check(
+  "every picture in the body is capped by the frame's height and fitted whole",
+  /\.content :global\(img\) \{[^}]*max-height: var\(--page-height, none\);[^}]*object-fit: contain;/.test(pane),
+);
+check(
+  "the lead picture is fitted to the frame too",
+  /\.lead \{[^}]*max-height: var\(--page-height, none\);/.test(pane),
+);
+
 if (failures === 0) {
   console.log(`ok ${checks} checks — article pictures: lazy sources promoted, refused ones dropped`);
 } else {
