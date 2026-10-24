@@ -27,10 +27,12 @@
     travelToAdvance,
     withinSlider,
   } from "../lib/scroll-advance";
+  import { chrome } from "../state/chrome.svelte";
+  import { AUTO_SYNC_HOURS, autoSyncLabel, parseAutoSyncHours } from "../lib/auto-sync";
   import { reading } from "../state/reading.svelte";
   import { theme } from "../state/theme.svelte";
   import { layout } from "../state/layout.svelte";
-  import { THRESHOLDS, THRESHOLD_LIMITS } from "../lib/panes";
+  import { DEFAULT_WIDTHS, MODE_HYSTERESIS, THRESHOLD_LIMITS } from "../lib/panes";
 
   let open = $state(false);
 
@@ -189,90 +191,247 @@
         id="settings-panel-layout"
         aria-labelledby="settings-tab-layout"
       >
-      <!-- Where a pane count begins. One pane has no number here on purpose: it
-           is what is left when neither threshold is met, and its width is the
-           smallest honest single column — the phone shape, fixed. -->
-      <div class="row">
+      <!-- What each pane count needs, and the width the "1" button collapses to.
+           The first two are sums of the panes below the layout, so they move when
+           a divider is dragged and writing one resizes that mode's columns. The
+           1 row is the odd one: it is not a threshold (nothing appears at it) but
+           the width "1" collapses to, and it started life as the fixed
+           single-column floor. Its default is still that floor.
+
+           Hidden where it cannot apply: a phone has one column as wide as the
+           screen, so a width at which a second pane appears is a setting with no
+           effect. Both rows and the number line go together. -->
+      {#if layout.caps.paneThresholds}
+      <!-- Two lines: the label and its number, then the slider across the whole
+           panel. It used to share the row and got 96px for a 360-2000px range —
+           17px of window per pixel of travel, which is why it felt twitchy. -->
+      <div class="row slider">
         <span class="key">Two panes from</span>
-        <span class="pick">
+        <span class="num">
           <input
-            class="range wide"
-            type="range"
+            class="value"
+            type="number"
             min={THRESHOLD_LIMITS.two.min}
-            max={THRESHOLD_LIMITS.two.max}
+            max={layout.rangeFor("two").max}
             step="10"
             value={layout.thresholds.two}
-            aria-label="Window width at which a second pane appears"
-            oninput={(event) => layout.setThreshold("two", Number(event.currentTarget.value))}
+            aria-label="Two-pane threshold in pixels"
+            onchange={(event) => layout.setThreshold("two", Number(event.currentTarget.value))}
+            onblur={(event) => (event.currentTarget.value = String(layout.thresholds.two))}
           />
-          <span class="num">
-            <input
-              class="value"
-              type="number"
-              min={THRESHOLD_LIMITS.two.min}
-              max={THRESHOLD_LIMITS.two.max}
-              step="10"
-              value={layout.thresholds.two}
-              aria-label="Two-pane threshold in pixels"
-              onchange={(event) => layout.setThreshold("two", Number(event.currentTarget.value))}
-              onblur={(event) => (event.currentTarget.value = String(layout.thresholds.two))}
-            />
-            <span class="affix" aria-hidden="true">px</span>
-          </span>
-          <button
-            class="again"
-            title={`Back to ${THRESHOLDS[layout.device].two}px`}
-            aria-label="Reset the two-pane threshold"
-            disabled={layout.thresholds.two === THRESHOLDS[layout.device].two}
-            onclick={() => layout.setThreshold("two", THRESHOLDS[layout.device].two)}
-          >↺</button>
+          <span class="affix" aria-hidden="true">px</span>
         </span>
+        <button
+          class="again"
+          title="Back to the default posts width"
+          aria-label="Reset the two-pane columns"
+          disabled={!layout.paneEdited(2)}
+          onclick={() => layout.resetWidths(2)}
+        >↺</button>
+        <input
+          class="range wide"
+          type="range"
+          min={THRESHOLD_LIMITS.two.min}
+          max={layout.rangeFor("two").max}
+          step="10"
+          value={layout.thresholds.two}
+          aria-label="Window width at which a second pane appears"
+          oninput={(event) => layout.setThreshold("two", Number(event.currentTarget.value))}
+        />
       </div>
 
-      <div class="row">
+      <div class="row slider">
         <span class="key">Three panes from</span>
-        <span class="pick">
+        <span class="num">
           <input
-            class="range wide"
-            type="range"
+            class="value"
+            type="number"
             min={THRESHOLD_LIMITS.three.min}
-            max={THRESHOLD_LIMITS.three.max}
+            max={layout.rangeFor("three").max}
             step="10"
             value={layout.thresholds.three}
-            aria-label="Window width at which a third pane appears"
-            oninput={(event) => layout.setThreshold("three", Number(event.currentTarget.value))}
+            aria-label="Three-pane threshold in pixels"
+            onchange={(event) => layout.setThreshold("three", Number(event.currentTarget.value))}
+            onblur={(event) => (event.currentTarget.value = String(layout.thresholds.three))}
           />
-          <span class="num">
-            <input
-              class="value"
-              type="number"
-              min={THRESHOLD_LIMITS.three.min}
-              max={THRESHOLD_LIMITS.three.max}
-              step="10"
-              value={layout.thresholds.three}
-              aria-label="Three-pane threshold in pixels"
-              onchange={(event) => layout.setThreshold("three", Number(event.currentTarget.value))}
-              onblur={(event) => (event.currentTarget.value = String(layout.thresholds.three))}
-            />
-            <span class="affix" aria-hidden="true">px</span>
-          </span>
-          <button
-            class="again"
-            title={`Back to ${THRESHOLDS[layout.device].three}px`}
-            aria-label="Reset the three-pane threshold"
-            disabled={layout.thresholds.three === THRESHOLDS[layout.device].three}
-            onclick={() => layout.setThreshold("three", THRESHOLDS[layout.device].three)}
-          >↺</button>
+          <span class="affix" aria-hidden="true">px</span>
         </span>
+        <button
+          class="again"
+          title="Back to the default posts and article widths"
+          aria-label="Reset the three-pane columns"
+          disabled={!layout.paneEdited(3)}
+          onclick={() => layout.resetWidths(3)}
+        >↺</button>
+        <input
+          class="range wide"
+          type="range"
+          min={THRESHOLD_LIMITS.three.min}
+          max={layout.rangeFor("three").max}
+          step="10"
+          value={layout.thresholds.three}
+          aria-label="Window width at which a third pane appears"
+          oninput={(event) => layout.setThreshold("three", Number(event.currentTarget.value))}
+        />
       </div>
 
-      <!-- The feedback is the layout itself: drag a threshold past this window's
-           width and the panes change while you drag. The line says where you are
-           in numbers so the change is not a mystery. -->
+      <!-- The one width that is not a threshold: where the "1" button puts the
+           window. Under the other two because it is the same kind of number and
+           read in the same breath. -->
+      <div class="row slider">
+        <span class="key">One pane at</span>
+        <span class="num">
+          <input
+            class="value"
+            type="number"
+            min={THRESHOLD_LIMITS.one.min}
+            max={layout.rangeFor("one").max}
+            step="10"
+            value={layout.thresholds.one}
+            aria-label="One-pane window width in pixels"
+            onchange={(event) => layout.setThreshold("one", Number(event.currentTarget.value))}
+            onblur={(event) => (event.currentTarget.value = String(layout.thresholds.one))}
+          />
+          <span class="affix" aria-hidden="true">px</span>
+        </span>
+        <button
+          class="again"
+          title={`Back to ${DEFAULT_WIDTHS.sidebar}px`}
+          aria-label="Reset the one-pane width"
+          disabled={layout.thresholds.one === DEFAULT_WIDTHS.sidebar}
+          onclick={() => layout.setThreshold("one", DEFAULT_WIDTHS.sidebar)}
+        >↺</button>
+        <input
+          class="range wide"
+          type="range"
+          min={THRESHOLD_LIMITS.one.min}
+          max={layout.rangeFor("one").max}
+          step="10"
+          value={layout.thresholds.one}
+          aria-label="Width the one-pane button collapses the window to"
+          oninput={(event) => layout.setThreshold("one", Number(event.currentTarget.value))}
+        />
+      </div>
+
+      <!-- Two honest answers to what a press does with the width a pane no longer
+           needs: take it away with the pane, or leave the window as it is and let
+           the posts column take it. -->
+      <div class="row">
+        <span class="key">On a switch</span>
+        <div class="seg" role="group" aria-label="What a layout switch does with the width">
+          <button
+            class="segbtn"
+            class:on={layout.keepWidths}
+            aria-pressed={layout.keepWidths}
+            title="The window shrinks and grows with the panes, so every pane keeps its width"
+            onclick={() => layout.setKeepWidths(true)}>Keep widths</button>
+          <button
+            class="segbtn"
+            class:on={!layout.keepWidths}
+            aria-pressed={!layout.keepWidths}
+            title="The window stays where it is and the posts column takes the width of the pane that left"
+            onclick={() => layout.setKeepWidths(false)}>Keep window</button>
+        </div>
+      </div>
+
+      <!-- The feedback is the layout itself: drag a divider and these two numbers
+           move with the panes; drag a number and that mode's columns resize. The
+           line says where you are so the change is not a mystery. -->
       <p class="hint">
-        This window is {Math.round(layout.available)}px — showing {layout.mode}
-        {layout.mode === 1 ? "pane" : "panes"}. Below {layout.thresholds.two}px it is always one.
+        These follow your dividers: two panes need {layout.paneWidthFor(2)}px,
+        three need {layout.paneWidthFor(3)}px. Moving a slider resizes that mode's
+        columns instead. This window is {Math.round(layout.available)}px
+        {#if layout.monitor}of a {layout.monitor}px screen{/if} — showing {layout.mode}
+        {layout.mode === 1 ? "pane" : "panes"}. It changes {MODE_HYSTERESIS}px past
+        these numbers, not on them, so a drag does not flicker. The 1/2/3 buttons
+        {layout.keepWidths ? "resize the window to your columns" : "grow the window to fit your columns"},
+        never past the screen.
       </p>
+      {/if}
+
+      <!-- How the columns move when a press changes the layout. Outside the
+           gate above because a phone changes layout too (the walk, and the
+           stack arriving) even though it has no thresholds to set. One row, one
+           choice: Instant is the animation off, not a separate switch, so what
+           you pick is exactly what you get. -->
+      <div class="row">
+        <span class="key">Pane slide</span>
+        <div class="seg" role="group" aria-label="How the panes move when the layout changes">
+          <button
+            class="segbtn"
+            class:on={layout.motion === "off"}
+            aria-pressed={layout.motion === "off"}
+            title="No slide: the panes change in one frame"
+            onclick={() => layout.setMotion("off")}>Instant</button>
+          <button
+            class="segbtn"
+            class:on={layout.motion === "quick"}
+            aria-pressed={layout.motion === "quick"}
+            title="A short slide with a little spring — the default"
+            onclick={() => layout.setMotion("quick")}>Quick</button>
+          <button
+            class="segbtn"
+            class:on={layout.motion === "smooth"}
+            aria-pressed={layout.motion === "smooth"}
+            title="The same slide, a little longer and softer"
+            onclick={() => layout.setMotion("smooth")}>Smooth</button>
+        </div>
+      </div>
+      <p class="hint">
+        A press changes the mode at once; this is how quickly the columns catch
+        up. It starts at Instant when your system asks for less motion, and the
+        setting is still yours.
+      </p>
+
+      <!-- How three panes are *arranged*, which is a different question from how
+           wide they are — so this row is outside the pixel sliders above, and
+           outside their gate on purpose: a phone has no thresholds, no pane
+           switch and no dividers, but it does draw the stack, and a setting the
+           phone cannot reach is a setting that does not exist there. -->
+      <div class="row">
+        <span class="key">Three panes</span>
+        <div class="seg" role="group" aria-label="How three panes are arranged">
+          <button
+            class="segbtn"
+            class:on={!layout.stacked}
+            aria-pressed={!layout.stacked}
+            title="Feeds, posts and article side by side, one column each"
+            onclick={() => layout.setStacked(false)}>Side by side</button>
+          <button
+            class="segbtn"
+            class:on={layout.stacked}
+            aria-pressed={layout.stacked}
+            title="Feeds on the left; posts above the article in one right column"
+            onclick={() => layout.setStacked(true)}>Stacked</button>
+        </div>
+      </div>
+      <p class="hint">
+        Stacked spends the width once instead of twice, so three panes fit a
+        narrow window: drag the seam between the posts and the article to change
+        the split.
+      </p>
+
+      <!-- How a passcode is entered, not what it is. Off by default because a
+           keyboard is faster with a mouse; on because a phone's own keyboard
+           covers the band it is unlocking. Device-local. -->
+      <div class="row">
+        <span class="key">PIN entry</span>
+        <div class="seg" role="group" aria-label="How a passcode is entered">
+          <button
+            class="segbtn"
+            class:on={!chrome.pinPad}
+            aria-pressed={!chrome.pinPad}
+            title="Type the passcode into a field"
+            onclick={() => chrome.setPinPad(false)}>Type</button>
+          <button
+            class="segbtn"
+            class:on={chrome.pinPad}
+            aria-pressed={chrome.pinPad}
+            title="Tap the digits on a number pad — made for a phone, works with a mouse"
+            onclick={() => chrome.setPinPad(true)}>Keypad</button>
+        </div>
+      </div>
+      <p class="hint">Keypad shows a number pad when a passcode is asked for. Off, it is a text field.</p>
         <div class="row end">
       <button class="done" onclick={() => (open = false)}>Done</button>
         </div>
@@ -284,6 +443,30 @@
         id="settings-panel-reading"
         aria-labelledby="settings-tab-reading"
       >
+      <!-- Reader view: the one switch that changes where article text comes
+           from. Off by default — it costs a request per post, and the feed's own
+           text is already here. -->
+      <div class="row">
+        <span class="key">Reader view</span>
+        <div class="seg" role="group" aria-label="Where article text comes from">
+          <button
+            class="segbtn"
+            class:on={!reading.extract}
+            aria-pressed={!reading.extract}
+            title="Show the text the feed sent"
+            onclick={() => reading.setExtract(false)}>Feed</button>
+          <button
+            class="segbtn"
+            class:on={reading.extract}
+            aria-pressed={reading.extract}
+            title="Fetch the original page and keep just the article"
+            onclick={() => reading.setExtract(true)}>Article</button>
+        </div>
+      </div>
+      <p class="hint">
+        Article fetches the original page and keeps only the text; if the page
+        cannot be fetched, the feed's own text is shown.
+      </p>
       <div class="row">
         <span class="key">Scroll effort</span>
         <span class="pick">
@@ -363,6 +546,47 @@
       <p class="hint">
         How long a post must stay open before it counts as read — only while the ⏱ button in the reader is on.
       </p>
+
+      <!-- Automatic sync. Off by default: a sync is five requests against
+           someone else's server, and spending them unprompted is the user's
+           choice to make, not the app's. -->
+      <div class="row">
+        <span class="key">Auto sync</span>
+        <div class="seg" role="group" aria-label="Sync automatically">
+          <button
+            class="segbtn"
+            class:on={!chrome.autoSync}
+            aria-pressed={!chrome.autoSync}
+            title="Only fetch when sync is pressed"
+            onclick={() => chrome.setAutoSync(false)}>Off</button>
+          <button
+            class="segbtn"
+            class:on={chrome.autoSync}
+            aria-pressed={chrome.autoSync}
+            title="Sync when the app opens, and on a timer after that"
+            onclick={() => chrome.setAutoSync(true)}>On</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="key">Every</span>
+        <div class="seg wrap" role="group" aria-label="How often to sync automatically">
+          {#each AUTO_SYNC_HOURS as hours (hours)}
+            <button
+              class="segbtn"
+              class:on={chrome.autoSyncHours === hours}
+              aria-pressed={chrome.autoSyncHours === hours}
+              aria-label={autoSyncLabel(hours)}
+              title={autoSyncLabel(hours)}
+              disabled={!chrome.autoSync}
+              onclick={() => chrome.setAutoSyncHours(hours)}>{hours}h</button
+            >
+          {/each}
+        </div>
+      </div>
+      <p class="hint">
+        Off, nothing is fetched until you press sync. On, it syncs when the app opens
+        and {autoSyncLabel(chrome.autoSyncHours).toLowerCase()} while it stays open.
+      </p>
         <div class="row end">
       <button class="done" onclick={() => (open = false)}>Done</button>
         </div>
@@ -421,6 +645,13 @@
     right: 12px;
     z-index: 60;
     width: 268px;
+    /* A popup, not a page. Without a ceiling the three tabs add up to more than
+       a short window and the panel takes the whole side of it — the content is
+       not that long, only the scrollbar was. Capped, it scrolls its own short
+       side and the window keeps its own bar. */
+    max-height: min(72vh, 460px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 10px 12px 12px;
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -434,10 +665,14 @@
      instead of an underline: the panel is small and a rule under a tab would
      read as another separator in a panel full of them. */
   .tabs {
+    position: sticky;
+    top: -10px;
+    z-index: 1;
     display: flex;
     gap: 2px;
     margin: 0 0 2px;
-    padding-bottom: 6px;
+    padding: 10px 0 6px;
+    background: var(--surface);
     border-bottom: 1px solid var(--border-soft);
   }
 
@@ -500,6 +735,25 @@
 
   .range.wide {
     width: 96px;
+  }
+
+  /* A threshold reads on two lines: label and its number, then the slider across
+     the whole panel. Sharing one line left the track 96px wide for a range of
+     360-2000, so a pixel of travel moved the threshold by 17 — the difference
+     between a control and a trap. */
+  .row.slider {
+    flex-wrap: wrap;
+    row-gap: 1px;
+  }
+
+  .row.slider .key {
+    flex: 1 1 auto;
+  }
+
+  .row.slider .range.wide {
+    flex: 1 1 100%;
+    width: auto;
+    margin: 0;
   }
 
   .num {
@@ -599,6 +853,18 @@
   .seg {
     display: flex;
     gap: 3px;
+  }
+
+  /* Six intervals do not fit one line in a 268px panel, and a squeezed row of
+     10px buttons is worse than two clean ones. */
+  .seg.wrap {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .segbtn:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   .segbtn {

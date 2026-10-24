@@ -12,6 +12,7 @@
  * order the server sent.
  */
 import { isRead, isStarred, type StreamItem } from "../api/freshrss";
+import { authorNameOf } from "./people";
 
 /** In the order the control draws them. */
 export const ARTICLE_FILTERS = ["unread", "all", "starred"] as const;
@@ -38,4 +39,21 @@ export function filterItems(items: readonly StreamItem[], filter: ArticleFilter)
       // Same array contents, new array: callers may sort or splice what they get.
       return items.slice();
   }
+}
+
+/**
+ * The posts one author wrote, in the order they arrived.
+ *
+ * A filter over what is loaded, like the one above it: no request, no re-sort.
+ * The name a post is filed under comes from `authorNameOf` — the same judgement
+ * the author index was built with — so a filtered list cannot disagree with the
+ * row that filtered it, and a post carrying only its feed's name is never
+ * offered as that feed's author. Matching is case-insensitive because the index
+ * de-duplicates that way; `null` (or blank) is no filter at all, not "the posts
+ * with no author".
+ */
+export function filterByAuthor(items: readonly StreamItem[], author: string | null): StreamItem[] {
+  const wanted = author === null ? "" : author.trim().toLocaleLowerCase();
+  if (wanted === "") return items.slice();
+  return items.filter((item) => authorNameOf(item).toLocaleLowerCase() === wanted);
 }

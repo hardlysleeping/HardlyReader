@@ -29,6 +29,8 @@ import {
   thumbWidthPx,
   scalePercent,
   stepScale,
+  FLIP_EDGE,
+  clampFlipEdge,
 } from "../../src/lib/reading-layout.ts";
 
 let passed = 0;
@@ -243,6 +245,15 @@ check("defaults are recognised, so Reset can be disabled", () => {
     false,
     "an out-of-range value clamps to the end of the scale, which is not the default",
   );
+});
+
+check("the card flip edge is adjustable but stays hittable and leavable", () => {
+  assert.equal(clampFlipEdge(FLIP_EDGE.initial), 10, "a fifth of the card in total: the edges, and four fifths in the middle");
+  assert.equal(clampFlipEdge(1), 10, "below a tenth there is nothing to aim at");
+  assert.equal(clampFlipEdge(80), 45, "above this the middle stops being reachable");
+  assert.equal(clampFlipEdge(Number.NaN), 10);
+  assert.equal(clampFlipEdge(27.6), 28, "whole percentages only");
+  assert.equal(clampFlipEdge(10), 10);
 });
 
 console.log(`\n${passed}/${passed} checks passed`);

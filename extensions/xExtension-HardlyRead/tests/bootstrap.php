@@ -19,3 +19,4 @@ require_once __DIR__ . '/Fakes/FakeFavoritesStore.php';
 require_once __DIR__ . '/Fakes/FakeFavoriteCategoriesReadOnly.php';
 require_once __DIR__ . '/Fakes/FakeFavoriteCategories.php';
 require_once __DIR__ . '/Fakes/FakeSidebarIndent.php';
+require_once __DIR__ . '/Fakes/FakeCategoryPositions.php';

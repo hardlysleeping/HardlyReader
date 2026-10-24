@@ -3,9 +3,12 @@ import { SvelteMap } from "svelte/reactivity";
 import type { OpmlFeed } from "../lib/opml";
 import { addFeedsMessage, parseFeedUrls, type AddFeedsResult } from "../lib/add-feeds";
 import { landingItem, step } from "../lib/reading-order";
+import { stepIndex } from "../lib/list-view";
+import { isNoopDrop, moveInOrder, sortByOrder } from "../lib/feed-order";
 import { attemptOrder } from "../lib/stream-cycle";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
-import { SYNC_IDLE, SYNC_TOTAL, type SyncState } from "../lib/sync-progress";
+import { SYNC_IDLE, createSyncTracker, type SyncReport, type SyncState } from "../lib/sync-progress";
+import { EMPTY_PLACE, parsePlace, placeKey, type Place } from "../lib/place";
 import { floods } from "./floods.svelte";
 import { theme } from "./theme.svelte";
 
@@ -20,6 +23,7 @@ import {
   isStarred,
   listSubscriptions,
   listTags,
+  moveFeed as moveFeedOnServer,
   subscribe,
   unsubscribe,
   type Session,
@@ -28,6 +32,7 @@ import {
   type Tag,
 } from "../api/freshrss";
 import {
+  LABEL_PREFIX,
   categoryIdForLabel,
   favoriteIdForLabel,
   isHiddenCategory,
@@ -51,9 +56,13 @@ import {
   type FavoritesState,
   type HiddenCategoriesState,
   type HiddenView,
+  reconcilePositions,
+  savePositions,
+  type PositionsLists,
   type SidebarIndentState,
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
+import { resolveIndent } from "../lib/indent";
 import { feedMenu, categoryMenu, type MenuAction, type MenuModel, type Point } from "../lib/contextmenu";
 import {
   applyFavoritesWrite,
@@ -63,7 +72,7 @@ import {
   type FavoritesWriteOutcome,
 } from "./favorites";
 import { effectiveView, visibleGroups } from "./hidden";
-import { filterItems } from "../lib/article-filter";
+import { filterByAuthor, filterItems } from "../lib/article-filter";
 import { reading } from "./reading.svelte";
 import { StreamCache } from "./stream-cache";
 import {
@@ -162,7 +171,26 @@ export class ReaderState {
    * the list is not showing.
    */
   get listItems(): StreamItem[] {
-    return filterItems(this.items, reading.articleFilter);
+    return filterByAuthor(filterItems(this.items, reading.articleFilter), this.authorFilter);
+  }
+
+  /**
+   * The author the posts are narrowed to, or null.
+   *
+   * A filter, not a mode: it narrows the posts already loaded — no request and
+   * no re-sort — and it is applied to the list and to ↑/↓ alike through
+   * `listItems`. Cleared by the control that set it (the author row's own way
+   * back, the field's ×, or turning the toggle off), and never persisted: a
+   * narrowed list that came back after a restart would read as a feed that had
+   * lost its posts.
+   */
+  authorFilter = $state<string | null>(null);
+
+  setAuthorFilter(name: string | null): void {
+    const trimmed = name === null ? "" : name.trim();
+    const next = trimmed === "" ? null : trimmed;
+    if (this.authorFilter === next) return;
+    this.authorFilter = next;
   }
   continuation = $state<string | undefined>(undefined);
   activeStream = $state(READING_LIST);
@@ -221,6 +249,70 @@ export class ReaderState {
    */
   localPins = $state<LocalPins>(emptyPins());
 
+  /**
+   * The order the user dragged the feeds into, as a flat list of stream ids.
+   *
+   * The render source, and per account on this device: the sidebar draws from
+   * it before any network exists. FreshRSS itself has no order for feeds inside
+   * a category, so the account's copy lives in the adapter's `/v1/positions`
+   * document, which follows the drag rather than leading it. Empty until the
+   * first drag, which is why the sidebar still reads alphabetically for anyone
+   * who never drags anything.
+   */
+  feedOrder = $state<string[]>([]);
+
+  /**
+   * Category ids in the order the user dragged them, top to bottom.
+   *
+   * Same arrangement as the feeds: FreshRSS has no position for a folder, so
+   * the order is this device's to draw and the account's to remember. The pin
+   * band still runs first — `arrangeByPins` applies it before the order — so
+   * mirroring the list to the server cannot lift a pinned category out of the
+   * band. Empty until the first drag: an empty list is not "no order", it is
+   * "the alphabet", which is what the sidebar shows.
+   */
+  categoryOrder = $state<string[]>([]);
+
+  /**
+   * The stamp of the arrangement this device holds, in ms; 0 until the first
+   * drag. It is what the account's copy is compared against, so it is stored
+   * with the order it belongs to rather than recomputed at launch.
+   */
+  private positionsStamp = 0;
+
+  /**
+   * Whether this adapter has `/v1/positions` at all.
+   *
+   * `missing` is learned once — from the start-time read or from a write that
+   * came back 404 — and then no drag sends a request that is known to fail. It
+   * resets when the session does, so a server upgraded while the app is closed
+   * is picked up on the next launch.
+   */
+  private positionsRoute: "unknown" | "available" | "missing" = "unknown";
+
+  /**
+   * Writes go out in the order the drags happened.
+   *
+   * Two quick drags fired in parallel can arrive reversed, and the older stamp
+   * would then be refused while the newer one is already stored — a 409 the
+   * user did nothing to deserve. A chain costs nothing: the sidebar is drawn
+   * before any of it starts.
+   */
+  private positionsChain: Promise<void> = Promise.resolve();
+
+  /** Counts drags, so a refused write can rule out the ones queued behind it. */
+  private positionsGeneration = 0;
+  /** Every generation up to this one was built from an order that lost. */
+  private positionsVoided = 0;
+
+  /**
+   * Settles when the start-time read of the account's arrangement has been
+   * merged. Nothing on screen waits for it — the sidebar is already drawn from
+   * the local copy — but it is awaitable, which is what makes "read once at
+   * start" a behaviour a test can observe instead of a hope.
+   */
+  positionsLanded: Promise<void> = Promise.resolve();
+
   /** The sidebar band (hidden / lock / pin) folded away, per account. */
 
   /**
@@ -278,7 +370,6 @@ export class ReaderState {
           this.hiddenCategories,
           menu.target.label,
           this.isCategoryPinned(menu.target.label),
-          this.favorites.available ? this.isFavorite(menu.target.label) : null,
         )
       : feedMenu(
           menu.target.title,
@@ -414,22 +505,55 @@ export class ReaderState {
    * Without the extension there is nowhere to store it, so it stays a local
    * preference — the indent still works on a server that has no extensions.
    */
-  setSidebarIndentPx(px: number): void {
+  setSidebarIndentPx(px: number, flush = false): void {
     const clamped = clampIndentPx(px, this.sidebarIndent.max);
-    if (this.sidebarIndent.px === clamped) return;
-    this.sidebarIndent = { ...this.sidebarIndent, px: clamped };
+    if (this.sidebarIndent.px !== clamped) {
+      this.sidebarIndent = { ...this.sidebarIndent, px: clamped };
+      // Kept on every move, not only when the server is out of the picture: a
+      // drag that never reaches the server — a request that fails, an app
+      // closed inside the debounce — must not leave the setting nowhere.
+      this.localIndentPx = clamped;
+    }
 
     if (!this.sidebarIndent.available || this.indentLocalOnly) {
-      this.localIndentPx = clamped;
       this.savePrefs();
       return;
     }
 
-    this.scheduleIndentWrite(clamped);
+    // One write per pause, and one straight away when the pointer is let go:
+    // the debounce is for the sixty values in between, not for the last one.
+    this.indentUnsent = clamped;
+    if (flush) this.flushIndentWrite(clamped);
+    else this.scheduleIndentWrite(clamped);
+    if (flush) this.savePrefs();
   }
 
-  /** Set when the server has no write route: the indent stays on this device. */
+  /**
+   * The indent this device set that the server has not accepted yet.
+   *
+   * Persisted, so a write that never landed — the app closed inside the
+   * debounce, a 500, a dropped connection — does not vanish on the next launch:
+   * the number is still the reader's, and it is written again as soon as the
+   * server answers a state read.
+   */
+  private indentUnsent: number | null = null;
+
+  /**
+   * Set when the server has no write route: the indent stays on this device.
+   *
+   * Remembered, because forgetting it is what made the number disappear: the
+   * server went on reporting its own old value, which then won on every load.
+   */
   private indentLocalOnly = false;
+
+  /**
+   * True when the indent is this device's alone: no extension to store it, or
+   * one whose write route refused. The slider stays usable either way — the
+   * indent is a reading preference, not a property of the server.
+   */
+  get indentDeviceOnly(): boolean {
+    return this.indentLocalOnly || !this.sidebarIndent.available;
+  }
 
   private indentTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -442,17 +566,53 @@ export class ReaderState {
     }, 250);
   }
 
+  /**
+   * Try the value the server never accepted, now that it is answering again.
+   *
+   * Called after a state read rather than on a timer: those happen at launch,
+   * on every sync and on a change from the website, which is often enough for a
+   * setting that is written once per drag.
+   */
+  private retryUnsentIndent(serverPx: number): void {
+    const unsent = this.indentUnsent;
+    if (unsent === null || this.indentWriting) return;
+    if (!this.sidebarIndent.available || this.indentLocalOnly) return;
+    // The write did land and only its answer was lost: nothing left to do.
+    if (unsent === serverPx) {
+      this.indentUnsent = null;
+      this.savePrefs();
+      return;
+    }
+    void this.writeIndent(unsent);
+  }
+
+  /** A write is in flight; a retry waits for it rather than racing it. */
+  private indentWriting = false;
+
+  /** Write now, and cancel the pending one so it cannot follow with older text. */
+  private flushIndentWrite(px: number): void {
+    if (this.indentTimer !== null) {
+      clearTimeout(this.indentTimer);
+      this.indentTimer = null;
+    }
+    void this.writeIndent(px);
+  }
+
   private async writeIndent(px: number): Promise<void> {
     const session = this.session;
-    if (session === null) return;
+    if (session === null || this.indentWriting) return;
+    this.indentWriting = true;
     try {
       const result = await apiSetIndent(transport, session, px);
       // The server clamps; adopt what it stored rather than what was asked for,
       // but never stomp a newer drag that happened while this was in flight.
+      if (this.indentUnsent === px) this.indentUnsent = null;
       if (this.sidebarIndent.px === px) {
         this.sidebarIndent = result.sidebarIndent;
       }
+      this.localIndentPx = this.sidebarIndent.px;
       this.indentError = null;
+      this.savePrefs();
     } catch (error) {
       // A server whose adapter predates the write route answers 404/409. The
       // indent still has to work, so it degrades to this device rather than
@@ -460,12 +620,16 @@ export class ReaderState {
       if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
         // Stop trying to store it remotely, but keep the control usable.
         this.indentLocalOnly = true;
+        this.indentUnsent = null;
         this.localIndentPx = this.sidebarIndent.px;
         this.savePrefs();
         this.indentError = "This server cannot store the indent yet — keeping it on this device.";
         return;
       }
       this.indentError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.indentWriting = false;
+      this.savePrefs();
     }
   }
 
@@ -485,6 +649,7 @@ export class ReaderState {
 
   setExpandedFeed(id: string | null): void {
     this.expandedFeedId = id;
+    this.savePlace();
   }
 
   toggleCategory(id: string): void {
@@ -509,8 +674,13 @@ export class ReaderState {
    * would show one indent in the app and another on the website.
    */
   private withLocalIndent(state: SidebarIndentState): SidebarIndentState {
-    if (state.available || this.localIndentPx === null) return state;
-    return { ...state, px: clampIndentPx(this.localIndentPx, state.max) };
+    // `localOnly` is also true while the last write is still unwritten or
+    // failed: what the reader set is what it sees, until the server has it.
+    return resolveIndent(
+      state,
+      this.localIndentPx,
+      this.indentLocalOnly || this.indentUnsent !== null || this.indentError !== null,
+    );
   }
 
   private updateLocalPins(change: Partial<LocalPins>): void {
@@ -529,17 +699,37 @@ export class ReaderState {
     try {
       const raw = JSON.parse(localStorage.getItem(key) ?? "null") as Record<string, unknown> | null;
       this.localPins = parsePins(raw?.pins);
+      const order = raw?.order;
+      this.feedOrder = Array.isArray(order)
+        ? order.filter((entry): entry is string => typeof entry === "string")
+        : [];
+      const categoryOrder = raw?.categoryOrder;
+      this.categoryOrder = Array.isArray(categoryOrder)
+        ? categoryOrder.filter((entry): entry is string => typeof entry === "string")
+        : [];
       const indent = raw?.indentPx;
       this.localIndentPx =
         typeof indent === "number" && Number.isFinite(indent) ? clampIndentPx(indent) : null;
+      this.indentLocalOnly = raw?.indentLocal === true;
+      const unsent = raw?.indentUnsent;
+      this.indentUnsent =
+        typeof unsent === "number" && Number.isFinite(unsent) ? clampIndentPx(unsent) : null;
       if (this.localIndentPx !== null) {
         this.sidebarIndent = { ...this.sidebarIndent, px: this.localIndentPx };
       }
       const collapsed = raw?.collapsed;
       this.collapsedCategories =
         typeof collapsed === "object" && collapsed !== null ? (collapsed as Record<string, boolean>) : {};
+      const positionsAt = raw?.positionsAt;
+      this.positionsStamp =
+        typeof positionsAt === "number" && Number.isFinite(positionsAt) && positionsAt > 0
+          ? Math.round(positionsAt)
+          : 0;
     } catch {
       this.localPins = emptyPins();
+      this.feedOrder = [];
+      this.categoryOrder = [];
+      this.positionsStamp = 0;
     }
   }
 
@@ -553,11 +743,152 @@ export class ReaderState {
           pins: this.localPins,
           collapsed: this.collapsedCategories,
           indentPx: this.localIndentPx,
+          indentLocal: this.indentLocalOnly,
+          indentUnsent: this.indentUnsent,
+          order: this.feedOrder,
+          categoryOrder: this.categoryOrder,
+          positionsAt: this.positionsStamp,
         }),
       );
     } catch {
       /* storage full or blocked: preferences just do not persist */
     }
+  }
+
+  /* -------------------------------------------------------------------------
+   * The arrangement, on the account
+   *
+   * Local storage stays the render source: what the sidebar draws is what the
+   * `categoryOrder`/`feedOrder` arrays say, and a drag changes them and nothing
+   * else until the drag is done. The account's `GET`/`PUT /v1/positions` makes
+   * a second device agree, which is a different job from drawing the sidebar.
+   * Read once at start, written once after a drag — no polling, no per-device
+   * clocks, and a server that predates the route costs one 404 and no more.
+   * ------------------------------------------------------------------------- */
+
+  /**
+   * The two lists this device would send: its own order, cut down to the ids
+   * the account actually has.
+   *
+   * Nothing else travels, and nothing invented: an id that is not in the
+   * sidebar is not in the document, because the arrangement is a fact about
+   * what the user can see and drag. `null` means there is nothing honest to
+   * send — the sidebar has not loaded, so an empty list would say the account
+   * has no categories rather than that we have not looked yet.
+   */
+  private drawnPositions(): PositionsLists | null {
+    if (this.subscriptions.length === 0) return null;
+    const categoryIds = new Set(this.allCategories.map((group) => group.id));
+    const feedIds = new Set(this.subscriptions.map((feed) => feed.id));
+    const categories = this.categoryOrder.filter((id) => categoryIds.has(id));
+    const feeds = this.feedOrder.filter((id) => feedIds.has(id));
+    if (categories.length === 0 && feeds.length === 0) return null;
+    return { categories, feeds };
+  }
+
+  /**
+   * Takes a copy from the account as this device's own: drawn, and stored in
+   * the prefs the next start reads before any network call.
+   *
+   * The shape is spelled out rather than imported: `Positions` lives in
+   * `lib/positions`, and a new relative import in this module has to be taught
+   * to four suites that transpile it (`reader-state`, `favorites`,
+   * `hidden-write`, `menu-render`). It arrives through `../api/hardlyread`,
+   * which is already rewritten, and structurally it is the same type.
+   */
+  private adoptPositions(positions: { updatedAt: number; categories: string[]; feeds: string[] }): void {
+    this.categoryOrder = [...positions.categories];
+    this.feedOrder = [...positions.feeds];
+    this.positionsStamp = positions.updatedAt;
+    this.savePrefs();
+  }
+
+  /**
+   * Reads the account's arrangement once and keeps the newer copy.
+   *
+   * Behind the first paint on purpose: preferences are loaded and the sidebar
+   * is drawn from them, so nothing here is allowed to delay a frame. `404` is
+   * an adapter that predates the route — the local order stands and nothing is
+   * said, because nothing is wrong. Any other failure is equally quiet: the
+   * local arrangement is on screen and it is still true.
+   *
+   * No write follows this read. If the local copy wins it is already newer than
+   * what the server holds, and the next drag sends it up with a newer stamp
+   * still — so there is no need to talk to the server twice at launch.
+   */
+  private async adoptPositionsFromAccount(): Promise<void> {
+    const session = this.session;
+    if (session === null) return;
+    const read = await reconcilePositions(transport, session, {
+      updatedAt: this.positionsStamp,
+      categories: [...this.categoryOrder],
+      feeds: [...this.feedOrder],
+    });
+    // Signed out, or another account, while the read was in flight.
+    if (this.session !== session) return;
+    if (read.kind === "missing") {
+      this.positionsRoute = "missing";
+      return;
+    }
+    if (read.kind === "failed") return;
+    this.positionsRoute = "available";
+    if (read.kind === "remote") this.adoptPositions(read.positions);
+  }
+
+  /**
+   * Sends the arrangement, after the drag has already been drawn and saved.
+   *
+   * Never before, and never instead of: the arrays are the render source, so a
+   * drag costs a repaint and nothing else. Queued rather than fired in
+   * parallel, so two drags in a row reach the server in the order they
+   * happened and the newest stamp is the last word.
+   */
+  private sendPositions(): void {
+    const session = this.session;
+    if (session === null || this.positionsRoute === "missing") return;
+    const lists = this.drawnPositions();
+    if (lists === null) return;
+    const generation = (this.positionsGeneration += 1);
+    this.positionsChain = this.positionsChain.then(() => this.writePositions(session, lists, generation));
+  }
+
+  private async writePositions(session: Session, lists: PositionsLists, generation: number): Promise<void> {
+    if (this.session !== session || this.positionsRoute === "missing") return;
+    // A refusal has already ruled against the order this write was built from:
+    // sending it now would be the fight the 409 asked us not to have.
+    if (generation <= this.positionsVoided) return;
+    // What this write is stamped against.
+    const previous = this.positionsStamp;
+    let write: Awaited<ReturnType<typeof savePositions>>;
+    try {
+      write = await savePositions(transport, session, lists, previous);
+    } catch {
+      // Network, auth, a 500: the local order is what the user is looking at
+      // and it stays. The next drag sends a newer stamp and carries this one
+      // with it, so nothing is retried here.
+      return;
+    }
+    if (this.session !== session) return;
+    if (write.kind === "missing") {
+      this.positionsRoute = "missing";
+      return;
+    }
+    this.positionsRoute = "available";
+    if (write.kind === "stored") {
+      this.positionsStamp = Math.max(this.positionsStamp, write.positions.updatedAt);
+      this.savePrefs();
+      return;
+    }
+
+    // Refused: another device arranged this later. Not a fight and not a retry
+    // — read the copy that won, adopt it, and drop every drag still queued
+    // behind this one: they were built from an order that has just lost, and
+    // sending them would take the arrangement back by force. The next drag,
+    // after this one is on screen, is the next chance to disagree.
+    this.positionsVoided = Math.max(this.positionsVoided, this.positionsGeneration);
+    const read = await reconcilePositions(transport, session, { updatedAt: previous, categories: [], feeds: [] });
+    if (this.session !== session) return;
+    if (read.kind === "remote") this.adoptPositions(read.positions);
   }
 
   /**
@@ -634,10 +965,6 @@ export class ReaderState {
         }
         this.setFeedPinned(target.id, action.pinned);
         return null;
-      case "favorite":
-        this.menu = null;
-        floods.emit(action.favorite ? "pin" : "unpin", origin);
-        return target.kind === "category" ? this.setCategoryFavorite(target.label, action.favorite) : null;
     }
   }
 
@@ -952,7 +1279,13 @@ export class ReaderState {
     return [...groups.values()]
       .map((group) => ({
         ...group,
-        feeds: [...group.feeds].sort((a, b) => a.title.localeCompare(b.title)),
+        // Name order is the base — FreshRSS returns feeds in its own order and
+        // never by hand. A drag adds an arrangement on top of that base, and
+        // anything the user has not dragged keeps its alphabet.
+        feeds: sortByOrder(
+          [...group.feeds].sort((a, b) => a.title.localeCompare(b.title)),
+          this.feedOrder,
+        ),
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }
@@ -964,6 +1297,8 @@ export class ReaderState {
       this.pinView,
       (label) => this.isCategoryPinned(label),
       (id) => this.isFeedPinned(id),
+      this.feedOrder,
+      this.categoryOrder,
     );
   }
 
@@ -982,9 +1317,71 @@ export class ReaderState {
     this.session = session;
     this.error = null;
     this.loadPrefs();
+    // The account's copy is read once, behind the first paint: the prefs above
+    // are already what the sidebar draws, so this must not be awaited here.
+    this.positionsLanded = this.adoptPositionsFromAccount().catch(() => {});
+    const place = this.readPlace();
     // Paint what we had last time before asking the network for anything.
     await this.hydrateSidebar();
-    await Promise.all([this.loadSidebar(), this.openStream(READING_LIST, "Reading list")]);
+    const stream = place.streamId ?? READING_LIST;
+    const title = place.streamId === null ? "Reading list" : place.streamTitle;
+    const [sidebarLanded] = await Promise.all([this.loadSidebar(), this.openStream(stream, title)]);
+    // A launch load is a sync: it fetches the sidebar and the open stream. Only
+    // when both landed — a failed launch leaves this at zero, which is how auto
+    // sync knows to retry at once instead of waiting out an interval.
+    if (sidebarLanded && this.error === null) this.lastSyncAt = Date.now();
+    if (place.streamId !== null && this.error !== null) {
+      // The feed has been deleted or renamed since: land somewhere real rather
+      // than leaving a dead stream and an error on screen at sign-in.
+      this.error = null;
+      await this.openStream(READING_LIST, "Reading list");
+      this.savePlace();
+      return;
+    }
+    this.expandedFeedId = place.expandedFeedId;
+    // The post is only reopened from what the first page holds; an older one is
+    // not worth a request of its own, and the feed is open either way.
+    const open = place.articleId === null ? undefined : this.items.find((item) => item.id === place.articleId);
+    if (open !== undefined) this.select(open);
+    this.savePlace();
+  }
+
+  private placeKey(): string | null {
+    const session = this.session;
+    return session === null ? null : placeKey(session.serverUrl, session.email);
+  }
+
+  private readPlace(): Place {
+    const key = this.placeKey();
+    if (key === null || typeof localStorage === "undefined") return { ...EMPTY_PLACE };
+    try {
+      return parsePlace(JSON.parse(localStorage.getItem(key) ?? "null"));
+    } catch {
+      return { ...EMPTY_PLACE };
+    }
+  }
+
+  /**
+   * Called whenever the feed, post or unfolded feed changes. Storage that is
+   * full or blocked just means the app opens on the Reading list, so failures
+   * are silent by design.
+   */
+  private savePlace(): void {
+    const key = this.placeKey();
+    if (key === null || typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          streamId: this.activeStream,
+          streamTitle: this.activeTitle,
+          articleId: this.selectedId,
+          expandedFeedId: this.expandedFeedId,
+        }),
+      );
+    } catch {
+      /* preferences just do not persist */
+    }
   }
 
   private diskKey(name: string): string | null {
@@ -1042,30 +1439,58 @@ export class ReaderState {
     this.addFeedError = null;
     this.menu = null;
     this.localPins = emptyPins();
+    this.feedOrder = [];
+    this.categoryOrder = [];
+    this.positionsStamp = 0;
+    this.positionsRoute = "unknown";
+    this.positionsChain = Promise.resolve();
+    this.positionsGeneration = 0;
+    this.positionsVoided = 0;
+    this.positionsLanded = Promise.resolve();
     this.collapsedCategories = {};
   }
 
-  async loadSidebar(onProgress?: (step: string) => void): Promise<void> {
-    if (!this.session) return;
-    const landed = (step: string) => <T>(value: T): T => {
-      onProgress?.(step);
-      return value;
+  async loadSidebar(report?: SyncReport): Promise<boolean> {
+    if (!this.session) return false;
+    const session = this.session;
+    const fetchStep = <T>(id: "feeds" | "tags" | "counts", fetchOne: () => Promise<T>): Promise<T> => {
+      report?.start(id);
+      return fetchOne().then(
+        (value) => {
+          report?.land(id);
+          return value;
+        },
+        (error: unknown) => {
+          report?.fail(id);
+          throw error;
+        },
+      );
     };
-    try {
-      const [subscriptions, tags, counts] = await Promise.all([
-        listSubscriptions(transport, this.session).then(landed("Tags")),
-        listTags(transport, this.session).then(landed("Unread counts")),
-        getUnreadCounts(transport, this.session).then(landed("Extensions")),
-        // Never throws; an install without the extension is not an error.
-        this.loadApiState().then(landed("Posts")),
-      ]);
-      this.subscriptions = subscriptions;
-      this.tags = tags;
-      this.setCounts(counts);
-      this.persistSidebar(counts);
-    } catch (error) {
-      this.error = message(error);
+
+    const [feeds, tags, counts] = await Promise.allSettled([
+      fetchStep("feeds", () => listSubscriptions(transport, session)),
+      fetchStep("tags", () => listTags(transport, session)),
+      fetchStep("counts", () => getUnreadCounts(transport, session)),
+      // Reports itself: a missing extension is not an error, a failed read is a
+      // step that did not land.
+      this.loadApiState(report),
+    ]);
+
+    const failed = [feeds, tags, counts].find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failed !== undefined) {
+      this.error = message(failed.reason);
+      return false;
     }
+    if (feeds.status !== "fulfilled" || tags.status !== "fulfilled" || counts.status !== "fulfilled") {
+      return false;
+    }
+    this.subscriptions = feeds.value;
+    this.tags = tags.value;
+    this.setCounts(counts.value);
+    this.persistSidebar(counts.value);
+    return true;
   }
 
   /**
@@ -1076,21 +1501,26 @@ export class ReaderState {
    *
    * Deliberately does not touch `error`: a missing extension, a 409 or a 401
    * here must not take over the sidebar, and the GReader calls already report
-   * a dead token.
+   * a dead token. It does report the step to the sync readout, though: a fetch
+   * that came back as an error is not a step that landed, whatever the reason.
    */
-  async loadApiState(): Promise<void> {
+  async loadApiState(report?: SyncReport): Promise<void> {
     if (!this.session) return;
+    report?.start("extension");
     try {
       const state = await getApiStateFromServer(transport, this.session);
       this.hiddenCategories = state.hiddenCategories;
       this.favorites = state.favorites;
       this.sidebarIndent = this.withLocalIndent(state.sidebarIndent);
       this.hiddenError = null;
+      this.retryUnsentIndent(state.sidebarIndent.px);
+      report?.land("extension");
     } catch (error) {
       this.hiddenCategories = unavailableState();
       this.favorites = unavailableFavorites();
       this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
       this.hiddenError = message(error);
+      report?.fail("extension");
     }
   }
 
@@ -1226,6 +1656,112 @@ export class ReaderState {
   }
 
   /**
+   * Files a feed into a category, in the slot it was dropped on.
+   *
+   * Two different facts, stored in two different places on purpose:
+   *
+   * - **Position** inside a category is not FreshRSS's to hold: it keeps no
+   *   order for feeds in a folder, so the arrangement is drawn from the local
+   *   lists and mirrored to the account's `/v1/positions` document after the
+   *   drag. The move is drawn at once and sent afterwards, never waited on.
+   * - **Membership** is the server's. A feed that showed under Design here and
+   *   under Tech on the website would be a lie that survives until the next
+   *   reload, so the move is sent as a real `ac=edit` and rolled back if the
+   *   server refuses it.
+   */
+  async arrangeFeed(streamId: string, category: string, before: string | null): Promise<boolean> {
+    const feed = this.subscriptions.find((candidate) => candidate.id === streamId);
+    if (feed === undefined || this.feedBusy) return false;
+
+    const currentLabel =
+      feed.categories?.find((entry) => entry.id.startsWith(LABEL_PREFIX))?.label ?? null;
+    // Uncategorized is the absence of a label, not a label called that.
+    const targetLabel = category === "Uncategorized" ? null : category;
+
+    // A total order from the first drag onwards: seeded with what is on screen,
+    // so "put this before that" keeps its meaning for feeds that were never
+    // dragged and still sit in alphabet order.
+    const seeded =
+      this.feedOrder.length > 0
+        ? this.feedOrder
+        : this.allCategories.flatMap((group) => group.feeds.map((entry) => entry.id));
+
+    const sameCategory = currentLabel === targetLabel;
+    if (sameCategory && isNoopDrop(seeded, streamId, before)) return true;
+
+    const previousOrder = this.feedOrder;
+    const previousCategories = feed.categories;
+    this.feedOrder = moveInOrder(seeded, streamId, before);
+    this.savePrefs();
+    // A drag inside the same category is finished here: drawn, stored, sent.
+    if (sameCategory) {
+      this.sendPositions();
+      return true;
+    }
+
+    // Drawn at once, written immediately after: a drag should not wait for a
+    // round trip to look like it worked.
+    feed.categories =
+      targetLabel === null
+        ? []
+        : [{ id: `${LABEL_PREFIX}${targetLabel}`, label: targetLabel }];
+
+    const session = this.session;
+    if (session === null) {
+      feed.categories = previousCategories;
+      this.feedOrder = previousOrder;
+      this.savePrefs();
+      return false;
+    }
+
+    this.feedBusy = true;
+    try {
+      await moveFeedOnServer(transport, session, streamId, targetLabel, currentLabel);
+      // The feed is filed where the drag put it, so the arrangement that goes
+      // with it can follow. The rollback path below sends nothing: the account
+      // is never given an order the sidebar is not showing.
+      this.sendPositions();
+      return true;
+    } catch (error) {
+      feed.categories = previousCategories;
+      this.feedOrder = previousOrder;
+      this.savePrefs();
+      this.error = message(error);
+      return false;
+    } finally {
+      this.feedBusy = false;
+    }
+  }
+
+  /**
+   * Moves a category to a new position in the sidebar.
+   *
+   * Nothing is sent. FreshRSS has no order for folders, and the pin band is the
+   * extension's, so a position is the same kind of fact as the feed
+   * arrangement: this device, this account. There is no round trip to fail and
+   * therefore nothing to roll back.
+   *
+   * The first drag seeds the list with what is currently drawn, so "put it
+   * last" means last rather than "the only entry in an empty list, drawn
+   * first". Seeding is safe even though the drawn order starts with the pinned
+   * band: `arrangeByPins` applies the band before the order, so a seeded pinned
+   * id keeps the place the band gives it whatever the list says.
+   */
+  arrangeCategory(categoryId: string, before: string | null): boolean {
+    const seeded =
+      this.categoryOrder.length > 0
+        ? this.categoryOrder
+        : this.categories.map((group) => group.id);
+    if (isNoopDrop(seeded, categoryId, before)) return true;
+    this.categoryOrder = moveInOrder(seeded, categoryId, before);
+    this.savePrefs();
+    // Drawn and stored first, sent now: the account's copy follows the drag,
+    // never the other way round.
+    this.sendPositions();
+    return true;
+  }
+
+  /**
    * Articles already fetched, keyed by stream.
    *
    * Switching category or feed used to wait for a round-trip every time, which is
@@ -1279,23 +1815,52 @@ export class ReaderState {
   /**
    * A sync, counted step by step.
    *
-   * Every fetch this triggers reports back as it lands, so the header can show
-   * a real fraction instead of an indefinite spinner. `SYNC_TOTAL` is the
-   * number of fetches, which is fixed; the work inside each is not, so there is
-   * nothing finer to report honestly.
+   * Every fetch this triggers reports back when it starts and when it settles,
+   * so the header can name the work in flight and show a real fraction instead
+   * of an indefinite spinner. `SYNC_TOTAL` is the number of fetches, which is
+   * fixed; the work inside each is not, so there is nothing finer to report
+   * honestly. The counting itself lives in `createSyncTracker`, which cannot be
+   * pushed past five or moved twice for one step — watch-changes and a manual
+   * sync can overlap, and both fetch the same five things.
    */
   sync = $state<SyncState>({ ...SYNC_IDLE });
 
+  private syncTracker = createSyncTracker();
+
+  /** The readout as it stands. Every report from a fetch lands here. */
+  private syncReport: SyncReport = {
+    start: (id) => (this.sync = this.syncTracker.start(id)),
+    land: (id) => (this.sync = this.syncTracker.land(id)),
+    fail: (id) => (this.sync = this.syncTracker.fail(id)),
+  };
+
+  /**
+   * When this window last pulled everything from the server, in ms.
+   *
+   * A launch load counts: it fetches the sidebar and the open stream, which is
+   * the same work a sync does. Automatic sync reads this so it does not
+   * re-fetch everything twice in the first second of a launch, while still
+   * retrying when the launch fetch failed.
+   */
+  lastSyncAt = $state(0);
+
   async refresh(): Promise<void> {
-    this.sync = { active: true, done: 0, total: SYNC_TOTAL, step: "Feeds" };
-    const tick = (step: string): void => {
-      this.sync = { ...this.sync, done: this.sync.done + 1, step };
-    };
+    if (!this.session) return;
+    this.sync = this.syncTracker.begin();
     try {
-      await Promise.all([this.loadSidebar(tick), this.reloadStream({ onProgress: () => tick("Posts") })]);
+      // Forced: the stream cache is good for a minute, and a sync answered from
+      // it would look like nothing happened while the bar still ran to the end.
+      // Pressing sync is a request for the server's answer, not this window's.
+      await Promise.all([
+        this.loadSidebar(this.syncReport),
+        this.reloadStream({ force: true, report: this.syncReport }),
+      ]);
     } finally {
-      const finished = this.sync.total;
-      this.sync = { active: false, done: finished, total: finished, step: "" };
+      // Not `done: total`: a sync that lost a fetch ends short, because that is
+      // what happened. One of two overlapping syncs ending does not end the
+      // readout either.
+      this.sync = this.syncTracker.finish();
+      if (this.error === null) this.lastSyncAt = Date.now();
       // The header pulses its own bar when `active` falls; nothing is thrown
       // across the window for a fetch finishing.
     }
@@ -1347,10 +1912,13 @@ export class ReaderState {
     this.activeStream = streamId;
     this.activeTitle = title;
     this.selectedId = null;
+    this.savePlace();
     await this.reloadStream();
   }
 
-  async reloadStream(options: { force?: boolean; onProgress?: () => void } = {}): Promise<void> {
+  async reloadStream(
+    options: { force?: boolean; report?: SyncReport } = {},
+  ): Promise<void> {
     if (!this.session) return;
     const stream = this.activeStream;
     const token = ++this.streamToken;
@@ -1385,20 +1953,21 @@ export class ReaderState {
       this.items = [];
       this.continuation = undefined;
     }
-    // The step is reported once per call, whether the answer came from cache or
-    // the network: the bar counts fetches that have settled, not bytes.
+    // The step is reported when its fetch settles, and only then: a sync counts
+    // requests answered, not bytes read from a cache.
     let reported = false;
-    const report = (): void => {
+    const settle = (outcome: "land" | "fail"): void => {
       if (reported) return;
       reported = true;
-      options.onProgress?.();
+      if (outcome === "land") options.report?.land("posts");
+      else options.report?.fail("posts");
     };
 
     if (fresh && options.force !== true) {
       this.loadingList = false;
       this.error = null;
       this.lastStreamSource = "cache";
-      report();
+      settle("land");
       return;
     }
 
@@ -1409,11 +1978,15 @@ export class ReaderState {
     const controller = new AbortController();
     this.inFlight.set(stream, controller);
     const started = performance.now();
+    options.report?.start("posts");
     try {
       const page = await getStreamContents(transport, this.session, stream, {
         count: PAGE_SIZE,
         signal: controller.signal,
       });
+      // The fetch delivered: the step is done even if a later stream change
+      // means this page is not the one drawn.
+      settle("land");
       if (token !== this.streamToken || this.activeStream !== stream) return;
       this.items = page.items;
       this.continuation = page.continuation;
@@ -1421,13 +1994,15 @@ export class ReaderState {
       this.lastStreamSource = "network";
       this.lastStreamMs = Math.round(performance.now() - started);
     } catch (error) {
+      // Whatever the reason — a dead server or a stream the user moved on from —
+      // this step did not deliver, so it does not count as done.
+      settle("fail");
       if (token !== this.streamToken || aborted(error)) return;
       this.error = message(error);
       if (cached === undefined) this.items = [];
     } finally {
       if (this.inFlight.get(stream) === controller) this.inFlight.delete(stream);
       if (token === this.streamToken) this.loadingList = false;
-      report();
     }
   }
 
@@ -1698,8 +2273,24 @@ export class ReaderState {
     await this.crossToNextStream(1);
   }
 
+  /**
+   * ↑/↓ with the posts pane in hand: move the selection, not the feed.
+   *
+   * The list is the filtered, ordered one on screen, so the step lands on what
+   * the reader can actually see — and it works the same in all four views,
+   * because a view is a way of drawing the list, not a different list.
+   */
+  async stepItem(delta: -1 | 1): Promise<void> {
+    const items = this.listItems;
+    const at = this.selectedId === null ? -1 : items.findIndex((item) => item.id === this.selectedId);
+    const next = stepIndex(items.length, at, delta);
+    if (next === null) return;
+    this.select(items[next], delta === 1 ? "top" : "bottom");
+  }
+
   select(item: StreamItem, edge: "top" | "bottom" = "top"): void {
     this.selectedId = item.id;
+    this.savePlace();
     this.landingEdge = edge;
     this.traversalEnded = false;
     // Opening a post is not reading it: the dwell timer decides that, and only
@@ -1709,6 +2300,7 @@ export class ReaderState {
 
   closeReader(): void {
     this.selectedId = null;
+    this.savePlace();
     this.clearDwell();
   }
 

@@ -28,9 +28,46 @@ export interface ThumbSource {
 
 export type ThumbKind = "enclosure" | "media" | "inline" | "none";
 
+/** The image extensions a WordPress size suffix can hang off. */
+const IMAGE_EXT = String.raw`\.(?:jpe?g|png|gif|webp|avif)`;
+
+/** `…-150x150.jpg` → `…` + `.jpg`. Anchored at both ends, so only the last
+ *  suffix before the extension is stripped (`a-150x150-300x300.jpg` → `a-150x150`). */
+const SIZE_SUFFIX = new RegExp(String.raw`^(.*)-\d+x\d+(${IMAGE_EXT})$`, "i");
+
+/**
+ * WordPress puts a small crop of a picture beside the real one — `cat-150x150.jpg`
+ * next to `cat.jpg` — and some feeds publish only the crop. A card draws the
+ * picture at its full width, so the crop is upscaled into mush; the full-size
+ * file is almost always sitting at the same path.
+ *
+ * Three shapes are handled, and all of them turn up on this reader's server:
+ *
+ *   - the name itself ends the URL: `…/2026-10-21-Buni-150x150.jpg`;
+ *   - the name is the end of a proxied URL, because FreshRSS's ImageCache
+ *     extension rewrites every `src` to `piccache.php?url=<rawurlencoded src>`
+ *     and `rawurlencode` leaves `-` and `.` alone — so the suffix is still the
+ *     tail of the string and the sharpened URL stays inside the proxy;
+ *   - the name is followed by a query or fragment: `photo-150x150.jpg?resize=…`.
+ *
+ * Returns null — meaning "leave the URL exactly as it is" — when there is no
+ * size suffix to strip.
+ */
+export function fullSize(url: string): string | null {
+  const whole = SIZE_SUFFIX.exec(url);
+  if (whole !== null) return `${whole[1]}${whole[2]}`;
+  const cut = url.search(/[?#]/);
+  if (cut === -1) return null;
+  const named = SIZE_SUFFIX.exec(url.slice(0, cut));
+  if (named === null) return null;
+  return `${named[1]}${named[2]}${url.slice(cut)}`;
+}
+
 export interface Thumb {
   url: string | null;
   kind: ThumbKind;
+  /** The picture the feed actually named, when `url` is a sharper variant of it. */
+  fallback?: string;
 }
 
 const NONE: Thumb = { url: null, kind: "none" };
@@ -109,6 +146,25 @@ export function firstImageIn(html: string | null | undefined): string | null {
   return null;
 }
 
+/**
+ * What a sharpened picture falls back to, when the full-size file is not there
+ * after all: the crop the feed named. Remembered per URL so a picture that 404s
+ * on the way up does not 404 twice.
+ */
+const cropOf = new Map<string, string>();
+
+export function cropVariant(url: string): string | null {
+  return cropOf.get(url) ?? null;
+}
+
+/** A resolved picture, sharpened to full size when the feed named only a crop. */
+function sharpen(resolved: string, kind: ThumbKind): Thumb {
+  const bigger = fullSize(resolved);
+  if (bigger === null) return { url: resolved, kind };
+  cropOf.set(bigger, resolved);
+  return { url: bigger, kind, fallback: resolved };
+}
+
 export function thumbnailOf(item: ThumbSource): Thumb {
   const base = item.alternate?.[0]?.href ?? null;
 
@@ -117,7 +173,7 @@ export function thumbnailOf(item: ThumbSource): Thumb {
       const url = usable(enclosure.href);
       if (url !== null) {
         const resolved = resolveUrl(url, base);
-        if (resolved !== null) return { url: resolved, kind: "enclosure" };
+        if (resolved !== null) return sharpen(resolved, "enclosure");
       }
     }
   }
@@ -126,7 +182,7 @@ export function thumbnailOf(item: ThumbSource): Thumb {
     const url = usable(thumb?.url);
     if (url !== null) {
       const resolved = resolveUrl(url, base);
-      if (resolved !== null) return { url: resolved, kind: "media" };
+      if (resolved !== null) return sharpen(resolved, "media");
     }
   }
 
@@ -135,7 +191,7 @@ export function thumbnailOf(item: ThumbSource): Thumb {
       const url = usable(content.url);
       if (url !== null) {
         const resolved = resolveUrl(url, base);
-        if (resolved !== null) return { url: resolved, kind: "media" };
+        if (resolved !== null) return sharpen(resolved, "media");
       }
     }
   }
@@ -144,9 +200,82 @@ export function thumbnailOf(item: ThumbSource): Thumb {
     const found = firstImageIn(html);
     if (found !== null) {
       const resolved = resolveUrl(found, base);
-      if (resolved !== null) return { url: resolved, kind: "inline" };
+      if (resolved !== null) return sharpen(resolved, "inline");
     }
   }
 
   return NONE;
+}
+
+/**
+ * The separate pictures that make up one strip.
+ *
+ * Comics Kingdom publishes a daily strip as several images labelled
+ * "Beetle Bailey - Panel 1", "- Panel 2" and so on. A card that showed the
+ * first of them showed a third of the joke, which is why the same layout
+ * looked right for a single-picture feed and wrong for these. Only pictures
+ * that name themselves as panels are collected, so a post with a photo and an
+ * unrelated illustration is left alone, and one panel on its own is just a
+ * thumbnail.
+ */
+const PANEL_ALT = /\bpanel\s*\d+/i;
+
+export function panelsOf(item: ThumbSource): string[] {
+  const base = item.alternate?.[0]?.href ?? null;
+  const found: string[] = [];
+  for (const html of [item.content?.content, item.summary?.content]) {
+    if (typeof html !== "string" || html === "") continue;
+    const tag = /<img\b[^>]*>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = tag.exec(html)) !== null) {
+      const alt = attr(match[0], "alt");
+      if (alt === null || !PANEL_ALT.test(alt)) continue;
+      const srcset = attr(match[0], "srcset");
+      const candidate = srcset
+        ? srcset
+            .split(",")
+            .map((part) => part.trim().split(/\s+/)[0])
+            .filter(Boolean)
+            .pop()
+        : attr(match[0], "src");
+      const url = usable(candidate ?? null);
+      if (url === null) continue;
+      const resolved = resolveUrl(url, base);
+      if (resolved !== null && !found.includes(resolved)) found.push(resolved);
+    }
+    if (found.length > 0) break;
+  }
+  return found.length > 1 ? found : [];
+}
+
+/** Every picture the body offers, in order, for a post that is more than one. */
+export function imagesOf(item: ThumbSource, limit = 12): string[] {
+  const base = item.alternate?.[0]?.href ?? null;
+  const found: string[] = [];
+  for (const html of [item.content?.content, item.summary?.content]) {
+    if (typeof html !== "string" || html === "") continue;
+    const tag = /<img\b[^>]*>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = tag.exec(html)) !== null) {
+      const srcset = attr(match[0], "srcset");
+      const candidate = srcset
+        ? srcset
+            .split(",")
+            .map((part) => part.trim().split(/\s+/)[0])
+            .filter(Boolean)
+            .pop()
+        : attr(match[0], "src");
+      const url = usable(candidate ?? null);
+      if (url === null) continue;
+      const resolved = resolveUrl(url, base);
+      if (resolved === null) continue;
+      const sharp = fullSize(resolved);
+      if (sharp !== null) cropOf.set(sharp, resolved);
+      const use = sharp ?? resolved;
+      if (!found.includes(use)) found.push(use);
+      if (found.length >= limit) return found;
+    }
+    if (found.length > 0) break;
+  }
+  return found;
 }

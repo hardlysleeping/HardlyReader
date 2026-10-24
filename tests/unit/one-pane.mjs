@@ -1,4 +1,21 @@
+/**
+ * The one-column walk: two levels, a crumb strip that only exists where there is
+ * somewhere to go back to, and the phone's stacked pair.
+ *
+ *   node --experimental-strip-types --import ./tests/unit/register-ts.mjs \
+ *     tests/unit/one-pane.mjs
+ *
+ * The walk's arithmetic lives in `src/lib/one-pane.ts` and is pressed here for
+ * real. The surface itself is one grid now, so the crumb strip sits outside it
+ * as a flex sibling rather than as a reserved row: the grid's four tracks are
+ * the same with a strip and without one, and the strip is drawn only below the
+ * feeds. The stacked phone is the same grid as the desktop stack — same slots,
+ * same rows string, same handlers — which is what the last block checks.
+ */
+import { readFileSync } from "node:fs";
+
 import { backLabel, levelOf, stepBackTarget, whereLabel } from "../../src/lib/one-pane.ts";
+import { paneSlots } from "../../src/lib/panes.ts";
 
 let failures = 0;
 let checks = 0;
@@ -36,6 +53,212 @@ check("at an article it names feed and post", whereLabel("article", "Ars", "Big 
 check("a missing article title falls back to the feed", whereLabel("article", "Ars", null) === "Ars");
 check("the back tooltip names the destination", backLabel("article", "Ars") === "Back to Ars");
 check("back at the root is honest about it", backLabel("feeds", "Ars") === "Already at feeds");
+
+// Collapsing is not a crop: one column starts at its first pane, the feeds.
+// Shrinking the window while an article was open used to leave that article
+// alone on screen — the second pane's content on the surface whose first pane
+// is the feeds.
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const main = readFileSync(join(root, "src/views/Main.svelte"), "utf8");
+const layout = readFileSync(join(root, "src/state/layout.svelte.ts"), "utf8");
+
+check(
+  "landing on one pane closes the article",
+  /if \(now === 1 \|\| now === 2\) reader\.closeReader\(\)/.test(main),
+);
+check(
+  "and on two as well, so the second column is the posts, not the open article",
+  /now === 2\) reader\.closeReader\(\)/.test(main),
+);
+check(
+  "and it is the transition that decides, not the width at render",
+  /let drawn = layout\.mode;[\s\S]{0,200}\$effect/.test(main),
+);
+check("the drawn mode is state, so it can remember what it was", /mode = \$state<PaneMode>\(1\)/.test(layout));
+check("a threshold change is banded", /setThreshold[\s\S]{0,1600}this\.settle\(\);/.test(layout));
+// The panes are the source of truth: every path that moves one re-derives the
+// thresholds, so the settings panel cannot disagree with the layout.
+check("a drag re-derives the thresholds", /dragTo\([\s\S]{0,900}this\.syncThresholds\(\);/.test(layout));
+check("commit trims the requirement to the window", /commit\(\)[\s\S]{0,300}settleRequirement/.test(layout));
+check("the drawn widths come from the panes", /get shown\(\)[\s\S]{0,200}layoutWidths\(this\.panes, this\.mode\)/.test(layout));
+check("two and three keep separate posts widths", /this\.mode === 3 \? "list3" : "list2"/.test(layout));
+check("only the one-pane width is saved as a threshold", /thresholds: \{ one: this\.thresholds\.one \}/.test(layout));
+check("a resize is banded", /setAvailable[\s\S]{0,1200}this\.settle\(\);/.test(layout));
+// Except the one resize the user asked for by pressing a mode: that must answer
+// at once, or "3" would grow the window and still show two panes.
+check(
+  "but a resize answering a mode press is not banded",
+  /if \(Date\.now\(\) < this\.pressUntil\)[\s\S]{0,300}this\.settle\(false\)/.test(layout),
+);
+// Armed before the resize travels: the observer can report the new width while
+// the call is still in flight, and a banded answer would undo the press.
+check(
+  "a press arms the answer before the resize is asked for",
+  /this\.pressUntil = Date\.now\(\) \+ PRESS_GRACE_MS;[\s\S]{0,700}fitWindowTo\(target\)/.test(layout),
+);
+// Two presses in flight are answered in order, so the window cannot keep the
+// width of a press that was superseded.
+check(
+  "a press waits for the resize before it",
+  /const ask = this\.resizing\.then\(\(\) => fitWindowTo\(target\)\)/.test(layout),
+);
+// Pane one is one number: the slider writes the sidebar, and the threshold is
+// read back from it, so a dragged divider and the settings panel agree. The
+// fourth argument is the arrangement — three columns and a stack need different
+// windows, so the threshold cannot be derived without it.
+check(
+  "the one-pane threshold comes from the sidebar",
+  /thresholdsFor\(this\.panes, this\.device, this\.panes\.sidebar,/.test(layout),
+);
+check("a choice is not", /setMode[\s\S]{0,300}this\.settle\(false\);/.test(layout));
+
+// Arrow keys are shaped like the panes: Right goes in a column, Left comes back
+// out one, and Up/Down belong to whichever pane is in hand.
+check(
+  "Left closes the article before it gives up a pane",
+  /case "back":[\s\S]{0,700}if \(reader\.back\(\)\) return;/.test(main),
+);
+check(
+  "Left with nothing open drops a column",
+  /if \(reader\.back\(\)\) return;[\s\S]{0,700}layout\.collapseOne\(\);/.test(main),
+);
+check(
+  "a column collapse never resizes the window",
+  /collapseOne\(\): boolean \{[\s\S]{0,400}this\.setMode/.test(layout) &&
+    !/collapseOne\(\): boolean \{[\s\S]{0,400}fitWindowTo/.test(layout),
+);
+check("Left stops at one pane", /collapseOne\(\): boolean \{[\s\S]{0,200}return false;/.test(layout));
+check(
+  "Down in the posts pane steps the post, not the feed",
+  /case "stream":[\s\S]{0,700}reader\.selectedId !== null[\s\S]{0,200}reader\.stepItem\(intent\.delta\)/.test(main),
+);
+check("with no post open they still step the feed", /case "stream":[\s\S]{0,1000}reader\.stepStream\(intent\.delta\)/.test(main));
+
+// Pressing 3 from two panes extends the columns on screen; it does not divide
+// the window they were already sharing.
+check(
+  "pressing 3 from two panes extends instead of re-dividing",
+  /chooseMode\(mode: PaneMode\)[\s\S]{0,1400}extendToThree\(this\.panes, this\.available/.test(layout),
+);
+// Only when it has to: a window already wide enough for its three columns keeps
+// them, so 2 ↔ 3 does not grow the window a little on every press.
+// Only when it has to, and only for a layout that is fitting the window to its
+// panes: sharing the room, the frames squeeze and the window is never grown to
+// make space for the third column.
+check(
+  "and only when the window is too narrow for them",
+  /mode === 3 &&[\s\S]{0,120}this\.mode === 2 &&[\s\S]{0,120}this\.keepWidths &&[\s\S]{0,120}this\.available < this\.thresholds\.three/.test(
+    layout,
+  ),
+);
+
+// The crumb strip belongs to the levels that have somewhere to go back to. On
+// the feeds surface both buttons were dead, and the 34px it took came out of a
+// column that on a phone has no 34px to spare. It sits outside the pane grid, so
+// the grid never has a row that appears and disappears: with no strip it is the
+// whole height, with one it is what the strip left.
+check(
+  "the crumb strip is not drawn on the feeds surface",
+  /\{#if mode === 1 && level !== "feeds"\}\s*<nav class="crumbs"/.test(main),
+);
+check(
+  "and it is not a row of the grid, so it cannot resize the panes",
+  main.indexOf('class="crumbs"') < main.indexOf('class="panes"') && !/crumbed/.test(main),
+);
+check(
+  "the surface takes the whole height when there is no strip",
+  (() => {
+    const panes = /\.panes \{([\s\S]*?)\n  \}/.exec(main)?.[1] ?? "";
+    const crumbs = /\.crumbs \{([\s\S]*?)\n  \}/.exec(main)?.[1] ?? "";
+    return (
+      /\.main \{[\s\S]{0,200}display: flex;[\s\S]{0,120}flex-direction: column;/.test(main) &&
+      /flex: 1;/.test(panes) &&
+      /min-height: 0;/.test(panes) &&
+      /flex: none;/.test(crumbs)
+    );
+  })(),
+);
+check(
+  "the strip follows the level, not a stored flag",
+  /const level = \$derived\(levelOf\(reader\.selectedId\)\)/.test(main) &&
+    !/layout\.[a-zA-Z]*[Cc]rumb/.test(main),
+);
+
+// With the stack on, the phone's second and third panes are one surface: the
+// posts on top and the article below, arriving together out of the feed list.
+// That is one level of the walk, not two — which is why `level` gained no new
+// value and back still leaves everything it brought. The surface is one grid, so
+// "one surface" is now `paneSlots` saying both panes are drawn at once.
+check(
+  "stacked, the phone's posts and article arrive as one surface",
+  (() => {
+    const pair = paneSlots({ mode: 1, level: "article", stacked: true, collapsed: false, tuck: null, swapped: false });
+    return pair.posts && pair.article && pair.seamStack && !pair.sidebar;
+  })(),
+);
+check(
+  "and the feeds level still starts the walk from the feed list",
+  (() => {
+    const feeds = paneSlots({ mode: 1, level: "feeds", stacked: true, collapsed: false, tuck: null, swapped: false });
+    return feeds.sidebar && !feeds.posts && !feeds.article && !feeds.seamStack;
+  })(),
+);
+check(
+  "and back from it leaves the whole surface, one level",
+  /const stackDrawn = \$derived\(\s*layout\.stacked && \(mode === 3 \|\| \(mode === 1 && level === "article"\)\),\s*\)/.test(
+    main,
+  ) &&
+    /<ReaderPane onClose=\{closeArticle\} onLock=\{mode === 1 \? lockFromArticle : undefined\} \/>/.test(main) &&
+    /function closeArticle\(\): void \{\s*if \(mode === 1\) stepBack\(\);/.test(main),
+);
+check(
+  "the walk still has two levels, so the crumb names the surface once",
+  /export type OnePaneLevel = "feeds" \| "article";/.test(
+    readFileSync(join(root, "src/lib/one-pane.ts"), "utf8"),
+  ),
+);
+check(
+  "with the stack off the phone is what it was: one pane, no posts beside it",
+  (() => {
+    const flat = paneSlots({ mode: 1, level: "article", stacked: false, collapsed: false, tuck: null, swapped: false });
+    return flat.article && !flat.posts && !flat.seamStack && !flat.sidebar;
+  })(),
+);
+check(
+  "the stacked phone surface is a grid, because the rows are the point",
+  /\.panes\.stacked\.one \.slot\.posts,\s*\.panes\.stacked\.one \.slot\.article \{\s*grid-column: 1 \/ -1;/.test(main) &&
+    /\.panes\.stacked\.one \.slot\.gut-stack \{\s*grid-column: 1 \/ -1;/.test(main),
+);
+// The fold is a two- and three-pane thing. One column has nothing behind it to
+// fold into, so the stored preference is ignored here: no rail, no pair, and the
+// walk is exactly what it was.
+check(
+  "one column has nothing to fold, so the flag draws no rail and no pair",
+  [true, false].every((collapsed) => {
+    const feeds = paneSlots({ mode: 1, level: "feeds", stacked: false, collapsed, tuck: null, swapped: false });
+    const article = paneSlots({ mode: 1, level: "article", stacked: false, collapsed, tuck: null, swapped: false });
+    return (
+      feeds.sidebar &&
+      !feeds.rail &&
+      article.article &&
+      !article.rail &&
+      !article.posts &&
+      !article.sidebar
+    );
+  }),
+);
+check(
+  "and the same rows string drives both surfaces",
+  (main.match(/style:grid-template-rows=/g) ?? []).length === 1 &&
+    /style:grid-template-rows=\{layout\.rows\(stackDrawn\)\}/.test(main) &&
+    /rows\(drawnStack: boolean\): string \{[\s\S]{0,140}return stackTemplate\(this\.stacked \? this\.stackShare : STACK_SHARE\.fallback\);/.test(
+      layout,
+    ),
+  String((main.match(/style:grid-template-rows=/g) ?? []).length),
+);
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

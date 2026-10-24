@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/HardlyReadApiResponse.php';
+require_once __DIR__ . '/HardlyReadPositionStore.php';
+require_once __DIR__ . '/HardlyReadPins.php';
 
 /**
  * Router for the HardlyRead v1 API.
@@ -17,6 +19,8 @@ require_once __DIR__ . '/HardlyReadApiResponse.php';
  *   loadHiddenCategories(string $username): ?object username → Hidden Categories extension, or null
  *   loadFavorites(string $username): ?object       username → Favorite Categories extension, or null
  *   loadSidebarIndent(string $username): ?object   username → Sidebar Feed Indent extension, or null
+ *   loadPins(string $username): ?object            username → the category-position reader/writer, or null
+ *   loadPeople(): ?object                          the optional people provider, or null when absent
  *
  * Order matters and is fixed: authenticate BEFORE routing, so an unauthenticated
  * caller cannot enumerate routes, and authenticate BEFORE anything reads
@@ -48,6 +52,11 @@ final class HardlyReadApi
 		'invalid_passcode' => 'Passcode must be 1 to 6 digits, numbers only.',
 		'passcode_required' => 'Set a passcode before locking: there is nothing to lock with.',
 		'wrong_passcode' => 'Wrong passcode.',
+		'invalid_positions' => 'Positions must be lists of ids.',
+		'positions_unavailable' => 'Position storage is not available on this server.',
+		'stale_positions' => 'A newer arrangement is already stored: read it and try again.',
+		'invalid_pinned_value' => 'The "pinned" field must be a boolean.',
+		'pins_unavailable' => 'Category order is not available on this server.',
 	];
 
 	private Closure $authenticate;
@@ -58,28 +67,59 @@ final class HardlyReadApi
 
 	private Closure $loadSidebarIndent;
 
+	/** @var ?Closure(string): array{updatedAt: int, categories: string[], feeds: string[]} */
+	private ?Closure $loadPositions = null;
+
+	/** @var ?Closure(string, array{updatedAt: int, categories: string[], feeds: string[]}): bool */
+	private ?Closure $savePositions = null;
+
+	/**
+	 * The pin order's reader and writer, or null when nothing was wired.
+	 *
+	 * Null is what a router built by an older extension.php looks like, and it
+	 * is reported as `pins.available: false` rather than as an error.
+	 */
+	private ?Closure $loadPins = null;
+
+	/**
+	 * Null when no loader was supplied at all: an install without the provider
+	 * and a router built before it existed then behave the same way.
+	 */
+	private ?Closure $loadPeople = null;
+
 	/**
 	 * @param callable(string): ?string $authenticate
 	 * @param callable(string): ?object $loadHiddenCategories
 	 * @param callable(string): ?object $loadFavorites
 	 * @param callable(string): ?object $loadSidebarIndent
+	 * @param (callable(): ?object)|null $loadPeople
+	 * @param (callable(string): ?object)|null $loadPins
 	 */
 	public function __construct(
 		callable $authenticate,
 		callable $loadHiddenCategories,
 		callable $loadFavorites,
 		callable $loadSidebarIndent,
+		?callable $loadPositions = null,
+		?callable $savePositions = null,
+		?callable $loadPeople = null,
+		?callable $loadPins = null,
 	) {
 		$this->authenticate = Closure::fromCallable($authenticate);
 		$this->loadHiddenCategories = Closure::fromCallable($loadHiddenCategories);
 		$this->loadFavorites = Closure::fromCallable($loadFavorites);
 		$this->loadSidebarIndent = Closure::fromCallable($loadSidebarIndent);
+		$this->loadPositions = $loadPositions === null ? null : Closure::fromCallable($loadPositions);
+		$this->savePositions = $savePositions === null ? null : Closure::fromCallable($savePositions);
+		$this->loadPeople = $loadPeople === null ? null : Closure::fromCallable($loadPeople);
+		$this->loadPins = $loadPins === null ? null : Closure::fromCallable($loadPins);
 	}
 
 	/**
 	 * @param array<string, mixed> $body Already-decoded request body.
+	 * @param array<string, mixed> $query Already-decoded query string.
 	 */
-	public function dispatch(string $method, string $path, string $authorization = '', array $body = []): HardlyReadApiResponse
+	public function dispatch(string $method, string $path, string $authorization = '', array $body = [], array $query = []): HardlyReadApiResponse
 	{
 		$username = ($this->authenticate)($authorization);
 		if (!is_string($username) || $username === '') {
@@ -101,6 +141,23 @@ final class HardlyReadApi
 
 		$method = strtoupper(trim($method));
 
+		// GET /v1/revision — one short token over the user's extension state.
+		//
+		// The website's own buttons (hide a category, pin a category, change the
+		// pinned view, lock) write this state directly, without going through
+		// this API, so a client has no way to hear about them. Polling the whole
+		// state to find out is wasteful; polling a token is not. Any write, from
+		// either side, changes the answer; nothing else does.
+		if ($segments[0] === 'revision') {
+			if (count($segments) !== 1) {
+				return self::error(404, 'route_not_found', 'Unknown route.');
+			}
+			if ($method !== 'GET') {
+				return self::methodNotAllowed('GET');
+			}
+			return new HardlyReadApiResponse(200, ['revision' => $this->revisionToken($username)]);
+		}
+
 		// GET /v1/state
 		if ($segments[0] === 'state') {
 			if (count($segments) !== 1) {
@@ -114,7 +171,105 @@ final class HardlyReadApi
 				'hiddenCategories' => $this->hiddenState(($this->loadHiddenCategories)($username)),
 				'favorites' => $this->favoritesState(($this->loadFavorites)($username)),
 				'sidebarIndent' => $this->sidebarIndentState(($this->loadSidebarIndent)($username)),
+				// Additive: appended after the frozen keys. Absent reads as
+				// false in the client, so an older adapter is not a failure.
+				'peopleAvailable' => $this->people() !== null,
+				// The pin order, read from the categories' own `position`
+				// attribute. It has to be reported here: GReader's tag list
+				// carries ids only, so this is the one place a client can see
+				// which categories are pinned and in what order.
+				'pins' => $this->pinsState($this->pins($username)),
 			]);
+		}
+
+		// GET  /v1/people/status   — is the door there at all?
+		// GET  /v1/people?q=       — search
+		// POST /v1/people          — add one by name
+		//
+		// With no provider installed every one of these is a plain unknown
+		// route: a 200 with an empty list would read as "no such person",
+		// which is a different truth from "this install has no provider".
+		if ($segments[0] === 'people') {
+			$people = $this->people();
+			$isStatus = count($segments) === 2 && $segments[1] === 'status';
+			if ($people === null || (count($segments) !== 1 && !$isStatus)) {
+				return self::error(404, 'route_not_found', 'Unknown route.');
+			}
+
+			if ($isStatus) {
+				if ($method !== 'GET') {
+					return self::methodNotAllowed('GET');
+				}
+				return new HardlyReadApiResponse(200, ['enabled' => true]);
+			}
+
+			if ($method === 'GET') {
+				$text = $query['q'] ?? '';
+				$result = $people->search(is_string($text) ? $text : '');
+				$payload = ['enabled' => true, 'people' => self::peopleList($result['people'] ?? [])];
+				// A message is always a failure the client can show; an
+				// empty list on its own is a real answer.
+				if (is_string($result['message'] ?? null) && $result['message'] !== '') {
+					$payload['message'] = $result['message'];
+				}
+				return new HardlyReadApiResponse(200, $payload);
+			}
+
+			if ($method !== 'POST') {
+				return self::methodNotAllowed('GET, POST');
+			}
+			$name = $body['name'] ?? null;
+			if (!is_string($name) || trim($name) === '') {
+				return self::error(400, 'invalid_name', 'The "name" field is required.');
+			}
+			$result = $people->add(trim($name));
+			return new HardlyReadApiResponse(200, [
+				'ok' => (bool) ($result['ok'] ?? false),
+				'message' => is_string($result['message'] ?? null) && $result['message'] !== ''
+					? $result['message']
+					: 'The request was not accepted.',
+			]);
+		}
+
+		// GET, PUT /v1/positions — the sidebar arrangement the user dragged.
+		//
+		// The two lists the client keeps (`categoryOrder`, `feedOrder`) live here
+		// so every device sees the same arrangement. This is the one place the
+		// extension owns state instead of forwarding intent: FreshRSS keeps no
+		// folder position, so there is nothing to hand this to. The website does
+		// not read it yet.
+		if ($segments[0] === 'positions') {
+			if (count($segments) !== 1) {
+				return self::error(404, 'route_not_found', 'Unknown route.');
+			}
+			if ($method === 'GET') {
+				return new HardlyReadApiResponse(200, $this->positionsState($username));
+			}
+			if ($method === 'PUT') {
+				return $this->putPositions($username, $body);
+			}
+			return self::methodNotAllowed('GET, PUT');
+		}
+
+		// PUT /v1/pins/category/{id} — pin a category at the top, or unpin it.
+		//
+		// A pin is the category's own `position` attribute, the same field the
+		// website's category form writes and ImportService preserves, so the
+		// order the app shows is the order the server sorts by rather than a
+		// second list only the app knows. `/v1/favorites/{id}` still decides
+		// whether a category is marked; this decides where it sits, and is the
+		// only way a client can put it at the top.
+		if ($segments[0] === 'pins' && count($segments) === 3 && $segments[1] === 'category') {
+			if ($method !== 'PUT') {
+				return self::methodNotAllowed('PUT');
+			}
+			$rawId = $segments[2];
+			// ctype_digit('0') is true, so a zero id needs its own rejection —
+			// same rule as the hidden and favourites category routes.
+			if (!ctype_digit($rawId) || (int) $rawId <= 0) {
+				return self::error(400, 'invalid_category', self::CONTRACT_MESSAGES['invalid_category']);
+			}
+			return $this->putCategoryPin($username, (int) $rawId, $body);
 		}
 
 		// PUT /v1/hidden-categories/view
@@ -201,6 +356,181 @@ final class HardlyReadApi
 		}
 
 		return self::error(404, 'route_not_found', 'Unknown route.');
+	}
+
+	/**
+	 * The stored arrangement, or the empty one when no store is wired.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function positionsState(string $username): array
+	{
+		$stored = $this->loadPositions === null ? null : ($this->loadPositions)($username);
+		$stored = is_array($stored) ? HardlyReadPositionStore::sanitise($stored) : HardlyReadPositionStore::empty();
+
+		return [
+			'apiVersion' => self::API_VERSION,
+			'updatedAt' => $stored['updatedAt'],
+			'categories' => $stored['categories'],
+			'feeds' => $stored['feeds'],
+		];
+	}
+
+	/**
+	 * Stores both lists as one document.
+	 *
+	 * Last write wins, decided by the client's `updatedAt`: a device that was
+	 * offline for a day must not overwrite an arrangement made since. A stale
+	 * write is refused with 409 and the stored timestamp, so the client can read
+	 * the newer document instead of guessing what it missed.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function putPositions(string $username, array $body): HardlyReadApiResponse
+	{
+		if ($this->loadPositions === null || $this->savePositions === null) {
+			return self::error(503, 'positions_unavailable', self::CONTRACT_MESSAGES['positions_unavailable']);
+		}
+
+		foreach (['categories', 'feeds'] as $key) {
+			if (array_key_exists($key, $body) && !is_array($body[$key])) {
+				return self::error(400, 'invalid_positions', self::CONTRACT_MESSAGES['invalid_positions']);
+			}
+		}
+
+		$incoming = HardlyReadPositionStore::sanitise($body);
+		if ($incoming['updatedAt'] === 0) {
+			$incoming['updatedAt'] = (int) floor(microtime(true) * 1000);
+		}
+
+		$stored = ($this->loadPositions)($username);
+		$stored = is_array($stored) ? HardlyReadPositionStore::sanitise($stored) : HardlyReadPositionStore::empty();
+		if ($stored['updatedAt'] > $incoming['updatedAt']) {
+			return self::error(
+				409,
+				'stale_positions',
+				self::CONTRACT_MESSAGES['stale_positions'],
+				[
+					'updatedAt' => $stored['updatedAt'],
+					'categories' => $stored['categories'],
+					'feeds' => $stored['feeds'],
+				],
+			);
+		}
+
+		if (!($this->savePositions)($username, $incoming)) {
+			return self::error(500, 'save_failed', 'Could not save the arrangement.');
+		}
+
+		return new HardlyReadApiResponse(200, [
+			'apiVersion' => self::API_VERSION,
+			'updatedAt' => $incoming['updatedAt'],
+			'categories' => $incoming['categories'],
+			'feeds' => $incoming['feeds'],
+		]);
+	}
+
+	/**
+	 * Pins a category at the top, or clears its position.
+	 *
+	 * The write is the one the website's own category form performs, and it is
+	 * deliberately narrow: only the category's `position` attribute changes,
+	 * through the model, so every other attribute survives. Nothing here goes
+	 * near a feed's `priority` or another extension's store — visibility and
+	 * the favourite mark belong to the extensions that own them.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function putCategoryPin(string $username, int $catId, array $body): HardlyReadApiResponse
+	{
+		// Explicit assignment, never a toggle.
+		if (!array_key_exists('pinned', $body) || !is_bool($body['pinned'])) {
+			return self::error(400, 'invalid_pinned_value', self::CONTRACT_MESSAGES['invalid_pinned_value']);
+		}
+
+		$pins = $this->pins($username);
+		if (!$this->pinsUsable($pins)) {
+			return self::error(
+				503,
+				'pins_unavailable',
+				self::CONTRACT_MESSAGES['pins_unavailable'],
+				['pins' => $this->pinsState($pins)],
+			);
+		}
+		/** @var object $pins */
+		$result = $pins->pin($catId, $body['pinned']);
+		$result = is_array($result) ? $result : [];
+		$state = $this->pinsState($pins);
+
+		if (($result['ok'] ?? false) === true) {
+			return new HardlyReadApiResponse(200, [
+				'ok' => true,
+				'changed' => (bool) ($result['changed'] ?? false),
+				'pins' => $state,
+			]);
+		}
+
+		$code = is_string($result['code'] ?? null) ? $result['code'] : '';
+		$message = is_string($result['message'] ?? null) && $result['message'] !== ''
+			? $result['message']
+			: 'The pin was not saved.';
+
+		return match ($code) {
+			'invalid_category' => self::error(400, 'invalid_category', self::CONTRACT_MESSAGES['invalid_category'], ['pins' => $state]),
+			'category_not_found' => self::error(404, 'category_not_found', self::CONTRACT_MESSAGES['category_not_found'], ['pins' => $state]),
+			'pins_unavailable' => self::error(503, 'pins_unavailable', self::CONTRACT_MESSAGES['pins_unavailable'], ['pins' => $state]),
+			default => self::error(500, 'internal_error', $message, ['pins' => $state]),
+		};
+	}
+
+	/**
+	 * The pin reader/writer for this user, or null when nothing is wired.
+	 *
+	 * Resolved per call, like every other collaborator, so a router built
+	 * without one answers as an install without the capability does.
+	 */
+	private function pins(string $username): ?object
+	{
+		if ($this->loadPins === null) {
+			return null;
+		}
+		$pins = ($this->loadPins)($username);
+
+		return is_object($pins) ? $pins : null;
+	}
+
+	private function pinsUsable(?object $pins): bool
+	{
+		return is_object($pins) && method_exists($pins, 'snapshot') && method_exists($pins, 'pin');
+	}
+
+	/**
+	 * The pin block: which categories are pinned, top first.
+	 *
+	 * `available: false` means this server cannot report an order at all —
+	 * the app then keeps its own. An empty list is a real answer: nothing is
+	 * pinned.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function pinsState(?object $pins): array
+	{
+		if (!$this->pinsUsable($pins)) {
+			return ['available' => false];
+		}
+		/** @var object $pins */
+		$snapshot = $pins->snapshot();
+		$snapshot = is_array($snapshot) ? $snapshot : [];
+
+		$ids = [];
+		foreach ((array) ($snapshot['categories'] ?? []) as $id) {
+			$id = (int) $id;
+			if ($id > 0) {
+				$ids[] = $id;
+			}
+		}
+
+		return ['available' => true, 'categories' => $ids];
 	}
 
 	/**
@@ -671,6 +1001,68 @@ final class HardlyReadApi
 		}
 
 		return $this->mutationResponse($result, $hidden);
+	}
+
+	/**
+	 * A stable token over everything `/v1/state` reports, plus the API version.
+	 *
+	 * Deliberately built from the same builders as the state route: if a field
+	 * changes, the token changes, and no separate list of "things worth
+	 * watching" has to be kept in step with the payload. The payloads carry no
+	 * timestamps, so a token that differs means the state really differs.
+	 */
+	private function revisionToken(string $username): string
+	{
+		$payload = [
+			'apiVersion' => self::API_VERSION,
+			'hiddenCategories' => $this->hiddenState(($this->loadHiddenCategories)($username)),
+			'favorites' => $this->favoritesState(($this->loadFavorites)($username)),
+			'sidebarIndent' => $this->sidebarIndentState(($this->loadSidebarIndent)($username)),
+			// Availability is not a per-user write, but it is part of what
+			// /v1/state reports, so it belongs in the same hash.
+			'peopleAvailable' => $this->people() !== null,
+			// A pin written from the website (or restored by an import)
+			// changes the order without going through this API, so the token
+			// has to cover it too.
+			'pins' => $this->pinsState($this->pins($username)),
+		];
+		$json = json_encode($payload);
+		return sha1($json === false ? '' : $json);
+	}
+
+	/**
+	 * The optional people provider, or null when this install has none.
+	 *
+	 * Resolved per call, like every other collaborator, so a router built
+	 * without a loader answers exactly as an install without a provider does.
+	 */
+	private function people(): ?object
+	{
+		if ($this->loadPeople === null) {
+			return null;
+		}
+		$people = ($this->loadPeople)();
+
+		return is_object($people) ? $people : null;
+	}
+
+	/**
+	 * Normalises the provider's answer to the wire shape: name and added only,
+	 * so nothing else the provider knows can leak into the client.
+	 *
+	 * @return list<array{name: string, added: bool}>
+	 */
+	private static function peopleList(mixed $rows): array
+	{
+		$people = [];
+		foreach (is_array($rows) ? $rows : [] as $row) {
+			if (!is_array($row) || !is_string($row['name'] ?? null) || $row['name'] === '') {
+				continue;
+			}
+			$people[] = ['name' => $row['name'], 'added' => (bool) ($row['added'] ?? false)];
+		}
+
+		return $people;
 	}
 
 	/**

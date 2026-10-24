@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { HiddenView } from "../api/hardlyread";
+  import { appendDigit, backspace } from "../lib/pinpad";
   import { chrome } from "../state/chrome.svelte";
   import { PIN_VIEW_LABELS, nextPinView } from "../state/pins";
   import { reader } from "../state/reader.svelte";
+  import PinPad from "./PinPad.svelte";
 
   /** Hidden Categories' own words for its three views, in its own order. */
   const HIDDEN_CYCLE: HiddenView[] = ["hidden", "revealed", "only"];
@@ -91,8 +93,14 @@
     if (reader.hiddenLocked) lockOpen = false;
   }
 
-  async function submitUnlock(event: SubmitEvent) {
-    event.preventDefault();
+  /**
+   * The work, without an event around it.
+   *
+   * Both entry shapes call these: a typed form submits, and the keypad's own
+   * submit key calls them directly. One copy of the rules, so the pad cannot
+   * unlock differently from the field.
+   */
+  async function doUnlock(): Promise<void> {
     if (code === "" || reader.hiddenBusy) return;
     const ok = await reader.unlockHidden(code);
     if (ok) {
@@ -101,8 +109,12 @@
     }
   }
 
-  async function submitCode(event: SubmitEvent) {
+  async function submitUnlock(event: SubmitEvent) {
     event.preventDefault();
+    await doUnlock();
+  }
+
+  async function doSetCode(): Promise<void> {
     if (reader.hiddenBusy) return;
     const ok = await reader.setHiddenPasscode(code);
     if (ok) {
@@ -111,7 +123,44 @@
     }
   }
 
+  async function submitCode(event: SubmitEvent) {
+    event.preventDefault();
+    await doSetCode();
+  }
+
+  /** One key, one digit — the cap and the digit check live in `lib/pinpad`. */
+  function typeDigit(digit: string): void {
+    code = appendDigit(code, digit);
+  }
+
+  function rubOut(): void {
+    code = backspace(code);
+  }
+
+  function cancelCode(): void {
+    lockOpen = false;
+    code = "";
+  }
+
 </script>
+
+{#snippet pinControl()}
+  <button
+    class="ctl pin"
+    class:on={pinView !== "all"}
+    onclick={cyclePins}
+    disabled={reader.favoritesBusy}
+    title={`Pinned: ${PIN_VIEW_LABELS[pinView]} — click for ${
+      PIN_VIEW_LABELS[nextPinView(pinView)]
+    }${reader.favorites.available ? "" : " (Pinned Categories is not enabled)"}`}
+    aria-label={`Pinned: ${PIN_VIEW_LABELS[pinView]}`}
+  >
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
+    </svg>
+    <span class="lbl">{PIN_VIEW_LABELS[pinView]}</span>
+  </button>
+{/snippet}
 
 <!-- The caret is a bar across the top of the band, not a button in the corner:
      collapsed, the bar is all that is left, and the controls drop out from
@@ -133,6 +182,17 @@
        fold things. The arrow points up while the controls are showing (hide
        them) and down while they are hidden (bring them back), so the direction
        always describes what a click will do. -->
+  <!-- A lock curtains the hidden area, not the pins.
+       The pinned view is not a secret — it says which categories to show, not
+       what is in them — and the lock also folds the band, so leaving this inside
+       meant the control vanished at the exact moment it was still wanted. While
+       locked it steps out of the band and sits above it, outside both the fold
+       and the curtain. -->
+  {#if locked}
+    <div class="lockpin">
+      {@render pinControl()}
+    </div>
+  {/if}
   <button
     class="bar"
     onclick={() => chrome.toggleBand()}
@@ -153,7 +213,26 @@
       onanimationend={() => (opening = false)}
     >
     {#if locked}
-      <form class="unlockbar" onsubmit={submitUnlock} aria-label="Locked">
+      <form
+      class="unlockbar"
+      class:padmode={chrome.pinPad}
+      onsubmit={submitUnlock}
+      aria-label="Locked"
+      >
+      {#if chrome.pinPad}
+      <!-- The pad replaces the field entirely: no input means no soft keyboard
+           rising over the band on a phone, which is the whole point of it. -->
+      <PinPad
+      value={code}
+      label="Passcode to unlock hidden categories"
+      tone="var(--tone-lock-closed)"
+      submitLabel="Unlock"
+      busy={reader.hiddenBusy}
+      onDigit={typeDigit}
+      onBackspace={rubOut}
+      onSubmit={doUnlock}
+      />
+      {:else}
       <svg class="key" viewBox="0 0 24 24" aria-hidden="true">
       <rect x="5" y="11" width="14" height="10" rx="2" />
       <path d="M8 11V8a4 4 0 0 1 8 0v3" />
@@ -169,6 +248,7 @@
       bind:value={code}
       />
       <button type="submit" class="go" disabled={reader.hiddenBusy || code === ""}>Unlock</button>
+      {/if}
       </form>
       {#if reader.lockNotice}
         <p class="notice" role="status">{reader.lockNotice}</p>
@@ -213,21 +293,7 @@
       </svg>
       </button>
 
-      <button
-      class="ctl pin"
-      class:on={pinView !== "all"}
-      onclick={cyclePins}
-      disabled={reader.favoritesBusy}
-      title={`Pinned: ${PIN_VIEW_LABELS[pinView]} — click for ${
-      PIN_VIEW_LABELS[nextPinView(pinView)]
-      }${reader.favorites.available ? "" : " (Pinned Categories is not enabled)"}`}
-      aria-label={`Pinned: ${PIN_VIEW_LABELS[pinView]}`}
-      >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
-      </svg>
-      <span class="lbl">{PIN_VIEW_LABELS[pinView]}</span>
-      </button>
+      {@render pinControl()}
       </div>
     {/if}
     </div>
@@ -239,7 +305,20 @@
        lock with, so the way to get one is set here. An existing passcode is
        changed on the extension's own page, as on the website. -->
   <div class="lockpanel" role="region" aria-label="Set a passcode">
-    <form class="code" onsubmit={submitCode}>
+    <form class="code" class:padmode={chrome.pinPad} onsubmit={submitCode}>
+      {#if chrome.pinPad}
+      <span class="code-label">Set a passcode to enable locking</span>
+      <PinPad
+        value={code}
+        label="Passcode to set"
+        submitLabel="Save passcode"
+        busy={reader.hiddenBusy}
+        onDigit={typeDigit}
+        onBackspace={rubOut}
+        onSubmit={doSetCode}
+      />
+      <button type="button" class="cancel" onclick={cancelCode}>Cancel</button>
+      {:else}
       <label for="set-code">Set a passcode to enable locking</label>
       <input
         id="set-code"
@@ -250,7 +329,8 @@
         bind:value={code}
       />
       <button type="submit" class="primary" disabled={reader.hiddenBusy}>Save</button>
-      <button type="button" onclick={() => ((lockOpen = false), (code = ""))}>Cancel</button>
+      <button type="button" onclick={cancelCode}>Cancel</button>
+      {/if}
     </form>
     <p class="hint">One to six digits. Clearing the passcode turns locking off.</p>
     {#if reader.lockNotice}
@@ -267,10 +347,35 @@
     flex-wrap: wrap;
   }
 
-  .lockpanel .code label {
+  .lockpanel .code label,
+  .lockpanel .code .code-label {
     flex: 1 1 100%;
     font-size: 11px;
     color: var(--muted);
+  }
+
+  /* With the keypad the form is a column: dots and keys need the full width,
+     and a Cancel under them reads as leaving, not as a third key. */
+  .lockpanel .code.padmode {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lockpanel .code.padmode .cancel {
+    align-self: center;
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .lockpanel .code.padmode .cancel:hover {
+    color: inherit;
+    border-color: currentColor;
   }
 
   .lockpanel .code input {
@@ -309,6 +414,14 @@
     align-items: center;
     gap: 6px;
     padding: 3px 2px 0;
+  }
+
+  /* The pad gets the band's whole width: at 280px a three-across grid is 88px
+     a key, which is a thumb's size, and squeezing it into the one-row shape
+     would make it a target range rather than a keypad. */
+  .unlockbar.padmode {
+    display: block;
+    padding: 4px 1px 1px;
   }
 
   .unlockbar .key {
@@ -487,6 +600,27 @@
      more of the row and the other one — Hidden — squeezed first. With the floor
      removed both halves are the same width at every sidebar width, and the
      labels give up their ends evenly instead of one side collapsing. */
+  /* Out of the band the control is a row rather than a sticker: the full width
+     above the caret, glyph and label side by side, still the pinned tone. */
+  .lockpin {
+    padding: 0 2px 3px;
+  }
+
+  .lockpin .ctl {
+    flex-direction: row;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 30px;
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+
+  .lockpin .ctl svg {
+    width: 14px;
+    height: 14px;
+  }
+
   .band {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);

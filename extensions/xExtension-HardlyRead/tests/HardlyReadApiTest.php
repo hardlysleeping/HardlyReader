@@ -29,11 +29,15 @@ final class HardlyReadApiTest extends TestCase
 	/** @var list<string> */
 	private array $indentLoadedFor = [];
 
+	/** @var list<string> */
+	private array $pinsLoadedFor = [];
+
 	protected function setUp(): void
 	{
 		$this->loadedFor = [];
 		$this->favoritesLoadedFor = [];
 		$this->indentLoadedFor = [];
+		$this->pinsLoadedFor = [];
 	}
 
 	// ---------------------------------------------------------------- auth --
@@ -106,6 +110,8 @@ final class HardlyReadApiTest extends TestCase
 				],
 				'favorites' => ['available' => false],
 				'sidebarIndent' => ['available' => false],
+				'peopleAvailable' => false,
+				'pins' => ['available' => false],
 			],
 			$response->body,
 		);
@@ -198,6 +204,8 @@ final class HardlyReadApiTest extends TestCase
 				'hiddenCategories' => ['available' => false],
 				'favorites' => ['available' => false],
 				'sidebarIndent' => ['available' => false],
+				'peopleAvailable' => false,
+				'pins' => ['available' => false],
 			],
 			$response->body,
 		);
@@ -1414,6 +1422,7 @@ final class HardlyReadApiTest extends TestCase
 		bool $authenticated = true,
 		?object $favorites = null,
 		?object $sidebarIndent = null,
+		?object $pins = null,
 	): HardlyReadApi {
 		return new HardlyReadApi(
 			authenticate: function (string $authorization) use ($authenticated): ?string {
@@ -1438,6 +1447,469 @@ final class HardlyReadApiTest extends TestCase
 
 				return $sidebarIndent;
 			},
+			loadPins: function (string $username) use ($pins): ?object {
+				$this->pinsLoadedFor[] = $username;
+
+				return $pins;
+			},
 		);
+	}
+
+	// ------------------------------------------------------------ revision --
+
+	public function testRevisionIsStableWhileNothingChanges(): void
+	{
+		$hidden = new FakeHiddenCategories();
+		$api = $this->api($hidden, favorites: new FakeFavoriteCategories());
+
+		$first = $api->dispatch('GET', '/v1/revision', self::AUTH);
+		$second = $api->dispatch('GET', '/v1/revision', self::AUTH);
+
+		self::assertSame(200, $first->status);
+		self::assertIsString($first->body['revision']);
+		self::assertSame(40, strlen($first->body['revision']), 'a sha1, nothing longer');
+		self::assertSame($first->body['revision'], $second->body['revision']);
+	}
+
+	public function testRevisionChangesWhenTheWebsiteHidesACategory(): void
+	{
+		// The website writes this state itself, without going through the API.
+		// This is the case the token exists for.
+		$store = new FakeHiddenCategoriesStore();
+		$hidden = new FakeHiddenCategories($store);
+		$api = $this->api($hidden);
+		$before = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+
+		// Written straight into the store, as the website's eye toggle does.
+		$store->hide(4, true);
+
+		$after = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+		self::assertNotSame($before, $after);
+	}
+
+	public function testRevisionChangesWhenThePinnedViewChanges(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+		$api = $this->api(new FakeHiddenCategories(), favorites: $favorites);
+		$before = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+
+		$favorites->changeView('only');
+
+		$after = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+		self::assertNotSame($before, $after);
+	}
+
+	public function testRevisionChangesOnLock(): void
+	{
+		$store = new FakeHiddenCategoriesStore();
+		$hidden = new FakeHiddenCategories($store);
+		$api = $this->api($hidden);
+		$before = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+
+		$store->setLocked(true);
+
+		self::assertNotSame($before, $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision']);
+	}
+
+	public function testRevisionWorksWithoutAnyExtension(): void
+	{
+		// No extensions installed is a state, not an error: the token answers so a
+		// client can keep polling after an uninstall without special-casing it.
+		$api = $this->api(null);
+		$response = $api->dispatch('GET', '/v1/revision', self::AUTH);
+
+		self::assertSame(200, $response->status);
+		self::assertIsString($response->body['revision']);
+		self::assertSame(
+			$response->body['revision'],
+			$api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'],
+		);
+	}
+
+	public function testRevisionRejectsOtherMethods(): void
+	{
+		$response = $this->api(new FakeHiddenCategories())->dispatch('PUT', '/v1/revision', self::AUTH);
+
+		self::assertSame(405, $response->status);
+		self::assertSame('method_not_allowed', $response->body['error']['code']);
+	}
+
+	public function testRevisionRequiresAuthentication(): void
+	{
+		$response = $this->api(new FakeHiddenCategories(), authenticated: false)
+			->dispatch('GET', '/v1/revision');
+
+		self::assertSame(401, $response->status);
+		self::assertSame([], $this->loadedFor, 'no state is read for an anonymous caller');
+	}
+
+	public function testStateAndRevisionAgree(): void
+	{
+		// Same builders underneath: two requests that see the same state must
+		// produce the same token, and the state route must not drift away from it.
+		$store = new FakeHiddenCategoriesStore();
+		$hidden = new FakeHiddenCategories($store);
+		$api = $this->api($hidden, favorites: new FakeFavoriteCategories());
+
+		$state = $api->dispatch('GET', '/v1/state', self::AUTH);
+		$revision = $api->dispatch('GET', '/v1/revision', self::AUTH);
+
+		$store->hide(2, true);
+
+		$stateAfter = $api->dispatch('GET', '/v1/state', self::AUTH);
+		$revisionAfter = $api->dispatch('GET', '/v1/revision', self::AUTH);
+
+		self::assertSame($state->body['hiddenCategories']['view'], $stateAfter->body['hiddenCategories']['view']);
+		self::assertNotSame($revision->body['revision'], $revisionAfter->body['revision']);
+	}
+
+	// ---------------------------------------------------------------- pins --
+
+	public function testStateReportsPinnedCategoriesInPinOrder(): void
+	{
+		// 102 sits above 101 by position; 103 has none and 104 was only ordered
+		// by hand in the web form (positive), so neither is a pin.
+		// The order is the server's own (position ascending), never id order.
+		$categories = new FakeCategoryPositions([101 => -999, 102 => -1000, 103 => null, 104 => 5]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('GET', '/v1/state', self::AUTH);
+
+		self::assertSame(200, $response->status);
+		self::assertSame(['available' => true, 'categories' => [102, 101]], $response->body['pins']);
+		self::assertSame(['alice'], $this->pinsLoadedFor);
+	}
+
+	public function testAHandSetOrderIsNotAPin(): void
+	{
+		// The web form's own category order starts at 1. A category dragged to
+		// the top there is ordered, not pinned, and the sidebar extension does
+		// not consider it a favourite — so it must not appear in this list.
+		$categories = new FakeCategoryPositions([101 => 1, 102 => 2]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('GET', '/v1/state', self::AUTH);
+
+		self::assertSame(['available' => true, 'categories' => []], $response->body['pins']);
+	}
+
+	public function testStateReportsPinsUnavailableWhenThereIsNoOrderToRead(): void
+	{
+		// A router built without the collaborator: the key is present and
+		// false, so the client falls back to its own order instead of
+		// treating a missing key as an old server.
+		$response = $this->api(new FakeHiddenCategories())->dispatch('GET', '/v1/state', self::AUTH);
+
+		self::assertSame(['available' => false], $response->body['pins']);
+	}
+
+	public function testAnEmptyCategoryTableReadsAsAvailableAndEmpty(): void
+	{
+		$response = $this->api(new FakeHiddenCategories(), pins: (new FakeCategoryPositions())->pins())
+			->dispatch('GET', '/v1/state', self::AUTH);
+
+		self::assertSame(['available' => true, 'categories' => []], $response->body['pins']);
+	}
+
+	public function testPinsBreakTiesByNameLikeCoreDoes(): void
+	{
+		// The web form allows two categories to share a position; core sorts
+		// those by name, so this must agree or the app and the sidebar differ.
+		$categories = new FakeCategoryPositions(
+			[101 => HardlyReadPins::PIN_POSITION, 102 => HardlyReadPins::PIN_POSITION],
+			[101 => 'Zebra', 102 => 'Alpha'],
+		);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('GET', '/v1/state', self::AUTH);
+
+		self::assertSame([102, 101], $response->body['pins']['categories']);
+	}
+
+	public function testAPositionThatIsNotAnIntegerIsNotAPin(): void
+	{
+		// `position` lives in a JSON column, so a hand edit or an old import
+		// can leave a string there. CategoryDAO::listSortedCategories() reads
+		// it with attributeInt() and treats anything else as unpinned; so does
+		// this, or the app would show a pin the server does not sort by.
+		$pins = new HardlyReadPins(
+			rows: fn (): array => [
+				['id' => 101, 'name' => 'A', 'position' => '5'],
+				['id' => 102, 'name' => 'B', 'position' => -1000],
+			],
+			write: fn (int $catId, ?int $position): array => ['ok' => true],
+		);
+
+		self::assertSame([102], $pins->pinnedIds());
+	}
+
+	public function testPinningACategoryPutsItAtTheTop(): void
+	{
+		// The pin lands on the same value the sidebar extension writes, so the
+		// two can never disagree about how far up a pin belongs.
+		$categories = new FakeCategoryPositions([101 => 5, 102 => null]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/102', self::AUTH, ['pinned' => true]);
+
+		self::assertSame(200, $response->status);
+		self::assertTrue($response->body['ok']);
+		self::assertTrue($response->body['changed']);
+		self::assertSame(['available' => true, 'categories' => [102]], $response->body['pins']);
+		self::assertSame(HardlyReadPins::PIN_POSITION, $categories->positionOf(102));
+		self::assertSame([['id' => 102, 'position' => HardlyReadPins::PIN_POSITION]], $categories->writes);
+	}
+
+	public function testAPinGoesBelowEveryHandSetPosition(): void
+	{
+		$categories = new FakeCategoryPositions([101 => null, 102 => 3]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+
+		self::assertSame(200, $response->status);
+		self::assertSame([101], $response->body['pins']['categories']);
+		self::assertSame(HardlyReadPins::PIN_POSITION, $categories->positionOf(101));
+		self::assertLessThan(3, (int) $categories->positionOf(101));
+	}
+
+	public function testWithNothingPinnedTheFirstPinStartsAtTheBase(): void
+	{
+		$categories = new FakeCategoryPositions([101 => null, 102 => null]);
+
+		$this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+
+		self::assertSame(HardlyReadPins::PIN_POSITION, $categories->positionOf(101));
+	}
+
+	public function testEveryPinSharesOneValueAndSortsByName(): void
+	{
+		// The sidebar extension pins everything at one value and lets core's
+		// name tie-break order them. Landing each pin a step higher would put
+		// the app's pins above the site's and reorder them by press order —
+		// a second opinion about the same field, which is the thing being
+		// avoided here.
+		$categories = new FakeCategoryPositions([101 => null, 102 => null, 103 => null]);
+		$api = $this->api(new FakeHiddenCategories(), pins: $categories->pins());
+
+		$api->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+		$api->dispatch('PUT', '/v1/pins/category/102', self::AUTH, ['pinned' => true]);
+		$third = $api->dispatch('PUT', '/v1/pins/category/103', self::AUTH, ['pinned' => true]);
+
+		self::assertSame([101, 102, 103], $third->body['pins']['categories'], 'name order, like the site');
+		self::assertSame(HardlyReadPins::PIN_POSITION, $categories->positionOf(101));
+		self::assertSame(HardlyReadPins::PIN_POSITION, $categories->positionOf(102));
+		self::assertSame(HardlyReadPins::PIN_POSITION, $categories->positionOf(103));
+	}
+
+	public function testPinningSomethingAlreadyPinnedIsNotAChange(): void
+	{
+		$categories = new FakeCategoryPositions([101 => null]);
+
+		$first = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+		$second = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+
+		self::assertTrue($first->body['changed']);
+		self::assertSame(200, $second->status);
+		self::assertFalse($second->body['changed'], 'a repeat is not a change');
+		self::assertSame(
+			HardlyReadPins::PIN_POSITION,
+			$categories->positionOf(101),
+			'its place is kept, not re-ranked to the top',
+		);
+		self::assertSame(
+			[['id' => 101, 'position' => HardlyReadPins::PIN_POSITION]],
+			$categories->writes,
+			'nothing is written for the repeat',
+		);
+	}
+
+	public function testUnpinningClearsThePosition(): void
+	{
+		$categories = new FakeCategoryPositions([101 => HardlyReadPins::PIN_POSITION, 102 => 5]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => false]);
+
+		self::assertSame(200, $response->status);
+		self::assertTrue($response->body['changed']);
+		self::assertSame(['available' => true, 'categories' => []], $response->body['pins']);
+		self::assertNull($categories->positionOf(101));
+		self::assertSame(
+			[['id' => 101, 'position' => null]],
+			$categories->writes,
+			'the attribute is cleared, not set to zero',
+		);
+	}
+
+	public function testUnpinningSomethingThatWasNotPinnedIsNotAChange(): void
+	{
+		$categories = new FakeCategoryPositions([101 => null]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => false]);
+
+		self::assertSame(200, $response->status);
+		self::assertFalse($response->body['changed']);
+		self::assertSame([], $categories->writes);
+	}
+
+	public function testPinningAnUnknownCategoryIsNotFound(): void
+	{
+		$categories = new FakeCategoryPositions([101 => null]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/999', self::AUTH, ['pinned' => true]);
+
+		self::assertSame(404, $response->status);
+		self::assertSame('category_not_found', $response->body['error']['code']);
+		self::assertArrayHasKey('pins', $response->body, 'the client reconciles from the state it gets back');
+		self::assertSame([], $categories->writes);
+	}
+
+	#[DataProvider('malformedCategoryIds')]
+	public function testMalformedPinIdsAreRejected(string $segment): void
+	{
+		$categories = new FakeCategoryPositions([101 => null]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/' . $segment, self::AUTH, ['pinned' => true]);
+
+		self::assertSame(400, $response->status);
+		self::assertSame('invalid_category', $response->body['error']['code']);
+		self::assertSame([], $categories->writes);
+	}
+
+	public function testAZeroPinIdIsRejectedBeforeAnythingIsRead(): void
+	{
+		$categories = new FakeCategoryPositions([101 => null]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/0', self::AUTH, ['pinned' => true]);
+
+		self::assertSame(400, $response->status);
+		self::assertSame('invalid_category', $response->body['error']['code']);
+		self::assertSame([], $categories->writes);
+		self::assertSame([], $this->pinsLoadedFor, 'a malformed request never reaches per-user state');
+	}
+
+	public static function malformedPinnedValues(): array
+	{
+		return [
+			'missing' => [[]],
+			'string' => [['pinned' => 'true']],
+			'int' => [['pinned' => 1]],
+			'null' => [['pinned' => null]],
+		];
+	}
+
+	#[DataProvider('malformedPinnedValues')]
+	public function testPinWriteRequiresAnExplicitBoolean(array $body): void
+	{
+		$categories = new FakeCategoryPositions([101 => null]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, $body);
+
+		self::assertSame(400, $response->status);
+		self::assertSame('invalid_pinned_value', $response->body['error']['code']);
+		self::assertSame([], $categories->writes);
+		self::assertSame([], $this->pinsLoadedFor);
+	}
+
+	public function testPinRouteRequiresAuthentication(): void
+	{
+		$categories = new FakeCategoryPositions([101 => null]);
+
+		$response = $this->api(new FakeHiddenCategories(), authenticated: false, pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+
+		self::assertSame(401, $response->status);
+		self::assertSame('unauthorized', $response->body['error']['code']);
+		self::assertSame([], $categories->writes);
+		self::assertSame([], $this->pinsLoadedFor);
+	}
+
+	#[DataProvider('wrongPinMethods')]
+	public function testPinRouteRejectsOtherMethods(string $method): void
+	{
+		$categories = new FakeCategoryPositions([101 => null]);
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch($method, '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+
+		self::assertSame(405, $response->status);
+		self::assertSame('method_not_allowed', $response->body['error']['code']);
+		self::assertSame('PUT', $response->headers['Allow']);
+		self::assertSame([], $categories->writes);
+	}
+
+	public static function wrongPinMethods(): array
+	{
+		return ['get' => ['GET'], 'post' => ['POST'], 'patch' => ['PATCH'], 'delete' => ['DELETE']];
+	}
+
+	public function testPinRoutesThatAreNotExactlyOneIdAre404(): void
+	{
+		// `/v1/pins` and `/v1/pins/category` name no category, and a fourth
+		// segment is not this route: none of them may be read as an id.
+		foreach (['/v1/pins', '/v1/pins/category', '/v1/pins/category/12/extra', '/v1/pins/12'] as $path) {
+			$response = $this->api(new FakeHiddenCategories())
+				->dispatch('PUT', $path, self::AUTH, ['pinned' => true]);
+
+			self::assertSame(404, $response->status, $path);
+			self::assertSame('route_not_found', $response->body['error']['code'], $path);
+		}
+	}
+
+	public function testPinWriteWithoutTheCollaboratorIsUnavailable(): void
+	{
+		$response = $this->api(new FakeHiddenCategories())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+
+		self::assertSame(503, $response->status);
+		self::assertSame('pins_unavailable', $response->body['error']['code']);
+		self::assertSame(['available' => false], $response->body['pins']);
+	}
+
+	public function testACollaboratorThatCannotSaveIsAnInternalError(): void
+	{
+		$categories = new FakeCategoryPositions([101 => null]);
+		$categories->failWith = 'save_failed';
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+
+		self::assertSame(500, $response->status);
+		self::assertSame('internal_error', $response->body['error']['code']);
+		self::assertFalse($response->body['ok']);
+	}
+
+	public function testACollaboratorThatLosesTheRowReportsNotFound(): void
+	{
+		$categories = new FakeCategoryPositions([101 => null]);
+		$categories->failWith = 'category_not_found';
+
+		$response = $this->api(new FakeHiddenCategories(), pins: $categories->pins())
+			->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+
+		self::assertSame(404, $response->status);
+		self::assertSame('category_not_found', $response->body['error']['code']);
+	}
+
+	public function testRevisionChangesWhenAPinChanges(): void
+	{
+		// The website writes the position itself, without going through this
+		// API, so the token has to cover it — that is the case it exists for.
+		$categories = new FakeCategoryPositions([101 => null]);
+		$api = $this->api(new FakeHiddenCategories(), pins: $categories->pins());
+		$before = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+
+		$api->dispatch('PUT', '/v1/pins/category/101', self::AUTH, ['pinned' => true]);
+
+		self::assertNotSame($before, $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision']);
 	}
 }

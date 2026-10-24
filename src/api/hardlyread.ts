@@ -15,6 +15,15 @@
  *   PUT /v1/favorites/{id}           <- { "favorite": true|false }
  *   PUT /v1/favorites/view           <- { "view": "all"|"only"|"without" }
  *   PUT /v1/indent                   <- { "px": 0..60 }
+ *   GET /v1/positions                -> { apiVersion, updatedAt, categories[], feeds[] }
+ *   PUT /v1/positions                <- { updatedAt, categories[], feeds[] }
+ *                                       an older stamp is refused `409 stale_positions`,
+ *                                       carrying only the winning `updatedAt`
+ *   GET /v1/people?q=                -> { enabled, people: [{ name, added }] }
+ *   POST /v1/people                  <- { "name": "…" }  (one write, never retried)
+ *
+ * `peopleAvailable` is additive on `/v1/state`, appended after the keys above:
+ * a server without the capability simply omits it, which reads as false.
  *
  * Auth rides the existing GoogleLogin credential from `clientLogin()`. No
  * second password, nothing new to store.
@@ -23,7 +32,9 @@
  * (`user/-/label/Technology`), never FreshRSS's numeric category id — and the
  * PUT route needs that id. `categoryIdForLabel()` is the bridge.
  */
-import { normalizeServerUrl, type Session, type Transport } from "./freshrss";
+import { normalizeApiPath, normalizeServerUrl, type Session, type Transport } from "./freshrss";
+import { mergePositions, nextStamp, parsePositions, positionsBody, type Positions } from "../lib/positions";
+import { parseAddPerson, parsePeopleList, parsePeopleStatus, recordAvailability, type Person } from "../lib/people";
 
 /**
  * misc.php keys extensions by the metadata `name`, never the entrypoint, and
@@ -64,6 +75,12 @@ export interface ApiState {
   hiddenCategories: HiddenCategoriesState;
   favorites: FavoritesState;
   sidebarIndent: SidebarIndentState;
+  /**
+   * True when this server offers the person lookup. Not a block like the three
+   * above — the capability is a yes/no, and everything else about a lookup is
+   * answered by its own route.
+   */
+  peopleAvailable: boolean;
 }
 
 /* ---------------------------------------------------------------------------
@@ -138,6 +155,14 @@ export class ApiError extends Error {
   state: HiddenCategoriesState | null;
   /** Authoritative favorites state carried by a favorites failure, else null. */
   favorites: FavoritesState | null;
+  /**
+   * The response body as it arrived, when it was JSON.
+   *
+   * A refusal is not always a dead end: `409 stale_positions` carries the
+   * stamp of the arrangement that won, which is the whole point of the answer.
+   * Callers that need it read it from here instead of guessing.
+   */
+  body: Record<string, unknown>;
 
   constructor(
     status: number,
@@ -145,6 +170,7 @@ export class ApiError extends Error {
     message: string,
     state: HiddenCategoriesState | null = null,
     favorites: FavoritesState | null = null,
+    body: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = "ApiError";
@@ -152,6 +178,7 @@ export class ApiError extends Error {
     this.code = code;
     this.state = state;
     this.favorites = favorites;
+    this.body = body;
   }
 
   /** The token was rejected: the caller has to sign in again. */
@@ -176,6 +203,26 @@ export function unavailableState(): HiddenCategoriesState {
 
 export function apiUrl(serverUrl: string, path: string): string {
   return `${normalizeServerUrl(serverUrl)}${API_PREFIX}${path}`;
+}
+
+/**
+ * Whether this server can carry the adapter at all.
+ *
+ * The adapter is an extension *inside FreshRSS*: its routes are served by
+ * FreshRSS's own `misc.php`, out of a directory FreshRSS owns. Any other
+ * GReader server answers those paths with whatever its front controller does —
+ * a 404 if we are lucky, a login page or an SPA shell if we are not — so an
+ * extension-backed route is never requested unless this session's GReader prefix
+ * is FreshRSS's `greader.php`. A session saved before prefixes existed has no
+ * field and therefore means FreshRSS, which is why it is treated as one.
+ *
+ * The check is on the prefix and not on a product name: a FreshRSS installed in
+ * a subdirectory or behind a proxy still ends in `greader.php`, and no other
+ * server does. `404 route_not_found` from the adapter itself remains the second
+ * line of defence, and it is the one that covers an older FreshRSS.
+ */
+export function supportsExtensionRoutes(session: Session): boolean {
+  return /\/greader\.php$/i.test(normalizeApiPath(session.apiPath));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -310,6 +357,9 @@ export function parseApiState(raw: unknown): ApiState {
     hiddenCategories: parseState(body.hiddenCategories),
     favorites: parseFavorites(body.favorites),
     sidebarIndent: parseSidebarIndent(body.sidebarIndent),
+    // Absent is false, never a guess: an older server has no such route, and a
+    // toggle that offered itself there would fail the moment it was used.
+    peopleAvailable: body.peopleAvailable === true,
   };
 }
 
@@ -334,12 +384,15 @@ function failure(status: number, body: Record<string, unknown>): ApiError {
     message,
     isRecord(body.hiddenCategories) ? parseState(body.hiddenCategories) : null,
     isRecord(body.favorites) ? parseFavorites(body.favorites) : null,
+    body,
   );
 }
 
 interface RequestOptions {
   method: "GET" | "PUT" | "POST";
   body?: Record<string, unknown>;
+  /** For callers that can be overtaken — a keystroke cancels the one before it. */
+  signal?: AbortSignal;
 }
 
 async function request(
@@ -348,6 +401,17 @@ async function request(
   path: string,
   options: RequestOptions,
 ): Promise<Record<string, unknown>> {
+  // One choke point for the whole extension surface: every route below goes
+  // through here, so nothing extension-backed can leave the client for a server
+  // that could not have the adapter. A 404 is the answer the callers already
+  // understand as `available: false`.
+  if (!supportsExtensionRoutes(session)) {
+    throw new ApiError(
+      404,
+      "route_not_found",
+      `The ${EXTENSION_NAME} adapter is a FreshRSS extension and this server is not FreshRSS`,
+    );
+  }
   const headers: Record<string, string> = {
     Authorization: `GoogleLogin auth=${session.token}`,
   };
@@ -359,6 +423,7 @@ async function request(
     method: options.method,
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    signal: options.signal,
   });
 
   const body = await bodyOf(response);
@@ -366,6 +431,133 @@ async function request(
     throw failure(response.status, body);
   }
   return body;
+}
+
+/**
+ * True when the answer says the route is not there at all.
+ *
+ * `404 route_not_found` is what an adapter that predates `/v1/positions`
+ * answers. It is not a failure of the read: it means the account has no
+ * arrangement store, so local storage is the only copy and nothing is shown.
+ */
+export function isRouteMissing(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
+/**
+ * The arrangement stored for this account.
+ *
+ * Throws like every other read — the caller decides what a failure means
+ * (`isRouteMissing` for an old adapter, silence for everything else).
+ */
+export async function getPositions(transport: Transport, session: Session): Promise<Positions> {
+  const body = await request(transport, session, "/positions", { method: "GET" });
+  return parsePositions(body);
+}
+
+/** What a write came to. Never a throw for the two answers that are information. */
+export type PositionsWrite =
+  /** Accepted: the server now holds this document. */
+  | { kind: "stored"; positions: Positions }
+  /**
+   * Refused because a newer arrangement is already stored. The refusal carries
+   * the winning **stamp**, not the winning lists, so the caller reads the
+   * arrangement once and takes its word — it never retries its own copy.
+   */
+  | { kind: "stale"; storedAt: number }
+  /** The adapter predates the route: nothing is stored, and nothing will be. */
+  | { kind: "missing" };
+
+/**
+ * Stores the arrangement, stamp and all.
+ *
+ * `404` and `409` come back as outcomes rather than exceptions, because both
+ * are answers a client acts on: an old adapter means "local only", and a stale
+ * write means "somebody else arranged this later, read it". Every other failure
+ * is still a throw — a wrong password must not be mistaken for an old server.
+ */
+export async function putPositions(
+  transport: Transport,
+  session: Session,
+  positions: Positions,
+): Promise<PositionsWrite> {
+  try {
+    const body = await request(transport, session, "/positions", {
+      method: "PUT",
+      body: positionsBody(positions),
+    });
+    // A 200 that still says `stale` (an older adapter's spelling) is the same
+    // answer as a 409: the stored copy is not ours.
+    if (body.stale === true || body.code === "stale_positions") {
+      return { kind: "stale", storedAt: parsePositions(body).updatedAt };
+    }
+    return { kind: "stored", positions: parsePositions(body) };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409 && error.code === "stale_positions") {
+      return { kind: "stale", storedAt: parsePositions({ updatedAt: error.body.updatedAt }).updatedAt };
+    }
+    if (isRouteMissing(error)) return { kind: "missing" };
+    throw error;
+  }
+}
+
+/** The two lists a write carries. Ids only — what the sidebar is drawn from. */
+export interface PositionsLists {
+  categories: string[];
+  feeds: string[];
+}
+
+/**
+ * Writes the arrangement with the next stamp after `previous`.
+ *
+ * The stamping lives here, next to the route that compares stamps, so no caller
+ * has to remember the rule: strictly increasing, even when the clock has not
+ * ticked, because two drags in one millisecond are two writes.
+ */
+export async function savePositions(
+  transport: Transport,
+  session: Session,
+  lists: PositionsLists,
+  previous: number,
+): Promise<PositionsWrite> {
+  return putPositions(transport, session, {
+    updatedAt: nextStamp(previous),
+    categories: [...lists.categories],
+    feeds: [...lists.feeds],
+  });
+}
+
+/** What a start-time read came to. */
+export type PositionsRead =
+  /** Reached the account: `positions` is the winner of the two copies. */
+  | { kind: "remote"; positions: Positions }
+  /** Reached the account, and the copy in hand is newer. Nothing to adopt. */
+  | { kind: "local" }
+  /** No route on this adapter: local storage is the only copy. */
+  | { kind: "missing" }
+  /** Network, auth or server trouble. Local stands; nothing is shown. */
+  | { kind: "failed"; error: unknown };
+
+/**
+ * Reads the account's copy once and says which one wins.
+ *
+ * The merge itself is `mergePositions`: newer stamp wins, a tie goes to the
+ * copy in hand. This wrapper exists so the reader never has to know whether a
+ * failure was "no such route" or "the network is down" — both mean the same
+ * thing on screen, which is nothing at all.
+ */
+export async function reconcilePositions(
+  transport: Transport,
+  session: Session,
+  local: Positions,
+): Promise<PositionsRead> {
+  try {
+    const remote = await getPositions(transport, session);
+    const merged = mergePositions(local, remote);
+    return merged.source === "remote" ? { kind: "remote", positions: merged.positions } : { kind: "local" };
+  } catch (error) {
+    return isRouteMissing(error) ? { kind: "missing" } : { kind: "failed", error };
+  }
 }
 
 /** Reads hidden state. Never 409s; 401 means the credential is dead. */
@@ -381,7 +573,102 @@ export async function getState(transport: Transport, session: Session): Promise<
  * configuration, and three round trips could each see a different snapshot.
  */
 export async function getApiState(transport: Transport, session: Session): Promise<ApiState> {
-  return parseApiState(await request(transport, session, "/state", { method: "GET" }));
+  const state = parseApiState(await request(transport, session, "/state", { method: "GET" }));
+  // Remembered here, at the one place this response is read. The search field
+  // asks synchronously whether the person toggle belongs in it, so on a later
+  // start the answer has to be on hand before the first frame rather than after
+  // a discovery request. A failed read records nothing: a flaky network must not
+  // take a control away from a server that has it.
+  recordAvailability(session.serverUrl, session.email, state.peopleAvailable);
+  return state;
+}
+
+/**
+ * The state token, for noticing changes made outside this app.
+ *
+ * Same state the `/state` call returns, hashed on the server: one short string
+ * instead of a payload. Used by the change watch, not by anything that needs to
+ * know the state itself.
+ */
+export async function getRevision(transport: Transport, session: Session): Promise<string> {
+  const body = await request(transport, session, "/revision", { method: "GET" });
+  const token = (body as { revision?: unknown }).revision;
+  return typeof token === "string" ? token : "";
+}
+
+/* ---------------------------------------------------------------------------
+ * People
+ *
+ * A name lookup beside the feed search. All three routes sit behind the same
+ * capability flag `/v1/state` reports, so a caller holding the flag holds the
+ * routes too; a server without the capability answers `404 route_not_found` for
+ * every one of them, which is why the toggle is never drawn on a guess and an
+ * empty answer here always means "no match" rather than "not installed".
+ * ------------------------------------------------------------------------- */
+
+/** What one search answered. `message` is a failure worth showing, never a hint. */
+export interface PeopleAnswer {
+  enabled: boolean;
+  people: Person[];
+  message: string | null;
+}
+
+/**
+ * Is the lookup here at all?
+ *
+ * Not called on startup: `/v1/state` already says so, and asking twice would be
+ * a second round trip for an answer the app has. This is for a caller that
+ * wants to re-check without reading the whole state.
+ */
+export async function getPeopleStatus(transport: Transport, session: Session): Promise<boolean> {
+  const body = await request(transport, session, "/people/status", { method: "GET" });
+  return parsePeopleStatus(body);
+}
+
+/**
+ * Names matching `query`, best first, as far as the server is willing to rank.
+ *
+ * An empty query is not sent: the route would answer with a list nobody asked
+ * for, and the field only offers results once something has been typed.
+ */
+export async function searchPeople(
+  transport: Transport,
+  session: Session,
+  query: string,
+  signal?: AbortSignal,
+): Promise<PeopleAnswer> {
+  const body = await request(transport, session, `/people?q=${encodeURIComponent(query.trim())}`, {
+    method: "GET",
+    signal,
+  });
+  return {
+    enabled: body.enabled === true,
+    people: parsePeopleList(body.people),
+    message: typeof body.message === "string" && body.message !== "" ? body.message : null,
+  };
+}
+
+/**
+ * Adds one person, which is a subscription on the server.
+ *
+ * A single write with no retry: the route subscribes, and a retry after a lost
+ * response would ask for the same subscription twice. `ok === false` is an
+ * answer, not an exception — the server's own words are passed on.
+ */
+export async function addPerson(
+  transport: Transport,
+  session: Session,
+  name: string,
+): Promise<{ ok: boolean; message: string | null }> {
+  const trimmed = name.trim();
+  if (trimmed === "") {
+    throw new RangeError("A person needs a name");
+  }
+  const body = await request(transport, session, "/people", {
+    method: "POST",
+    body: { name: trimmed },
+  });
+  return parseAddPerson(body);
 }
 
 /**

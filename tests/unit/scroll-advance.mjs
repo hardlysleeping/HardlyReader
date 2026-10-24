@@ -103,5 +103,13 @@ check("the easy setting is still a deliberate pull", easyTravel > 300, String(ea
 check("the hardest setting is not absurd", hardTravel < 1600, String(hardTravel));
 check("the default effort still needs the tuned travel", Math.abs(travelToAdvance(thresholdFor(1)) - travel) <= 1);
 
+// A trackpad flick keeps sending deltas after the switch. Those must not be
+// read as a pull on the post that has just arrived, or one flick skips a post.
+const { readFileSync } = await import("node:fs");
+const pane = readFileSync(new URL("../../src/components/ReaderPane.svelte", import.meta.url), "utf8");
+const wheel = pane.slice(pane.indexOf("function onwheel("), pane.indexOf("$effect(", pane.indexOf("function onwheel(")));
+check("a switch locks the wheel for a moment", /SETTLE_MS/.test(pane) && /settleUntil = performance\.now\(\) \+ SETTLE_MS/.test(pane));
+check("the leftover travel of a flick cannot build a pull", /performance\.now\(\) < settleUntil/.test(wheel));
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

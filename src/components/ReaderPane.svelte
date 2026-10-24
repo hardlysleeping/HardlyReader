@@ -1,8 +1,17 @@
 <script lang="ts">
   import { isRead, isStarred } from "../api/freshrss";
+  import {
+    canExtract,
+    chooseBody,
+    extractFor,
+    imageSources,
+    rememberedExtraction,
+    sameImage,
+    type Extracted,
+  } from "../lib/extract";
   import { absoluteTime } from "../lib/format";
-  import { hardenLinks, isExternalHttp, sanitizeArticle } from "../lib/sanitize";
-  import { accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
+  import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
+  import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { pullDown } from "../lib/pull";
   import { reader } from "../state/reader.svelte";
@@ -20,11 +29,34 @@
   const canLock = $derived(reader.hiddenAvailable && reader.hiddenHasPasscode && !reader.hiddenLocked);
 
   let scroller = $state<HTMLElement | null>(null);
+
+  /**
+   * The article's own width, for pictures that break out to the page's edges.
+   *
+   * A container query measures the page without its scrollbar, so an image sized
+   * from it ran the last 15px behind the scrollbar. The element's own width does
+   * not.
+   */
+  let pageWidth = $state(0);
+
+  $effect(() => {
+    const page = scroller;
+    if (page === null) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry !== undefined) pageWidth = Math.round(entry.contentRect.width);
+    });
+    observer.observe(page);
+    return () => observer.disconnect();
+  });
   /** Wheel travel accumulated at the bottom, in pixels, against the pull curve. */
   let pull = $state(0);
   /** The setting decides how much travel the pull is worth. */
   const threshold = $derived(thresholdFor(reading.scrollEffort));
   let pullTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Nothing counts towards a switch until the wheel has been still this long. */
+  let settleUntil = 0;
 
   function reduceMotion(): boolean {
     return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -74,6 +106,10 @@
       resetPull();
       return;
     }
+    if (performance.now() < settleUntil) {
+      resetPull();
+      return;
+    }
     const pullingDown = event.deltaY > 0;
     if (pullingDown ? !atEnd(el) : !atStart(el)) {
       resetPull();
@@ -88,6 +124,7 @@
     if (!shouldAdvance(pull, threshold)) return;
     const direction = pull > 0 ? 1 : -1;
     resetPull();
+    settleUntil = performance.now() + SETTLE_MS;
     void reader.advanceArticle(direction);
   }
 
@@ -117,11 +154,115 @@
 
   const item = $derived(reader.selected);
 
-  const body = $derived(
-    sanitizeArticle(item?.content?.content ?? item?.summary?.content ?? ""),
+  const link = $derived(item?.alternate?.[0]?.href ?? item?.canonical?.[0]?.href ?? "");
+
+  /**
+   * The feed's own HTML, always available and always the fallback.
+   *
+   * Kept separate from `body` because extraction is an addition to this, not a
+   * replacement: if it fails or comes back thin, this is what is on screen —
+   * and it was on screen while the page was still being fetched, so nothing
+   * blinks.
+   */
+  const feedBody = $derived(sanitizeArticle(item?.content?.content ?? item?.summary?.content ?? ""));
+
+  /** The extraction for the open post, if one has arrived. */
+  let extracted = $state<Extracted | null>(null);
+  /** Which post that extraction belongs to, so a late result cannot land on the next one. */
+  let extractedFor = $state<string | null>(null);
+
+  $effect(() => {
+    const current = item;
+    const url = link;
+    const wanted = reading.extract;
+
+    if (!wanted || !current || url === "") {
+      extracted = null;
+      extractedFor = null;
+      return;
+    }
+
+    const id = current.id;
+    const remembered = rememberedExtraction(id);
+    if (remembered) {
+      extracted = remembered;
+      extractedFor = id;
+      return;
+    }
+
+    extracted = null;
+    extractedFor = null;
+    let cancelled = false;
+    void extractFor(id, url).then((result) => {
+      // Moving to another post cancels the landing: a slow page must never
+      // replace the article the reader is now looking at.
+      if (cancelled || result === null) return;
+      extracted = result;
+      extractedFor = id;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  /**
+   * Experimental, per-article full read.
+   *
+   * The global preference extracts every post that has a link; this is the same
+   * fetch on demand, for one article, from a button — the way to read a
+   * summary-only feed without turning extraction on for a whole account. It is
+   * keyed by id so a page that lands after the reader has moved on is dropped
+   * rather than pasted over the next article.
+   */
+  let manualId = $state<string | null>(null);
+  let manualBody = $state<Extracted | null>(null);
+  let manualBusy = $state(false);
+  /** Nothing is shown about a failure until the reader asked for one. */
+  let manualFailed = $state(false);
+
+  $effect(() => {
+    const current = item?.id ?? null;
+    if (current === manualId) return;
+    manualId = null;
+    manualBody = null;
+    manualBusy = false;
+    manualFailed = false;
+  });
+
+  const manualActive = $derived(manualId !== null && manualId === item?.id && manualBody !== null);
+
+  /** The extraction in force for the open post, from either route. */
+  const extractedNow = $derived(
+    manualActive ? manualBody : extractedFor === item?.id ? extracted : null,
   );
 
-  const link = $derived(item?.alternate?.[0]?.href ?? item?.canonical?.[0]?.href ?? "");
+  async function loadFullArticle(): Promise<void> {
+    const current = item;
+    if (!current || link === "" || manualBusy) return;
+    const id = current.id;
+    manualBusy = true;
+    manualFailed = false;
+    const result = await extractFor(id, link);
+    if (item?.id !== id) return;
+    manualBusy = false;
+    // `chooseBody` already refuses a paywall stub or an extraction that found
+    // less than the feed sent; asking for the full article does not override
+    // that, it only overrides "do not fetch at all".
+    if (result === null || chooseBody(result, feedBody).source !== "article") {
+      manualFailed = true;
+      return;
+    }
+    manualId = id;
+    manualBody = result;
+  }
+
+  function dropFullArticle(): void {
+    manualId = null;
+    manualBody = null;
+    manualFailed = false;
+  }
+
+  const body = $derived(sanitizeArticle(chooseBody(extractedNow, feedBody).html));
 
   /** A picture the feed sent, swapped out when the file is gone. */
   let brokenLeads = new Set<string>();
@@ -131,14 +272,16 @@
    *
    * Suppressed when the article body already contains that same picture: many
    * feeds repeat their enclosure image as the first thing in the content, and
-   * showing it twice reads as a rendering bug rather than a feature.
+   * showing it twice reads as a rendering bug rather than a feature. The
+   * comparison is on the sources themselves rather than on the string of the
+   * body, because promotion rewrites the body's picture to the largest file and
+   * a substring test would miss the same photo at another size.
    */
   const lead = $derived.by(() => {
     if (!reading.articleImage || !item) return null;
     const url = thumbnailOf(item as ThumbSource).url;
     if (!url || brokenLeads.has(item.id)) return null;
-    const html = body;
-    if (html.includes(url) || html.includes(url.replace(/&/g, "&amp;"))) return null;
+    if (imageSources(body).some((src) => sameImage(src, url))) return null;
     return url;
   });
 
@@ -165,10 +308,15 @@
    * feed markup through DOMPurify with scripts, frames, forms and inline styles
    * removed. Assigning it here is the only place sanitised feed HTML is written
    * to the DOM; nothing raw from the server reaches this node.
+   *
+   * `prepareImages()` runs on the result, not on the string: a referrer policy
+   * written into the markup does not survive DOMPurify (measured), and the
+   * elements only exist once `innerHTML` has parsed them.
    */
   function attach(node: HTMLElement, html: string) {
     node.innerHTML = html;
     hardenLinks(node);
+    prepareImages(node);
     // Delegated here rather than via an inline handler: the markup is feed HTML,
     // not Svelte-owned elements, and keyboard users activate the links directly.
     node.addEventListener("click", intercept);
@@ -176,6 +324,7 @@
       update(next: string) {
         node.innerHTML = next;
         hardenLinks(node);
+        prepareImages(node);
       },
       destroy() {
         node.removeEventListener("click", intercept);
@@ -184,7 +333,7 @@
   }
 </script>
 
-<section class="reader" aria-label="Article">
+<section class="reader" data-pane="article" aria-label="Article">
   {#if item}
     <header class="toolbar">
       <button class="icon" onclick={() => onClose?.()} aria-label="Back to list">←</button>
@@ -235,6 +384,23 @@
         title={isRead(item) ? "Mark unread" : "Mark read"}
         onclick={() => (isRead(item) ? reader.setRead(item, false) : reader.markRead(item))}
       >{isRead(item) ? "◯" : "●"}</button>
+      {#if link && canExtract(link)}
+        <!-- Experimental: one article, fetched on demand. Sat next to "open
+             original" because it is the same page, read in here instead. -->
+        <button
+          class="icon full"
+          class:on={manualActive}
+          aria-pressed={manualActive}
+          aria-busy={manualBusy}
+          aria-label={manualActive ? "Show what the feed sent" : "Load the full article"}
+          title={manualBusy
+            ? "Fetching the publisher's page…"
+            : manualActive
+              ? "Showing the full article — click for what the feed sent"
+              : "Experimental: fetch the publisher's page and show just the article"}
+          onclick={() => (manualActive ? dropFullArticle() : void loadFullArticle())}
+        >{manualBusy ? "⋯" : "¶"}</button>
+      {/if}
       {#if link}
         <button class="icon" aria-label="Open original" title="Open original" onclick={() => openExternal(link)}>
           ↗
@@ -261,6 +427,7 @@
          of the reader and back to the list it came from. -->
     <article
       bind:this={scroller}
+      style:--page-width={pageWidth > 0 ? `${pageWidth}px` : null}
       data-scroll="article"
       {onscroll}
       {onwheel}
@@ -275,6 +442,12 @@
         <span>{item.origin?.title ?? ""}</span>
         {#if item.author}<span>· {item.author}</span>{/if}
         <span>· {absoluteTime(item.timestampUsec, item.published)}</span>
+        {#if manualFailed}
+          <span class="retry" role="status">
+            · no full article
+            <button class="inline" onclick={() => void loadFullArticle()}>try again</button>
+          </span>
+        {/if}
       </p>
 
       {#if lead}
@@ -430,13 +603,26 @@
     color: var(--accent-text, #6cb0f5);
   }
 
+  /* The article is the page, edge to edge, and the reading column is what is
+     centred inside it. Pictures break out of the column to the page's width, so
+     the page is the thing that gets measured — a column cannot report the width
+     it sits in, and a scrollbar would be unaccounted for. */
   article {
+    --gutter: clamp(16px, 5vw, 48px);
     flex: 1;
     overflow-y: auto;
-    padding: 22px clamp(16px, 5vw, 48px) 64px;
-    max-width: 780px;
+    padding-block: 22px 64px;
+    max-width: none;
     width: 100%;
-    margin: 0 auto;
+  }
+
+  /* Headline, byline and prose keep a readable measure in the middle. */
+  article > h1,
+  article > .byline,
+  .content {
+    max-width: 780px;
+    margin-inline: auto;
+    padding-inline: var(--gutter);
   }
 
   h1 {
@@ -451,12 +637,16 @@
      same setting the list rows use, so turning pictures up in the popout widens
      this too instead of leaving it at one size. */
   .lead {
+    /* The feed's own picture is the article's width, edge to edge: a comic page
+       or a photograph shown whole, never letterboxed into a narrower box. */
     display: block;
-    width: 100%;
-    max-height: calc(260px * var(--thumb-scale, 1));
-    margin: 0 0 20px;
-    border-radius: 8px;
-    object-fit: cover;
+    width: var(--page-width, 100%);
+    max-width: none;
+    max-height: none;
+    height: auto;
+    margin-block: 0 20px;
+    margin-inline: calc((100% - var(--page-width, 100%)) / 2);
+    object-fit: contain;
     background: var(--hover);
   }
 
@@ -464,6 +654,12 @@
     margin: 0 0 22px;
     font-size: 12px;
     color: var(--muted);
+  }
+
+  /* Says the page was fetched and refused, so the button is not just inert. */
+  .retry {
+    white-space: nowrap;
+    opacity: 0.85;
   }
 
   .content {
@@ -476,10 +672,16 @@
     overflow-wrap: anywhere;
   }
 
+  /* Every picture in the body takes the pane's full width and keeps its own
+     height. The text column stays at 780px; the pictures do not, because a
+     column of empty space beside them is the thing being fixed. */
   .content :global(img) {
-    max-width: 100%;
+    display: block;
+    width: var(--page-width, 100%);
+    max-width: none;
     height: auto;
-    border-radius: 4px;
+    margin-block: 1em;
+    margin-inline: calc((100% - var(--page-width, 100%)) / 2);
   }
 
   .content :global(pre) {

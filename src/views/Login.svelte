@@ -1,15 +1,17 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { AuthError, clientLogin, HttpError, normalizeServerUrl } from "../api/freshrss";
+  import { AuthError, GreaderProbeError, probeGreaderSession } from "../api/freshrss";
   import type { Session } from "../api/freshrss";
   import { transport } from "../api/transport";
 
   interface Props {
     initialServerUrl?: string;
+    /** Why this screen appeared without the reader asking for it. */
+    notice?: string;
     onconnected: (session: Session) => void;
   }
 
-  let { initialServerUrl = "http://127.0.0.1:18080", onconnected }: Props = $props();
+  let { initialServerUrl = "http://127.0.0.1:18080", notice = "", onconnected }: Props = $props();
 
   let serverUrl = $state(untrack(() => initialServerUrl));
   let email = $state("");
@@ -28,8 +30,10 @@
     busy = true;
 
     try {
-      const session = await clientLogin(transport, {
-        serverUrl: normalizeServerUrl(serverUrl),
+      // One field, one exchange: whichever prefix answers `user-info` is the one
+      // saved, and nothing downstream cares which product that turned out to be.
+      const session = await probeGreaderSession(transport, {
+        serverUrl,
         email: email.trim(),
         apiPassword,
       });
@@ -38,8 +42,8 @@
     } catch (cause) {
       if (cause instanceof AuthError) {
         error = "Wrong email or API password.";
-      } else if (cause instanceof HttpError) {
-        error = `Server responded with HTTP ${cause.status}.`;
+      } else if (cause instanceof GreaderProbeError) {
+        error = cause.message;
       } else if (cause instanceof Error) {
         error = cause.message;
       } else {
@@ -53,10 +57,15 @@
 
 <div class="login">
   <form onsubmit={submit}>
-    <h1>Connect to FreshRSS</h1>
+    <h1>Connect to your reader</h1>
     <p class="hint">
-      Use the API password from your FreshRSS profile, not your account password.
+      FreshRSS: use the API password from your profile, not your account password.
+      Miniflux, Tiny Tiny RSS, The Old Reader and Inoreader work too — paste the
+      server URL, and the API path if you know it.
     </p>
+    {#if notice}
+      <p class="notice">{notice}</p>
+    {/if}
 
     <label>
       <span>Server URL</span>
@@ -125,6 +134,16 @@
   h1 {
     font-size: 1.15rem;
     margin: 0;
+  }
+
+  .notice {
+    margin: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 11.5px;
   }
 
   .hint {

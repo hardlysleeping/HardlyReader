@@ -222,3 +222,17 @@ export function readingStyle(layout: ReadingLayout): string {
     .map(([name, value]) => `${name}:${value}`)
     .join(";");
 }
+
+/**
+ * How wide a card's flip edge is: a percentage of the card's width, per side.
+ *
+ * The default spends a fifth of the card on the two edges and leaves four
+ * fifths in the middle for opening the post. Below a tenth is a hard aim; above
+ * about a third there is barely a middle left to open the post with.
+ */
+export const FLIP_EDGE: { min: number; max: number; initial: number } = { min: 10, max: 45, initial: 10 };
+
+export function clampFlipEdge(value: number): number {
+  if (!Number.isFinite(value)) return FLIP_EDGE.initial;
+  return Math.min(FLIP_EDGE.max, Math.max(FLIP_EDGE.min, Math.round(value)));
+}

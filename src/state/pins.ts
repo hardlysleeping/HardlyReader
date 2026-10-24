@@ -64,6 +64,7 @@ export function withPinned(list: readonly string[], key: string, pinned: boolean
 }
 
 interface Group<F> {
+  id: string;
   label: string;
   feeds: F[];
 }
@@ -72,12 +73,25 @@ interface Group<F> {
  * Applies the pin view, then puts pinned categories first and pinned feeds first
  * within each category. Both sorts are stable, so the existing alphabetical
  * order survives inside each band.
+ *
+ * Two orders, not one: `order` is feed ids inside a category, `categoryOrder` is
+ * category ids top to bottom. Only the second one is new here — the precedence
+ * is pinned band, then the drag, then the name, so a category nobody has dragged
+ * stays exactly where the alphabet puts it.
  */
 export function arrangeByPins<F extends { id: string; title: string }, G extends Group<F>>(
   groups: readonly G[],
   view: PinView,
   isCategoryMarked: (label: string) => boolean,
   isFeedPinned: (id: string) => boolean,
+  /**
+   * The arrangement the user dragged the feeds into. Pinned feeds still come
+   * first — that band is about attention, not position — and everything else
+   * follows the drag, falling back to the name order for anything never dragged.
+   */
+  order: readonly string[] = [],
+  /** The arrangement the user dragged the categories into. Ids, not labels. */
+  categoryOrder: readonly string[] = [],
 ): G[] {
   const filtered = groups.filter((group) => {
     if (view === "all") return true;
@@ -92,14 +106,25 @@ export function arrangeByPins<F extends { id: string; title: string }, G extends
   return filtered
     .map((group) => ({
       ...group,
-      feeds: [...group.feeds].sort(
-        (a, b) =>
-          Number(isFeedPinned(b.id)) - Number(isFeedPinned(a.id)) || a.title.localeCompare(b.title),
-      ),
+      feeds: [...group.feeds].sort((a, b) => {
+        const pinned = Number(isFeedPinned(b.id)) - Number(isFeedPinned(a.id));
+        if (pinned !== 0) return pinned;
+        const left = order.indexOf(a.id);
+        const right = order.indexOf(b.id);
+        if (left !== -1 && right !== -1) return left - right;
+        if (left !== -1) return -1;
+        if (right !== -1) return 1;
+        return a.title.localeCompare(b.title);
+      }),
     }))
-    .sort(
-      (a, b) =>
-        Number(isCategoryMarked(b.label)) - Number(isCategoryMarked(a.label)) ||
-        a.label.localeCompare(b.label),
-    );
+    .sort((a, b) => {
+      const marked = Number(isCategoryMarked(b.label)) - Number(isCategoryMarked(a.label));
+      if (marked !== 0) return marked;
+      const left = categoryOrder.indexOf(a.id);
+      const right = categoryOrder.indexOf(b.id);
+      if (left !== -1 && right !== -1) return left - right;
+      if (left !== -1) return -1;
+      if (right !== -1) return 1;
+      return a.label.localeCompare(b.label);
+    });
 }

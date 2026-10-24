@@ -16,7 +16,11 @@ declare(strict_types=1);
  *
  * Routing, validation and status mapping live in lib/HardlyReadApi.php, which
  * has no FreshRSS dependency. This file is only the transport (superglobals,
- * headers, output) plus the two collaborators the router needs.
+ * headers, output) plus the collaborators the router needs.
+ *
+ * An install that carries the optional people provider gets the `/v1/people`
+ * routes; on one that does not, they are unknown routes. Where that provider
+ * lives is lib/HardlyReadPeople.php's business, not this file's.
  *
  * Reached at /api/misc.php/Hardly%20Read/v1/... — misc.php keys extensions by
  * the metadata `name`, never the entrypoint.
@@ -75,9 +79,13 @@ class HardlyReadExtension extends Minz_Extension
 				loadHiddenCategories: fn (string $username): ?object => $this->loadHiddenCategories($username),
 				loadFavorites: fn (string $username): ?object => $this->loadAnyUserExtension($username, self::FAVORITES_EXTENSIONS),
 				loadSidebarIndent: fn (string $username): ?object => $this->loadUserExtension($username, self::INDENT_EXTENSION),
+				loadPositions: fn (string $username): array => $this->positions($username)->load(),
+				savePositions: fn (string $username, array $document): bool => $this->positions($username)->save($document),
+				loadPeople: fn (): ?object => $this->loadPeople(),
+				loadPins: fn (string $username): ?object => $this->pins($username),
 			);
 
-			$this->respond($api->dispatch($method, $path, $this->authorizationHeader(), $body));
+			$this->respond($api->dispatch($method, $path, $this->authorizationHeader(), $body, $_GET));
 		} catch (Throwable $e) {
 			// Never let a fatal error reach the client as a blank 500 page.
 			Minz_Log::warning('HardlyRead API: ' . $e->getMessage());
@@ -207,12 +215,150 @@ class HardlyReadExtension extends Minz_Extension
 	}
 
 	/**
+	 * The sidebar arrangement for one user.
+	 *
+	 * Per user by construction: the directory contains the login, so two accounts
+	 * on one server cannot read each other's order. A username that cannot be
+	 * used as a path is refused here rather than inside the store, so a bad login
+	 * reads as "no arrangement" instead of a fatal error.
+	 */
+	private function positions(string $username): HardlyReadPositionStore
+	{
+		return new HardlyReadPositionStore(HardlyReadPositionStore::dirForUser($username));
+	}
+
+	/**
+	 * The category pin order: read from, and written to, FreshRSS's own
+	 * category positions.
+	 *
+	 * Pins are core data, so there is no extension to delegate to — the
+	 * position sits in the category's `attributes`, which the website's form
+	 * writes and an import preserves. What is NOT here matters as much: this
+	 * never touches the pin-keeping extension's snapshot table or its
+	 * favourite flag, and never writes a feed's priority. A pin made here is
+	 * one field on one category row.
+	 */
+	private function pins(string $username): ?object
+	{
+		require_once __DIR__ . '/lib/HardlyReadPins.php';
+
+		if (!class_exists('FreshRSS_Factory')) {
+			return null;
+		}
+		try {
+			$dao = FreshRSS_Factory::createCategoryDao($username);
+		} catch (Throwable $e) {
+			// The pin order is a nice-to-have; the rest of /v1/state is not.
+			// A database that cannot be reached reports as "no order" instead
+			// of taking the app's first call down with a 500.
+			Minz_Log::warning('HardlyRead API: pins unavailable: ' . $e->getMessage());
+
+			return null;
+		}
+
+		return new HardlyReadPins(
+			rows: fn (): array => $this->categoryPositions($dao),
+			write: fn (int $catId, ?int $position): array => $this->writeCategoryPosition($dao, $catId, $position),
+		);
+	}
+
+	/**
+	 * Every category with the position it is pinned at.
+	 *
+	 * Feeds are deliberately not populated: a pin is a fact about the category
+	 * row alone, and joining feeds for it would cost a second query for
+	 * nothing.
+	 *
+	 * @return list<array{id: int, name: string, position: int|null}>
+	 */
+	private function categoryPositions(FreshRSS_CategoryDAO $dao): array
+	{
+		$rows = [];
+		foreach ($dao->listCategories(false) as $category) {
+			if (!$category instanceof FreshRSS_Category) {
+				continue;
+			}
+			$rows[] = [
+				'id' => (int) $category->id(),
+				'name' => (string) $category->name(),
+				// Through the same accessor core sorts with, so a value that
+				// reads as unpinned to listSortedCategories() reads as
+				// unpinned here too.
+				'position' => $category->attributeInt('position'),
+			];
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Writes one category's position, the way the website's category form does.
+	 *
+	 * updateCategory() writes name, kind and attributes in one statement, so
+	 * all three are passed: sending only attributes would blank the name.
+	 *
+	 * @return array{ok: bool, code?: string}
+	 */
+	private function writeCategoryPosition(FreshRSS_CategoryDAO $dao, int $catId, ?int $position): array
+	{
+		$category = $dao->searchById($catId);
+		if (!$category instanceof FreshRSS_Category) {
+			return ['ok' => false, 'code' => 'category_not_found'];
+		}
+
+		$category->_attribute('position', $position);
+		$written = $dao->updateCategory($catId, [
+			'name' => $category->name(),
+			'kind' => $category->kind(),
+			'attributes' => $category->attributes(),
+		]);
+		if ($written === false) {
+			return ['ok' => false, 'code' => 'save_failed'];
+		}
+
+		// Confirm the value landed instead of trusting the row count:
+		// updateCategory() silently skips a category whose name collides with a
+		// tag, and reporting a change the server did not make is worse than
+		// reporting a failure.
+		$after = $dao->searchById($catId);
+		if (!$after instanceof FreshRSS_Category || $after->attributeInt('position') !== $position) {
+			return ['ok' => false, 'code' => 'save_failed'];
+		}
+
+		if (function_exists('invalidateHttpCache')) {
+			invalidateHttpCache();
+		}
+
+		return ['ok' => true];
+	}
+
+	/**
 	 * The Hidden Categories extension, but only when it is enabled for the
 	 * user who just authenticated.
 	 */
 	private function loadHiddenCategories(string $username): ?object
 	{
 		return $this->loadUserExtension($username, self::HIDDEN_EXTENSION);
+	}
+
+	/**
+	 * The optional people provider, or null when this install has none.
+	 *
+	 * Loaded here rather than at file scope for the same reason the router is:
+	 * a system extension's init() runs on every page.
+	 */
+	private function loadPeople(): ?object
+	{
+		require_once __DIR__ . '/lib/HardlyReadPeople.php';
+
+		// Presence on the server is not the question the app asks: it asks
+		// whether this account has the provider, so an account without it gets
+		// no toggle and no routes rather than a button that cannot work.
+		if (!HardlyReadPeople::enabledForCurrentUser()) {
+			return null;
+		}
+
+		return HardlyReadPeople::create();
 	}
 
 	/**

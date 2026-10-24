@@ -117,3 +117,14 @@ export function travelToAdvance(threshold = PULL_THRESHOLD, step = 1): number {
   }
   return travel;
 }
+
+/**
+ * How long a switch keeps the wheel shut afterwards.
+ *
+ * A trackpad flick keeps sending deltas after the finger has stopped. Those land
+ * on whatever has just arrived, and if it is short it is already at its end, so
+ * they read as a fresh pull and take a second post with them. Both panes wait
+ * this long after a switch before counting wheel travel again — the same delay
+ * in the article and in the card list, so stepping feels identical.
+ */
+export const SETTLE_MS = 420;

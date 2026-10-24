@@ -1,7 +1,8 @@
 <script lang="ts">
+  import ArticleList from "./ArticleList.svelte";
   import SidebarBand from "./SidebarBand.svelte";
   import ThemeToggle from "./ThemeToggle.svelte";
-  import { READING_LIST, STATE_STARRED, isRead, type StreamItem, type Subscription } from "../api/freshrss";
+  import { READING_LIST, STATE_STARRED, type Subscription } from "../api/freshrss";
   import {
     LongPressTracker,
     anchorForRect,
@@ -10,15 +11,24 @@
   } from "../lib/contextmenu";
   import { parseFeedUrls } from "../lib/add-feeds";
   import { buildOpml, opmlFileName, parseOpml } from "../lib/opml";
-  import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
-  import { relativeTime } from "../lib/format";
+  import {
+    DEFAULT_ICON_PROVIDER,
+    feedIcon,
+    feedIconImage,
+    markFeedIconBroken,
+    type FeedIcon,
+    type FeedIconFailures,
+    type FeedIconProvider,
+  } from "../lib/feedicon";
   import { pullDown } from "../lib/pull";
-  import { thumbnailOf, type ThumbSource } from "../lib/thumb";
+  import { createFeedDrag, LIST_CATEGORIES } from "../lib/feed-drag";
   import { reading } from "../state/reading.svelte";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
-  import { searchFeeds } from "../lib/search";
+  import { groupHits, searchFeeds } from "../lib/search";
+  import { authorPanel, peoplePanel, toggleSearch } from "../lib/people";
   import { search } from "../state/search.svelte";
+  import { people } from "../state/people.svelte";
   import { theme } from "../state/theme.svelte";
   import { chrome } from "../state/chrome.svelte";
 
@@ -48,28 +58,177 @@
   const searching = $derived(search.query.trim() !== "");
 
   /**
+   * The field itself.
+   *
+   * Held so clearing can be a write to the input and not only to the state
+   * behind it: a search input keeps its own value, and an empty query behind a
+   * box still showing text reads as a field that will not clear.
+   */
+  let findBox = $state<HTMLInputElement | null>(null);
+
+  /**
    * Matches, best first. Names always; post text only when the toggle is on and
    * the text has been extracted, which is why the index is passed as null
    * otherwise rather than being searched and found empty.
    */
-  const hits = $derived(
-    searchFeeds(
-      search.query,
-      reader.categories.map((category) => ({ label: category.label, feeds: category.feeds })),
-      search.deep ? search.index : null,
-    ),
+  const groups = $derived(
+    reader.categories.map((category) => ({
+      id: category.id,
+      label: category.label,
+      feeds: category.feeds,
+    })),
   );
 
-  const categoryOf = $derived(
-    new Map(
-      reader.categories.flatMap((category) =>
-        category.feeds.map((feed) => [feed.id, category.label] as const),
-      ),
-    ),
+  const hits = $derived(
+    searchFeeds(search.query, groups, search.deep ? search.index : null),
   );
+
+  /** The same hits under the categories they live in. */
+  const hitGroups = $derived(groupHits(search.query, hits, groups));
+
+  /**
+   * What the field is searching right now.
+   *
+   * The toggle is always in the field — a control that appears only on some
+   * servers makes the same field a different width per account, and a mode with
+   * no way to see it is a mode nobody finds. Availability decides what the
+   * toggle searches, never whether it is there: names where the server can look
+   * them up, the account's own authors where it cannot.
+   */
+  const mode = $derived(people.modeFor(reader.session));
+
+  /** The second search itself, which is also what the field promises while off. */
+  const second = $derived(people.secondFor(reader.session));
+
+  /**
+   * What the list says while people mode is on.
+   *
+   * The toggle is exclusive, so this is the whole of the list in that mode: the
+   * feed and category rows are not drawn beside it, and there is nothing to
+   * fall back to when the answer is empty or broken — which is why "broke" and
+   * "nothing matched" are two different answers here rather than one line.
+   */
+  const panel = $derived(
+    peoplePanel({
+      query: search.query,
+      settled: people.settled(search.query),
+      count: people.results.length,
+      note: people.note,
+    }),
+  );
+
+  /**
+   * People rows, with the feed each one already is when it is subscribed.
+   *
+   * The lookup answers with a name and whether it is subscribed, never with a
+   * stream id — so the feed to open is found in the sidebar by that name. A
+   * subscribed name with no feed behind it is drawn as a plain statement rather
+   * than a button that would do nothing.
+   */
+  const peopleRows = $derived(
+    people.results.map((person) => {
+      const name = person.name.toLocaleLowerCase();
+      return {
+        name: person.name,
+        added: person.added,
+        feed: reader.subscriptions.find((feed) => feed.title.toLocaleLowerCase() === name) ?? null,
+      };
+    }),
+  );
+
+  /**
+   * The author index, kept in step with the posts the app already holds.
+   *
+   * Nothing here asks for anything: the index is rebuilt when the held post
+   * list changes — a page of older posts, or another stream — and left alone
+   * while only the field changes, so typing costs a scan of a list already in
+   * memory. Built even while the toggle is off, because the mode has to be able
+   * to answer on the first keystroke after it is turned on.
+   */
+  $effect(() => {
+    people.indexAuthors(reader.items);
+  });
+
+  /** The author rows what is typed narrows the index to. */
+  const authorRows = $derived(people.authorMatches(search.query));
+
+  /**
+   * What author mode says: what to type, then the truth about the answer. There
+   * is no waiting state — the index is in memory, so the answer is the same
+   * frame as the keystroke.
+   */
+  const authorView = $derived(authorPanel(search.query, authorRows.length));
+
+  /**
+   * Typing drives the lookup, once the field has rested. The store abandons the
+   * request before the last keystroke, so a slow answer to "ant" cannot arrive
+   * under "antonio".
+   */
+  $effect(() => {
+    people.watch(search.query, reader.session, mode);
+  });
+
+  /**
+   * The author filter only exists while its mode does. Availability can change
+   * under a session (a fresh `/state` answer), and a narrow list with no row on
+   * screen to widen it again would be a filter the user cannot see or lift.
+   */
+  $effect(() => {
+    if (mode !== "author" && reader.authorFilter !== null) reader.setAuthorFilter(null);
+  });
+
+  function togglePeople() {
+    // One turn decides the mode, the text and the filter together, so the three
+    // cannot disagree about what a press meant.
+    const turn = toggleSearch({ enabled: people.enabled, query: search.query, author: reader.authorFilter });
+    people.setEnabled(turn.enabled);
+    // Off is the whole feed list: the author the posts were narrowed to is let
+    // go with the mode, so nothing stays filtered behind an off toggle.
+    reader.setAuthorFilter(turn.author);
+    if (turn.query === search.query) return;
+    // Off, and there was something in the field: the empty query is what brings
+    // the whole feed list back, and it is written to the input as well as to the
+    // state — a search input keeps its own value, and an empty query behind a
+    // box that still shows text reads as a field that will not clear.
+    search.clear();
+    if (findBox !== null) findBox.value = "";
+  }
+
+  /**
+   * A picked author narrows the posts and nothing else: the mode stays on and
+   * the field keeps what is typed, so the rows under it still answer the same
+   * name and the way back is in sight rather than a blank box.
+   */
+  function chooseAuthor(name: string) {
+    reader.setAuthorFilter(reader.authorFilter === name ? null : name);
+  }
+
+  /**
+   * The field's own ×: both kinds of search end with it, so it clears the query
+   * and the author filter together — otherwise the posts would stay narrowed by
+   * a name the field no longer shows.
+   */
+  function clearFind() {
+    search.clear();
+    reader.setAuthorFilter(null);
+    if (findBox !== null) findBox.value = "";
+  }
+
+  /**
+   * A person row is one of two things: a subscription to add, or a feed to open.
+   */
+  async function choosePerson(name: string, added: boolean, feed: Subscription | null) {
+    if (!added) {
+      if (await people.add(reader.session, name)) await reader.loadSidebar();
+      return;
+    }
+    if (feed === null) return;
+    if (inlinePosts) jumpTo(feed);
+    else void open(feed.id, feed.title);
+  }
 
   function submitSearch(event: KeyboardEvent) {
-    if (event.key === "Escape") search.clear();
+    if (event.key === "Escape") clearFind();
   }
 
   function toggleDeep() {
@@ -80,8 +239,16 @@
    * `inlinePosts` is the one-panel layout: there is no posts column to step
    * into, so a feed opens under itself and the reader is the only thing that
    * replaces the sidebar.
+   *
+   * `iconProvider` is where a feed's mark comes from. The default is the
+   * feed's own icon, served by the server this client is signed in to; a
+   * build for local feeds with no FreshRSS behind them can pass `third-party`
+   * instead. Until it does, nothing is ever requested from a third party.
    */
-  let { inlinePosts = false }: { inlinePosts?: boolean } = $props();
+  let { inlinePosts = false, iconProvider = DEFAULT_ICON_PROVIDER }: {
+    inlinePosts?: boolean;
+    iconProvider?: FeedIconProvider;
+  } = $props();
 
   /**
    * The feed whose posts are showing underneath it. One at a time, and kept in
@@ -97,13 +264,19 @@
   let feedUrl = $state("");
 
   /**
-   * Feed ids whose icon failed to load. A dead icon falls back to the letter
-   * tile instead of leaving a broken-image gap in the list.
+   * Image URLs that failed to load. A dead icon falls back to the letter tile
+   * instead of leaving a broken-image gap in the list, and the failure is
+   * remembered against the URL, so a feed whose icon changes is tried again.
    */
-  let brokenIcons = $state<Record<string, boolean>>({});
+  let brokenIcons = $state<FeedIconFailures>({});
 
-  function iconFor(feed: Subscription): string | undefined {
-    return feedIconSrc(feed.iconUrl, reader.session?.serverUrl ?? "");
+  /**
+   * The mark for a feed: its icon through the chosen provider, or its initial.
+   * Resolved once per feed shape and remembered, so a re-render is a lookup
+   * and never another request for an icon already on screen.
+   */
+  function iconFor(feed: Subscription): FeedIcon {
+    return feedIcon(feed, { serverUrl: reader.session?.serverUrl ?? "", provider: iconProvider });
   }
 
   /**
@@ -172,28 +345,6 @@
   }
 
   /**
-   * The same picture the posts column would have shown, worked out once per
-   * post. Nothing is fetched here — `thumbnailOf` only decides a URL from what
-   * the feed already sent — so an unfolded feed costs no extra requests.
-   */
-  const thumbnails = new WeakMap<StreamItem, string | null>();
-
-  function thumbnail(item: StreamItem): string | null {
-    const known = thumbnails.get(item);
-    if (known !== undefined) return known;
-    const found = thumbnailOf(item as ThumbSource).url;
-    thumbnails.set(item, found);
-    return found;
-  }
-
-  /** A hotlinked picture that fails is dropped, not left as a broken box. */
-  let brokenThumbs = $state<string[]>([]);
-
-  function thumbFailed(id: string) {
-    brokenThumbs = [...brokenThumbs, id];
-  }
-
-  /**
    * Pulling the list down asks for news.
    *
    * With a feed open that means that feed; with nothing open there is no "that
@@ -202,11 +353,6 @@
   function pullRefresh(): void {
     if (reader.activeStream !== "") void reader.reloadStream({ force: true });
     else void reader.refresh();
-  }
-
-  /** A post under an open feed: the reader is the one thing that takes over. */
-  function openPost(item: StreamItem) {
-    reader.select(item);
   }
 
 
@@ -258,10 +404,69 @@
 
   function onCategoryPointerDown(event: PointerEvent, category: CategoryGroup) {
     armPress(event, (point) => reader.openCategoryMenu(category.label, point));
+    // Same press, two readings: a small move is still a click or a long press, a
+    // real drag cancels the press and the menu never opens behind it.
+    categoryDrag.arm(event, category.id);
   }
+
+  /**
+   * Where a dragged feed would land, while a feed is being dragged.
+   *
+   * Held here rather than in the drag module so the sidebar can draw the
+   * insertion line: the module only says what is under the pointer, the markup
+   * decides what that looks like.
+   */
+  let drop = $state<{ target: string; before: string | null } | null>(null);
+
+  /**
+   * Where a dragged *category* would land. A second value, not a second module:
+   * the two drags never arm at once, because each only arms from its own rows
+   * and a category title is never a feed row.
+   */
+  let catDrop = $state<{ target: string; before: string | null } | null>(null);
+
+  // The drop rules live with the drag (`FEED_ROWS` in `lib/feed-drag.ts`): a
+  // feed dropped just over a folder's title belongs to the folder *above* it —
+  // the space above a title is where the previous folder ends, not a way into
+  // this one. The rows carry the attributes those rules read.
+  const feedDrag = createFeedDrag({
+    // A drag and a long-press start the same way; the drag wins once the
+    // pointer travels, so the context menu must not open behind it.
+    onStart: () => cancelPress(),
+    onHover: (target) => (drop = target),
+    onEnd: () => (drop = null),
+    onDrop: ({ moving, target, before }) => {
+      void reader.arrangeFeed(moving, target, before);
+    },
+  });
+
+  const categoryDrag = createFeedDrag(
+    {
+      onStart: () => cancelPress(),
+      onHover: (target) => (catDrop = target),
+      onEnd: () => (catDrop = null),
+      // Order only: nothing about membership, hidden state or pins moves, and
+      // nothing is sent — this is a local arrangement, like the feeds'.
+      onDrop: ({ moving, before }) => reader.arrangeCategory(moving, before),
+    },
+    {
+      rowAttr: "data-drop-cat-row",
+      targetAttr: "data-drop-cat-row",
+      nextAttr: "data-drop-cat-next",
+      sectionAttr: "data-cat-section",
+      sectionNextAttr: "data-cat-next",
+      listName: LIST_CATEGORIES,
+    },
+  );
+
+  $effect(() => () => {
+    feedDrag.dispose();
+    categoryDrag.dispose();
+  });
 
   function onFeedPointerDown(event: PointerEvent, feed: Subscription) {
     armPress(event, (point) => reader.openFeedMenu({ id: feed.id, title: feed.title }, point));
+    feedDrag.arm(event, feed.id);
   }
 
   function onPointerMove(event: PointerEvent) {
@@ -418,7 +623,7 @@
   }
 </script>
 
-<nav class="sidebar" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
+<nav class="sidebar" data-pane="feeds" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
   <!-- One field, filtering as you type: no submit button, no separate mode
        button beside it. The paragraph mark inside the field is the "also search
        post text" switch, kept quiet until it is wanted. It sits above the band
@@ -435,13 +640,42 @@
       aria-label="Search feeds"
       autocomplete="off"
       spellcheck="false"
+      bind:this={findBox}
       value={search.query}
       oninput={(event) => search.setQuery(event.currentTarget.value)}
       onkeydown={submitSearch}
     />
-    {#if searching}
-      <button class="find-clear" aria-label="Clear search" title="Clear search (Esc)" onclick={() => search.clear()}>×</button>
+    {#if searching || reader.authorFilter !== null}
+      <button class="find-clear" aria-label="Clear search" title="Clear search (Esc)" onclick={clearFind}>×</button>
     {/if}
+    <!-- Always here, on every account: a mode switch, not a capability badge.
+         Its second mode is whatever this account can actually search — names,
+         or the authors of the feeds it already has. -->
+    <button
+      class="find-deep find-person"
+      class:on={mode !== "feeds"}
+      aria-pressed={mode !== "feeds"}
+      aria-label={mode === "people"
+        ? "Searching people only — click for feeds"
+        : mode === "author"
+          ? "Searching your authors only — click for feeds"
+          : second === "people"
+            ? "Search people by name instead of feeds"
+            : "Search your authors instead of feeds"}
+      title={mode === "people"
+        ? "Searching people only — click to search feeds"
+        : mode === "author"
+          ? "Searching your authors only — click to search feeds"
+          : second === "people"
+            ? "Searching feeds — click to search people instead"
+            : "Searching feeds — click to search your authors instead"}
+      onclick={togglePeople}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    </button>
     <button
       class="find-deep"
       class:on={search.deep}
@@ -489,13 +723,13 @@
         max={reader.sidebarIndent.max}
         step="1"
         value={reader.sidebarIndent.px}
-        disabled={!reader.sidebarIndent.available}
         aria-label="Feed name indent"
         title={reader.indentError ??
-          (reader.sidebarIndent.available
-            ? "Feed name indent, shared with the Sidebar Feed Indent extension"
-            : "Sidebar Feed Indent is not enabled on this server")}
+          (reader.indentDeviceOnly
+            ? "Feed name indent, kept on this device — Sidebar Feed Indent is not storing it on the server"
+            : "Feed name indent, shared with the Sidebar Feed Indent extension")}
         oninput={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value))}
+        onchange={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value), true)}
       />
     {/if}
     <span class="right"><ThemeToggle /></span>
@@ -513,30 +747,145 @@
       onPull: pullRefresh,
     }}
   >
-  {#if searching}
-    <div class="section">
-      {#if hits.length === 0}
-        <p class="empty">
-          No feed matches “{search.query}”.{#if !search.deep} Names only — ¶ also searches inside posts.{/if}
-        </p>
-      {:else}
-        {#each hits as hit (hit.feed.id)}
+  {#if mode === "people"}
+    <!-- People mode owns the list. The category and feed rows are not drawn at
+         all while it is on — not filtered down to nothing and not hidden with
+         CSS — so the field searches names and nothing else, and turning the
+         toggle off brings the whole tree back exactly as it was. -->
+    {#if panel === "prompt"}
+      <p class="empty">Type a name to search people.</p>
+    {:else if panel === "waiting"}
+      <p class="find-note">Looking for people…</p>
+    {:else if panel === "failed"}
+      <!-- A lookup that broke says so in the space the rows would have taken:
+           "nothing matched" is a different answer and is not borrowed for it. -->
+      <div class="section">
+        <p class="empty">{people.note}</p>
+      </div>
+    {:else if panel === "names"}
+      <div class="section">
+        <div class="group">
+          <div class="row group-title search-title">
+            <span class="label">People</span>
+          </div>
+        </div>
+        {#each peopleRows as person (person.name)}
           <button
             class="row feed hit"
-            class:active={reader.activeStream === hit.feed.id}
-            onclick={() => (inlinePosts ? jumpTo(hit.feed) : open(hit.feed.id, hit.feed.title))}
+            disabled={person.added && person.feed === null}
+            aria-label={person.added ? `${person.name}, already in your feeds` : `Add ${person.name}`}
+            onclick={() => void choosePerson(person.name, person.added, person.feed)}
           >
-            <span class="label">{hit.feed.title}</span>
-            {#if hit.via === "category"}
-              <span class="why">in {categoryOf.get(hit.feed.id) ?? "category"}</span>
-            {:else if hit.via === "text" && hit.postTitle}
-              <span class="why">“{hit.postTitle}”</span>
-            {/if}
-            <span class="count">{reader.countFor(hit.feed.id)}</span>
+            <span class="label">{person.name}</span>
+            <span class="why">
+              {people.adding === person.name ? "Adding…" : person.added ? "Subscribed" : "Add"}
+            </span>
           </button>
         {/each}
+      </div>
+      {#if people.note !== null}
+        <p class="find-note">{people.note}</p>
       {/if}
-    </div>
+    {:else}
+      <div class="section">
+        <p class="empty">No one named “{search.query}”.</p>
+      </div>
+    {/if}
+  {:else if mode === "author"}
+    <!-- The second search on an account whose server cannot look names up: the
+         authors of the posts this app has already loaded. Nothing here asks for
+         anything — the index is rebuilt when the held post list changes and the
+         field only filters it — so the rows are there on the first keystroke.
+         A row narrows the posts column to that author; the row above the list
+         is the way back, and so are the field's × and turning this toggle off. -->
+    {#if reader.authorFilter !== null}
+      <div class="section">
+        <button
+          class="row feed hit"
+          title="Show every post in this stream again"
+          onclick={() => reader.setAuthorFilter(null)}
+        >
+          <span class="label">Posts by {reader.authorFilter}</span>
+          <span class="why">Show all</span>
+        </button>
+      </div>
+    {/if}
+    {#if authorView === "prompt"}
+      <p class="empty">Type an author's name.</p>
+    {:else if authorView === "names"}
+      <div class="section">
+        <div class="group">
+          <div class="row group-title search-title">
+            <span class="label">Authors</span>
+            <span class="why">{authorRows.length} of {people.authors.length}</span>
+          </div>
+        </div>
+        {#each authorRows as author (author.name)}
+          <button
+            class="row feed hit"
+            class:active={reader.authorFilter === author.name}
+            aria-pressed={reader.authorFilter === author.name}
+            title={reader.authorFilter === author.name
+              ? `Showing only ${author.name} — click to show everyone`
+              : `Show only posts by ${author.name}`}
+            onclick={() => chooseAuthor(author.name)}
+          >
+            <span class="label">{author.name}</span>
+            <span class="count">{author.count}</span>
+          </button>
+        {/each}
+      </div>
+    {:else}
+      <div class="section">
+        <p class="empty">
+          No author named “{search.query}” in the posts you have loaded.
+        </p>
+      </div>
+    {/if}
+  {:else if searching}
+    {#if hits.length === 0}
+      <div class="section">
+        <p class="empty">
+          No feed or category matches “{search.query}”.{#if !search.deep} Names only — ¶ also searches inside posts.{/if}
+        </p>
+      </div>
+    {:else}
+        <!-- Results keep their category around them. A category is the frame a
+             feed list is read in, so a feed found by name still sits under its
+             heading holding only what matched — and a heading that matched by
+             name brings all of its feeds with it. -->
+        {#each hitGroups as group (group.id)}
+          <div class="section">
+            <div class="group">
+              <div class="row group-title search-title" class:pinned={reader.isCategoryPinned(group.label)}>
+                {#if reader.isCategoryPinned(group.label)}
+                  <svg class="pin" viewBox="0 0 24 24" role="img" aria-label={words.count}>
+                    <path d={MARKER_PATH} />
+                  </svg>
+                {/if}
+                <span class="label">{group.label}</span>
+                {#if group.hits.length < group.total}
+                  <span class="why">{group.hits.length} of {group.total}</span>
+                {/if}
+                <span class="count">{reader.countFor(group.id)}</span>
+              </div>
+            </div>
+            {#each group.hits as hit (hit.feed.id)}
+              <button
+                class="row feed hit"
+                class:active={reader.activeStream === hit.feed.id}
+                onclick={() => (inlinePosts ? jumpTo(hit.feed) : open(hit.feed.id, hit.feed.title))}
+              >
+                <span class="label">{hit.feed.title}</span>
+                {#if hit.via === "text" && hit.postTitle}
+                  <span class="why">“{hit.postTitle}”</span>
+                {/if}
+                <span class="count">{reader.countFor(hit.feed.id)}</span>
+              </button>
+            {/each}
+        </div>
+      {/each}
+    {/if}
 
     {#if search.deep && search.indexedCount() === 0 && hits.length > 0}
       <p class="find-note">No post text indexed yet — feed names still match.</p>
@@ -561,18 +910,43 @@
     </button>
   </div>
 
-  {#each reader.categories as category (category.id)}
+  {#each reader.categories as category, index (category.id)}
     {@const pinned = reader.isCategoryPinned(category.label)}
     {@const hiddenCat = reader.isCategoryHidden(category.label)}
     {@const folded = reader.isCategoryCollapsed(category.id)}
-    <div class="section">
+    <div
+      class="section"
+      data-cat-section={category.id}
+      data-cat-next={reader.categories[index + 1]?.id ?? null}
+      data-drop-section={category.label}
+    >
       <div class="group">
         <button
           class="row group-title"
           class:active={reader.activeStream === category.id}
           class:pinned
           class:is-hidden={hiddenCat}
-          onclick={() => toggle(category.id)}
+          class:drop-into={drop !== null && drop.target === category.label && drop.before === null}
+          class:drop-end={drop !== null &&
+            drop.target === category.label &&
+            drop.before === null &&
+            (folded || category.feeds.length === 0)}
+          class:drop-cat-before={catDrop !== null && catDrop.before === category.id}
+          class:drop-cat-end={catDrop !== null &&
+            catDrop.before === null &&
+            index === reader.categories.length - 1}
+          data-drop-cat={category.label}
+          data-drop-cat-row={category.id}
+          data-drop-cat-next={reader.categories[index + 1]?.id ?? null}
+          data-drop-head={category.label}
+          data-drop-head-prev={reader.categories[index - 1]?.label ?? ""}
+          data-drop-head-first={category.feeds[0]?.id ?? ""}
+          onclick={() => {
+            // The drag ends with a click on the row it landed on; without this
+            // every reorder would also fold or unfold the group.
+            if (categoryDrag.justDropped()) return;
+            toggle(category.id);
+          }}
           aria-expanded={!folded}
           aria-label={folded ? `Expand ${category.label}` : `Collapse ${category.label}`}
           onpointerenter={() => reader.prefetchStream(category.id)}
@@ -610,13 +984,31 @@
       </div>
 
       {#if !folded}
-        {#each category.feeds as feed (feed.id)}
+        {#each category.feeds as feed, index (feed.id)}
+          <!-- Resolved once for the row: a re-render looks the mark up rather
+               than asking the provider again. -->
+          {@const icon = iconFor(feed)}
+          {@const mark = feedIconImage(icon, brokenIcons)}
           <button
             class="row feed"
             class:active={reader.activeStream === feed.id}
             class:pinned={reader.isFeedPinned(feed.id)}
             class:unfolded={inlinePosts && expandedFeed === feed.id}
-            onclick={() => (inlinePosts ? void toggleFeed(feed) : openFeed(feed))}
+            class:drop-before={drop !== null && drop.target === category.label && drop.before === feed.id}
+            class:drop-after={drop !== null &&
+              drop.target === category.label &&
+              drop.before === null &&
+              index === category.feeds.length - 1}
+            data-drop-feed={feed.id}
+            data-drop-cat={category.label}
+            data-drop-next={category.feeds[index + 1]?.id ?? null}
+            data-no-drag-scroll
+            onclick={() => {
+              // The drag ends with a click on whatever the pointer was over.
+              if (feedDrag.justDropped()) return;
+              if (inlinePosts) void toggleFeed(feed);
+              else openFeed(feed);
+            }}
             aria-expanded={inlinePosts ? expandedFeed === feed.id : undefined}
             onpointerenter={() => reader.prefetchStream(feed.id)}
             onfocus={() => reader.prefetchStream(feed.id)}
@@ -635,18 +1027,19 @@
                 <path d={MARKER_PATH} />
               </svg>
             {/if}
-            {#if iconFor(feed) !== undefined && !brokenIcons[feed.id]}
+            {#if mark !== undefined}
               <img
                 class="icon"
-                src={iconFor(feed)}
+                src={mark}
                 alt=""
                 loading="lazy"
                 decoding="async"
-                onerror={() => (brokenIcons = { ...brokenIcons, [feed.id]: true })}
+                referrerpolicy="no-referrer"
+                onerror={() => (brokenIcons = markFeedIconBroken(brokenIcons, mark))}
               />
             {:else}
-              <span class="icon letter" style="--hue: {feedHue(feed.title)}" aria-hidden="true"
-                >{feedInitial(feed.title)}</span
+              <span class="icon letter" style="--hue: {icon.hue}" aria-hidden="true"
+                >{icon.initial}</span
               >
             {/if}
             <span class="label">{feed.title}</span>
@@ -656,42 +1049,11 @@
           </button>
 
           {#if inlinePosts && expandedFeed === feed.id}
-            <div class="posts" aria-label={`Posts in ${feed.title}`}>
-              {#if reader.loadingList && reader.items.length === 0}
-                <p class="posts-note">Loading…</p>
-              {:else if reader.listItems.length === 0}
-                <p class="posts-note">No posts.</p>
-              {:else}
-                {#each reader.listItems as item (item.id)}
-                  <button
-                    class="post"
-                    class:read={isRead(item)}
-                    onclick={() => openPost(item)}
-                    title={item.title}
-                  >
-                    <span class="post-title">{item.title || "(untitled)"}</span>
-                    <span class="post-time">{relativeTime(item.timestampUsec, item.published)}</span>
-                    {#if reading.thumbSide !== "off" && thumbnail(item) !== null && !brokenThumbs.includes(item.id)}
-                      <span
-                        class="post-thumb"
-                        class:left={reading.thumbSide === "left"}
-                        aria-hidden="true"
-                      >
-                        <img
-                          src={thumbnail(item)}
-                          alt=""
-                          loading="lazy"
-                          decoding="async"
-                          referrerpolicy="no-referrer"
-                          draggable="false"
-                          onerror={() => thumbFailed(item.id)}
-                        />
-                      </span>
-                    {/if}
-                  </button>
-                {/each}
-              {/if}
-            </div>
+            <!-- The posts of this feed, in the same list the other modes show:
+                 the same four views, the same star and read toggles, and the
+                 feed's mark in the bar above them. Nested, so it does not try
+                 to be a column with its own scrollbar. -->
+            <ArticleList nested />
           {/if}
         {/each}
       {/if}
@@ -699,7 +1061,7 @@
   {/each}
   {/if}
 
-  {#if reader.subscriptions.length === 0 && !reader.loadingList}
+  {#if mode === "feeds" && reader.subscriptions.length === 0 && !reader.loadingList}
     <p class="empty">No feeds yet.</p>
   {/if}
   </div>
@@ -876,12 +1238,15 @@
     margin-top: 2px;
   }
 
+  /* Counts line up at one right edge across every kind of row: the feed row's
+     padding and the category button's padding meet the same 10px inset, so the
+     numbers read as one column instead of two, two pixels apart. */
   .row {
     display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 7px 12px 7px 16px;
+    padding: 7px 10px 7px 16px;
     border: 0;
     background: none;
     transition: background-color 120ms ease, box-shadow 120ms ease;
@@ -1023,6 +1388,79 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Where the feed will land. A line above the row, not a gap: the row keeps its
+     height so nothing under the pointer moves while the pointer is over it. */
+  .feed.drop-before::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: -1px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+
+  /* The end of a folder: the line goes under the row that would become its
+     last, because the slot itself has no row of its own to sit on. */
+  .feed.drop-after::after {
+    content: "";
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+
+  /* Same idea when the folder is folded or empty and draws no rows: its title
+     says where the feed would go. */
+  .group-title.drop-end::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+
+  /* Where the dragged category will land: the same bar the feed rows use, on
+     the folder title. The row keeps its height, so nothing shifts under the
+     pointer while it is over a target. */
+  .group-title.drop-cat-before::before {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    top: -1px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+
+  /* The last slot has no row below it to light up, so the end of the list says
+     it itself — otherwise the only drop in the sidebar with no feedback would be
+     the one that puts a category last. */
+  .group-title.drop-cat-end::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+
+  /* Dropped on the category itself: the end of that category's list. */
+  .group-title.drop-into {
+    box-shadow: inset 0 0 0 1px var(--accent);
+    border-radius: 5px;
+  }
+
   /* Feed rows take the server's indent on top of a small base inset. The base
      used to be 34px — a full caret column's width — which pushed the first
      child's icon 46px into a 250px sidebar and its name to ~70px, so the tree
@@ -1031,6 +1469,9 @@
      category by size, weight and colour rather than by a deep column. Category
      rows still take no indent: that is the hierarchy the indent expresses. */
   .feed {
+    /* The drop line is drawn against the row's own box, so the row has to be
+       the containing block for it. */
+    position: relative;
     padding-left: calc(8px + var(--feed-indent, 12px));
     font-size: 12.5px;
     color: var(--text-dim);
@@ -1049,89 +1490,6 @@
      column as the feed's name so the nesting is legible without the feed's icon
      column being repeated, and quiet enough that the feeds below still read as
      the list's spine. */
-  .posts {
-    display: flex;
-    flex-direction: column;
-    padding: 2px 6px 4px calc(30px + var(--feed-indent, 12px));
-    gap: 1px;
-  }
-
-  .post {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 4px 6px;
-    border: 0;
-    border-radius: 6px;
-    background: none;
-    color: var(--text-dim);
-    font: inherit;
-    font-size: 12px;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .post:hover {
-    background: var(--hover);
-    color: var(--text);
-  }
-
-  .post.read {
-    color: var(--muted);
-  }
-
-  .post-title {
-    flex: 1;
-    min-width: 0;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    line-height: 1.35;
-  }
-
-  .post-time {
-    flex: none;
-    color: var(--muted);
-    font-size: 10.5px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* The picture the feed chose, at the size the reader asked for in Aa — the
-     same 48px × row × picture scales as the posts column, so the size setting
-     means one thing everywhere. A row without a picture keeps its plain shape
-     rather than reserving a box. */
-  .post-thumb {
-    display: block;
-    flex: none;
-    width: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    height: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    border-radius: 5px;
-    overflow: hidden;
-    background: var(--hover);
-  }
-
-  .post-thumb.left {
-    order: -1;
-  }
-
-  .post-thumb img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    color: transparent;
-  }
-
-  .posts-note {
-    margin: 0;
-    padding: 3px 6px 5px;
-    color: var(--muted);
-    font-size: 11.5px;
-  }
-
   .label {
     flex: 1;
     overflow: hidden;
@@ -1254,6 +1612,26 @@
     background: var(--accent-soft);
   }
 
+  /* The portrait mark is the same quiet control as the paragraph mark, with a
+     glyph instead of a character: it inherits the size, the dimming and the
+     "on" state, and only the drawing belongs to it. */
+  .find-person svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* A subscribed name with no feed behind it states the fact instead of
+     offering a press that would do nothing. */
+  .hit:disabled {
+    cursor: default;
+    opacity: 0.65;
+  }
+
   .find-note {
     margin: 0;
     padding: 0 16px 6px;
@@ -1268,6 +1646,19 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  /* The result heading is a label, not a control: it names the frame the rows
+     under it are drawn in. The "2 of 7" says the category is only partly here. */
+  .search-title {
+    cursor: default;
+    padding-right: 12px;
+  }
+
+  .search-title .why {
+    flex: 0 0 auto;
+    font-size: 10px;
     color: var(--muted);
   }
 

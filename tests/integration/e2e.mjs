@@ -140,11 +140,10 @@ async function main() {
     check(`fixture category ${id} starts visible`, row?.hidden === false, JSON.stringify(row ?? null));
   }
 
-  check(
-    "Favorite Categories is absent, and reported unavailable",
-    initial.json?.favorites?.available === false,
-    JSON.stringify(initial.json?.favorites ?? null),
-  );
+  const favorites = initial.json?.favorites ?? null;
+  check("Pinned Categories is installed and available", favorites?.available === true, JSON.stringify(favorites));
+  check("nothing is pinned at the start", same(favorites?.ids ?? null, []), JSON.stringify(favorites?.ids ?? null));
+  check("the favourites view starts at all", favorites?.view === "all", String(favorites?.view));
   check(
     "Sidebar Feed Indent is absent, and reported unavailable",
     initial.json?.sidebarIndent?.available === false,
@@ -218,19 +217,139 @@ async function main() {
   const badView = await api("/hidden-categories/view", { method: "PUT", token, body: { view: "bogus" } });
   check("an unknown view is 400", badView.status === 400 && badView.json?.error?.code === "invalid_view", String(badView.status));
 
-  // --- absent collaborators degrade, they do not 500 ----------------------
-  const favorite = await api("/favorites/101", { method: "PUT", token, body: { favorite: true } });
+  // --- pinning, against a real Pinned Categories --------------------------
+  const noPin = await api("/favorites/999", { method: "PUT", token, body: { favorite: true } });
   check(
-    "favoriting without Favorite Categories is 409 favorites_unavailable",
-    favorite.status === 409 && favorite.json?.error?.code === "favorites_unavailable",
-    `${favorite.status} ${String(favorite.json?.error?.code)}`,
+    "pinning an absent category is 404",
+    noPin.status === 404 && noPin.json?.error?.code === "category_not_found",
+    `${noPin.status} ${String(noPin.json?.error?.code)}`,
   );
 
-  const favoriteView = await api("/favorites/view", { method: "PUT", token, body: { view: "only" } });
+  const pin = await api("/favorites/101", { method: "PUT", token, body: { favorite: true } });
+  check("pinning category 101 is 200", pin.status === 200, String(pin.status));
+  check("…and reports changed", pin.json?.changed === true, String(pin.json?.changed));
+
+  const pinAgain = await api("/favorites/101", { method: "PUT", token, body: { favorite: true } });
+  check("pinning it again is 200", pinAgain.status === 200, String(pinAgain.status));
+  check("…and reports no change", pinAgain.json?.changed === false, String(pinAgain.json?.changed));
+
+  const afterPin = (await api("/state", { token })).json?.favorites;
+  check("a fresh GET reports 101 pinned", same(afterPin?.ids, [101]), JSON.stringify(afterPin?.ids ?? null));
   check(
-    "the favorites view without Favorite Categories is 409 favorites_unavailable",
-    favoriteView.status === 409 && favoriteView.json?.error?.code === "favorites_unavailable",
-    `${favoriteView.status} ${String(favoriteView.json?.error?.code)}`,
+    "…and 101 flagged in the category list",
+    afterPin?.categories?.find((entry) => entry.id === 101)?.favorite === true,
+    JSON.stringify(afterPin?.categories?.find((entry) => entry.id === 101) ?? null),
+  );
+
+  const onlyPinned = await api("/favorites/view", { method: "PUT", token, body: { view: "only" } });
+  check("switching to the pinned-only view is 200", onlyPinned.status === 200, String(onlyPinned.status));
+  check(
+    "…and a fresh GET reports it",
+    (await api("/state", { token })).json?.favorites?.view === "only",
+    String((await api("/state", { token })).json?.favorites?.view),
+  );
+
+  const badFavoritesView = await api("/favorites/view", { method: "PUT", token, body: { view: "bogus" } });
+  check(
+    "an unknown favourites view is 400",
+    badFavoritesView.status === 400 && badFavoritesView.json?.error?.code === "invalid_view",
+    `${badFavoritesView.status} ${String(badFavoritesView.json?.error?.code)}`,
+  );
+
+  // Pinning and hiding are different facts about one category: setting one must
+  // not disturb the other. 101 is hidden by the section above when this runs.
+  const both = await api("/state", { token });
+  check(
+    "a category can be pinned and hidden at the same time",
+    (both.json?.favorites?.ids ?? []).includes(101) && state(both).hiddenIds.includes(101),
+    JSON.stringify({ favorites: both.json?.favorites?.ids ?? null, hidden: state(both).hiddenIds }),
+  );
+
+  const unpin = await api("/favorites/101", { method: "PUT", token, body: { favorite: false } });
+  check("unpinning 101 is 200", unpin.status === 200, String(unpin.status));
+  check(
+    "…and nothing is pinned",
+    same((await api("/state", { token })).json?.favorites?.ids, []),
+    JSON.stringify((await api("/state", { token })).json?.favorites?.ids ?? null),
+  );
+
+  const backToAll = await api("/favorites/view", { method: "PUT", token, body: { view: "all" } });
+  check("switching the favourites view back is 200", backToAll.status === 200, String(backToAll.status));
+
+  // --- the pin order, against core's own category positions ----------------
+  // Pins are the category's `position` attribute, so this is a real round trip
+  // to the database column the website sorts by — not a list this API keeps.
+  const pinsStart = (await api("/state", { token })).json?.pins;
+  check("GET /v1/state reports a pin order", pinsStart?.available === true, JSON.stringify(pinsStart ?? null));
+  check(
+    "the position seeded before any API call is reported",
+    same(pinsStart?.categories ?? null, [103]),
+    JSON.stringify(pinsStart?.categories ?? null),
+  );
+
+  const pinFirst = await api("/pins/category/102", { method: "PUT", token, body: { pinned: true } });
+  check("pinning category 102 is 200", pinFirst.status === 200, String(pinFirst.status));
+  check("…and reports changed", pinFirst.json?.changed === true, String(pinFirst.json?.changed));
+  check(
+    "…landing above the seeded pin",
+    same(pinFirst.json?.pins?.categories ?? null, [102, 103]),
+    JSON.stringify(pinFirst.json?.pins ?? null),
+  );
+
+  const pinRepeat = await api("/pins/category/102", { method: "PUT", token, body: { pinned: true } });
+  check("pinning it again is 200", pinRepeat.status === 200, String(pinRepeat.status));
+  check("…and reports no change", pinRepeat.json?.changed === false, String(pinRepeat.json?.changed));
+
+  const pinFresh = (await api("/state", { token })).json?.pins;
+  check(
+    "a fresh GET reports the order, top first",
+    same(pinFresh?.categories ?? null, [102, 103]),
+    JSON.stringify(pinFresh ?? null),
+  );
+
+  const pinBadId = await api("/pins/category/0", { method: "PUT", token, body: { pinned: true } });
+  check(
+    "pin id 0 is 400",
+    pinBadId.status === 400 && pinBadId.json?.error?.code === "invalid_category",
+    `${pinBadId.status} ${String(pinBadId.json?.error?.code)}`,
+  );
+
+  const pinBadBody = await api("/pins/category/102", { method: "PUT", token, body: { pinned: "yes" } });
+  check(
+    "a non-boolean pinned value is 400",
+    pinBadBody.status === 400 && pinBadBody.json?.error?.code === "invalid_pinned_value",
+    `${pinBadBody.status} ${String(pinBadBody.json?.error?.code)}`,
+  );
+
+  const pinAbsent = await api("/pins/category/999", { method: "PUT", token, body: { pinned: true } });
+  check(
+    "pinning an absent category is 404",
+    pinAbsent.status === 404 && pinAbsent.json?.error?.code === "category_not_found",
+    `${pinAbsent.status} ${String(pinAbsent.json?.error?.code)}`,
+  );
+
+  const pinWrongMethod = await api("/pins/category/102", { token });
+  check("GET on the pin route is 405", pinWrongMethod.status === 405, String(pinWrongMethod.status));
+  check("…with Allow: PUT", pinWrongMethod.headers.get("allow") === "PUT", String(pinWrongMethod.headers.get("allow")));
+
+  const unpinSecond = await api("/pins/category/102", { method: "PUT", token, body: { pinned: false } });
+  check("unpinning 102 is 200", unpinSecond.status === 200, String(unpinSecond.status));
+  check("…and reports changed", unpinSecond.json?.changed === true, String(unpinSecond.json?.changed));
+  check(
+    "…leaving the seeded pin",
+    same(unpinSecond.json?.pins?.categories ?? null, [103]),
+    JSON.stringify(unpinSecond.json?.pins ?? null),
+  );
+
+  const unpinRepeat = await api("/pins/category/102", { method: "PUT", token, body: { pinned: false } });
+  check("unpinning it again reports no change", unpinRepeat.json?.changed === false, String(unpinRepeat.json?.changed));
+
+  const unpinSeeded = await api("/pins/category/103", { method: "PUT", token, body: { pinned: false } });
+  check("a position the API never wrote can be cleared", unpinSeeded.json?.changed === true, String(unpinSeeded.json?.changed));
+  check(
+    "…and nothing is pinned",
+    same(unpinSeeded.json?.pins?.categories ?? null, []),
+    JSON.stringify(unpinSeeded.json?.pins ?? null),
   );
 
   // --- unhide -------------------------------------------------------------
@@ -241,6 +360,11 @@ async function main() {
 
   const final = await api("/state", { token });
   check("the final state is empty and unlocked", same(state(final).hiddenIds, []) && state(final).locked === false, JSON.stringify(state(final).hiddenIds));
+  check(
+    "the final pin order is empty",
+    same(final.json?.pins?.categories ?? null, []),
+    JSON.stringify(final.json?.pins ?? null),
+  );
 
   // --- the extension's own store ----------------------------------------
   const dump = storeDump();

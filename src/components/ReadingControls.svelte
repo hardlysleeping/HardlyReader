@@ -30,6 +30,7 @@
     scalePercent,
   } from "../lib/reading-layout";
   import { reading } from "../state/reading.svelte";
+  import { FLIP_EDGE } from "../lib/reading-layout";
 
   let open = $state(false);
 
@@ -194,6 +195,22 @@
       </div>
     </div>
 
+
+    <!-- A multi-picture card turns its page when an edge is tapped, and opens the
+         post from the middle. How much of the card is "an edge" is a taste, and
+         it only means anything in Cards, so it appears there. -->
+    {#if reading.listView === "cards"}
+      <div class="row">
+        <span class="key" id="flip-edge-label">Flip edges</span>
+        <div class="stepper" role="group" aria-labelledby="flip-edge-label"
+          title={`The outer ${reading.flipEdge}% of each side turns the page; the middle opens the post`}>
+          <button onclick={() => reading.setFlipEdge(reading.flipEdge - 5)} disabled={reading.flipEdge <= FLIP_EDGE.min} aria-label="Narrower flip edges">−</button>
+          <span class="value">{reading.flipEdge}%</span>
+          <button onclick={() => reading.setFlipEdge(reading.flipEdge + 5)} disabled={reading.flipEdge >= FLIP_EDGE.max} aria-label="Wider flip edges">+</button>
+        </div>
+      </div>
+    {/if}
+
     <div class="row">
       <span class="key">Line spacing</span>
       <div class="seg" role="group" aria-label="Line spacing">
@@ -348,9 +365,12 @@
     right: 12px;
     z-index: 61;
     width: 252px;
-    /* Ten rows will not fit a short window; scrolling beats clipping the footer. */
-    max-height: calc(100vh - 58px);
+    /* A popup, not a page: capped short of the window so it never turns into a
+       full-height column with a scrollbar down its whole side. Below this it
+       scrolls, with the footer reachable. */
+    max-height: min(72vh, 460px);
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 8px 12px 10px;
     border: 1px solid var(--border);
     border-radius: 10px;

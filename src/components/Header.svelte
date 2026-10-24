@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
+  import { serverLabel } from "../lib/server-label";
   import { syncDescription, syncReadout } from "../lib/sync-progress";
   import { reader } from "../state/reader.svelte";
   import ReadingControls from "./ReadingControls.svelte";
@@ -22,6 +23,48 @@
    */
   let menuOpen = $state(false);
   let sheet = $state<HTMLElement | null>(null);
+
+  /**
+   * The account is a door, not a label: the name is here so signing out has
+   * somewhere to live, and it opens on a press rather than sitting in the bar as
+   * a button of its own. In a narrow window even the name goes — signing out is
+   * then a row in the menu.
+   */
+  /* "Narrow" is decided in exactly one place: the compact media block at the
+     bottom of this file, which drops the account from the bar and
+     hides the rows only the compact menu needs. It used to be mirrored in a
+     `matchMedia` flag as well, and the two disagreed for a resize: the CSS went
+     compact while the flag still said wide, so the wide bar offered Sign out in
+     two places and a phone offered it in none. */
+
+  let accountOpen = $state(false);
+  let accountEl = $state<HTMLElement | null>(null);
+
+  function closeAccount() {
+    accountOpen = false;
+  }
+
+  function pickAccount(action: () => void) {
+    closeAccount();
+    action();
+  }
+
+  $effect(() => {
+    if (!accountOpen) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (accountEl !== null && target !== null && !accountEl.contains(target)) closeAccount();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeAccount();
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  });
 
   function closeMenu() {
     menuOpen = false;
@@ -53,6 +96,7 @@
   let {
     title = "HardlyReader",
     subtitle = "",
+    server = "",
     controls,
     onsignout,
     ontogglesidebar,
@@ -61,9 +105,19 @@
     controls?: Snippet;
     title?: string;
     subtitle?: string;
+    /** The server this window is signed in to, exactly as it was entered. */
+    server?: string;
     onsignout?: () => void;
     ontogglesidebar?: () => void;
   } = $props();
+
+  /**
+   * Which box this is. Two windows on two servers look identical otherwise, and
+   * the address is the only thing that tells them apart — so it sits beside the
+   * name, shrinks before the name does, and goes into the sheets when the bar
+   * runs out of room.
+   */
+  const address = $derived(serverLabel(server));
 
   /** The reader owns the steps; the header only reads them. */
   const refreshing = $derived(reader.sync.active);
@@ -138,18 +192,52 @@
         <button role="menuitem" onclick={() => pick(() => ontogglesidebar?.())}>Feeds</button>
         <button role="menuitem" onclick={() => pick(() => readingControls?.openPanel())}>Reading</button>
         <button role="menuitem" onclick={() => pick(() => themePanel?.openSettings())}>Settings</button>
-        <button role="menuitem" onclick={() => pick(() => void refresh())} disabled={refreshing}>
-          {refreshing ? "Syncing…" : "Sync now"}
-        </button>
-        <button role="menuitem" onclick={() => pick(() => onsignout?.())}>Sign out</button>
+        <!-- Only when the name is not in the bar: the account is where signing
+             out lives, and on a narrow bar the account is in here. -->
+        <!-- Always rendered, hidden by the same media query that drops the
+             account from the bar: the CSS decides what "narrow" means here, so
+             the row cannot disagree with the bar the way a JS flag can. -->
+        {#if address}
+          <p class="sheet-server" title={server}>{address}</p>
+        {/if}
+        <!-- One row always: hidden by the media query when the bar has the name
+             to press, shown when it does not. When there is no name at all the
+             row is not gated, because the menu is then the only way out. -->
+        <button
+          role="menuitem"
+          class:narrow-only={!!subtitle}
+          onclick={() => pick(() => onsignout?.())}>Sign out</button>
       </div>
     {/if}
   </div>
   <span class="brand">{title}</span>
-  {#if subtitle}<span class="subtitle">{subtitle}</span>{/if}
-  <!-- Signing out belongs with the account it signs out of, not at the far end
-       of the bar beside the refresh control. -->
-  <button class="signout" onclick={() => onsignout?.()}>Sign out</button>
+  <!-- The name is the account's handle: pressing it offers what you can do with
+       the account, which is sign out. It shrinks to fit whatever it is given
+       rather than pushing the controls beside it. -->
+  {#if subtitle}
+    <div class="account" bind:this={accountEl}>
+      <button
+        class="who"
+        aria-haspopup="menu"
+        aria-expanded={accountOpen}
+        title={subtitle}
+        onclick={() => (accountOpen = !accountOpen)}
+      >{subtitle}</button>
+      {#if address}
+        <span class="server" title={server}>{address}</span>
+      {/if}
+      {#if accountOpen}
+        <div class="who-sheet" role="menu" aria-label="Account">
+          <p class="who-name" title={subtitle}>{subtitle}</p>
+          <!-- The address lives here too: the bar's copy is the first thing to
+               go when the window narrows, and this is where you go looking for
+               "which server is this". -->
+          <p class="who-server">{server}</p>
+          <button role="menuitem" onclick={() => pickAccount(() => onsignout?.())}>Sign out</button>
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   <div class="spacer"></div>
 
@@ -177,6 +265,12 @@
       title={description}
     >
       <span class="readout">{readout}</span>
+      {#if reader.sync.step}
+        <!-- What is happening, from the fetch that is really in flight. On a
+             narrow bar the count keeps its place and this drops: the tooltip
+             and the screen-reader text still carry it. -->
+        <span class="doing">· {reader.sync.step}</span>
+      {/if}
     </span>
   {/if}
 
@@ -229,12 +323,131 @@
     letter-spacing: -0.01em;
   }
 
-  .subtitle {
-    font-size: 11.5px;
+  .account {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  /* Shrinks before anything else in the bar: the name identifies, it does not
+     inform, and it already has a tooltip with its full text. */
+  .who {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 150px;
+    padding: 2px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
     color: var(--muted);
+    font: inherit;
+    font-size: 11.5px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .who:hover,
+  .who[aria-expanded="true"] {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  /* The address sits beside the name and takes the slack: when the bar runs
+     tight it is the first thing to lose characters, because a truncated address
+     still says which box you are on while a truncated name says nothing. */
+  .server {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 30ch;
+    padding: 2px 2px 2px 5px;
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+  }
+
+  .who-sheet {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 70;
+    min-width: 148px;
+    max-width: 260px;
+    padding: 5px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    animation: sheet-in 120ms ease-out;
+  }
+
+  .who-name {
+    margin: 0;
+    padding: 4px 7px 6px;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--muted);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* In the sheet there is room for the whole thing, and it wraps rather than
+     clipping: this is the copy you read when the bar's copy is gone. */
+  .who-server,
+  .sheet-server {
+    margin: 0;
+    padding: 4px 7px;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-dim);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+
+  .sheet-server {
+    border-bottom: 0;
+    border-top: 1px solid var(--border-soft);
+    margin-top: 4px;
+    color: var(--muted);
+  }
+
+  /* Wide enough for the bar to hold the account itself: the menu stops
+     repeating what the bar shows. One media query, so the menu and the bar can
+     never disagree about how narrow the window is. */
+  @media (min-width: 561px) {
+    .sheet-server,
+    .sheet .narrow-only {
+      display: none;
+    }
+  }
+
+  .who-sheet button {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    padding: 5px 7px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .who-sheet button:hover {
+    background: var(--hover);
+    color: var(--text);
   }
 
   .spacer {
@@ -271,29 +484,6 @@
 
 
 
-
-  .signout {
-    flex: 0 0 auto;
-    margin-left: 6px;
-    padding: 2px 7px;
-    border: 1px solid var(--border-soft);
-    border-radius: 7px;
-    background: none;
-    color: var(--muted);
-    font: inherit;
-    font-size: 11px;
-    cursor: pointer;
-    transition:
-      color 120ms ease,
-      background 120ms ease,
-      border-color 120ms ease;
-  }
-
-  .signout:hover {
-    color: var(--text);
-    background: var(--hover);
-    border-color: var(--border);
-  }
 
   /* Sync is the one control in this bar that changes what you are looking at,
      so it gets room to be aimed at rather than being a 28px glyph wedged
@@ -386,16 +576,34 @@
   .progress {
     display: inline-flex;
     align-items: center;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
+    min-width: 0;
     margin-left: 8px;
     animation: arrive 160ms ease-out;
   }
 
   .readout {
+    flex: 0 0 auto;
     font-size: 10px;
     font-variant-numeric: tabular-nums;
     color: color-mix(in srgb, var(--tone-sync) 55%, var(--muted));
     line-height: 1;
+    white-space: nowrap;
+  }
+
+  /* The fetch in flight, dimmer than the count so the number still reads first.
+     It gives up characters before the button moves: the count says how far, the
+     phrase says at what. */
+  .doing {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 24ch;
+    margin-left: 4px;
+    overflow: hidden;
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
@@ -437,8 +645,8 @@
     z-index: 70;
     display: flex;
     flex-direction: column;
-    min-width: 132px;
-    padding: 4px;
+    min-width: 118px;
+    padding: 3px;
     border: 1px solid var(--border);
     border-radius: 9px;
     background: var(--surface);
@@ -454,13 +662,13 @@
   }
 
   .sheet button {
-    padding: 6px 9px;
+    padding: 5px 8px;
     border: 0;
     border-radius: 6px;
     background: none;
     color: var(--text-dim);
     font: inherit;
-    font-size: 12.5px;
+    font-size: 12px;
     text-align: left;
     white-space: nowrap;
     cursor: pointer;
@@ -502,9 +710,13 @@
       padding: 0 8px;
     }
 
-    .subtitle,
-    .signout,
-    .tools {
+    /* The triggers go, their panels stay: the panels are `position: fixed` and
+       sit at the component root, so hiding `.tools` used to take Settings and
+       Reading with it — the menu opened nothing. Only the bar-sized controls
+       are hidden; the rows in the menu still reach the same panels. */
+    .account,
+    .tools > :global(.reading),
+    .tools > :global(.themebar) {
       display: none;
     }
 
@@ -514,6 +726,12 @@
 
     .sync {
       margin-left: 4px;
+    }
+
+    /* A narrow bar has room for the number, not for the sentence. The step is
+       still the button's title and the progressbar's text. */
+    .doing {
+      display: none;
     }
   }
 </style>
