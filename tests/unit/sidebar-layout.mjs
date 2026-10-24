@@ -104,4 +104,25 @@ function divSpan(text, className) {
   check("the counts draw the line above themselves", () => assert.match(status, /border-top: 1px solid/));
 }
 
+
+// A pinned category's outline has to hold the whole row. The count is not part
+// of the title button — it is the title's neighbour, opening the category's
+// posts — so an outline drawn on the title stops a few pixels short of the
+// number and frames the wrong thing. It belongs on the group: the row, which is
+// the title and the count together.
+{
+  check("a pinned category's outline is drawn on the row, not the title", () => {
+    assert.match(source, /\.group\.pinned,\s*\.search-title\.pinned,\s*\.feed\.pinned \{/);
+    assert.doesNotMatch(source, /\.group-title\.pinned,\s*\.feed\.pinned \{/);
+  });
+  check("and the group says it is pinned when the category is", () => {
+    assert.match(markup, /<div class="group" class:pinned>/);
+  });
+  check("the search row keeps its own outline, count and all", () => {
+    // There the count is inside the titled row, so the row is the right box.
+    assert.match(source, /class="row group-title search-title" class:pinned=/);
+    assert.match(markup, /<span class="count">\{reader\.countFor\(group\.id\)\}<\/span>/);
+  });
+}
+
 console.log(`\n${passed}/${passed} checks passed`);

@@ -1006,7 +1006,7 @@
       data-cat-next={reader.categories[index + 1]?.id ?? null}
       data-drop-section={category.label}
     >
-      <div class="group">
+      <div class="group" class:pinned>
         <button
           class="row group-title"
           class:active={reader.activeStream === category.id}
@@ -1380,8 +1380,12 @@
 
   /* Pinned: the title takes the logo's blue, the row keeps a blue outline, a
      soft outer glow and an underlight along the bottom edge. Three quiet cues
-     rather than one loud one, so a pinned row is obvious without shouting. */
-  .group-title.pinned,
+     rather than one loud one, so a pinned row is obvious without shouting.
+     A category's outline is drawn on the group, not on its title: the count is
+     the title's neighbour rather than part of it, and an outline that stops
+     before the number is an outline around the wrong thing. */
+  .group.pinned,
+  .search-title.pinned,
   .feed.pinned {
     outline: 1px solid color-mix(in srgb, var(--tone-pinned) 45%, transparent);
     outline-offset: -1px;
@@ -1392,6 +1396,7 @@
   }
 
   .group-title.pinned .label,
+  .search-title.pinned .label,
   .feed.pinned .label {
     color: color-mix(in srgb, var(--tone-pinned) 70%, var(--text));
   }
