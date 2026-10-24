@@ -638,22 +638,29 @@
         <div class="seg" role="group" aria-label="How three panes are arranged">
           <button
             class="segbtn"
-            class:on={!layout.stacked}
-            aria-pressed={!layout.stacked}
+            class:on={!layout.stackChosen}
+            aria-pressed={!layout.stackChosen}
             title="Feeds, posts and article side by side, one column each"
             onclick={() => layout.setStacked(false)}>Side by side</button>
           <button
             class="segbtn"
-            class:on={layout.stacked}
-            aria-pressed={layout.stacked}
+            class:on={layout.stackChosen}
+            aria-pressed={layout.stackChosen}
             title="Feeds on the left; posts above the article in one right column"
             onclick={() => layout.setStacked(true)}>Stacked</button>
         </div>
       </div>
       <p class="hint">
-        Stacked spends the width once instead of twice, so three panes fit a
-        narrow window: drag the seam between the posts and the article to change
-        the split.
+        {#if layout.stackForced}
+          This window is narrower than three columns need, so three panes are drawn
+          as the stacked pair — turn the device or widen the window and they are
+          columns again. Drag the seam between the posts and the article to change
+          the split.
+        {:else}
+          Stacked spends the width once instead of twice, so three panes fit a
+          narrow window: drag the seam between the posts and the article to change
+          the split.
+        {/if}
       </p>
 
       <!-- How a passcode is entered, not what it is. Off by default because a

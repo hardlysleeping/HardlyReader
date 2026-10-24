@@ -322,8 +322,32 @@ html.drag-panning * {
   user-select: none !important;
 }
 
+/* The window is not always the whole screen.
+   -----------------------------------------------------------------------------
+   On Android the window is edge-to-edge (targetSdk 35 and up draw behind the
+   system bars whether the app asks or not), so the header bar went under the
+   clock, the wifi and the battery — the app looked like it started in the
+   middle of the status bar. The insets are the system's own answer: padding
+   here moves every pane below the bar and inside a rounded or notched bezel,
+   and it is 0 on a desktop window, where there is no bar to clear.
+
+   Both are declared once: `--safe-*` so a component that needs to know (the
+   PIN pad's bottom edge, a future full-bleed picture) reads the same numbers
+   rather than repeating `env()`.
+
+   `#app`, not `html`: the page colour and a background picture still fill the
+   bar's strip, so the status bar sits over the app's own background rather than
+   over a band of nothing. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
 #app {
   height: 100%;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
 
 button {

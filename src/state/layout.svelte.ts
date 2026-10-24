@@ -28,6 +28,7 @@ import {
   type StackSide,
   type StackTuck,
   clampThresholds,
+  columnsFit,
   clampWidths,
   defaultModeFor,
   effectiveMode,
@@ -283,14 +284,46 @@ class LayoutState {
   pressSeq = $state(0);
 
   /**
-   * Draw three panes as posts above the article instead of beside it.
+   * Whether three panes are drawn as posts above the article instead of beside
+   * it — the *choice*, not the answer.
    *
    * A different arrangement of the same mode, not a fourth one: the mode press,
    * the widths and `keepWidths` keep their meaning, and only the grid and the
    * width three panes need change. Saved with the rest of the layout, so the
    * shape you left is the shape you come back to.
    */
-  stacked = $state(false);
+  private stackChoice = $state(false);
+
+  /**
+   * The arrangement actually drawn.
+   *
+   * The stored choice, or the only honest one: three columns need the three-pane
+   * floor, and below it three panes are a pair. That is what makes pressing 3 in
+   * a portrait window mean something — the arrangement changes, the press is
+   * answered, and no pane is pretending to be a third column 190px wide. The
+   * panel still shows (and edits) the choice, and says when the window is the
+   * thing that decided.
+   */
+  get stacked(): boolean {
+    return this.stackChoice || !columnsFit(this.available, this.device);
+  }
+
+  /** Whether the window is too narrow for three columns, so the pair is forced. */
+  get stackForced(): boolean {
+    return !this.stackChoice && this.stacked;
+  }
+
+  /**
+   * What the setting says, as opposed to what is drawn.
+   *
+   * The panel edits and reports the choice: a window that forces the pair must
+   * not also flip the switch, or the setting would read as "stacked" on a screen
+   * where the user never asked for it — and pressing "Side by side" there would
+   * look like a dead button. The row says the window decided instead.
+   */
+  get stackChosen(): boolean {
+    return this.stackChoice;
+  }
 
   /**
    * How much of the stacked right column is the post list.
@@ -412,7 +445,9 @@ class LayoutState {
     // only the mode's floor can refuse — testing the tuned sums demoted three
     // panes in a window that has room for three, which is what made the third
     // pane pop out and the window grow instead.
-    const limits = this.keepWidths ? this.thresholds : floorThresholds(this.device);
+    const limits = this.keepWidths
+      ? this.thresholds
+      : floorThresholds(this.device, this.stacked);
     this.mode = effectiveMode(
       this.desired,
       this.drawn,
@@ -909,8 +944,8 @@ class LayoutState {
    * that now fits is simply drawn.
    */
   setStacked(on: boolean): void {
-    if (this.stacked === on) return;
-    this.stacked = on;
+    if (this.stackChoice === on) return;
+    this.stackChoice = on;
     this.syncThresholds();
     this.settle(false);
     this.press();
@@ -1039,7 +1074,7 @@ class LayoutState {
       if (isPaneMotion(saved.motion)) this.motion = saved.motion;
       // A save from before the stack existed simply loads side by side, which is
       // what it was looking at.
-      this.stacked = saved.stacked === true;
+      this.stackChoice = saved.stacked === true;
       // Saved with the rest of the arrangement: an order the user picked is a
       // preference, so it comes back with the layout. Only an explicit `true`
       // swaps — an older save, or anything malformed, is the shipped order.
@@ -1220,7 +1255,7 @@ class LayoutState {
           keepWidthsPortrait: this.keepWidthsUpright,
           keepWindowWidth: this.keepWindowWidth,
           motion: this.motion,
-          stacked: this.stacked,
+          stacked: this.stackChoice,
           stackSwapped: this.stackSwapped,
           stackShare: this.stackShare,
         }),

@@ -318,8 +318,36 @@ export function minimums(device: Device = "desktop") {
   return MINIMUMS[device];
 }
 
+/**
+ * The narrowest window a stacked three can be drawn honestly in.
+ *
+ * Not the two-pane floor: the pair spends one content column instead of two, so
+ * a window that cannot hold feeds and a post list side by side can still hold
+ * feeds beside a column that is a post list above an article. Computed from the
+ * minimums rather than the shaped widths, because this is a floor and the shaped
+ * widths are a preference.
+ */
+export function stackFloor(device: Device = "desktop"): number {
+  const mins = MINIMUMS[device];
+  return mins.sidebar + GUTTER + Math.max(mins.list, mins.article);
+}
+
 export function needed(mode: PaneMode, device: Device = "desktop"): number {
   return NEEDED[device][mode];
+}
+
+/**
+ * Whether three panes can be three columns in this window.
+ *
+ * Below the three-pane floor three columns are not three panes, they are three
+ * slivers, so the arrangement becomes the pair instead. This is the question
+ * the layout asks rather than refusing the press: pressing 3 in a portrait
+ * tablet used to record the choice and then draw two panes, which reads as a
+ * button that does nothing — and, on a shell that cannot resize, as a button
+ * that briefly draws a frame the window never had.
+ */
+export function columnsFit(available: number, device: Device = "desktop"): boolean {
+  return available >= NEEDED[device][3];
 }
 
 /**
@@ -354,8 +382,14 @@ export const THRESHOLDS: Record<Device, PaneThresholds> = {
  * the window keeps what it has. Only a window too small for three honest
  * columns refuses, and that is the floor.
  */
-export function floorThresholds(device: Device = "desktop"): PaneThresholds {
-  return THRESHOLDS[device];
+export function floorThresholds(device: Device = "desktop", stacked = false): PaneThresholds {
+  const base = THRESHOLDS[device];
+  if (!stacked) return base;
+  // Three panes drawn as a pair spend one content column, not two, so the price
+  // of a third *column* is not the question — and a narrow window that is not
+  // buying one should not be refused. `stackFloor` is what the pair actually
+  // needs; the two-pane floor stays as a ceiling on how permissive this can get.
+  return { ...base, three: Math.min(base.two, stackFloor(device)) };
 }
 
 /**
