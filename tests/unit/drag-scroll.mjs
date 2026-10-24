@@ -64,8 +64,17 @@ check("the opt-out is honoured", /origin\.closest\(OWNS_POINTER\)/.test(source))
 // Content follows the pointer, both axes.
 check("the scroll is taken from the pointer's travel", /scrollTop -= event\.clientY - lastY/.test(source) && /scrollLeft -= event\.clientX - lastX/.test(source));
 
-// No fling: a mouse stops where the hand stops.
-check("there is no momentum loop", !/requestAnimationFrame|setInterval/.test(source));
+// No fling: a mouse stops where the hand stops. The one animation frame in the
+// module belongs to the release, not to the scroll.
+const moveBody = source.slice(source.indexOf("function onPointerMove"), source.indexOf("function onPointerUp"));
+check("the scroll is applied on the pointer, with no momentum loop", !/requestAnimationFrame|setInterval/.test(moveBody));
+
+// Snapping is what makes a drag feel like it did nothing: re-armed on release,
+// the snap engine pulls the column back to the card it started from before
+// anything that cares about where the drag ended has read the position.
+check("the panning class outlives the release by a frame", /const seq = panSeq;\s*\n\s*requestAnimationFrame\(\s*\(\) => \{[\s\S]{0,120}classList\.remove\(PANNING_CLASS\)/.test(source));
+check("a deferred removal cannot land in the next pan", /if \(seq === panSeq\)/.test(source));
+check("the release arms nothing else", /panning = false;\s*\n\s*pointer = null;\s*\n\s*container = null;/.test(source));
 
 check("the grabbing cursor is defined once", /html\.drag-panning/.test(css));
 check("the panning class is added and removed", new RegExp(`classList\\.add\\(PANNING_CLASS\\)`).test(source) && /classList\.remove\(PANNING_CLASS\)/.test(source));

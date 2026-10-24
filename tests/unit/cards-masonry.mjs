@@ -599,5 +599,30 @@ check(
     return stop > 0 && settle > stop && !/listSettleUntil =/.test(branch);
   })(),
 );
+
+// A mouse drag on the cards is a move, not a scroll that happens to stop
+// somewhere: the hand drags the column, and the release lands on the card the
+// drag crossed. Snapping has to stay off for the length of the pan, or the snap
+// engine pulls the column back to where it started and the drag does nothing —
+// which is what made it feel like it only worked now and then.
+check(
+  "a drag on the cards lands on a card",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const fn = src.slice(src.indexOf("function onPanUp"));
+    return (
+      /const PAN_STEP = 24;/.test(src) &&
+      /if \(view !== "cards" \|\| event\.pointerType !== "mouse"\) return;/.test(src) &&
+      /if \(Math\.abs\(moved\) < PAN_STEP\) \{\s*landOn\(from\);/.test(fn) &&
+      /const crossed = Math\.max\(1, Math\.round\(Math\.abs\(moved\) \/ Math\.max\(1, stride\)\)\);/.test(fn) &&
+      /landOn\(target\);/.test(fn)
+    );
+  })(),
+);
+check(
+  "the cards do not snap while a drag has hold of them",
+  /:global\(\.drag-panning\) \.cards \{\s*scroll-snap-type: none;/.test(read("src/components/ArticleList.svelte")),
+);
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

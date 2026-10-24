@@ -65,6 +65,8 @@ export function installDragScroll(): () => void {
   let lastY = 0;
   /** When the last pan ended, so its click can be swallowed. */
   let endedAt = 0;
+  /** Which pan we are on, so a deferred class removal cannot land in the next. */
+  let panSeq = 0;
 
   function onPointerDown(event: PointerEvent) {
     if (event.button !== 0 || event.pointerType !== "mouse") return;
@@ -73,6 +75,7 @@ export function installDragScroll(): () => void {
     if (!origin || origin.closest(OWNS_POINTER)) return;
     container = scrollableFrom(origin);
     if (!container) return;
+    panSeq += 1;
     pointer = event.pointerId;
     panning = false;
     startX = lastX = event.clientX;
@@ -106,7 +109,17 @@ export function installDragScroll(): () => void {
     panning = false;
     pointer = null;
     container = null;
-    document.documentElement.classList.remove(PANNING_CLASS);
+    // The panning class comes off a frame later, not now. It is what holds
+    // snapping off, and re-arming the snap engine here hands the column back to
+    // it before any listener that cares about the end of the drag has read the
+    // position: the snap pulls the content to the card it started on, the drag
+    // looks like it did nothing, and whether it survives depends on how far the
+    // hand got — which is why it seemed to work now and then, and only one way.
+    // A frame is invisible to the hand and enough for those readers.
+    const seq = panSeq;
+    requestAnimationFrame(() => {
+      if (seq === panSeq) document.documentElement.classList.remove(PANNING_CLASS);
+    });
   }
 
   function onClick(event: MouseEvent) {

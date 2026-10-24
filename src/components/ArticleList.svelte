@@ -570,13 +570,20 @@ import { plainPreview, relativeTime } from "../lib/format";
     const el = itemsEl;
     if (!el) return;
     const moved = el.scrollTop - panTop;
+    const rows = cardRows();
+    const index = rows.indexOf(from);
+    if (index < 0) return;
     if (Math.abs(moved) < PAN_STEP) {
       landOn(from);
       return;
     }
-    const rows = cardRows();
-    const index = rows.indexOf(from);
-    const target = rows[Math.min(Math.max(index + (moved > 0 ? 1 : -1), 0), rows.length - 1)];
+    // How many cards the hand actually crossed, rounded to the nearest — but
+    // never fewer than one, because a drag that has passed `PAN_STEP` was meant
+    // as a move and not as a nudge.
+    const stride =
+      rows.length > 1 ? Math.abs(rows[1].offsetTop - rows[0].offsetTop) : from.offsetHeight;
+    const crossed = Math.max(1, Math.round(Math.abs(moved) / Math.max(1, stride)));
+    const target = rows[Math.min(Math.max(index + Math.sign(moved) * crossed, 0), rows.length - 1)];
     if (!target) return;
     prefetchFrom(target.dataset.id ?? undefined);
     landOn(target);
