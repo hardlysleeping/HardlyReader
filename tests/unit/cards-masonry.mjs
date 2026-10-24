@@ -437,23 +437,50 @@ check(
 );
 
 check(
-  "the card being read is the one in the middle of the pane",
+  "the card being read is the one nearest the middle of the pane",
   /function currentCard\(\): HTMLElement \| null/.test(read("src/components/ArticleList.svelte")) &&
     /const middle = el\.getBoundingClientRect\(\)\.top \+ el\.clientHeight \/ 2;/.test(read("src/components/ArticleList.svelte")) &&
-    /getBoundingClientRect\(\)\.bottom > middle/.test(read("src/components/ArticleList.svelte")),
+    /Math\.abs\(box\.top \+ box\.height \/ 2 - middle\)/.test(read("src/components/ArticleList.svelte")) &&
+    // The first-bottom-past-the-middle rule names the card below when the middle
+    // falls in the gap between two cards, which steps two along instead of one.
+    !/bottom > middle/.test(read("src/components/ArticleList.svelte")),
 );
 
 check(
   "a step centres the card, so its neighbours peek above and below",
   /function centreCard\(card: HTMLElement\): void/.test(read("src/components/ArticleList.svelte")) &&
-    /el\.scrollTop \+= offset - \(el\.clientHeight - box\.height\) \/ 2;/.test(read("src/components/ArticleList.svelte")) &&
-    /centreCard\(target\);/.test(read("src/components/ArticleList.svelte")),
+    /const place = box\.top - port\.top \+ el\.scrollTop;/.test(read("src/components/ArticleList.svelte")) &&
+    /landOn\(target\);/.test(read("src/components/ArticleList.svelte")),
+);
+
+check(
+  "the landing is a position, not a nudge the webview can add to",
+  // `scrollTop +=` inherits any scroll the webview ran on its own account — the
+  // native wheel it may still apply, or a snap it decided on — so the step landed
+  // a card further on, in whichever direction the wheel went. The position is
+  // written as an absolute place in the column instead.
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    return (
+      !/el\.scrollTop \+=/.test(src) &&
+      /const place = box\.top - port\.top \+ el\.scrollTop;/.test(src) &&
+      /place - \(el\.clientHeight - box\.height\) \/ 2;/.test(src) &&
+      /function landOn\(card: HTMLElement\): void \{\s*centreCard\(card\);/.test(src)
+    );
+  })(),
+);
+check(
+  "the column is released from snapping while the thread places a card",
+  /:global\(\.cards\.stepping\) \{\s*scroll-snap-type: none;/.test(
+      read("src/components/ArticleList.svelte"),
+    ) &&
+    /el\.classList\.add\("stepping"\)/.test(read("src/components/ArticleList.svelte")),
 );
 
 check(
   "a step moves the list without opening the post",
   /function stepCard\(direction: 1 \| -1\): void/.test(read("src/components/ArticleList.svelte")) &&
-    /centreCard\(target\);/.test(read("src/components/ArticleList.svelte")) &&
+    /landOn\(target\);/.test(read("src/components/ArticleList.svelte")) &&
     /data-id=\{item\.id\}/.test(read("src/components/ArticleList.svelte")) &&
     !/stepCard[\s\S]{0,600}?reader\.select\(/.test(read("src/components/ArticleList.svelte")),
 );
@@ -563,10 +590,14 @@ check(
     const fn = src.slice(src.indexOf("function onListWheel"));
     const stop = fn.indexOf("event.preventDefault()");
     const settle = fn.indexOf("if (performance.now() < listSettleUntil)");
-    const holds = /if \(performance\.now\(\) < listSettleUntil\) \{[\s\S]{0,240}?listSettleUntil = performance\.now\(\) \+ SETTLE_MS;/.test(fn);
-    return stop > 0 && settle > stop && holds;
+    const branch = fn.slice(settle, fn.indexOf("listPull = accumulate", settle));
+    // The stop comes before the settle check, so the tail of a gesture cannot
+    // scroll the list natively under the step. The window is a fixed interval
+    // though: extending it on every arriving delta meant a hand that keeps
+    // scrolling never goes quiet, and scrolling without moving the mouse did
+    // nothing at all.
+    return stop > 0 && settle > stop && !/listSettleUntil =/.test(branch);
   })(),
 );
-
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
