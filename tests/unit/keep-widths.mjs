@@ -193,7 +193,7 @@ try {
   // --- a toggle with no remembered frame does not resize --------------------
   {
     const layout = await start(generated, { mode: 2, keepWidths: true, chosen: true });
-    layout.setAvailable(700);
+    layout.setAvailable(1200);
     check("opening in a kept-widths window", layout.keepWidths === true && layout.mode === 2);
     check("with nothing remembered yet", layout.keepWindowWidth === null, String(layout.keepWindowWidth));
     const pressed = layout.pressSeq;
@@ -201,14 +201,35 @@ try {
     check("the toggle still slides once", layout.pressSeq === pressed + 1, `${pressed} → ${layout.pressSeq}`);
     check(
       "but it asks for no frame, because there is none to go back to",
-      layout.drawn === 700 && layout.available === 700,
+      layout.drawn === 1200 && layout.available === 1200,
       `drawn ${layout.drawn}, available ${layout.available}`,
     );
     check(
       "and the panes fit the frame they are already in",
-      layout.columns() === "280px 6px 414px 0px 0px",
+      layout.columns() === "280px 6px 914px 0px 0px",
       layout.columns(),
     );
+  }
+
+  // --- a portrait frame shares it, whatever the setting remembers -----------
+  // A phone upright, a tablet upright, a window dragged taller than it is wide:
+  // there is no width beside it to give a pane, so it keeps the window and the
+  // panes fit what there is. Turned or widened, the choice is honoured again.
+  {
+    const layout = await start(generated, { mode: 2, keepWidths: true, chosen: true });
+    layout.setAvailable(700);
+    check(
+      "a portrait frame keeps the window",
+      layout.keepWidths === false && layout.mode === 2,
+      `${layout.keepWidths}/${layout.mode}`,
+    );
+    check(
+      "and its panes fit it",
+      layout.drawn === 700 && layout.columns() === "280px 6px 414px 0px 0px",
+      `${layout.drawn}: ${layout.columns()}`,
+    );
+    layout.setAvailable(1200);
+    check("widened again, the setting is honoured", layout.keepWidths === true);
   }
 
   // --- the memory survives a save and a relaunch ---------------------------

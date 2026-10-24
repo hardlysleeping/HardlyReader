@@ -166,6 +166,8 @@ class LayoutState {
   panes = $state<PaneLayout>({ ...DEFAULT_LAYOUT });
   /** Width of the pane container, in CSS pixels. */
   available = $state(1440);
+  /** Height of the window, in CSS pixels: what makes a frame portrait. */
+  height = $state(900);
   /**
    * The width at which a second and a third pane appear. Device-local, like the
    * pane widths themselves: "wide enough for three" on a 27" screen is not wide
@@ -198,7 +200,27 @@ class LayoutState {
    * posts column takes the difference, which is what two panes sharing a wide
    * window looks like. Both are honest; they are just different answers.
    */
-  keepWidths = $state(true);
+  private keepWidthsWanted = $state(true);
+
+  /**
+   * Whether the frame follows the panes that are left.
+   *
+   * The panel's answer, except in a portrait frame — a phone held upright, a
+   * tablet upright, a window dragged taller than it is wide. There is no spare
+   * width beside a portrait frame to give a pane, and asking the window for it
+   * is asking it to become landscape; so a portrait frame shares what it has,
+   * which is the "Keep window" answer, and chooses again the moment it is turned
+   * or widened. The setting itself is untouched, so the shape you left is the
+   * shape you come back to in a frame wide enough to draw it.
+   */
+  get keepWidths(): boolean {
+    return this.keepWidthsWanted && !this.portrait;
+  }
+
+  /** A frame taller than it is wide. */
+  private get portrait(): boolean {
+    return this.height > this.available;
+  }
 
   /**
    * The frame "Keep window" last had, remembered across a toggle.
@@ -721,13 +743,13 @@ class LayoutState {
    * written down, and `keepWindowWidth` is what the toggle comes back to.
    */
   setKeepWidths(value: boolean): void {
-    if (this.keepWidths === value) return;
+    if (this.keepWidthsWanted === value) return;
     // Leaving "Keep window": the frame it is in is the one to come back to.
     // Written before the flag flips, because the flag is what decides which
     // width the panes are drawn at from here.
     // A frame that has not been measured yet is not a frame to come back to.
     if (value && this.available > 0) this.keepWindowWidth = Math.round(this.available);
-    this.keepWidths = value;
+    this.keepWidthsWanted = value;
     // The frame being entered, through the same queue, the same press and the
     // same grace window a mode button uses: this names what it wants, so the
     // band must not hold the mode it is leaving.
@@ -889,6 +911,7 @@ class LayoutState {
     const size = windowSize();
     this.device = detectDevice();
     this.available = size.width;
+    this.height = size.height;
     this.thresholds = { ...THRESHOLDS[this.device] };
     // Reduced motion picks the starting feel, not the available ones: a press
     // that moves no pixels is the honest default for someone who asked the
@@ -924,7 +947,7 @@ class LayoutState {
         this.chosen = saved.chosen === true;
       }
       if (typeof saved.collapsed === "boolean") this.sidebarCollapsed = saved.collapsed;
-      if (typeof saved.keepWidths === "boolean") this.keepWidths = saved.keepWidths;
+      if (typeof saved.keepWidths === "boolean") this.keepWidthsWanted = saved.keepWidths;
       // The frame the other sizing mode had. Read, clamped, and deliberately not
       // acted on: the window at launch is the OS's to size, so this is only used
       // when the toggle is used — including after a relaunch.
@@ -1008,6 +1031,7 @@ class LayoutState {
   setAvailable(px: number): void {
     if (!Number.isFinite(px) || px <= 0) return;
     this.available = px;
+    this.height = windowSize().height;
     // The window has arrived, or given up: either way the measurement is the
     // truth again from here, so a resize the user makes is followed at once
     // instead of being held at the width of a press that is over.
@@ -1113,7 +1137,7 @@ class LayoutState {
           thresholds: { one: this.thresholds.one },
           chosen: this.chosen,
           collapsed: this.sidebarCollapsed,
-          keepWidths: this.keepWidths,
+          keepWidths: this.keepWidthsWanted,
           keepWindowWidth: this.keepWindowWidth,
           motion: this.motion,
           stacked: this.stacked,

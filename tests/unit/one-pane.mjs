@@ -86,7 +86,7 @@ check("commit trims the requirement to the window", /commit\(\)[\s\S]{0,300}sett
 check("the drawn widths come from the panes", /get shown\(\)[\s\S]{0,200}layoutWidths\(this\.panes, this\.mode\)/.test(layout));
 check("two and three keep separate posts widths", /this\.mode === 3 \? "list3" : "list2"/.test(layout));
 check("only the one-pane width is saved as a threshold", /thresholds: \{ one: this\.thresholds\.one \}/.test(layout));
-check("a resize is banded", /setAvailable[\s\S]{0,1200}this\.settle\(\);/.test(layout));
+check("a resize is banded", /setAvailable[\s\S]{0,1400}this\.settle\(\);/.test(layout));
 // Except the one resize the user asked for by pressing a mode: that must answer
 // at once, or "3" would grow the window and still show two panes.
 check(
