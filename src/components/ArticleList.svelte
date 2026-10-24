@@ -928,6 +928,7 @@ import { plainPreview, relativeTime } from "../lib/format";
         class="row"
         class:selected={reader.selectedId === item.id}
         class:read={isRead(item)}
+        class:starred={isStarred(item)}
         class:held={heldId === item.id}
         class:stacked={placement === "top"}
         data-id={item.id}
@@ -1599,6 +1600,15 @@ import { plainPreview, relativeTime } from "../lib/format";
      view of nothing but dim cards. */
   .cards .row.held {
     opacity: 1;
+  }
+
+  /* A starred post is marked in the star's own colour. The card's marks all read
+     --accent — the unread rim, the picture's mat, the page pips — so pointing
+     --accent at the star for that row marks it once, in the colour the star
+     button beside it already uses, instead of in the app's accent while the star
+     burns a different one. */
+  .row.starred {
+    --accent: var(--star);
   }
 
   .row:hover {

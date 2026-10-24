@@ -644,5 +644,23 @@ check(
   })(),
 );
 
+
+// A starred post was marked in the app's accent while the star beside it burned
+// gold. The card's marks all read --accent, so the row points --accent at the
+// star and every mark on that card agrees with its star.
+check(
+  "a starred card is marked in the star's colour",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    return (
+      /class:starred=\{isStarred\(item\)\}/.test(src) &&
+      /\.row\.starred \{\s*\n\s*--accent: var\(--star\);/.test(src) &&
+      // declared after the read/held rules, so a starred card keeps the star's
+      // colour rather than whichever rule happened to come last
+      src.indexOf(".row.starred {") > src.indexOf(".cards .row.held {")
+    );
+  })(),
+);
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
