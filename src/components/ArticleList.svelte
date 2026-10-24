@@ -1750,6 +1750,20 @@ import { plainPreview, relativeTime } from "../lib/format";
     scroll-snap-type: none;
   }
 
+  /* A finger has no pull to measure, so the sleight of hand the wheel gets from
+     the settle window does not exist: one flick used to carry three or four
+     cards and the snap then picked whichever it happened to stop near. Stopping
+     the fling at every snap point gives the thumb the same promise the wheel
+     makes — one push, one card — without touching a slow deliberate drag, which
+     still scrolls the column. Measured on the Archie panels in a 390×740 phone
+     viewport: a 300px flick went from three cards to one, and a 140px push no
+     longer left the card at all. */
+  @media (pointer: coarse) {
+    .cards .row {
+      scroll-snap-stop: always;
+    }
+  }
+
   .cards .row {
     /* The cards column is a flex container inside a scroll port with a definite
        height, so without this every row shrinks to nothing as if it were meant

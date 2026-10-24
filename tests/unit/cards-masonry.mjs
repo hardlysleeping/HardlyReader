@@ -520,6 +520,16 @@ check(
   /\.cards\[data-tallcard="true"\] \{\s*scroll-snap-type: none;/.test(read("src/components/ArticleList.svelte")) &&
     /data-tallcard=\{tallCard \? "true" : undefined\}/.test(read("src/components/ArticleList.svelte")),
 );
+// A finger has no settle window to lean on, so the fling itself has to be
+// stopped: without this a 300px flick crossed three cards in a 390x740 viewport
+// and the snap picked whichever one momentum died near.
+check(
+  "a thumb gets one card per push, where a mouse gets one card per step",
+  /@media \(pointer: coarse\) \{\s*\.cards \.row \{\s*scroll-snap-stop: always;/.test(
+    read("src/components/ArticleList.svelte"),
+  ),
+);
+
 check(
   "a masonry wall of cards does not snap at all",
   /\.cards\.masonry \{\s*scroll-snap-type: none;/.test(read("src/components/ArticleList.svelte")),
