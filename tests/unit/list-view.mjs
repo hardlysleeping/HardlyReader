@@ -466,6 +466,26 @@ check(
     );
   })(),
 );
+// Three glyphs on every row are the busiest thing in the list, so each one says
+// what it is by colour — and the same three names collapse to one ink when the
+// theme is set to Monotone. A class per act is what lets the stylesheet do that
+// without a second copy of the markup.
+check(
+  "each act wears its own colour, and one setting can take them all away",
+  (() => {
+    const group = listSource.slice(listSource.indexOf('<div class="acts" data-no-drag-scroll>'));
+    const acts = group.slice(0, group.indexOf("</div>"));
+    return (
+      /class="act star"/.test(acts) &&
+      /class="act mark"/.test(acts) &&
+      /class="act open"/.test(acts) &&
+      /\.act\.star \{\s*color: var\(--act-star\);/.test(listSource) &&
+      /\.act\.mark \{\s*color: var\(--act-read\);/.test(listSource) &&
+      /\.act\.open \{\s*color: var\(--act-link\);/.test(listSource)
+    );
+  })(),
+);
+
 check(
   "it opens the link and nothing else",
   (() => {

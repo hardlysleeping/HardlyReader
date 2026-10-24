@@ -74,7 +74,7 @@
   }
 
   const swatches: {
-    key: "accent" | "hidden" | "pinned" | "lockOpen" | "lockClosed" | "unlock" | "sync";
+    key: "accent" | "hidden" | "pinned" | "lockOpen" | "lockClosed" | "unlock" | "sync" | "trim" | "link";
     label: string;
   }[] = [
     { key: "accent", label: "Accent" },
@@ -84,6 +84,8 @@
     { key: "lockClosed", label: "Lock locked" },
     { key: "unlock", label: "Unlocked" },
     { key: "sync", label: "Sync" },
+    { key: "trim", label: "Trim" },
+    { key: "link", label: "Link" },
   ];
 </script>
 
@@ -146,7 +148,8 @@
             </button>
           {/each}
         </div>
-      </div>      {#each swatches as swatch (swatch.key)}
+      </div>
+      {#each swatches as swatch (swatch.key)}
         <label class="row">
           <span class="key">{swatch.label}</span>
           <span class="pick">
@@ -179,6 +182,26 @@
             onclick={() => theme.set("accentEdges", false)}>Plain</button>
         </div>
       </div>
+        <!-- The three row actions: a gold star, the trim for read, the link blue.
+             Monotone is what they were before there were colours at all, kept
+             because three coloured glyphs on every row is a lot of signal. -->
+        <div class="row">
+          <span class="key">Buttons</span>
+          <div class="seg" role="group" aria-label="Row button colours">
+            <button
+              class="segbtn"
+              class:on={!theme.current.monotoneActions}
+              aria-pressed={!theme.current.monotoneActions}
+              title="Star gold, read in the trim, link in its own blue"
+              onclick={() => theme.set("monotoneActions", false)}>Colour</button>
+            <button
+              class="segbtn"
+              class:on={theme.current.monotoneActions}
+              aria-pressed={theme.current.monotoneActions}
+              title="One quiet ink for all three, as they were before"
+              onclick={() => theme.set("monotoneActions", true)}>Monotone</button>
+          </div>
+        </div>
         <div class="row end">
           <button class="reset" onclick={() => theme.reset()}>Reset colours</button>
           <button class="done" onclick={() => (open = false)}>Done</button>

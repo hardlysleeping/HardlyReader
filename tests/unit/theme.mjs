@@ -98,11 +98,46 @@ check("accent separators are on unless turned off", () => {
   assert.equal(parseTheme({ accentEdges: false }).accentEdges, false);
   assert.equal(parseTheme({ accentEdges: "no" }).accentEdges, true, "junk keeps the default");
 });
-check("exactly the nine chosen colours are written", Object.keys(vars).length === 9, String(Object.keys(vars).length));
+check("exactly the eleven chosen colours and three action names are written", Object.keys(vars).length === 14, String(Object.keys(vars).length));
 check("no undefined values", () =>
   Object.entries(vars).every(([name, value]) =>
-    typeof value === "string" && value.length > 0 && (name.startsWith("--edge") || value.startsWith("#")),
+    typeof value === "string" &&
+    value.length > 0 &&
+    (name.startsWith("--edge") || name.startsWith("--act") || value.startsWith("#")),
   ));
+
+// The three row actions are the one place a theme chooses a colour that is not
+// only decoration: gold for a star, the trim for read, its own blue for a link.
+check("trim and link are their own colours", vars["--tone-trim"] === DEFAULT_THEME.trim && vars["--tone-link"] === DEFAULT_THEME.link);
+check("the actions are drawn in colour by default", () => {
+  assert.equal(DEFAULT_THEME.monotoneActions, false);
+  assert.equal(vars["--act-star"], "var(--star)");
+  assert.equal(vars["--act-read"], DEFAULT_THEME.trim);
+  assert.equal(vars["--act-link"], DEFAULT_THEME.link);
+});
+check("monotone is one quiet ink for all three", () => {
+  const mono = themeVariables({ ...DEFAULT_THEME, monotoneActions: true });
+  assert.equal(mono["--act-star"], "var(--muted)");
+  assert.equal(mono["--act-read"], "var(--muted)");
+  assert.equal(mono["--act-link"], "var(--muted)");
+});
+check("a stored monotone choice survives, junk does not", () => {
+  assert.equal(parseTheme({ monotoneActions: true }).monotoneActions, true);
+  assert.equal(parseTheme({ monotoneActions: "yes" }).monotoneActions, false);
+  assert.equal(parseTheme({}).trim, DEFAULT_THEME.trim);
+  assert.equal(parseTheme({ trim: "nope" }).trim, DEFAULT_THEME.trim);
+  assert.equal(parseTheme({ link: "#123456" }).link, "#123456");
+});
+
+// The colours are only usable if the panel offers them: trim and link in the
+// swatch list, and one row that turns all three row actions monotone.
+check("the panel offers trim, link and the monotone switch", () => {
+  const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
+  assert.match(panel, /key: "trim", label: "Trim"/);
+  assert.match(panel, /key: "link", label: "Link"/);
+  assert.match(panel, /theme\.set\("monotoneActions", true\)/);
+  assert.match(panel, /theme\.set\("monotoneActions", false\)/);
+});
 
 check("the words are pinned's", pinWords().add === "Pin" && pinWords().count === "Pinned" && pinWords().remove === "Unpin");
 check("there is no favourites wording left", !/avour/.test(JSON.stringify(pinWords())));

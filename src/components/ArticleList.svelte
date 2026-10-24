@@ -1186,7 +1186,7 @@ import { plainPreview, relativeTime } from "../lib/format";
              24px is smaller than a hand is steady. -->
         <div class="acts" data-no-drag-scroll>
           <button
-            class="act"
+            class="act star"
             class:on={isStarred(item)}
             aria-pressed={isStarred(item)}
             aria-label={isStarred(item) ? "Remove star" : "Star this post"}
@@ -1957,21 +1957,55 @@ import { plainPreview, relativeTime } from "../lib/format";
     opacity: 1;
   }
 
+  /* Hover keeps the hue it has: a mark that turns white under the pointer stops
+     being the mark. The wash behind it is the feedback. */
   .act:hover {
-    color: var(--text);
     background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
 
-  .act.on {
-    color: var(--star);
+  /* One colour per action, so a row says what its three marks are: the star in
+     gold, the read mark in the theme's trim, the link in its own blue. All three
+     are names rather than colours — `--act-*` resolves to a single quiet ink
+     when the Buttons row is set to Monotone, which is how the row looked before
+     there was a choice. */
+  .act.star {
+    color: var(--act-star);
   }
 
-  .act.on svg {
-    fill: currentColor;
+  .act.mark {
+    color: var(--act-read);
   }
 
+  .act.open {
+    color: var(--act-link);
+  }
+
+  /* The three actions are one object at the row's end, not three glyphs that
+     happen to be near each other.
+
+     It sits 5px inside the row, so the accent trim painted on that edge is
+     outside it rather than sliced through it, and its radius is the row's own
+     turn less that 5px — 25 against 30 — so the two curves run parallel to the
+     end instead of crossing. A dark wash, not a light one: the pill is a recess
+     in the row, and black at a few percent sinks in both themes without a
+     colour of its own. Read rows dim the whole thing, pill included. */
+  .items:not(.compact):not(.cards):not(.grid) .acts {
+    margin: 5px 5px 5px 0;
+    padding: 0 20px 0 14px;
+    border-radius: 25px;
+    background: color-mix(in srgb, #000 12%, transparent);
+  }
+
+  /* Read is shown by the mark's own colour, so it needs something else to be a
+     state: a wash of that same colour, quiet enough to read at a glance. */
   .act.mark.on {
-    color: var(--accent);
+    color: var(--act-read);
+    background: color-mix(in srgb, var(--act-read) 22%, transparent);
+  }
+
+  /* A starred post fills the star instead of recolouring it. */
+  .act.star.on svg {
+    fill: currentColor;
   }
 
   /* Thumbs need bigger targets than pointers do. */

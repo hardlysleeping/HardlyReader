@@ -37,6 +37,23 @@ export interface Theme {
   unlock: string;
   /** The sync control: its glyph, its ring and its progress fill. */
   sync: string;
+  /**
+   * The trim: the quiet edge colour a row's end is marked with, and the colour
+   * of the read toggle. Exposed rather than derived, because it is the one tone
+   * that is a shade before it is a signal.
+   */
+  trim: string;
+  /** A post's own page: the colour of the open-at-source mark. */
+  link: string;
+  /**
+   * Draw the three row actions in one quiet ink instead of their own colours.
+   *
+   * Colour is a signal in the rest of the app, and three coloured glyphs on
+   * every row is a lot of signal for a place the eye passes through. Off by
+   * default — the star, the read mark and the link say what they are — and on
+   * for anyone who wants the rows to stay one grey.
+   */
+  monotoneActions: boolean;
 }
 
 export const DEFAULT_THEME: Theme = {
@@ -49,6 +66,9 @@ export const DEFAULT_THEME: Theme = {
   lockClosed: "#f08c2e",
   unlock: "#3fbf6f",
   sync: "#28a06b",
+  trim: "#7c8492",
+  link: "#0078e0",
+  monotoneActions: false,
 };
 
 export const THEME_KEY = "hardlyreader.theme.v1";
@@ -84,6 +104,12 @@ export function parseTheme(raw: unknown): Theme {
     lockClosed: colour(saved.lockClosed, DEFAULT_THEME.lockClosed),
     unlock: colour(saved.unlock, DEFAULT_THEME.unlock),
     sync: colour(saved.sync, DEFAULT_THEME.sync),
+    trim: colour(saved.trim, DEFAULT_THEME.trim),
+    link: colour(saved.link, DEFAULT_THEME.link),
+    monotoneActions:
+      typeof saved.monotoneActions === "boolean"
+        ? saved.monotoneActions
+        : DEFAULT_THEME.monotoneActions,
   };
 }
 
@@ -103,6 +129,13 @@ export function themeVariables(theme: Theme): Record<string, string> {
     "--tone-lock-closed": theme.lockClosed,
     "--tone-unlock": theme.unlock,
     "--tone-sync": theme.sync,
+    "--tone-trim": theme.trim,
+    "--tone-link": theme.link,
+    // The three row actions, resolved here so the stylesheet never has to know
+    // whether it is drawing in colour: one switch, three names.
+    "--act-star": theme.monotoneActions ? "var(--muted)" : "var(--star)",
+    "--act-read": theme.monotoneActions ? "var(--muted)" : theme.trim,
+    "--act-link": theme.monotoneActions ? "var(--muted)" : theme.link,
     // Derived here rather than in CSS because it is a choice, not a shade:
     // `var(--border)` follows the mode, and the mix has to land on top of it.
     "--edge": theme.accentEdges ? "color-mix(in srgb, var(--accent) 24%, var(--border))" : "var(--border)",
