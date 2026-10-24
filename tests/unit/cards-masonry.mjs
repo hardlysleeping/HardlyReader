@@ -432,7 +432,7 @@ check(
 check(
   "a card that fits is stepped whole; one taller than the pane keeps the wheel",
   /function cardFits\(row: HTMLElement\): boolean/.test(read("src/components/ArticleList.svelte")) &&
-    /if \(!cardFits\(row\)\) \{/.test(read("src/components/ArticleList.svelte")) &&
+    /if \(!row \|\| !cardFits\(row\)\) \{/.test(read("src/components/ArticleList.svelte")) &&
     /listPullTimer = setTimeout\(\(\) => \{/.test(read("src/components/ArticleList.svelte")),
 );
 
@@ -541,6 +541,21 @@ check(
 check(
   "a card carries no marker beside its headline",
   /\{#if view === "list"\}\s*<span class="dot"/.test(read("src/components/ArticleList.svelte")),
+);
+
+// One flick used to cross five cards: the handler returned early during the
+// settle window without stopping the event, so the column scrolled natively
+// under the step it had just made and snapped onto whatever it landed near.
+check(
+  "a whole wheel gesture belongs to one step, its tail included",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const fn = src.slice(src.indexOf("function onListWheel"));
+    const stop = fn.indexOf("event.preventDefault()");
+    const settle = fn.indexOf("if (performance.now() < listSettleUntil)");
+    const holds = /if \(performance\.now\(\) < listSettleUntil\) \{[\s\S]{0,240}?listSettleUntil = performance\.now\(\) \+ SETTLE_MS;/.test(fn);
+    return stop > 0 && settle > stop && holds;
+  })(),
 );
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

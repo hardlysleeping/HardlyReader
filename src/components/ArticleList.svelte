@@ -493,24 +493,27 @@ import { plainPreview, relativeTime } from "../lib/format";
       resetListPull();
       return;
     }
-    if (performance.now() < listSettleUntil) {
-      resetListPull();
-      return;
-    }
     const row = currentCard();
-    if (!row) {
-      resetListPull();
-      return;
-    }
     // A card that fits the pane is one you look at whole, so a wheel past it
     // steps. A card taller than the pane is read by scrolling it, and there the
     // wheel belongs to the scroll.
-    if (!cardFits(row)) {
+    if (!row || !cardFits(row)) {
       resetListPull();
       return;
     }
-    // This delta is the pull's, not the list's.
+    // From here every delta belongs to the step, so the list must not also move.
+    // This includes the deltas during the settle window: those used to fall
+    // through without being stopped, so the list scrolled natively underneath
+    // the step the handler had just made — one flick crossed five cards and
+    // then snapped back onto whichever one it happened to land near.
     event.preventDefault();
+    if (performance.now() < listSettleUntil) {
+      // Same gesture still arriving. Hold the step until the wheel is quiet,
+      // rather than counting the rest of the gesture as a second one.
+      listSettleUntil = performance.now() + SETTLE_MS;
+      resetListPull();
+      return;
+    }
     listPull = accumulate(listPull, event.deltaY, listThreshold);
     if (listPullTimer !== null) clearTimeout(listPullTimer);
     listPullTimer = setTimeout(() => {
