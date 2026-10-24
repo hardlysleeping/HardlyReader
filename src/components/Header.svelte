@@ -1,11 +1,12 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { onMount, type Snippet } from "svelte";
 
   import { serverLabel } from "../lib/server-label";
   import { syncDescription, syncReadout } from "../lib/sync-progress";
   import { reader } from "../state/reader.svelte";
   import ReadingControls from "./ReadingControls.svelte";
   import ThemePanel from "./ThemePanel.svelte";
+  import { isDesktop, minimizeWindow, toggleMaximizeWindow, watchMaximized } from "../lib/window-controls";
 
   // Typed by what the menu needs from them, so a component's instance type
   // never has to be named here.
@@ -36,6 +37,22 @@
      `matchMedia` flag as well, and the two disagreed for a resize: the CSS went
      compact while the flag still said wide, so the wide bar offered Sign out in
      two places and a phone offered it in none. */
+
+  /**
+   * The window's own buttons.
+   *
+   * This bar is the window's title bar on the desktop, so minimizing and
+   * maximizing belong in it rather than one line above it. A browser tab has no
+   * window to minimize, so the pair is not drawn there at all.
+   */
+  const desktop = isDesktop();
+  let maximized = $state(false);
+
+  onMount(() => {
+    let stop = (): void => {};
+    void watchMaximized((value) => (maximized = value)).then((off) => (stop = off));
+    return () => stop();
+  });
 
   let accountOpen = $state(false);
   let accountEl = $state<HTMLElement | null>(null);
@@ -300,6 +317,40 @@
       </svg>
     {/if}
   </button>
+
+  {#if desktop}
+    <!-- Minimize and maximize, where a title bar keeps them. Round and quiet
+         until the pointer arrives: they are furniture, not controls being used
+         all day, and the bar already carries enough. -->
+    <span class="wincontrols">
+      <button
+        class="winbtn"
+        aria-label="Minimize"
+        title="Minimize"
+        onclick={() => void minimizeWindow()}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.6 12.4h8.8" /></svg>
+      </button>
+      <button
+        class="winbtn"
+        aria-label={maximized ? "Restore" : "Maximize"}
+        title={maximized ? "Restore" : "Maximize"}
+        onclick={async () => {
+          const next = await toggleMaximizeWindow();
+          if (next !== null) maximized = next;
+        }}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          {#if maximized}
+            <path d="M5.4 10.6V5.2a1 1 0 0 1 1-1h4.4" />
+            <path d="M4.4 5.9h4.8a1 1 0 0 1 1 1v4.8a1 1 0 0 1-1 1H5.4a1 1 0 0 1-1-1z" />
+          {:else}
+            <path d="M3.9 3.9h8.2v8.2H3.9z" />
+          {/if}
+        </svg>
+      </button>
+    </span>
+  {/if}
 </header>
 
 <style>
@@ -321,6 +372,57 @@
     font-size: 13.5px;
     font-weight: 650;
     letter-spacing: -0.01em;
+  }
+
+  /* The window controls, at the very right where a title bar keeps them: a hair
+     of separation from the app's own tools, and round targets that only show
+     their fill under the pointer. */
+  .wincontrols {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 4px;
+    padding-left: 7px;
+    border-left: 1px solid var(--border-soft);
+  }
+
+  .winbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: background-color 110ms ease, color 110ms ease;
+  }
+
+  .winbtn:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .winbtn:active {
+    background: var(--border-soft);
+  }
+
+  .winbtn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .winbtn svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   .account {

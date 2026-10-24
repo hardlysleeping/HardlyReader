@@ -77,5 +77,34 @@ check("scrollbars are slim everywhere", /scrollbar-width:\s*thin/.test(app));
 check("the reading popup is capped, not window-height", /max-height:\s*min\(72vh, 460px\)/.test(read("src/components/ReadingControls.svelte")));
 check("the pane container clips instead of scrolling", /overflow-x:\s*clip/.test(main));
 
+
+// The window's own buttons live in the title bar this header is, and only in the
+// desktop build: a browser tab has no window to minimize, so it must not be
+// offered a button that does nothing.
+check(
+  "minimize and maximize sit in the bar, on the desktop only",
+  /\{#if desktop\}/.test(header) &&
+    /class="winbtn"[\s\S]{0,140}aria-label="Minimize"/.test(header) &&
+    /aria-label=\{maximized \? "Restore" : "Maximize"\}/.test(header) &&
+    /const desktop = isDesktop\(\);/.test(header),
+);
+check(
+  "and they ask the window, not a flag",
+  /onclick=\{\(\) => void minimizeWindow\(\)\}/.test(header) &&
+    /const next = await toggleMaximizeWindow\(\);/.test(header) &&
+    /watchMaximized\(\(value\) => \(maximized = value\)\)/.test(header),
+);
+check(
+  "the state comes from the window, so a maximize it did not do still reads right",
+  (() => {
+    const lib = read("src/lib/window-controls.ts");
+    return (
+      /export function isDesktop\(\): boolean/.test(lib) &&
+      /await win\.onResized\(async \(\) =>/.test(lib) &&
+      /if \(maximized\) await win\.unmaximize\(\);\s*else await win\.maximize\(\);/.test(lib)
+    );
+  })(),
+);
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
