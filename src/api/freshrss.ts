@@ -460,6 +460,35 @@ export async function subscribe(
 }
 
 /**
+ * Moves a subscription to another category.
+ *
+ * `to` is the category label it should end up in, or null for Uncategorized —
+ * which is not a label at all, just the absence of one, so it is expressed by
+ * removing the old label and adding nothing. Uncategorized is never sent as an
+ * `r` value: FreshRSS has no such label to remove.
+ *
+ * `ac=edit` is GReader's "change this subscription" action: `a` adds a label,
+ * `r` removes one, and both together are a move.
+ */
+export async function moveFeed(
+  transport: Transport,
+  session: Session,
+  streamId: string,
+  to: string | null,
+  from: string | null,
+): Promise<void> {
+  const params = new URLSearchParams({ ac: "edit", s: streamId });
+  if (to !== null && to !== "") {
+    params.set("a", `user/-/label/${to}`);
+  }
+  if (from !== null && from !== "" && from !== to) {
+    params.set("r", `user/-/label/${from}`);
+  }
+  if (params.has("a") === false && params.has("r") === false) return;
+  await postWithWriteToken(transport, session, "/reader/api/0/subscription/edit", params, "Move");
+}
+
+/**
  * Removes a subscription.
  *
  * `streamId` is an id from {@link listSubscriptions}, either `feed/<url>` or

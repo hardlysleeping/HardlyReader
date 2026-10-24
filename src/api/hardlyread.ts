@@ -385,6 +385,19 @@ export async function getApiState(transport: Transport, session: Session): Promi
 }
 
 /**
+ * The state token, for noticing changes made outside this app.
+ *
+ * Same state the `/state` call returns, hashed on the server: one short string
+ * instead of a payload. Used by the change watch, not by anything that needs to
+ * know the state itself.
+ */
+export async function getRevision(transport: Transport, session: Session): Promise<string> {
+  const body = await request(transport, session, "/revision", { method: "GET" });
+  const token = (body as { revision?: unknown }).revision;
+  return typeof token === "string" ? token : "";
+}
+
+/**
  * Sets one category's hidden flag explicitly.
  *
  * Explicit state, never a toggle: the server is told what the answer should

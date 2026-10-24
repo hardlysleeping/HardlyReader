@@ -7,7 +7,17 @@
  */
 
 import { isArticleFilter, type ArticleFilter } from "../lib/article-filter";
-import { LIST_VIEW_DEFAULT, isListView, type ListView } from "../lib/list-view";
+import {
+  CARD_SIZE_DEFAULT,
+  GRID_COLUMNS_DEFAULT,
+  isCardSize,
+  isGridColumns,
+  isListView,
+  LIST_VIEW_DEFAULT,
+  type CardSize,
+  type GridColumns,
+  type ListView,
+} from "../lib/list-view";
 import { clampDwellSeconds, DWELL_SECONDS_DEFAULT } from "../lib/dwell";
 import {
   ALIGN_INITIAL,
@@ -30,6 +40,7 @@ import {
   type ThumbSide,
 } from "../lib/reading-layout";
 import { clampEffort, EFFORT_DEFAULT } from "../lib/scroll-advance";
+import { EXTRACT_DEFAULT } from "../lib/extract";
 
 const STORAGE_KEY = "hardlyreader.reading.v1";
 
@@ -61,10 +72,16 @@ class ReadingState {
    */
   listView = $state<ListView>(LIST_VIEW_DEFAULT);
 
+  /** Tiles per row in the grid; `auto` is the grid's own judgement. */
+  gridColumns = $state<GridColumns>(GRID_COLUMNS_DEFAULT);
+
+  /** How tall a card's picture is. `auto` is the height cards always had. */
+  cardSize = $state<CardSize>(CARD_SIZE_DEFAULT);
+
   /**
    * Whether a post is marked read without being asked.
    *
-   * Manual is the default and the owner's preference: opening a post is not
+   * Manual is the default: opening a post is not
    * reading it, and a post flipped past should still be there when he comes
    * back. The automatic option stays, because it is a real preference — just
    * not the one to start with.
@@ -117,6 +134,16 @@ class ReadingState {
   /** Left, right, or off. Off is not the same as "no picture": feeds decide that. */
   thumbSide = $state<ThumbSide>(THUMB_SIDE_INITIAL);
 
+  /**
+   * Reader view: fetch the original page and show only the article.
+   *
+   * Global and device-local like the rest of reading — one choice for every
+   * feed. Off by default: it costs a request per post and some publishers
+   * refuse the fetch, and a fresh install should read what the feed sent rather
+   * than wait on a page that may never arrive.
+   */
+  extract = $state(EXTRACT_DEFAULT);
+
   /** A lead picture above the article text in the reading pane. */
   articleImage = $state(ARTICLE_IMAGE_INITIAL);
 
@@ -137,6 +164,8 @@ class ReadingState {
         advanceOnScroll?: unknown;
         articleFilter?: unknown;
         listView?: unknown;
+        gridColumns?: unknown;
+        cardSize?: unknown;
         markReadMode?: unknown;
         autoMarkRead?: unknown;
         autoMarkSeconds?: unknown;
@@ -149,13 +178,16 @@ class ReadingState {
         thumbSide?: unknown;
         articleImage?: unknown;
         stepPercent?: unknown;
+        extract?: unknown;
       };
       if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
       if (isListView(saved.listView)) this.listView = saved.listView;
+      if (isGridColumns(saved.gridColumns)) this.gridColumns = saved.gridColumns;
+      if (isCardSize(saved.cardSize)) this.cardSize = saved.cardSize;
       // An explicit choice of mode is honoured; the old bare `autoMarkRead`
       // boolean is not read at all. It was a single icon next to the star, and
-      // it stayed on for the owner without his meaning it to — automatic
+      // it stayed on without being meant to — automatic
       // marking is now something you have to pick twice (the setting or the
       // button), and manual is what a fresh install gets.
       if (isMarkReadMode(saved.markReadMode)) this.autoMarkRead = saved.markReadMode === "auto";
@@ -169,6 +201,9 @@ class ReadingState {
       if (isThumbSide(saved.thumbSide)) this.thumbSide = saved.thumbSide;
       if (typeof saved.articleImage === "boolean") this.articleImage = saved.articleImage;
       if (isStepPercent(saved.stepPercent)) this.stepPercent = saved.stepPercent;
+      // Absent, or not a boolean, means off: a prefs blob written before this
+      // setting existed must not switch extraction on by accident.
+      if (typeof saved.extract === "boolean") this.extract = saved.extract;
     } catch {
       // Same rule as the layout: a corrupt preference is not worth a dialog.
     }
@@ -177,6 +212,17 @@ class ReadingState {
   toggleAdvance(): void {
     this.advanceOnScroll = !this.advanceOnScroll;
     this.save();
+  }
+
+  /** Reader view is one global switch, so it stays where it was left. */
+  setExtract(on: boolean): void {
+    if (this.extract === on) return;
+    this.extract = on;
+    this.save();
+  }
+
+  toggleExtract(): void {
+    this.setExtract(!this.extract);
   }
 
   toggleAutoMarkRead(): void {
@@ -207,6 +253,20 @@ class ReadingState {
   setListView(view: ListView): void {
     if (!isListView(view) || this.listView === view) return;
     this.listView = view;
+    this.save();
+  }
+
+  /** Tiles per row, for the grid. */
+  setGridColumns(columns: GridColumns): void {
+    if (!isGridColumns(columns) || this.gridColumns === columns) return;
+    this.gridColumns = columns;
+    this.save();
+  }
+
+  /** Card picture height, for the cards. */
+  setCardSize(size: CardSize): void {
+    if (!isCardSize(size) || this.cardSize === size) return;
+    this.cardSize = size;
     this.save();
   }
 
@@ -298,6 +358,8 @@ class ReadingState {
           advanceOnScroll: this.advanceOnScroll,
           articleFilter: this.articleFilter,
           listView: this.listView,
+          gridColumns: this.gridColumns,
+          cardSize: this.cardSize,
           markReadMode: this.autoMarkRead ? "auto" : "manual",
           autoMarkSeconds: this.autoMarkSeconds,
           scrollEffort: this.scrollEffort,
@@ -309,6 +371,7 @@ class ReadingState {
           thumbSide: this.thumbSide,
           articleImage: this.articleImage,
           stepPercent: this.stepPercent,
+          extract: this.extract,
         }),
       );
     } catch {

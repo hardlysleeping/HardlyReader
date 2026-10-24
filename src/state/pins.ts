@@ -78,6 +78,12 @@ export function arrangeByPins<F extends { id: string; title: string }, G extends
   view: PinView,
   isCategoryMarked: (label: string) => boolean,
   isFeedPinned: (id: string) => boolean,
+  /**
+   * The arrangement the user dragged the feeds into. Pinned feeds still come
+   * first — that band is about attention, not position — and everything else
+   * follows the drag, falling back to the name order for anything never dragged.
+   */
+  order: readonly string[] = [],
 ): G[] {
   const filtered = groups.filter((group) => {
     if (view === "all") return true;
@@ -92,10 +98,16 @@ export function arrangeByPins<F extends { id: string; title: string }, G extends
   return filtered
     .map((group) => ({
       ...group,
-      feeds: [...group.feeds].sort(
-        (a, b) =>
-          Number(isFeedPinned(b.id)) - Number(isFeedPinned(a.id)) || a.title.localeCompare(b.title),
-      ),
+      feeds: [...group.feeds].sort((a, b) => {
+        const pinned = Number(isFeedPinned(b.id)) - Number(isFeedPinned(a.id));
+        if (pinned !== 0) return pinned;
+        const left = order.indexOf(a.id);
+        const right = order.indexOf(b.id);
+        if (left !== -1 && right !== -1) return left - right;
+        if (left !== -1) return -1;
+        if (right !== -1) return 1;
+        return a.title.localeCompare(b.title);
+      }),
     }))
     .sort(
       (a, b) =>

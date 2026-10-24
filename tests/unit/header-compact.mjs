@@ -31,10 +31,19 @@ const menu = header.slice(header.indexOf('class="sheet"'), header.indexOf("</div
 check("the menu opens the feeds", /ontogglesidebar\?\.\(\)/.test(menu));
 check("the menu opens reading", /readingControls\?\.openPanel\(\)/.test(menu));
 check("the menu opens settings", /themePanel\?\.openSettings\(\)/.test(menu));
-check("the menu can sign out", /onsignout\?\.\(\)/.test(menu));
-check("sync is not in the menu — it never leaves the bar", () =>
-  !/Sync now/.test(menu) && !/void refresh\(\)/.test(menu));
-check("five rows, one per door", (menu.match(/role="menuitem"/g) ?? []).length === 5, String((menu.match(/role="menuitem"/g) ?? []).length));
+// The row is always in the markup and hidden by the media query when the bar has
+// the name to press; only the no-name case is gated in JS, because then the menu
+// is the only way out.
+check("the menu can sign out when the name is not there to press", /class:narrow-only=\{!!subtitle\}[\s\S]{0,120}onsignout\?\.\(\)/.test(menu));
+check("the menu's sign out is not gated twice", !/\{#if narrow/.test(menu));
+check("sync is not in the menu — it never leaves the bar", !/Sync now/.test(menu) && !/void refresh\(\)/.test(menu));
+// Five menu actions in the written markup: four in the drawer (Feeds, Reading,
+// Settings, Sign out) and the account sheet's own Sign out.
+check("five menu actions in total", (menu.match(/role="menuitem"/g) ?? []).length === 5, String((menu.match(/role="menuitem"/g) ?? []).length));
+// Two ways to sign out is clutter; none is worse. One media query decides, so
+// there is no second copy of the breakpoint to drift away from it.
+check("the breakpoint exists once, in CSS", !/matchMedia\(/.test(header) && /@media \(max-width: 560px\)/.test(header));
+check("wide bars do not repeat the menu's sign out", /@media \(min-width: 561px\)\s*\{[\s\S]{0,120}narrow-only/.test(header));
 
 // Sign out hangs off the name at full width, and the name is not a permanent
 // button of its own: nothing in the bar signs out until it is pressed.
@@ -52,11 +61,14 @@ check("the menu opens by the hamburger", /class="icon menu"/.test(header) && /ar
 check("settings can be opened from outside", /export function openSettings\(\)/.test(themePanel));
 check("reading can be opened from outside", /export function openPanel\(\)/.test(readingControls));
 
-// Compact rules: exactly the controls that do not fit are the ones that go.
+// Compact rules: exactly the controls that do not fit are the ones that go —
+// the triggers, never the panels they open.
 const compact = header.slice(header.indexOf("@media (max-width: 560px)"));
-for (const selector of [".account", ".tools"]) {
-  check(`${selector} is hidden when compact`, compact.includes(selector));
-}
+check("the name goes when compact", /\.account,/.test(compact));
+check("the bar-sized controls go when compact", /\.tools > :global\(\.reading\)/.test(compact) && /\.tools > :global\(\.themebar\)/.test(compact));
+check("but the group holding the panels is not hidden", !/\.tools\s*{[^}]*display:\s*none/.test(compact), compact.slice(0, 400));
+check("so a menu row can still open settings on a phone", /role="dialog"/.test(themePanel) && /max-height:\s*min\(72vh, 460px\)/.test(themePanel));
+check("the settings popup keeps its tabs in reach", /position:\s*sticky/.test(themePanel));
 check("the menu button survives the compact rules", !/\.menu\s*{[^}]*display:\s*none/.test(compact));
 
 // No horizontal scrolling, by construction.

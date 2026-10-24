@@ -36,7 +36,14 @@ the folder name:
 
 ```
 /api/misc.php/Hardly%20Read/v1/state
+/api/misc.php/Hardly%20Read/v1/revision
 ```
+
+`/v1/revision` is the same state, hashed into one short token. The website's own
+buttons — hide, pin, change the pinned view, lock — write the extension state
+directly, so a client cannot be told about them; it polls the token every few
+seconds instead of polling the payload, and re-reads `/v1/state` only when the
+token moves. Any write from either side changes it, and nothing else does.
 
 ## Backups taken before each change
 

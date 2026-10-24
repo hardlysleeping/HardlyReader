@@ -1,5 +1,40 @@
 /**
- * Ask the desktop window to become a width.
+ * The width the window may honestly become, and the ask that makes it so.
+ *
+ * These two are separate because they can disagree with each other for a good
+ * reason: the monitor says what fits on the screen, and a mode press says what
+ * the layout wants. The caller caps the second with the first.
+ */
+
+/**
+ * The widest a window may honestly become on the screen it is on.
+ *
+ * A native window asks its monitor, because "the screen" is whichever display
+ * the window was last on and a maximised 4K panel is not the laptop lid it came
+ * from. A browser tab has no such question and uses the screen it can see. When
+ * neither answers, the caller gets `null` and applies no cap rather than a guess.
+ */
+export async function screenWidth(): Promise<number | null> {
+  if (typeof window === "undefined") return null;
+  if ("__TAURI_INTERNALS__" in window) {
+    try {
+      const { currentMonitor } = await import("@tauri-apps/api/window");
+      const monitor = await currentMonitor();
+      if (monitor !== null) {
+        const factor = monitor.scaleFactor || 1;
+        const width = monitor.size.width / factor;
+        if (Number.isFinite(width) && width > 0) return Math.round(width);
+      }
+    } catch {
+      // Fall through to the browser's answer.
+    }
+  }
+  const available = window.screen?.availWidth;
+  return typeof available === "number" && available > 0 ? available : null;
+}
+
+/**
+ * Ask the desktop window to become a width, and say whether it did.
  *
  * Only the Tauri build can do this: a browser tab cannot resize itself, so the
  * call reports failure and the caller falls back to switching the mode alone —

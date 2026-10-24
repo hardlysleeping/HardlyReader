@@ -17,12 +17,6 @@ export type FavoritesWriteOutcome = WriteOutcome<FavoritesState>;
 /** The header cycles in this order, and only in this order. */
 export const FAVORITE_VIEW_CYCLE: readonly FavoriteView[] = ["all", "only", "without"];
 
-export const FAVORITE_VIEW_LABELS: Record<FavoriteView, string> = {
-  all: "All",
-  only: "Favorites",
-  without: "No favorites",
-};
-
 /**
  * The view the header's next click asks for.
  *
@@ -33,11 +27,6 @@ export const FAVORITE_VIEW_LABELS: Record<FavoriteView, string> = {
 export function nextFavoriteView(view: FavoriteView): FavoriteView {
   const index = FAVORITE_VIEW_CYCLE.indexOf(view);
   return FAVORITE_VIEW_CYCLE[(index + 1) % FAVORITE_VIEW_CYCLE.length];
-}
-
-/** The label the control shows for a view. */
-export function favoriteViewLabel(view: FavoriteView): string {
-  return FAVORITE_VIEW_LABELS[view];
 }
 
 /**

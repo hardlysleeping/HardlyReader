@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
+  import { serverLabel } from "../lib/server-label";
   import { syncDescription, syncReadout } from "../lib/sync-progress";
   import { reader } from "../state/reader.svelte";
   import ReadingControls from "./ReadingControls.svelte";
@@ -29,6 +30,13 @@
    * a button of its own. In a narrow window even the name goes — signing out is
    * then a row in the menu.
    */
+  /* "Narrow" is decided in exactly one place: the compact media block at the
+     bottom of this file, which drops the account from the bar and
+     hides the rows only the compact menu needs. It used to be mirrored in a
+     `matchMedia` flag as well, and the two disagreed for a resize: the CSS went
+     compact while the flag still said wide, so the wide bar offered Sign out in
+     two places and a phone offered it in none. */
+
   let accountOpen = $state(false);
   let accountEl = $state<HTMLElement | null>(null);
 
@@ -88,6 +96,7 @@
   let {
     title = "HardlyReader",
     subtitle = "",
+    server = "",
     controls,
     onsignout,
     ontogglesidebar,
@@ -96,9 +105,19 @@
     controls?: Snippet;
     title?: string;
     subtitle?: string;
+    /** The server this window is signed in to, exactly as it was entered. */
+    server?: string;
     onsignout?: () => void;
     ontogglesidebar?: () => void;
   } = $props();
+
+  /**
+   * Which box this is. Two windows on two servers look identical otherwise, and
+   * the address is the only thing that tells them apart — so it sits beside the
+   * name, shrinks before the name does, and goes into the sheets when the bar
+   * runs out of room.
+   */
+  const address = $derived(serverLabel(server));
 
   /** The reader owns the steps; the header only reads them. */
   const refreshing = $derived(reader.sync.active);
@@ -173,7 +192,21 @@
         <button role="menuitem" onclick={() => pick(() => ontogglesidebar?.())}>Feeds</button>
         <button role="menuitem" onclick={() => pick(() => readingControls?.openPanel())}>Reading</button>
         <button role="menuitem" onclick={() => pick(() => themePanel?.openSettings())}>Settings</button>
-        <button role="menuitem" onclick={() => pick(() => onsignout?.())}>Sign out</button>
+        <!-- Only when the name is not in the bar: the account is where signing
+             out lives, and on a narrow bar the account is in here. -->
+        <!-- Always rendered, hidden by the same media query that drops the
+             account from the bar: the CSS decides what "narrow" means here, so
+             the row cannot disagree with the bar the way a JS flag can. -->
+        {#if address}
+          <p class="sheet-server" title={server}>{address}</p>
+        {/if}
+        <!-- One row always: hidden by the media query when the bar has the name
+             to press, shown when it does not. When there is no name at all the
+             row is not gated, because the menu is then the only way out. -->
+        <button
+          role="menuitem"
+          class:narrow-only={!!subtitle}
+          onclick={() => pick(() => onsignout?.())}>Sign out</button>
       </div>
     {/if}
   </div>
@@ -190,9 +223,16 @@
         title={subtitle}
         onclick={() => (accountOpen = !accountOpen)}
       >{subtitle}</button>
+      {#if address}
+        <span class="server" title={server}>{address}</span>
+      {/if}
       {#if accountOpen}
         <div class="who-sheet" role="menu" aria-label="Account">
           <p class="who-name" title={subtitle}>{subtitle}</p>
+          <!-- The address lives here too: the bar's copy is the first thing to
+               go when the window narrows, and this is where you go looking for
+               "which server is this". -->
+          <p class="who-server">{server}</p>
           <button role="menuitem" onclick={() => pickAccount(() => onsignout?.())}>Sign out</button>
         </div>
       {/if}
@@ -310,13 +350,31 @@
     color: var(--text);
   }
 
+  /* The address sits beside the name and takes the slack: when the bar runs
+     tight it is the first thing to lose characters, because a truncated address
+     still says which box you are on while a truncated name says nothing. */
+  .server {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 30ch;
+    padding: 2px 2px 2px 5px;
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+  }
+
   .who-sheet {
     position: absolute;
     top: calc(100% + 6px);
     left: 0;
     z-index: 70;
     min-width: 148px;
-    max-width: 220px;
+    max-width: 260px;
     padding: 5px;
     border: 1px solid var(--border);
     border-radius: 9px;
@@ -334,6 +392,36 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* In the sheet there is room for the whole thing, and it wraps rather than
+     clipping: this is the copy you read when the bar's copy is gone. */
+  .who-server,
+  .sheet-server {
+    margin: 0;
+    padding: 4px 7px;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-dim);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+
+  .sheet-server {
+    border-bottom: 0;
+    border-top: 1px solid var(--border-soft);
+    margin-top: 4px;
+    color: var(--muted);
+  }
+
+  /* Wide enough for the bar to hold the account itself: the menu stops
+     repeating what the bar shows. One media query, so the menu and the bar can
+     never disagree about how narrow the window is. */
+  @media (min-width: 561px) {
+    .sheet-server,
+    .sheet .narrow-only {
+      display: none;
+    }
   }
 
   .who-sheet button {
@@ -598,8 +686,13 @@
       padding: 0 8px;
     }
 
+    /* The triggers go, their panels stay: the panels are `position: fixed` and
+       sit at the component root, so hiding `.tools` used to take Settings and
+       Reading with it — the menu opened nothing. Only the bar-sized controls
+       are hidden; the rows in the menu still reach the same panels. */
     .account,
-    .tools {
+    .tools > :global(.reading),
+    .tools > :global(.themebar) {
       display: none;
     }
 

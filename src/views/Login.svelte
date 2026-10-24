@@ -6,10 +6,12 @@
 
   interface Props {
     initialServerUrl?: string;
+    /** Why this screen appeared without the reader asking for it. */
+    notice?: string;
     onconnected: (session: Session) => void;
   }
 
-  let { initialServerUrl = "http://127.0.0.1:18080", onconnected }: Props = $props();
+  let { initialServerUrl = "http://127.0.0.1:18080", notice = "", onconnected }: Props = $props();
 
   let serverUrl = $state(untrack(() => initialServerUrl));
   let email = $state("");
@@ -57,6 +59,9 @@
     <p class="hint">
       Use the API password from your FreshRSS profile, not your account password.
     </p>
+    {#if notice}
+      <p class="notice">{notice}</p>
+    {/if}
 
     <label>
       <span>Server URL</span>
@@ -125,6 +130,16 @@
   h1 {
     font-size: 1.15rem;
     margin: 0;
+  }
+
+  .notice {
+    margin: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 11.5px;
   }
 
   .hint {

@@ -1,20 +1,23 @@
 <script lang="ts">
   import type { PaneMode } from "../lib/panes";
-  import { fitWindowTo } from "../lib/window-fit";
   import { layout } from "../state/layout.svelte";
 
   /**
-   * A mode button does two things: it records the choice, then it makes the
-   * window match it where that is possible. Recorded first so a window that
-   * cannot be resized (a browser tab) still switches — it just stays squeezed.
+   * A mode button records the choice, then asks the window to fit it.
    *
-   * Two pixels of slack: the pane container is measured a hair narrower than
-   * the window, and landing exactly on the threshold would flip back to the
-   * smaller mode.
+   * The record is unconditional, so the press always does something. The ask is
+   * what makes the button mean what it says: pressing 3 in a 900px window grows
+   * it to the three-pane width instead of drawing two panes and a complaint.
+   * Growing only, for 2 and 3 — a window already wider than the mode needs keeps
+   * its room and the panes share it. Pressing 1 goes to the one-pane width,
+   * because collapsing is the one press that means "take less space".
+   *
+   * Where the window cannot be resized (a browser tab, a phone) the ask fails
+   * quietly and the tooltip below keeps saying the window is too narrow: the
+   * mode still changed, so nothing is lost but the resize.
    */
   async function choose(mode: PaneMode) {
-    layout.setMode(mode);
-    await fitWindowTo(layout.widthFor(mode) + 2);
+    await layout.chooseMode(mode);
   }
 
   const modes: { mode: PaneMode; label: string; hint: string }[] = [
@@ -31,9 +34,9 @@
       class:on={layout.mode === item.mode}
       aria-pressed={layout.mode === item.mode}
       title={layout.squeezed && layout.desired === item.mode
-        ? `${item.hint} — this window is too narrow, showing ${layout.mode}`
+        ? `${item.hint} — this window cannot get wide enough, showing ${layout.mode}`
         : item.hint}
-      onclick={() => void choose(item.mode)}
+      onclick={() => choose(item.mode)}
     >
       {item.label}
     </button>

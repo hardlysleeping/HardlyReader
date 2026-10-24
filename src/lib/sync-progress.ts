@@ -33,7 +33,10 @@ export function percentOf(done: number, total: number): number {
  */
 export function syncReadout(state: SyncState): string {
   if (state.total <= 0) return state.step ? `${state.step}…` : "Syncing…";
-  return `${Math.min(state.done, state.total)}/${state.total} · ${percentOf(state.done, state.total)}%`;
+  // The unit, not just the fraction: "2/5" next to a post list reads like five
+  // posts. A sync is five fetches, and saying so is the whole point of counting
+  // them.
+  return `${Math.min(state.done, state.total)}/${state.total} steps`;
 }
 
 /** Names the step for a tooltip or a screen reader. */
@@ -41,5 +44,5 @@ export function syncDescription(state: SyncState): string {
   if (!state.active) return "Sync now";
   const step = state.step ? ` ${state.step.toLowerCase()}` : "";
   if (state.total <= 0) return `Syncing${step}, starting`;
-  return `Syncing${step}, ${Math.min(state.done, state.total)} of ${state.total} done, ${percentOf(state.done, state.total)} percent`;
+  return `Syncing${step}: ${Math.min(state.done, state.total)} of ${state.total} steps, ${percentOf(state.done, state.total)} percent`;
 }

@@ -183,8 +183,6 @@ export function placeMenu(anchor: Point, menu: Size, viewport: Size): Point {
 export type MenuAction =
   | { type: "hidden"; hidden: boolean }
   | { type: "pin"; pinned: boolean }
-  /** The server-side form of a pin, when the extension keeps it. */
-  | { type: "favorite"; favorite: boolean }
   | { type: "remove-feed" }
   | { type: "confirm-remove" }
   | { type: "cancel-remove" };
@@ -208,17 +206,12 @@ export interface MenuModel {
   /** Hide/Show. Null for a feed row. */
   toggle: MenuItemModel | null;
   /**
-   * The mark on a category row. One state, one item: a category is either
-   * pinned or it is not. Where the mark is kept decides the action, not the
-   * meaning — the Pinned Categories extension owns it on the server when it is
-   * installed, and this device keeps it otherwise. It is called a pin either way.
-   *
-   * Named `favorite` because that is the extension's own word for the same
-   * fact, and the action it sends is the one the extension answers to.
+   * Pin/Unpin. One state, one item, one word, both kinds of row: a row is
+   * either pinned or it is not. Where the mark is kept decides the storage, not
+   * the meaning — Pinned Categories owns a category on the server when it is
+   * installed, and this device keeps it otherwise; a feed is always this
+   * device. It is a pin in every case, so it is called one in every case.
    */
-  favorite: MenuItemModel | null;
-  /** Pin/Unpin for a feed row, which is always this device: feeds have no
-   * server-side home for a mark. Null for a category row. */
   pin: MenuItemModel | null;
   /** Remove, for a feed row. Replaced by `confirm` once it is chosen. */
   remove: MenuItemModel | null;
@@ -238,7 +231,6 @@ export function categoryMenu(
   state: HiddenCategoriesState,
   label: string,
   pinned: boolean,
-  favorite: boolean | null = null,
 ): MenuModel {
   const words = pinWords();
   const id = categoryIdForLabel(state, label);
@@ -260,12 +252,9 @@ export function categoryMenu(
     note: notes.length === 0 ? null : notes.join(" "),
     // One entry, whichever storage it lands in. There is one mark on a
     // category, and it is a pin.
-    favorite: {
-      action:
-        favorite === null
-          ? { type: "pin", pinned: !pinned }
-          : { type: "favorite", favorite: !favorite },
-      label: (favorite ?? pinned) ? words.remove : words.add,
+    pin: {
+      action: { type: "pin", pinned: !pinned },
+      label: pinned ? words.remove : words.add,
       glyph: "📌",
       checked: false,
       disabled: false,
@@ -280,7 +269,6 @@ export function categoryMenu(
       checked: false,
       disabled: !usable,
     },
-    pin: null,
     remove: null,
     confirm: [],
   };
@@ -305,10 +293,9 @@ export function feedMenu(
     label: title,
     note: confirming ? "This removes the feed and its unread items from the server." : null,
     toggle: null,
-    favorite: null,
     pin: confirming
       ? null
-      : { action: { type: "pin", pinned: !pinned }, label: pinned ? words.remove : words.add, checked: false, disabled: false },
+      : { action: { type: "pin", pinned: !pinned }, label: pinned ? words.remove : words.add, glyph: "📌", checked: false, disabled: false },
     remove: confirming
       ? null
       : {

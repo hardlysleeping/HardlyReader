@@ -1,7 +1,8 @@
 <script lang="ts">
+  import ArticleList from "./ArticleList.svelte";
   import SidebarBand from "./SidebarBand.svelte";
   import ThemeToggle from "./ThemeToggle.svelte";
-  import { READING_LIST, STATE_STARRED, isRead, type StreamItem, type Subscription } from "../api/freshrss";
+  import { READING_LIST, STATE_STARRED, type Subscription } from "../api/freshrss";
   import {
     LongPressTracker,
     anchorForRect,
@@ -11,9 +12,8 @@
   import { parseFeedUrls } from "../lib/add-feeds";
   import { buildOpml, opmlFileName, parseOpml } from "../lib/opml";
   import { feedHue, feedIconSrc, feedInitial } from "../lib/feedicon";
-  import { relativeTime } from "../lib/format";
   import { pullDown } from "../lib/pull";
-  import { thumbnailOf, type ThumbSource } from "../lib/thumb";
+  import { createFeedDrag } from "../lib/feed-drag";
   import { reading } from "../state/reading.svelte";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
@@ -171,28 +171,6 @@
   }
 
   /**
-   * The same picture the posts column would have shown, worked out once per
-   * post. Nothing is fetched here — `thumbnailOf` only decides a URL from what
-   * the feed already sent — so an unfolded feed costs no extra requests.
-   */
-  const thumbnails = new WeakMap<StreamItem, string | null>();
-
-  function thumbnail(item: StreamItem): string | null {
-    const known = thumbnails.get(item);
-    if (known !== undefined) return known;
-    const found = thumbnailOf(item as ThumbSource).url;
-    thumbnails.set(item, found);
-    return found;
-  }
-
-  /** A hotlinked picture that fails is dropped, not left as a broken box. */
-  let brokenThumbs = $state<string[]>([]);
-
-  function thumbFailed(id: string) {
-    brokenThumbs = [...brokenThumbs, id];
-  }
-
-  /**
    * Pulling the list down asks for news.
    *
    * With a feed open that means that feed; with nothing open there is no "that
@@ -201,11 +179,6 @@
   function pullRefresh(): void {
     if (reader.activeStream !== "") void reader.reloadStream({ force: true });
     else void reader.refresh();
-  }
-
-  /** A post under an open feed: the reader is the one thing that takes over. */
-  function openPost(item: StreamItem) {
-    reader.select(item);
   }
 
 
@@ -259,8 +232,31 @@
     armPress(event, (point) => reader.openCategoryMenu(category.label, point));
   }
 
+  /**
+   * Where a dragged feed would land, while a feed is being dragged.
+   *
+   * Held here rather than in the drag module so the sidebar can draw the
+   * insertion line: the module only says what is under the pointer, the markup
+   * decides what that looks like.
+   */
+  let drop = $state<{ category: string; before: string | null } | null>(null);
+
+  const feedDrag = createFeedDrag({
+    // A drag and a long-press start the same way; the drag wins once the
+    // pointer travels, so the context menu must not open behind it.
+    onStart: () => cancelPress(),
+    onHover: (target) => (drop = target),
+    onEnd: () => (drop = null),
+    onDrop: ({ streamId, category, before }) => {
+      void reader.arrangeFeed(streamId, category, before);
+    },
+  });
+
+  $effect(() => () => feedDrag.dispose());
+
   function onFeedPointerDown(event: PointerEvent, feed: Subscription) {
     armPress(event, (point) => reader.openFeedMenu({ id: feed.id, title: feed.title }, point));
+    feedDrag.arm(event, feed.id);
   }
 
   function onPointerMove(event: PointerEvent) {
@@ -417,7 +413,7 @@
   }
 </script>
 
-<nav class="sidebar" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
+<nav class="sidebar" data-pane="feeds" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
   <!-- One field, filtering as you type: no submit button, no separate mode
        button beside it. The paragraph mark inside the field is the "also search
        post text" switch, kept quiet until it is wanted. It sits above the band
@@ -488,13 +484,13 @@
         max={reader.sidebarIndent.max}
         step="1"
         value={reader.sidebarIndent.px}
-        disabled={!reader.sidebarIndent.available}
         aria-label="Feed name indent"
         title={reader.indentError ??
-          (reader.sidebarIndent.available
-            ? "Feed name indent, shared with the Sidebar Feed Indent extension"
-            : "Sidebar Feed Indent is not enabled on this server")}
+          (reader.indentDeviceOnly
+            ? "Feed name indent, kept on this device — Sidebar Feed Indent is not storing it on the server"
+            : "Feed name indent, shared with the Sidebar Feed Indent extension")}
         oninput={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value))}
+        onchange={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value), true)}
       />
     {/if}
     <span class="right"><ThemeToggle /></span>
@@ -591,6 +587,8 @@
           class:active={reader.activeStream === category.id}
           class:pinned
           class:is-hidden={hiddenCat}
+          class:drop-into={drop !== null && drop.category === category.label && drop.before === null}
+          data-drop-cat={category.label}
           onclick={() => toggle(category.id)}
           aria-expanded={!folded}
           aria-label={folded ? `Expand ${category.label}` : `Collapse ${category.label}`}
@@ -629,13 +627,23 @@
       </div>
 
       {#if !folded}
-        {#each category.feeds as feed (feed.id)}
+        {#each category.feeds as feed, index (feed.id)}
           <button
             class="row feed"
             class:active={reader.activeStream === feed.id}
             class:pinned={reader.isFeedPinned(feed.id)}
             class:unfolded={inlinePosts && expandedFeed === feed.id}
-            onclick={() => (inlinePosts ? void toggleFeed(feed) : openFeed(feed))}
+            class:drop-before={drop !== null && drop.category === category.label && drop.before === feed.id}
+            data-drop-feed={feed.id}
+            data-drop-cat={category.label}
+            data-drop-next={category.feeds[index + 1]?.id ?? null}
+            data-no-drag-scroll
+            onclick={() => {
+              // The drag ends with a click on whatever the pointer was over.
+              if (feedDrag.justDropped()) return;
+              if (inlinePosts) void toggleFeed(feed);
+              else openFeed(feed);
+            }}
             aria-expanded={inlinePosts ? expandedFeed === feed.id : undefined}
             onpointerenter={() => reader.prefetchStream(feed.id)}
             onfocus={() => reader.prefetchStream(feed.id)}
@@ -675,42 +683,11 @@
           </button>
 
           {#if inlinePosts && expandedFeed === feed.id}
-            <div class="posts" aria-label={`Posts in ${feed.title}`}>
-              {#if reader.loadingList && reader.items.length === 0}
-                <p class="posts-note">Loading…</p>
-              {:else if reader.listItems.length === 0}
-                <p class="posts-note">No posts.</p>
-              {:else}
-                {#each reader.listItems as item (item.id)}
-                  <button
-                    class="post"
-                    class:read={isRead(item)}
-                    onclick={() => openPost(item)}
-                    title={item.title}
-                  >
-                    <span class="post-title">{item.title || "(untitled)"}</span>
-                    <span class="post-time">{relativeTime(item.timestampUsec, item.published)}</span>
-                    {#if reading.thumbSide !== "off" && thumbnail(item) !== null && !brokenThumbs.includes(item.id)}
-                      <span
-                        class="post-thumb"
-                        class:left={reading.thumbSide === "left"}
-                        aria-hidden="true"
-                      >
-                        <img
-                          src={thumbnail(item)}
-                          alt=""
-                          loading="lazy"
-                          decoding="async"
-                          referrerpolicy="no-referrer"
-                          draggable="false"
-                          onerror={() => thumbFailed(item.id)}
-                        />
-                      </span>
-                    {/if}
-                  </button>
-                {/each}
-              {/if}
-            </div>
+            <!-- The posts of this feed, in the same list the other modes show:
+                 the same four views, the same star and read toggles, and the
+                 feed's mark in the bar above them. Nested, so it does not try
+                 to be a column with its own scrollbar. -->
+            <ArticleList nested />
           {/if}
         {/each}
       {/if}
@@ -1045,6 +1022,25 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Where the feed will land. A line above the row, not a gap: the row keeps its
+     height so nothing under the pointer moves while the pointer is over it. */
+  .feed.drop-before::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: -1px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+
+  /* Dropped on the category itself: the end of that category's list. */
+  .group-title.drop-into {
+    box-shadow: inset 0 0 0 1px var(--accent);
+    border-radius: 5px;
+  }
+
   /* Feed rows take the server's indent on top of a small base inset. The base
      used to be 34px — a full caret column's width — which pushed the first
      child's icon 46px into a 250px sidebar and its name to ~70px, so the tree
@@ -1053,6 +1049,9 @@
      category by size, weight and colour rather than by a deep column. Category
      rows still take no indent: that is the hierarchy the indent expresses. */
   .feed {
+    /* The drop line is drawn against the row's own box, so the row has to be
+       the containing block for it. */
+    position: relative;
     padding-left: calc(8px + var(--feed-indent, 12px));
     font-size: 12.5px;
     color: var(--text-dim);
@@ -1071,89 +1070,6 @@
      column as the feed's name so the nesting is legible without the feed's icon
      column being repeated, and quiet enough that the feeds below still read as
      the list's spine. */
-  .posts {
-    display: flex;
-    flex-direction: column;
-    padding: 2px 6px 4px calc(30px + var(--feed-indent, 12px));
-    gap: 1px;
-  }
-
-  .post {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 4px 6px;
-    border: 0;
-    border-radius: 6px;
-    background: none;
-    color: var(--text-dim);
-    font: inherit;
-    font-size: 12px;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .post:hover {
-    background: var(--hover);
-    color: var(--text);
-  }
-
-  .post.read {
-    color: var(--muted);
-  }
-
-  .post-title {
-    flex: 1;
-    min-width: 0;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    line-height: 1.35;
-  }
-
-  .post-time {
-    flex: none;
-    color: var(--muted);
-    font-size: 10.5px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* The picture the feed chose, at the size the reader asked for in Aa — the
-     same 48px × row × picture scales as the posts column, so the size setting
-     means one thing everywhere. A row without a picture keeps its plain shape
-     rather than reserving a box. */
-  .post-thumb {
-    display: block;
-    flex: none;
-    width: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    height: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    border-radius: 5px;
-    overflow: hidden;
-    background: var(--hover);
-  }
-
-  .post-thumb.left {
-    order: -1;
-  }
-
-  .post-thumb img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    color: transparent;
-  }
-
-  .posts-note {
-    margin: 0;
-    padding: 3px 6px 5px;
-    color: var(--muted);
-    font-size: 11.5px;
-  }
-
   .label {
     flex: 1;
     overflow: hidden;

@@ -13,12 +13,19 @@
  * a Svelte compiler.
  */
 
+import type { AutoSyncHours } from "../lib/auto-sync";
 import {
   browserStorage,
+  readAutoSync,
+  readAutoSyncHours,
   readBandCollapsed,
   readIndentOpen,
+  readPinPad,
+  writeAutoSync,
+  writeAutoSyncHours,
   writeBandCollapsed,
   writeIndentOpen,
+  writePinPad,
 } from "../lib/chrome-prefs";
 
 class ChromeState {
@@ -30,9 +37,33 @@ class ChromeState {
    */
   indentOpen = $state(false);
 
+  /**
+   * Whether the passcode is entered on a tappable number pad.
+   *
+   * Off unless it was chosen: with a mouse and a keyboard, typing is faster,
+   * and this exists for the phone. Device-local like the rest of chrome — it
+   * describes the hardware in front of you, not the account.
+   */
+  pinPad = $state(false);
+
+  /**
+   * Whether the app syncs on its own — once at launch, then every few hours.
+   *
+   * Off by default. Each sync is five requests against the server, and a reader
+   * that spends them without being asked is spending something that is not
+   * its own. Device-local: it is about this window, not the account.
+   */
+  autoSync = $state(false);
+
+  /** Hours between automatic syncs. Hourly unless another interval was picked. */
+  autoSyncHours = $state<AutoSyncHours>(1);
+
   load(): void {
     this.bandCollapsed = readBandCollapsed(browserStorage());
     this.indentOpen = readIndentOpen(browserStorage());
+    this.pinPad = readPinPad(browserStorage());
+    this.autoSync = readAutoSync(browserStorage());
+    this.autoSyncHours = readAutoSyncHours(browserStorage());
   }
 
   /**
@@ -54,6 +85,28 @@ class ChromeState {
   toggleIndentOpen(): void {
     this.indentOpen = !this.indentOpen;
     writeIndentOpen(browserStorage(), this.indentOpen);
+  }
+
+  setPinPad(on: boolean): void {
+    if (this.pinPad === on) return;
+    this.pinPad = on;
+    writePinPad(browserStorage(), on);
+  }
+
+  togglePinPad(): void {
+    this.setPinPad(!this.pinPad);
+  }
+
+  setAutoSync(on: boolean): void {
+    if (this.autoSync === on) return;
+    this.autoSync = on;
+    writeAutoSync(browserStorage(), on);
+  }
+
+  setAutoSyncHours(hours: AutoSyncHours): void {
+    if (this.autoSyncHours === hours) return;
+    this.autoSyncHours = hours;
+    writeAutoSyncHours(browserStorage(), hours);
   }
 
   toggleBand(): void {

@@ -105,10 +105,10 @@ const tree = [
     feeds: [
       { id: "f1", title: "MoMA" },
       { id: "f2", title: "Artforum" },
-      { id: "f9", title: "Cross" },
+      { id: "f9", title: "Shared Feed" },
     ],
   },
-  { id: "c-tech", label: "Technology", feeds: [{ id: "f3", title: "Ars Technica" }, { id: "f9", title: "Cross" }] },
+  { id: "c-tech", label: "Technology", feeds: [{ id: "f3", title: "Ars Technica" }, { id: "f9", title: "Shared Feed" }] },
   { id: "c-news", label: "News", feeds: [{ id: "f4", title: "The Verge" }] },
 ];
 

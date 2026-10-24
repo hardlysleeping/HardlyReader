@@ -57,6 +57,9 @@ function buildReadingModule() {
   const code = compiled.js.code
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
+    .replaceAll('"../lib/extract"', JSON.stringify(absolute("src/lib/extract.ts")))
+    .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
+    .replaceAll('"../lib/indent"', JSON.stringify(absolute("src/lib/indent.ts")))
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
     .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
@@ -122,6 +125,8 @@ function buildReaderModule() {
     .replaceAll('"../api/hardlyread"', JSON.stringify(absolute("src/api/hardlyread.ts")))
     .replaceAll('"../api/transport"', JSON.stringify(absolute("src/api/transport.ts")))
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
+    .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
+    .replaceAll('"../lib/indent"', JSON.stringify(absolute("src/lib/indent.ts")))
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
@@ -527,8 +532,8 @@ try {
 
 // --- how read state is decided --------------------------------------------
 // Manual is what a fresh install gets, and the old bare `autoMarkRead` boolean
-// is not honoured: it was one icon beside the star, and it sat on for the owner
-// without his meaning it. Only an explicit mode counts.
+// is not honoured: it was one icon beside the star, and it sat on
+// without being meant to. Only an explicit mode counts.
 {
   const store = new Map();
   const original = globalThis.localStorage;

@@ -5,19 +5,38 @@
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
   import {
+    CARD_LEAD,
+    CARD_SIZE_LABELS,
+    CARD_SIZE_TITLES,
+    CARD_SIZES,
+    GRID_COLUMN_CHOICES,
+    GRID_COLUMNS_DEFAULT,
     LIST_VIEWS,
     LIST_VIEW_LABELS,
     LIST_VIEW_TITLES,
+    gridIsSquare,
+    gridTemplate,
     isListView,
     picturePlacement,
     showsPreview,
     type ListView,
   } from "../lib/list-view";
+  import { near } from "../lib/near-view";
   import { pullDown } from "../lib/pull";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
+  import { MARKER_PATH, pinWords } from "../lib/theme";
 
-  let { onOpen }: { onOpen?: () => void } = $props();
+  /**
+   * `nested` renders this list as a block under its feed row instead of as a
+   * column of its own — the one-pane feed list, and the phone.
+   *
+   * Same component, same rows, same star and read toggles, same four views and
+   * the same header: the one-pane posts used to be a second, smaller
+   * implementation with a title, a time and a picture, which is why a phone had
+   * no way to star a post and no way to change how the posts were drawn.
+   */
+  let { onOpen, nested = false }: { onOpen?: () => void; nested?: boolean } = $props();
 
   function summary(item: StreamItem): string {
     return plainPreview(item.summary?.content ?? item.content?.content, 160);
@@ -56,6 +75,38 @@
   /** The shape of this column, global for the same reason as the filter. */
   const view = $derived(reading.listView);
 
+  /**
+   * Which rows are close to the viewport. Only those draw a picture.
+   *
+   * The list has to stay instant when its view changes, and the one thing a view
+   * change does that costs real time is hand the engine a screenful of photos it
+   * has never decoded: the cards markup holds an `<img>`, so choosing Cards
+   * created every picture in the list at once. In the native window that was
+   * enough to stop it answering at all.
+   */
+  let nearIds = $state<Record<string, boolean>>({});
+  const markNear = (id: string, isNear: boolean): void => {
+    if ((nearIds[id] === true) === isNear) return;
+    if (isNear) nearIds[id] = true;
+    else delete nearIds[id];
+  };
+
+  /** The scroll port the rows are measured against. */
+  let itemsEl = $state<HTMLElement | null>(null);
+
+  /**
+   * The feed whose posts these are, when the list is one feed.
+   *
+   * A category, a smart stream or the reading list is not a feed and has nothing
+   * to mark; this is null for those, and the header stays as it was.
+   */
+  const feed = $derived(
+    reader.subscriptions.find((candidate) => candidate.id === reader.activeStream) ?? null,
+  );
+
+  /** "Pin" / "Unpin" / "Pinned", the same three words the sidebar uses. */
+  const words = pinWords();
+
   function setView(next: ListView) {
     reading.setListView(next);
   }
@@ -88,10 +139,28 @@
   }
 </script>
 
-<section class="list" aria-label={reader.activeTitle}>
+<section class="list" data-pane="posts" class:nested aria-label={reader.activeTitle}>
   <header class="list-header">
     <div class="headline">
-      <h1>{reader.activeTitle}</h1>
+      {#if !nested}
+        <h1>{reader.activeTitle}</h1>
+      {/if}
+      {#if feed}
+        <!-- The feed you are reading, marked from where you are reading it: the
+             same local pin the sidebar row shows, so a feed can be pinned while
+             you are in its posts instead of going back to pane one. Categories
+             and smart streams are not feeds, so they get no mark. -->
+        <button
+          class="mark"
+          class:on={reader.isFeedPinned(feed.id)}
+          aria-pressed={reader.isFeedPinned(feed.id)}
+          aria-label={`${reader.isFeedPinned(feed.id) ? words.remove : words.add} ${feed.title}`}
+          title={reader.isFeedPinned(feed.id) ? `${words.remove} this feed` : `${words.add} this feed`}
+          onclick={() => reader.setFeedPinned(feed.id, !reader.isFeedPinned(feed.id))}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d={MARKER_PATH} /></svg>
+        </button>
+      {/if}
       <span class="meta">
         {#if reader.loadingList}
           Loading…
@@ -141,6 +210,39 @@
         {/each}
       </div>
 
+      <!-- Sizing lives where the view is chosen, and only the view that has
+           something to size shows it: the grid's tiles per row, the cards'
+           picture height. `auto` is always the way it looked before, so the
+           default is the previous behaviour, not a new look. -->
+      {#if view === "grid"}
+        <div class="sizer" role="group" aria-label="Tiles per row">
+          {#each GRID_COLUMN_CHOICES as count (count)}
+            <button
+              class="sizebtn"
+              class:on={reading.gridColumns === count}
+              aria-pressed={reading.gridColumns === count}
+              title={count === "auto"
+                ? "As many tiles as fit, the size they have always been"
+                : `${count} tiles across: fewer, larger squares`}
+              onclick={() => reading.setGridColumns(count)}
+            >{count === "auto" ? "auto" : count}</button
+            >
+          {/each}
+        </div>
+      {:else if view === "cards"}
+        <div class="sizer" role="group" aria-label="Card picture size">
+          {#each CARD_SIZES as size (size)}
+            <button
+              class="sizebtn"
+              class:on={reading.cardSize === size}
+              aria-pressed={reading.cardSize === size}
+              title={CARD_SIZE_TITLES[size]}
+              onclick={() => reading.setCardSize(size)}
+            >{CARD_SIZE_LABELS[size]}</button
+            >
+          {/each}
+        </div>
+      {/if}
       <div class="filters" role="group" aria-label="Show posts">
         {#each ARTICLE_FILTERS as filter (filter)}
           <button
@@ -162,9 +264,13 @@
      on screen. -->
   <div
     class="items"
+    bind:this={itemsEl}
     class:compact={view === "list"}
     class:cards={view === "cards"}
     class:grid={view === "grid"}
+    class:square={view === "grid" && gridIsSquare(reading.gridColumns)}
+    style:--grid-template={gridTemplate(reading.gridColumns)}
+    style:--card-lead={`${CARD_LEAD[reading.cardSize]}px`}
     use:pullDown={{
       label: "Pull down to check for new posts",
       readyLabel: "Release to check for new posts",
@@ -191,19 +297,22 @@
         class:selected={reader.selectedId === item.id}
         class:read={isRead(item)}
         class:stacked={placement === "top"}
+        use:near={{ root: itemsEl, near: (isNear: boolean) => markNear(item.id, isNear) }}
       >
         <button class="item" onclick={() => open(item)}>
           {#if placement === "top"}
             <span class="lead" aria-hidden="true">
-              <img
-                src={picture}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                referrerpolicy="no-referrer"
-                draggable="false"
-                onerror={() => fail(item.id)}
-              />
+              {#if nearIds[item.id]}
+                <img
+                  src={picture}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  referrerpolicy="no-referrer"
+                  draggable="false"
+                  onerror={() => fail(item.id)}
+                />
+              {/if}
             </span>
           {/if}
           <span class="body">
@@ -221,15 +330,17 @@
           </span>
           {#if placement === "side"}
             <span class="thumb" class:left={reading.thumbSide === "left"} aria-hidden="true">
-              <img
-                src={picture}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                referrerpolicy="no-referrer"
-                draggable="false"
-                onerror={() => fail(item.id)}
-              />
+              {#if nearIds[item.id]}
+                <img
+                  src={picture}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  referrerpolicy="no-referrer"
+                  draggable="false"
+                  onerror={() => fail(item.id)}
+                />
+              {/if}
             </span>
           {/if}
         </button>
@@ -300,6 +411,40 @@
     flex: 0 0 auto;
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+
+  /* The sizing pills sit next to the view pills and read as a second group: a
+     hairline between them, and the same press-and-hold-the-meaning behaviour. */
+  .sizer {
+    display: flex;
+    gap: 1px;
+    padding: 2px;
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+  }
+
+  .sizebtn {
+    min-width: 20px;
+    padding: 1px 4px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 10.5px;
+    line-height: 16px;
+    text-align: center;
+    cursor: pointer;
+  }
+
+  .sizebtn:hover {
+    color: var(--text);
+  }
+
+  .sizebtn.on {
+    background: var(--bg);
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--edge);
   }
 
   .views {
@@ -424,6 +569,27 @@
     border-right: 1px solid var(--edge);
   }
 
+  /* Nesting under a feed row: no height to fill, no edge to draw, no second
+     scrollbar. The bar keeps the views and the feed's mark and drops the title,
+     because the row above is the title. */
+  .list.nested {
+    height: auto;
+    background: none;
+    border-right: 0;
+  }
+
+  .list.nested .list-header {
+    align-items: center;
+    gap: 4px 8px;
+    padding: 0 0 3px;
+  }
+
+  .list.nested .items {
+    flex: 0 0 auto;
+    overflow: visible;
+    padding-bottom: 2px;
+  }
+
   .list-header {
     display: flex;
     align-items: baseline;
@@ -436,12 +602,61 @@
 
   h1 {
     margin: 0;
+    /* The mark sits beside the title, so the title has to be allowed to give up
+       width before the count does. */
+    min-width: 0;
+    flex: 0 1 auto;
     font-size: 15px;
     font-weight: 600;
     letter-spacing: -0.01em;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* Sits with the title it belongs to, not in the toolbar: it marks a feed, and
+     the toolbar is about how the posts are drawn. Quiet until it is on. */
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.12s ease;
+  }
+
+  .mark svg {
+    width: 11px;
+    height: 11px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .mark:hover {
+    color: var(--text-dim);
+  }
+
+  .mark.on {
+    color: var(--accent);
+  }
+
+  .mark.on svg {
+    fill: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  .mark:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: 1px;
   }
 
   .meta {
@@ -654,11 +869,36 @@
   }
 
   /* Thumbs need bigger targets than pointers do. */
+  /* A finger is not a cursor with a 1px hotspot. 20px is right for a mouse and
+     too small for a thumb, and these two toggles are the ones a phone needs to
+     reach without missing. */
   @media (pointer: coarse) {
     .act {
-      width: 28px;
-      height: 28px;
+      width: 34px;
+      height: 34px;
       opacity: 1;
+    }
+
+    .act svg {
+      width: 15px;
+      height: 15px;
+    }
+
+    /* The views and the filter pills are the way into the list at all on a
+       phone, where there is no other column to change. 21x19 is a mouse size. */
+    .viewicon {
+      width: 32px;
+      height: 30px;
+    }
+
+    .viewicon svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .filter {
+      padding: 6px 10px;
+      font-size: 10.5px;
     }
   }
 
@@ -698,6 +938,12 @@
     font-size: calc(10.5px * var(--row-scale, 1));
   }
 
+  .compact .acts {
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+  }
+
   .compact .act {
     width: 18px;
     height: 18px;
@@ -713,6 +959,11 @@
   }
 
   .cards .row {
+    /* The cards column is a flex container inside a scroll port with a definite
+       height, so without this every row shrinks to nothing as if it were meant
+       to fit: 40 posts became 40 slivers, and `loading="lazy"` had no reason to
+       hold anything back because everything was "in view". */
+    flex: none;
     border: 1px solid var(--border-soft);
     border-radius: 9px;
     overflow: hidden;
@@ -735,10 +986,18 @@
   }
 
   .cards .lead {
+    /* A flex child of the column, like the row was: without `flex: none` the
+       picture is what gets shrunk to make the card fit, so every card lost its
+       image and the row was text-only. */
+    flex: none;
     display: block;
     width: 100%;
+    /* 150px is the height cards have always had; the S/M/L control sets the
+       variable, and `auto` writes the same number back. */
     aspect-ratio: 16 / 9;
-    max-height: calc(150px * var(--thumb-scale, 1));
+    /* The bar's S/M/L picks the height; the reading scale still multiplies it,
+       so a user who set pictures larger in the Aa panel keeps that. */
+    max-height: calc(var(--card-lead, 150px) * var(--thumb-scale, 1));
     overflow: hidden;
     background: var(--hover);
   }
@@ -757,18 +1016,35 @@
     gap: 3px;
     padding: 2px;
     border-radius: 7px;
-    background: color-mix(in srgb, var(--bg) 72%, transparent);
-    backdrop-filter: blur(3px);
+    /* Flat, not blurred: a backdrop filter is a layer per card, and this app
+       draws its cards by the dozen in a webview that renders in software. */
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
   }
 
   /* ---------------------------------------------------------------- grid --
      Tiles, side by side: as many as the column's width allows. */
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    /* `auto` is the grid's own judgement — as many 132px tiles as fit — and it is
+       what the container falls back to when no count is set. A fixed count comes
+       in as `--grid-template` from the bar. */
+    grid-template-columns: var(--grid-template, repeat(auto-fill, minmax(132px, 1fr)));
+    /* Tracks take the tile's real height. Without this the track was sized while
+       the picture was still a shrinkable flex child, so it settled on the height
+       of the text alone — a 200px picture inside a 47px tile, clipped by the
+       row's `overflow: hidden`. The pictures looked like slivers and the tiles
+       like strips, which is what "the grid is broken" meant. */
+    grid-auto-rows: max-content;
     gap: 8px;
     align-content: start;
     padding: 8px 8px 32px;
+  }
+
+  /* A fixed count means the tile is a square: "four per row" should read as four
+     big squares, not four tall cards with a strip of headline. */
+  .grid.square .lead {
+    aspect-ratio: 1;
+    max-height: none;
   }
 
   .grid .row {
@@ -794,6 +1070,9 @@
   }
 
   .grid .lead {
+    /* Same shrink as the cards: the tile's picture is the part that gets
+       squeezed to make the tile fit, so it was a 36px sliver. */
+    flex: none;
     display: block;
     width: 100%;
     aspect-ratio: 4 / 3;

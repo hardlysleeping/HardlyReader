@@ -53,6 +53,9 @@ function buildReadingModule() {
   const code = compiled.js.code
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
+    .replaceAll('"../lib/extract"', JSON.stringify(absolute("src/lib/extract.ts")))
+    .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
+    .replaceAll('"../lib/indent"', JSON.stringify(absolute("src/lib/indent.ts")))
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
     .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
@@ -118,6 +121,8 @@ function buildReaderModule() {
     .replaceAll('"../api/hardlyread"', JSON.stringify(absolute("src/api/hardlyread.ts")))
     .replaceAll('"../api/transport"', JSON.stringify(absolute("src/api/transport.ts")))
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
+    .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
+    .replaceAll('"../lib/indent"', JSON.stringify(absolute("src/lib/indent.ts")))
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
@@ -160,7 +165,6 @@ const {
 const {
   FAVORITE_VIEW_CYCLE,
   applyFavoritesWrite,
-  favoriteViewLabel,
   nextFavoriteView,
   withCategoryFavorite,
   withFavoritesView,
@@ -313,11 +317,6 @@ check(
     return view === "all";
   })(),
 );
-check("the labels are All / Favorites / No favorites",
-  [favoriteViewLabel("all"), favoriteViewLabel("only"), favoriteViewLabel("without")].join(",") ===
-    "All,Favorites,No favorites",
-);
-
 /* ---------------------------------------------------------------------------
  * optimistic state and changed:false
  * ------------------------------------------------------------------------- */
@@ -487,26 +486,24 @@ const hiddenState = api.parseState({
   // One mark, one item. With the extension absent the model falls back to the
   // local mark, and the wording still comes from the theme's vocabulary.
   const menu = categoryMenu(hiddenState, "Comics", false);
-  check("a category row offers its mark", menu.favorite?.label === "Pin", String(menu.favorite?.label));
-  check("...enabled", menu.favorite?.disabled === false);
+  check("a category row offers its mark", menu.pin?.label === "Pin", String(menu.pin?.label));
+  check("...enabled", menu.pin?.disabled === false);
   check("...and no note", menu.note === null, String(menu.note));
-  check("...and nothing else that marks it", menu.pin === null);
-  check("a marked row offers Unpin", categoryMenu(hiddenState, "Comics", true).favorite?.label === "Unpin");
+  check("a marked row offers Unpin", categoryMenu(hiddenState, "Comics", true).pin?.label === "Unpin");
   check(
-    "with no extension the mark writes locally",
-    categoryMenu(hiddenState, "Comics", false).favorite?.action.type === "pin",
+    "the mark is a pin wherever it is kept",
+    categoryMenu(hiddenState, "Comics", false).pin?.action.type === "pin",
   );
-
-  // With Favorite Categories there, the same item writes the favourite.
-  const synced = categoryMenu(hiddenState, "Comics", false, false);
-  check("the synced mark keeps the same wording", synced.favorite?.label === "Pin");
-  check("...but is a server favourite", synced.favorite?.action.type === "favorite");
-  check("...and is the only mark offered", synced.pin === null);
-  check("there is one mark and one word for it", synced.favorite?.glyph === "📌");
+  // Whether the extension keeps the mark or this device does is the reader's
+  // routing decision, not a second menu item and not a second word: the row
+  // offers one item, and the signature has nowhere to pass an alternative.
+  check("the model has one mark field and no favourite field", !("favorite" in menu) && menu.pin !== null);
+  check("there is one word and one glyph for it", menu.pin?.glyph === "📌");
   check(
-    "no vocabulary argument can bring the star back",
-    categoryMenu(hiddenState, "Comics", false, false).favorite?.label === "Pin" &&
-      categoryMenu(hiddenState, "Comics", false, false).favorite?.glyph === "📌",
+    "no argument can bring a star or a favourite back",
+    categoryMenu(hiddenState, "Comics", false).pin?.label === "Pin" &&
+      categoryMenu(hiddenState, "Comics", false).pin?.glyph === "📌" &&
+      categoryMenu.length === 3,
   );
 }
 
@@ -764,8 +761,8 @@ try {
     const reader = fresh();
     reply = () => ({ status: 200, body: { ok: true, changed: true, favorites: favoritesBody({ ids: [7], categories: [{ id: 3, name: "Comics", favorite: false }, { id: 7, name: "Art", favorite: true }] }) } });
     reader.openCategoryMenu("Art", { x: 0, y: 0 });
-    check("the menu offers one mark, not two", reader.menuModel?.favorite?.label === "Pin" && reader.menuModel?.pin === null);
-    check("...and it is the synced one", reader.menuModel?.favorite?.action.type === "favorite");
+    check("the menu offers one mark, not two", reader.menuModel?.pin?.label === "Pin");
+    check("...and the row never names a favourite", !("favorite" in (reader.menuModel ?? {})));
 
     await reader.applyMenuAction({ type: "pin", pinned: true });
     check(
@@ -780,8 +777,8 @@ try {
     check("the marked count is the favourite count", reader.pinnedCount >= 1, String(reader.pinnedCount));
 
     reader.openCategoryMenu("Art", { x: 0, y: 0 });
-    check("the marked row offers Unpin", reader.menuModel?.favorite?.label === "Unpin");
-    await reader.applyMenuAction({ type: "favorite", favorite: false });
+    check("the marked row offers Unpin", reader.menuModel?.pin?.label === "Unpin");
+    await reader.applyMenuAction({ type: "pin", pinned: false });
     check("unmarking writes the other direction", calls.length === 2 && calls[1].body === '{"favorite":false}', calls.map((c) => c.body).join(","));
   }
 
@@ -790,8 +787,8 @@ try {
     const reader = fresh();
     reader.favorites = unavailableFavorites();
     reader.openCategoryMenu("Technology", { x: 0, y: 0 });
-    check("the category menu opens without the favourites extension", reader.menu !== null && reader.menuModel?.favorite?.disabled === false);
-    check("...offering the same mark, kept here", reader.menuModel?.favorite?.action.type === "pin");
+    check("the category menu opens without the favourites extension", reader.menu !== null && reader.menuModel?.pin?.disabled === false);
+    check("...offering the same mark, kept here", reader.menuModel?.pin?.action.type === "pin");
     await reader.applyMenuAction({ type: "pin", pinned: true });
     check("a local mark sends nothing", calls.length === 0, `${calls.length} request(s)`);
     check("Technology is marked locally", reader.isCategoryPinned("Technology") && reader.localPins.categories.includes("Technology"));

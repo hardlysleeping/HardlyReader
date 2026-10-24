@@ -31,11 +31,11 @@ check("percent of an unknown total is zero, not NaN", () => {
 });
 
 check("readout is the count and the percentage", () => {
-  assert.equal(syncReadout({ active: true, done: 2, total: 5, step: "Tags" }), "2/5 · 40%");
+  assert.equal(syncReadout({ active: true, done: 2, total: 5, step: "Tags" }), "2/5 steps");
 });
 
 check("readout never claims more done than the total", () => {
-  assert.equal(syncReadout({ active: true, done: 9, total: 5, step: "Tags" }), "5/5 · 100%");
+  assert.equal(syncReadout({ active: true, done: 9, total: 5, step: "Tags" }), "5/5 steps");
 });
 
 check("an unknown total names the step instead of 0/0", () => {
@@ -53,7 +53,7 @@ check("description is the button label when idle", () => {
 check("description names the step and the count", () => {
   assert.equal(
     syncDescription({ active: true, done: 2, total: 5, step: "Tags" }),
-    "Syncing tags, 2 of 5 done, 40 percent",
+    "Syncing tags: 2 of 5 steps, 40 percent",
   );
 });
 

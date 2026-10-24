@@ -1,9 +1,15 @@
 import {
   CHROME_KEY,
+  readAutoSync,
+  readAutoSyncHours,
   readBandCollapsed,
   readIndentOpen,
+  readPinPad,
+  writeAutoSync,
+  writeAutoSyncHours,
   writeBandCollapsed,
   writeIndentOpen,
+  writePinPad,
 } from "../../src/lib/chrome-prefs.ts";
 
 let failures = 0;
@@ -83,6 +89,61 @@ try {
   threw = true;
 }
 check("a throwing write is swallowed", threw === false);
+
+// --- the passcode keypad is an opt-in --------------------------------------
+// Off is the promise: a keyboard is faster with a mouse, and nobody should get
+// a number pad because they upgraded.
+const pad = memoryStorage();
+check("a first run types the passcode", readPinPad(pad) === false);
+check("no storage types the passcode", readPinPad(undefined) === false);
+
+writePinPad(pad, true);
+check("turning the keypad on is persisted", readPinPad(pad) === true);
+check("it writes the flag, not its own key", JSON.parse(pad.store.get(CHROME_KEY))?.pinPad === true);
+check("one key holds every chrome flag", pad.store.size === 1, [...pad.store.keys()].join(","));
+
+// The three flags share one key: each write must carry the others along.
+writeBandCollapsed(pad, true);
+writeIndentOpen(pad, true);
+check("the keypad survives the other writes", readPinPad(pad) === true);
+check("and the band flag survives the keypad write", readBandCollapsed(pad) === true);
+writePinPad(pad, false);
+check("turning it off is persisted too", readPinPad(pad) === false);
+check("turning it off left the band flag alone", readBandCollapsed(pad) === true);
+
+// A prefs blob written before the keypad existed must not invent it.
+const old = memoryStorage();
+old.store.set(CHROME_KEY, JSON.stringify({ bandCollapsed: true, indentOpen: false }));
+check("an older prefs blob means typed entry", readPinPad(old) === false);
+old.store.set(CHROME_KEY, JSON.stringify({ pinPad: "yes" }));
+check("a non-boolean keypad flag is off", readPinPad(old) === false);
+old.store.set(CHROME_KEY, JSON.stringify({ pinPad: 1 }));
+check("one is not true here either", readPinPad(old) === false);
+
+
+// Automatic sync shares the same key and the same rules: off until asked for,
+// and an interval that has to be one the panel actually offers.
+{
+  const fresh = memoryStorage();
+  check("auto sync is off on a first run", readAutoSync(fresh) === false);
+  check("and hourly until it is changed", readAutoSyncHours(fresh) === 1);
+  check("no storage still means off", readAutoSync(undefined) === false);
+
+  writeAutoSync(fresh, true);
+  check("turning it on reads back on", readAutoSync(fresh) === true);
+  check("...without losing the other flags", readBandCollapsed(fresh) === false && readPinPad(fresh) === false);
+
+  writeAutoSyncHours(fresh, 12);
+  check("the interval reads back", readAutoSyncHours(fresh) === 12);
+  check("...and the toggle survives it", readAutoSync(fresh) === true);
+
+  writeAutoSyncHours(fresh, 7);
+  check("an interval the panel does not offer is refused", readAutoSyncHours(fresh) === 1);
+
+  const saved = JSON.parse(fresh.store.get(CHROME_KEY));
+  check("both live under the one chrome key", saved.autoSync === true && saved.autoSyncHours === 1);
+  check("only one key is ever written", fresh.store.size === 1);
+}
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

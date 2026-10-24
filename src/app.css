@@ -186,6 +186,41 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The row being dragged, lifted out and following the pointer. Appended to
+   <body> by the drag module, so it is styled here rather than in the sidebar:
+   component-scoped styles do not reach it. */
+.feed-ghost {
+  position: fixed;
+  left: 8px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 5px;
+  background: var(--panel, #1b1b1b);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
+  color: var(--text);
+  opacity: 0.92;
+  pointer-events: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+html.feed-dragging,
+html.feed-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* A drag-pan in progress: the hand is holding the content, so the cursor says
+   so and text under the pointer does not get selected along the way. */
+html.drag-panning,
+html.drag-panning * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
 #app {
   height: 100%;
 }

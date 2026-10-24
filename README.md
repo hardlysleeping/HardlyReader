@@ -55,9 +55,15 @@ Svelte 5, TypeScript, Tauri 2. Linux desktop today; the same code is the browser
 
 ```sh
 pnpm install
-pnpm tauri dev      # desktop window
+pnpm dev:window     # desktop window (see the note below)
 pnpm dev            # browser build on 127.0.0.1:1420
 ```
+
+`pnpm dev:window` is `pnpm tauri dev` with `WEBKIT_DISABLE_COMPOSITING_MODE=1`
+exported. On some Wayland setups WebKitGTK's compositing path paints nothing: the
+page loads and runs (requests go out, the DOM is built), but the window shows only
+the shell's background colour, which reads as a blank app. If `pnpm tauri dev` gives
+you a grey window, use the script or set that variable yourself.
 
 Build a bundle:
 

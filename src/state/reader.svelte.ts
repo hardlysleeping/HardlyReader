@@ -3,6 +3,8 @@ import { SvelteMap } from "svelte/reactivity";
 import type { OpmlFeed } from "../lib/opml";
 import { addFeedsMessage, parseFeedUrls, type AddFeedsResult } from "../lib/add-feeds";
 import { landingItem, step } from "../lib/reading-order";
+import { stepIndex } from "../lib/list-view";
+import { isNoopDrop, moveInOrder, sortByOrder } from "../lib/feed-order";
 import { attemptOrder } from "../lib/stream-cycle";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
 import { SYNC_IDLE, SYNC_TOTAL, type SyncState } from "../lib/sync-progress";
@@ -21,6 +23,7 @@ import {
   isStarred,
   listSubscriptions,
   listTags,
+  moveFeed as moveFeedOnServer,
   subscribe,
   unsubscribe,
   type Session,
@@ -29,6 +32,7 @@ import {
   type Tag,
 } from "../api/freshrss";
 import {
+  LABEL_PREFIX,
   categoryIdForLabel,
   favoriteIdForLabel,
   isHiddenCategory,
@@ -55,6 +59,7 @@ import {
   type SidebarIndentState,
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
+import { resolveIndent } from "../lib/indent";
 import { feedMenu, categoryMenu, type MenuAction, type MenuModel, type Point } from "../lib/contextmenu";
 import {
   applyFavoritesWrite,
@@ -222,6 +227,16 @@ export class ReaderState {
    */
   localPins = $state<LocalPins>(emptyPins());
 
+  /**
+   * The order the user dragged the feeds into, as a flat list of stream ids.
+   *
+   * Local to this account on this device: FreshRSS has no order for feeds
+   * inside a category, so there is nothing to sync even in principle. Empty
+   * until the first drag, which is why the sidebar still reads alphabetically
+   * for anyone who never drags anything.
+   */
+  feedOrder = $state<string[]>([]);
+
   /** The sidebar band (hidden / lock / pin) folded away, per account. */
 
   /**
@@ -279,7 +294,6 @@ export class ReaderState {
           this.hiddenCategories,
           menu.target.label,
           this.isCategoryPinned(menu.target.label),
-          this.favorites.available ? this.isFavorite(menu.target.label) : null,
         )
       : feedMenu(
           menu.target.title,
@@ -415,22 +429,55 @@ export class ReaderState {
    * Without the extension there is nowhere to store it, so it stays a local
    * preference — the indent still works on a server that has no extensions.
    */
-  setSidebarIndentPx(px: number): void {
+  setSidebarIndentPx(px: number, flush = false): void {
     const clamped = clampIndentPx(px, this.sidebarIndent.max);
-    if (this.sidebarIndent.px === clamped) return;
-    this.sidebarIndent = { ...this.sidebarIndent, px: clamped };
+    if (this.sidebarIndent.px !== clamped) {
+      this.sidebarIndent = { ...this.sidebarIndent, px: clamped };
+      // Kept on every move, not only when the server is out of the picture: a
+      // drag that never reaches the server — a request that fails, an app
+      // closed inside the debounce — must not leave the setting nowhere.
+      this.localIndentPx = clamped;
+    }
 
     if (!this.sidebarIndent.available || this.indentLocalOnly) {
-      this.localIndentPx = clamped;
       this.savePrefs();
       return;
     }
 
-    this.scheduleIndentWrite(clamped);
+    // One write per pause, and one straight away when the pointer is let go:
+    // the debounce is for the sixty values in between, not for the last one.
+    this.indentUnsent = clamped;
+    if (flush) this.flushIndentWrite(clamped);
+    else this.scheduleIndentWrite(clamped);
+    if (flush) this.savePrefs();
   }
 
-  /** Set when the server has no write route: the indent stays on this device. */
+  /**
+   * The indent this device set that the server has not accepted yet.
+   *
+   * Persisted, so a write that never landed — the app closed inside the
+   * debounce, a 500, a dropped connection — does not vanish on the next launch:
+   * the number is still the reader's, and it is written again as soon as the
+   * server answers a state read.
+   */
+  private indentUnsent: number | null = null;
+
+  /**
+   * Set when the server has no write route: the indent stays on this device.
+   *
+   * Remembered, because forgetting it is what made the number disappear: the
+   * server went on reporting its own old value, which then won on every load.
+   */
   private indentLocalOnly = false;
+
+  /**
+   * True when the indent is this device's alone: no extension to store it, or
+   * one whose write route refused. The slider stays usable either way — the
+   * indent is a reading preference, not a property of the server.
+   */
+  get indentDeviceOnly(): boolean {
+    return this.indentLocalOnly || !this.sidebarIndent.available;
+  }
 
   private indentTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -443,17 +490,53 @@ export class ReaderState {
     }, 250);
   }
 
+  /**
+   * Try the value the server never accepted, now that it is answering again.
+   *
+   * Called after a state read rather than on a timer: those happen at launch,
+   * on every sync and on a change from the website, which is often enough for a
+   * setting that is written once per drag.
+   */
+  private retryUnsentIndent(serverPx: number): void {
+    const unsent = this.indentUnsent;
+    if (unsent === null || this.indentWriting) return;
+    if (!this.sidebarIndent.available || this.indentLocalOnly) return;
+    // The write did land and only its answer was lost: nothing left to do.
+    if (unsent === serverPx) {
+      this.indentUnsent = null;
+      this.savePrefs();
+      return;
+    }
+    void this.writeIndent(unsent);
+  }
+
+  /** A write is in flight; a retry waits for it rather than racing it. */
+  private indentWriting = false;
+
+  /** Write now, and cancel the pending one so it cannot follow with older text. */
+  private flushIndentWrite(px: number): void {
+    if (this.indentTimer !== null) {
+      clearTimeout(this.indentTimer);
+      this.indentTimer = null;
+    }
+    void this.writeIndent(px);
+  }
+
   private async writeIndent(px: number): Promise<void> {
     const session = this.session;
-    if (session === null) return;
+    if (session === null || this.indentWriting) return;
+    this.indentWriting = true;
     try {
       const result = await apiSetIndent(transport, session, px);
       // The server clamps; adopt what it stored rather than what was asked for,
       // but never stomp a newer drag that happened while this was in flight.
+      if (this.indentUnsent === px) this.indentUnsent = null;
       if (this.sidebarIndent.px === px) {
         this.sidebarIndent = result.sidebarIndent;
       }
+      this.localIndentPx = this.sidebarIndent.px;
       this.indentError = null;
+      this.savePrefs();
     } catch (error) {
       // A server whose adapter predates the write route answers 404/409. The
       // indent still has to work, so it degrades to this device rather than
@@ -461,12 +544,16 @@ export class ReaderState {
       if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
         // Stop trying to store it remotely, but keep the control usable.
         this.indentLocalOnly = true;
+        this.indentUnsent = null;
         this.localIndentPx = this.sidebarIndent.px;
         this.savePrefs();
         this.indentError = "This server cannot store the indent yet — keeping it on this device.";
         return;
       }
       this.indentError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.indentWriting = false;
+      this.savePrefs();
     }
   }
 
@@ -511,8 +598,13 @@ export class ReaderState {
    * would show one indent in the app and another on the website.
    */
   private withLocalIndent(state: SidebarIndentState): SidebarIndentState {
-    if (state.available || this.localIndentPx === null) return state;
-    return { ...state, px: clampIndentPx(this.localIndentPx, state.max) };
+    // `localOnly` is also true while the last write is still unwritten or
+    // failed: what the reader set is what it sees, until the server has it.
+    return resolveIndent(
+      state,
+      this.localIndentPx,
+      this.indentLocalOnly || this.indentUnsent !== null || this.indentError !== null,
+    );
   }
 
   private updateLocalPins(change: Partial<LocalPins>): void {
@@ -531,9 +623,17 @@ export class ReaderState {
     try {
       const raw = JSON.parse(localStorage.getItem(key) ?? "null") as Record<string, unknown> | null;
       this.localPins = parsePins(raw?.pins);
+      const order = raw?.order;
+      this.feedOrder = Array.isArray(order)
+        ? order.filter((entry): entry is string => typeof entry === "string")
+        : [];
       const indent = raw?.indentPx;
       this.localIndentPx =
         typeof indent === "number" && Number.isFinite(indent) ? clampIndentPx(indent) : null;
+      this.indentLocalOnly = raw?.indentLocal === true;
+      const unsent = raw?.indentUnsent;
+      this.indentUnsent =
+        typeof unsent === "number" && Number.isFinite(unsent) ? clampIndentPx(unsent) : null;
       if (this.localIndentPx !== null) {
         this.sidebarIndent = { ...this.sidebarIndent, px: this.localIndentPx };
       }
@@ -542,6 +642,7 @@ export class ReaderState {
         typeof collapsed === "object" && collapsed !== null ? (collapsed as Record<string, boolean>) : {};
     } catch {
       this.localPins = emptyPins();
+      this.feedOrder = [];
     }
   }
 
@@ -555,6 +656,9 @@ export class ReaderState {
           pins: this.localPins,
           collapsed: this.collapsedCategories,
           indentPx: this.localIndentPx,
+          indentLocal: this.indentLocalOnly,
+          indentUnsent: this.indentUnsent,
+          order: this.feedOrder,
         }),
       );
     } catch {
@@ -636,10 +740,6 @@ export class ReaderState {
         }
         this.setFeedPinned(target.id, action.pinned);
         return null;
-      case "favorite":
-        this.menu = null;
-        floods.emit(action.favorite ? "pin" : "unpin", origin);
-        return target.kind === "category" ? this.setCategoryFavorite(target.label, action.favorite) : null;
     }
   }
 
@@ -954,7 +1054,13 @@ export class ReaderState {
     return [...groups.values()]
       .map((group) => ({
         ...group,
-        feeds: [...group.feeds].sort((a, b) => a.title.localeCompare(b.title)),
+        // Name order is the base — FreshRSS returns feeds in its own order and
+        // never by hand. A drag adds an arrangement on top of that base, and
+        // anything the user has not dragged keeps its alphabet.
+        feeds: sortByOrder(
+          [...group.feeds].sort((a, b) => a.title.localeCompare(b.title)),
+          this.feedOrder,
+        ),
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }
@@ -966,6 +1072,7 @@ export class ReaderState {
       this.pinView,
       (label) => this.isCategoryPinned(label),
       (id) => this.isFeedPinned(id),
+      this.feedOrder,
     );
   }
 
@@ -989,7 +1096,11 @@ export class ReaderState {
     await this.hydrateSidebar();
     const stream = place.streamId ?? READING_LIST;
     const title = place.streamId === null ? "Reading list" : place.streamTitle;
-    await Promise.all([this.loadSidebar(), this.openStream(stream, title)]);
+    const [sidebarLanded] = await Promise.all([this.loadSidebar(), this.openStream(stream, title)]);
+    // A launch load is a sync: it fetches the sidebar and the open stream. Only
+    // when both landed — a failed launch leaves this at zero, which is how auto
+    // sync knows to retry at once instead of waiting out an interval.
+    if (sidebarLanded && this.error === null) this.lastSyncAt = Date.now();
     if (place.streamId !== null && this.error !== null) {
       // The feed has been deleted or renamed since: land somewhere real rather
       // than leaving a dead stream and an error on screen at sign-in.
@@ -1099,11 +1210,12 @@ export class ReaderState {
     this.addFeedError = null;
     this.menu = null;
     this.localPins = emptyPins();
+    this.feedOrder = [];
     this.collapsedCategories = {};
   }
 
-  async loadSidebar(onProgress?: (step: string) => void): Promise<void> {
-    if (!this.session) return;
+  async loadSidebar(onProgress?: (step: string) => void): Promise<boolean> {
+    if (!this.session) return false;
     const landed = (step: string) => <T>(value: T): T => {
       onProgress?.(step);
       return value;
@@ -1120,8 +1232,10 @@ export class ReaderState {
       this.tags = tags;
       this.setCounts(counts);
       this.persistSidebar(counts);
+      return true;
     } catch (error) {
       this.error = message(error);
+      return false;
     }
   }
 
@@ -1143,6 +1257,7 @@ export class ReaderState {
       this.favorites = state.favorites;
       this.sidebarIndent = this.withLocalIndent(state.sidebarIndent);
       this.hiddenError = null;
+      this.retryUnsentIndent(state.sidebarIndent.px);
     } catch (error) {
       this.hiddenCategories = unavailableState();
       this.favorites = unavailableFavorites();
@@ -1283,6 +1398,75 @@ export class ReaderState {
   }
 
   /**
+   * Files a feed into a category, in the slot it was dropped on.
+   *
+   * Two different facts, stored in two different places on purpose:
+   *
+   * - **Position** inside a category is local. FreshRSS keeps no order for
+   *   feeds in a folder, so there is nothing to write and nothing to disagree
+   *   with; the arrangement is kept per account on this device.
+   * - **Membership** is the server's. A feed that showed under Design here and
+   *   under Tech on the website would be a lie that survives until the next
+   *   reload, so the move is sent as a real `ac=edit` and rolled back if the
+   *   server refuses it.
+   */
+  async arrangeFeed(streamId: string, category: string, before: string | null): Promise<boolean> {
+    const feed = this.subscriptions.find((candidate) => candidate.id === streamId);
+    if (feed === undefined || this.feedBusy) return false;
+
+    const currentLabel =
+      feed.categories?.find((entry) => entry.id.startsWith(LABEL_PREFIX))?.label ?? null;
+    // Uncategorized is the absence of a label, not a label called that.
+    const targetLabel = category === "Uncategorized" ? null : category;
+
+    // A total order from the first drag onwards: seeded with what is on screen,
+    // so "put this before that" keeps its meaning for feeds that were never
+    // dragged and still sit in alphabet order.
+    const seeded =
+      this.feedOrder.length > 0
+        ? this.feedOrder
+        : this.allCategories.flatMap((group) => group.feeds.map((entry) => entry.id));
+
+    const sameCategory = currentLabel === targetLabel;
+    if (sameCategory && isNoopDrop(seeded, streamId, before)) return true;
+
+    const previousOrder = this.feedOrder;
+    const previousCategories = feed.categories;
+    this.feedOrder = moveInOrder(seeded, streamId, before);
+    this.savePrefs();
+    if (sameCategory) return true;
+
+    // Drawn at once, written immediately after: a drag should not wait for a
+    // round trip to look like it worked.
+    feed.categories =
+      targetLabel === null
+        ? []
+        : [{ id: `${LABEL_PREFIX}${targetLabel}`, label: targetLabel }];
+
+    const session = this.session;
+    if (session === null) {
+      feed.categories = previousCategories;
+      this.feedOrder = previousOrder;
+      this.savePrefs();
+      return false;
+    }
+
+    this.feedBusy = true;
+    try {
+      await moveFeedOnServer(transport, session, streamId, targetLabel, currentLabel);
+      return true;
+    } catch (error) {
+      feed.categories = previousCategories;
+      this.feedOrder = previousOrder;
+      this.savePrefs();
+      this.error = message(error);
+      return false;
+    } finally {
+      this.feedBusy = false;
+    }
+  }
+
+  /**
    * Articles already fetched, keyed by stream.
    *
    * Switching category or feed used to wait for a round-trip every time, which is
@@ -1343,16 +1527,33 @@ export class ReaderState {
    */
   sync = $state<SyncState>({ ...SYNC_IDLE });
 
+  /**
+   * When this window last pulled everything from the server, in ms.
+   *
+   * A launch load counts: it fetches the sidebar and the open stream, which is
+   * the same work a sync does. Automatic sync reads this so it does not
+   * re-fetch everything twice in the first second of a launch, while still
+   * retrying when the launch fetch failed.
+   */
+  lastSyncAt = $state(0);
+
   async refresh(): Promise<void> {
     this.sync = { active: true, done: 0, total: SYNC_TOTAL, step: "Feeds" };
     const tick = (step: string): void => {
       this.sync = { ...this.sync, done: this.sync.done + 1, step };
     };
     try {
-      await Promise.all([this.loadSidebar(tick), this.reloadStream({ onProgress: () => tick("Posts") })]);
+      // Forced: the stream cache is good for a minute, and a sync answered from
+      // it would look like nothing happened while the bar still ran to the end.
+      // Pressing sync is a request for the server's answer, not this window's.
+      await Promise.all([
+        this.loadSidebar(tick),
+        this.reloadStream({ force: true, onProgress: () => tick("Posts") }),
+      ]);
     } finally {
       const finished = this.sync.total;
       this.sync = { active: false, done: finished, total: finished, step: "" };
+      if (this.error === null) this.lastSyncAt = Date.now();
       // The header pulses its own bar when `active` falls; nothing is thrown
       // across the window for a fetch finishing.
     }
@@ -1754,6 +1955,21 @@ export class ReaderState {
       }
     }
     await this.crossToNextStream(1);
+  }
+
+  /**
+   * ↑/↓ with the posts pane in hand: move the selection, not the feed.
+   *
+   * The list is the filtered, ordered one on screen, so the step lands on what
+   * the reader can actually see — and it works the same in all four views,
+   * because a view is a way of drawing the list, not a different list.
+   */
+  async stepItem(delta: -1 | 1): Promise<void> {
+    const items = this.listItems;
+    const at = this.selectedId === null ? -1 : items.findIndex((item) => item.id === this.selectedId);
+    const next = stepIndex(items.length, at, delta);
+    if (next === null) return;
+    this.select(items[next], delta === 1 ? "top" : "bottom");
   }
 
   select(item: StreamItem, edge: "top" | "bottom" = "top"): void {

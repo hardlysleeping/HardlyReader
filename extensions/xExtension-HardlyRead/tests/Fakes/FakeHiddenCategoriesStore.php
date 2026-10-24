@@ -27,6 +27,26 @@ final class FakeHiddenCategoriesStore
 		return $this->hiddenIds;
 	}
 
+	/**
+	 * Changes the state the way the website's own buttons would: behind the
+	 * adapter's back, which is exactly the case the revision token exists for.
+	 */
+	public function hide(int $id, bool $hidden): void
+	{
+		$this->hiddenIds = array_values(array_filter(
+			$this->hiddenIds,
+			static fn ($existing): bool => (int) $existing !== $id,
+		));
+		if ($hidden) {
+			$this->hiddenIds[] = $id;
+		}
+	}
+
+	public function setLocked(bool $locked): void
+	{
+		$this->locked = $locked;
+	}
+
 	public function mode(): string
 	{
 		return $this->mode;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
 
   import type { Session, UserInfo } from "../api/freshrss";
   import ArticleList from "../components/ArticleList.svelte";
@@ -11,6 +11,10 @@
   import PaneGutter from "../components/PaneGutter.svelte";
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
+  import { startAutoSync } from "../lib/auto-sync";
+  import { startChangeWatch } from "../lib/watch-changes";
+  import { transport } from "../api/transport";
+  import { getRevision } from "../api/hardlyread";
   import { isTypingTarget, resolveKey, resolveShiftKey } from "../lib/keys";
   import { backLabel, levelOf, stepBackTarget, whereLabel } from "../lib/one-pane";
   import { readingVars } from "../lib/reading-layout";
@@ -25,6 +29,72 @@
     onsignout,
   }: { session: Session; account: UserInfo | null; onsignout?: () => void } = $props();
 
+  /** A launch load newer than this counts as the launch sync. */
+  const AUTO_SYNC_LAUNCH_GRACE_MS = 30_000;
+
+  /**
+   * Automatic sync: starts when the setting says so and stops when it stops.
+   *
+   * The effect re-runs on the toggle and on the interval, so turning it on takes
+   * effect now and changing the period restarts the timer at the new period —
+   * neither needs a relaunch. `launch` is false when the launch load already
+   * fetched everything, so a start does not spend the same five requests twice
+   * in one second; when that load failed there is nothing recent to trust and
+   * the first automatic sync runs at once.
+   */
+  /**
+   * The website writes the same state this app reads, and there is no channel
+   * to be told about it, so it is asked: a token every few seconds, and the
+   * state re-read only when the token moves. That is what makes clicking an eye
+   * or a pin on the website show up here on its own.
+   */
+  $effect(() => {
+    const watch = startChangeWatch({
+      read: () => getRevision(transport, session),
+      // Only the extension state: that is what the website's buttons write, and
+      // every visible consequence of it (which categories are pinned, hidden,
+      // locked, indented) is derived from it. The feed list and unread counts
+      // come from FreshRSS's crawler and do not move when a view changes, so
+      // re-reading them here would be three requests to learn nothing.
+      onChange: () => {
+        void reader.loadApiState();
+      },
+      busy: () => reader.sync.active,
+      visible: () => document.visibilityState === "visible",
+    });
+    // Coming back to the window is the moment a stale view is most obvious, so
+    // it checks at once instead of waiting out the interval.
+    const wake = () => {
+      if (document.visibilityState === "visible") watch.kick();
+    };
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      watch.stop();
+    };
+  });
+
+  $effect(() => {
+    const enabled = chrome.autoSync;
+    const hours = chrome.autoSyncHours;
+    const started = launched;
+    if (!enabled || !started) return;
+    // Everything the timer touches is read outside the effect's tracking:
+    // a sync updates `reader.sync` and `lastSyncAt`, and taking those as
+    // dependencies would tear the timer down and rebuild it after every sync —
+    // resetting the period each time the user pressed sync themselves.
+    const run = untrack(() =>
+      startAutoSync({
+        enabled: () => chrome.autoSync,
+        hours: () => hours,
+        sync: () => reader.refresh(),
+        busy: () => reader.sync.active,
+        launch: Date.now() - reader.lastSyncAt > AUTO_SYNC_LAUNCH_GRACE_MS,
+      }),
+    );
+    return () => run.stop();
+  });
+
   /**
    * One column has two levels, not three: the feed list (where a feed opens its
    * posts in place) and the article. There is no posts screen to step into, so
@@ -33,17 +103,39 @@
   let panes = $state<HTMLElement | null>(null);
 
   const mode = $derived(layout.mode);
+
+  /**
+   * Landing on one pane lands on the feeds.
+   *
+   * One column is a walk — feeds, then posts, then the article — and collapsing
+   * into it with an article open used to leave that article alone on screen:
+   * the second pane's content, on a surface whose first pane is the feeds. The
+   * walk always starts from the top, whether the collapse came from the window
+   * or from the switch.
+   */
+  let drawn = layout.mode;
+  $effect(() => {
+    const now = layout.mode;
+    if (now === drawn) return;
+    drawn = now;
+    if (now === 1) reader.closeReader();
+  });
   const menu = $derived.by(() => {
     const point = reader.menu;
     const model = reader.menuModel;
     return point === null || model === null ? null : { x: point.x, y: point.y, model };
   });
 
+  /**
+   * True once the launch load has finished, so automatic sync starts after the
+   * first paint rather than racing it.
+   */
+  let launched = $state(false);
+
   onMount(() => {
     chrome.load();
-    layout.load();
     reading.load();
-    void reader.start(session);
+    void reader.start(session).finally(() => (launched = true));
 
     // The mode is drawn from the real container width rather than from an
     // `innerWidth` guess, and the observer has one job: report that width.
@@ -97,6 +189,14 @@
         return;
       case "stream":
         event.preventDefault();
+        // Up/Down belong to the pane you are in: with a post on screen they walk
+        // the posts, and with the feed list in hand they walk the feeds, which is
+        // what they have always done here. Same list, same order as the view on
+        // screen, so the step lands on something you can see.
+        if (reader.selectedId !== null) {
+          void reader.stepItem(intent.delta);
+          return;
+        }
         void reader.stepStream(intent.delta);
         return;
       case "first":
@@ -115,7 +215,12 @@
         event.preventDefault();
         // Out of the article. In one column that is the feed list again, with
         // the feed you were reading still open where you left it.
-        reader.back();
+        if (reader.back()) return;
+        // Nothing open: Left still means "one column to the left", so the panes
+        // give one up instead of the key doing nothing. The window is not asked
+        // to shrink here — that belongs to the 1/2/3 buttons, and a key that
+        // resizes the window would be a surprise you cannot undo with a key.
+        layout.collapseOne();
         return;
       case "escape":
         if (reader.menu !== null) {
@@ -238,6 +343,7 @@
 >
   <Header
     subtitle={account?.userName ?? session.email}
+    server={session.serverUrl}
     controls={layoutSwitch}
     {onsignout}
     ontogglesidebar={showFeeds}
@@ -342,7 +448,7 @@
   <!-- Fold the feeds pane away. It lives beside the pane switch because both
        answer "what do I want on screen", and it is drawn only where there is a
        sidebar to fold: one column has nothing to collapse. -->
-  {#if mode !== 1}
+  {#if mode === 3}
     <button
       class="fold"
       class:on={layout.collapsed}
@@ -360,7 +466,11 @@
       </svg>
     </button>
   {/if}
-  <LayoutSwitch />
+  <!-- No pane-count switch where there is one column: the buttons could only
+       report a choice the screen cannot honour. -->
+  {#if layout.caps.paneCount}
+    <LayoutSwitch />
+  {/if}
 {/snippet}
 
 <style>

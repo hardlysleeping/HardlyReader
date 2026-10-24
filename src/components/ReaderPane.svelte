@@ -1,5 +1,12 @@
 <script lang="ts">
   import { isRead, isStarred } from "../api/freshrss";
+  import {
+    canExtract,
+    chooseBody,
+    extractFor,
+    rememberedExtraction,
+    type Extracted,
+  } from "../lib/extract";
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, sanitizeArticle } from "../lib/sanitize";
   import { accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
@@ -117,11 +124,115 @@
 
   const item = $derived(reader.selected);
 
-  const body = $derived(
-    sanitizeArticle(item?.content?.content ?? item?.summary?.content ?? ""),
+  const link = $derived(item?.alternate?.[0]?.href ?? item?.canonical?.[0]?.href ?? "");
+
+  /**
+   * The feed's own HTML, always available and always the fallback.
+   *
+   * Kept separate from `body` because extraction is an addition to this, not a
+   * replacement: if it fails or comes back thin, this is what is on screen —
+   * and it was on screen while the page was still being fetched, so nothing
+   * blinks.
+   */
+  const feedBody = $derived(sanitizeArticle(item?.content?.content ?? item?.summary?.content ?? ""));
+
+  /** The extraction for the open post, if one has arrived. */
+  let extracted = $state<Extracted | null>(null);
+  /** Which post that extraction belongs to, so a late result cannot land on the next one. */
+  let extractedFor = $state<string | null>(null);
+
+  $effect(() => {
+    const current = item;
+    const url = link;
+    const wanted = reading.extract;
+
+    if (!wanted || !current || url === "") {
+      extracted = null;
+      extractedFor = null;
+      return;
+    }
+
+    const id = current.id;
+    const remembered = rememberedExtraction(id);
+    if (remembered) {
+      extracted = remembered;
+      extractedFor = id;
+      return;
+    }
+
+    extracted = null;
+    extractedFor = null;
+    let cancelled = false;
+    void extractFor(id, url).then((result) => {
+      // Moving to another post cancels the landing: a slow page must never
+      // replace the article the reader is now looking at.
+      if (cancelled || result === null) return;
+      extracted = result;
+      extractedFor = id;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  /**
+   * Experimental, per-article full read.
+   *
+   * The global preference extracts every post that has a link; this is the same
+   * fetch on demand, for one article, from a button — the way to read a
+   * summary-only feed without turning extraction on for a whole account. It is
+   * keyed by id so a page that lands after the reader has moved on is dropped
+   * rather than pasted over the next article.
+   */
+  let manualId = $state<string | null>(null);
+  let manualBody = $state<Extracted | null>(null);
+  let manualBusy = $state(false);
+  /** Nothing is shown about a failure until the reader asked for one. */
+  let manualFailed = $state(false);
+
+  $effect(() => {
+    const current = item?.id ?? null;
+    if (current === manualId) return;
+    manualId = null;
+    manualBody = null;
+    manualBusy = false;
+    manualFailed = false;
+  });
+
+  const manualActive = $derived(manualId !== null && manualId === item?.id && manualBody !== null);
+
+  /** The extraction in force for the open post, from either route. */
+  const extractedNow = $derived(
+    manualActive ? manualBody : extractedFor === item?.id ? extracted : null,
   );
 
-  const link = $derived(item?.alternate?.[0]?.href ?? item?.canonical?.[0]?.href ?? "");
+  async function loadFullArticle(): Promise<void> {
+    const current = item;
+    if (!current || link === "" || manualBusy) return;
+    const id = current.id;
+    manualBusy = true;
+    manualFailed = false;
+    const result = await extractFor(id, link);
+    if (item?.id !== id) return;
+    manualBusy = false;
+    // `chooseBody` already refuses a paywall stub or an extraction that found
+    // less than the feed sent; asking for the full article does not override
+    // that, it only overrides "do not fetch at all".
+    if (result === null || chooseBody(result, feedBody).source !== "article") {
+      manualFailed = true;
+      return;
+    }
+    manualId = id;
+    manualBody = result;
+  }
+
+  function dropFullArticle(): void {
+    manualId = null;
+    manualBody = null;
+    manualFailed = false;
+  }
+
+  const body = $derived(sanitizeArticle(chooseBody(extractedNow, feedBody).html));
 
   /** A picture the feed sent, swapped out when the file is gone. */
   let brokenLeads = new Set<string>();
@@ -184,7 +295,7 @@
   }
 </script>
 
-<section class="reader" aria-label="Article">
+<section class="reader" data-pane="article" aria-label="Article">
   {#if item}
     <header class="toolbar">
       <button class="icon" onclick={() => onClose?.()} aria-label="Back to list">←</button>
@@ -235,6 +346,23 @@
         title={isRead(item) ? "Mark unread" : "Mark read"}
         onclick={() => (isRead(item) ? reader.setRead(item, false) : reader.markRead(item))}
       >{isRead(item) ? "◯" : "●"}</button>
+      {#if link && canExtract(link)}
+        <!-- Experimental: one article, fetched on demand. Sat next to "open
+             original" because it is the same page, read in here instead. -->
+        <button
+          class="icon full"
+          class:on={manualActive}
+          aria-pressed={manualActive}
+          aria-busy={manualBusy}
+          aria-label={manualActive ? "Show what the feed sent" : "Load the full article"}
+          title={manualBusy
+            ? "Fetching the publisher's page…"
+            : manualActive
+              ? "Showing the full article — click for what the feed sent"
+              : "Experimental: fetch the publisher's page and show just the article"}
+          onclick={() => (manualActive ? dropFullArticle() : void loadFullArticle())}
+        >{manualBusy ? "⋯" : "¶"}</button>
+      {/if}
       {#if link}
         <button class="icon" aria-label="Open original" title="Open original" onclick={() => openExternal(link)}>
           ↗
@@ -275,6 +403,12 @@
         <span>{item.origin?.title ?? ""}</span>
         {#if item.author}<span>· {item.author}</span>{/if}
         <span>· {absoluteTime(item.timestampUsec, item.published)}</span>
+        {#if manualFailed}
+          <span class="retry" role="status">
+            · no full article
+            <button class="inline" onclick={() => void loadFullArticle()}>try again</button>
+          </span>
+        {/if}
       </p>
 
       {#if lead}
@@ -464,6 +598,12 @@
     margin: 0 0 22px;
     font-size: 12px;
     color: var(--muted);
+  }
+
+  /* Says the page was fetched and refused, so the button is not just inert. */
+  .retry {
+    white-space: nowrap;
+    opacity: 0.85;
   }
 
   .content {

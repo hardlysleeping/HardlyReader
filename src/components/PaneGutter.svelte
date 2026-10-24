@@ -38,6 +38,8 @@
       layout.dragTo(which, startWidth + (event.clientX - startX));
     }
     (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
+    // One write per drag, at the end: the per-frame updates only move pixels.
+    layout.commit();
   }
 
   function onkeydown(event: KeyboardEvent) {

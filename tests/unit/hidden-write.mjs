@@ -50,6 +50,9 @@ function buildReadingModule() {
   const code = compiled.js.code
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
+    .replaceAll('"../lib/extract"', JSON.stringify(absolute("src/lib/extract.ts")))
+    .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
+    .replaceAll('"../lib/indent"', JSON.stringify(absolute("src/lib/indent.ts")))
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
     .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
@@ -115,6 +118,8 @@ function buildReaderModule() {
     .replaceAll('"../api/hardlyread"', JSON.stringify(absolute("src/api/hardlyread.ts")))
     .replaceAll('"../api/transport"', JSON.stringify(absolute("src/api/transport.ts")))
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
+    .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
+    .replaceAll('"../lib/indent"', JSON.stringify(absolute("src/lib/indent.ts")))
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
@@ -508,7 +513,7 @@ try {
     // rather than in a missing row.
     check(
       "without the extension the menu still offers Hide, disabled",
-      reader.menuModel?.toggle?.disabled === true && reader.menuModel?.favorite?.action.type === "pin",
+      reader.menuModel?.toggle?.disabled === true && reader.menuModel?.pin?.action.type === "pin",
     );
     // Opening the menu asks the state once, to see whether the extension really
     // is absent or the app is holding a stale "unavailable".

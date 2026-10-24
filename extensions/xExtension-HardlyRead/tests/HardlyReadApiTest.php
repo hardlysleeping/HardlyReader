@@ -1440,4 +1440,112 @@ final class HardlyReadApiTest extends TestCase
 			},
 		);
 	}
+
+	// ------------------------------------------------------------ revision --
+
+	public function testRevisionIsStableWhileNothingChanges(): void
+	{
+		$hidden = new FakeHiddenCategories();
+		$api = $this->api($hidden, favorites: new FakeFavoriteCategories());
+
+		$first = $api->dispatch('GET', '/v1/revision', self::AUTH);
+		$second = $api->dispatch('GET', '/v1/revision', self::AUTH);
+
+		self::assertSame(200, $first->status);
+		self::assertIsString($first->body['revision']);
+		self::assertSame(40, strlen($first->body['revision']), 'a sha1, nothing longer');
+		self::assertSame($first->body['revision'], $second->body['revision']);
+	}
+
+	public function testRevisionChangesWhenTheWebsiteHidesACategory(): void
+	{
+		// The website writes this state itself, without going through the API.
+		// This is the case the token exists for.
+		$store = new FakeHiddenCategoriesStore();
+		$hidden = new FakeHiddenCategories($store);
+		$api = $this->api($hidden);
+		$before = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+
+		// Written straight into the store, as the website's eye toggle does.
+		$store->hide(4, true);
+
+		$after = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+		self::assertNotSame($before, $after);
+	}
+
+	public function testRevisionChangesWhenThePinnedViewChanges(): void
+	{
+		$favorites = new FakeFavoriteCategories();
+		$api = $this->api(new FakeHiddenCategories(), favorites: $favorites);
+		$before = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+
+		$favorites->changeView('only');
+
+		$after = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+		self::assertNotSame($before, $after);
+	}
+
+	public function testRevisionChangesOnLock(): void
+	{
+		$store = new FakeHiddenCategoriesStore();
+		$hidden = new FakeHiddenCategories($store);
+		$api = $this->api($hidden);
+		$before = $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'];
+
+		$store->setLocked(true);
+
+		self::assertNotSame($before, $api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision']);
+	}
+
+	public function testRevisionWorksWithoutAnyExtension(): void
+	{
+		// No extensions installed is a state, not an error: the token answers so a
+		// client can keep polling after an uninstall without special-casing it.
+		$api = $this->api(null);
+		$response = $api->dispatch('GET', '/v1/revision', self::AUTH);
+
+		self::assertSame(200, $response->status);
+		self::assertIsString($response->body['revision']);
+		self::assertSame(
+			$response->body['revision'],
+			$api->dispatch('GET', '/v1/revision', self::AUTH)->body['revision'],
+		);
+	}
+
+	public function testRevisionRejectsOtherMethods(): void
+	{
+		$response = $this->api(new FakeHiddenCategories())->dispatch('PUT', '/v1/revision', self::AUTH);
+
+		self::assertSame(405, $response->status);
+		self::assertSame('method_not_allowed', $response->body['error']['code']);
+	}
+
+	public function testRevisionRequiresAuthentication(): void
+	{
+		$response = $this->api(new FakeHiddenCategories(), authenticated: false)
+			->dispatch('GET', '/v1/revision');
+
+		self::assertSame(401, $response->status);
+		self::assertSame([], $this->loadedFor, 'no state is read for an anonymous caller');
+	}
+
+	public function testStateAndRevisionAgree(): void
+	{
+		// Same builders underneath: two requests that see the same state must
+		// produce the same token, and the state route must not drift away from it.
+		$store = new FakeHiddenCategoriesStore();
+		$hidden = new FakeHiddenCategories($store);
+		$api = $this->api($hidden, favorites: new FakeFavoriteCategories());
+
+		$state = $api->dispatch('GET', '/v1/state', self::AUTH);
+		$revision = $api->dispatch('GET', '/v1/revision', self::AUTH);
+
+		$store->hide(2, true);
+
+		$stateAfter = $api->dispatch('GET', '/v1/state', self::AUTH);
+		$revisionAfter = $api->dispatch('GET', '/v1/revision', self::AUTH);
+
+		self::assertSame($state->body['hiddenCategories']['view'], $stateAfter->body['hiddenCategories']['view']);
+		self::assertNotSame($revision->body['revision'], $revisionAfter->body['revision']);
+	}
 }

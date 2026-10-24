@@ -1,6 +1,14 @@
 /**
  * Builds `reader.svelte.ts` into plain ESM for the headless tests.
  *
+ * NOTE: `favorites.mjs`, `hidden-write.mjs` and `reader-state.mjs` each carry
+ * their own copy of the import-rewrite lists below, because they build extra
+ * modules of their own. A new relative import in `reader.svelte.ts` or
+ * `reading.svelte.ts` has to be added to all four copies, or those three suites
+ * fail with `Cannot find module .../tests/unit/lib/<name>/index.ts` — which is
+ * what happens when a specifier is left relative and Node resolves it from the
+ * generated directory.
+ *
  * A runes module cannot be imported by Node: it is type-stripped with the
  * project's TypeScript, compiled with Svelte's `compileModule`, and rewritten so
  * every import points at the real source file. Shared by the suites that drive
@@ -64,6 +72,8 @@ export function buildReaderModule() {
     .replaceAll('"../api/hardlyread"', JSON.stringify(absolute("src/api/hardlyread.ts")))
     .replaceAll('"../api/transport"', JSON.stringify(absolute("src/api/transport.ts")))
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
+    .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
+    .replaceAll('"../lib/indent"', JSON.stringify(absolute("src/lib/indent.ts")))
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
     .replaceAll('"../lib/stream-cycle"', JSON.stringify(absolute("src/lib/stream-cycle.ts")))

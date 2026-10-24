@@ -101,6 +101,23 @@ final class HardlyReadApi
 
 		$method = strtoupper(trim($method));
 
+		// GET /v1/revision — one short token over the user's extension state.
+		//
+		// The website's own buttons (hide a category, pin a category, change the
+		// pinned view, lock) write this state directly, without going through
+		// this API, so a client has no way to hear about them. Polling the whole
+		// state to find out is wasteful; polling a token is not. Any write, from
+		// either side, changes the answer; nothing else does.
+		if ($segments[0] === 'revision') {
+			if (count($segments) !== 1) {
+				return self::error(404, 'route_not_found', 'Unknown route.');
+			}
+			if ($method !== 'GET') {
+				return self::methodNotAllowed('GET');
+			}
+			return new HardlyReadApiResponse(200, ['revision' => $this->revisionToken($username)]);
+		}
+
 		// GET /v1/state
 		if ($segments[0] === 'state') {
 			if (count($segments) !== 1) {
@@ -671,6 +688,26 @@ final class HardlyReadApi
 		}
 
 		return $this->mutationResponse($result, $hidden);
+	}
+
+	/**
+	 * A stable token over everything `/v1/state` reports, plus the API version.
+	 *
+	 * Deliberately built from the same builders as the state route: if a field
+	 * changes, the token changes, and no separate list of "things worth
+	 * watching" has to be kept in step with the payload. The payloads carry no
+	 * timestamps, so a token that differs means the state really differs.
+	 */
+	private function revisionToken(string $username): string
+	{
+		$payload = [
+			'apiVersion' => self::API_VERSION,
+			'hiddenCategories' => $this->hiddenState(($this->loadHiddenCategories)($username)),
+			'favorites' => $this->favoritesState(($this->loadFavorites)($username)),
+			'sidebarIndent' => $this->sidebarIndentState(($this->loadSidebarIndent)($username)),
+		];
+		$json = json_encode($payload);
+		return sha1($json === false ? '' : $json);
 	}
 
 	/**
