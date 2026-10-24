@@ -1407,8 +1407,25 @@ import { plainPreview, relativeTime } from "../lib/format";
       inset 0 -7px 12px -9px color-mix(in srgb, var(--accent) 45%, transparent);
   }
 
+  /* The trim: in a row, the accent does not stop at the bottom hairline, it
+     turns the corner. The line runs to the right edge and curves up into it,
+     and the edge it joins is thicker than the hairline — an unread post is
+     marked on the side you scroll past as well as on the one you read across.
+     Drawn as a border box with only the bottom and right sides and a radius at
+     the corner between them, which is what does the turn; the row's own border
+     and background are left as they were. */
+  .items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-right: 3px solid color-mix(in srgb, var(--accent) 88%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 62%, transparent);
+    border-bottom-right-radius: 12px;
+  }
+
   .row.read {
-    opacity: 0.55;
+    opacity: 0.48;
   }
 
   .row.read:hover,

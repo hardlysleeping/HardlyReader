@@ -546,7 +546,7 @@ check(
   "a card says unread and read the same way a row does",
   !/\.items:not\(\.cards\)/.test(read("src/components/ArticleList.svelte")) &&
     /\.row:not\(\.read\) \{[\s\S]{0,200}?var\(--accent\) 62%/.test(read("src/components/ArticleList.svelte")) &&
-    /\.row\.read \{\s*opacity: 0\.55;/.test(read("src/components/ArticleList.svelte")),
+    /\.row\.read \{\s*opacity: 0\.48;/.test(read("src/components/ArticleList.svelte")),
 );
 check(
   "a card carries no marker beside its headline",

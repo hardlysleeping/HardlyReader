@@ -358,8 +358,40 @@ check(
 );
 check(
   "a read row steps back as a whole",
-  /\.row\.read \{[^}]*opacity: 0\.55;/.test(listSource) &&
+  /\.row\.read \{[^}]*opacity: 0\.48;/.test(listSource) &&
     /\.row\.read:hover,\s*\n?\s*\.row\.read\.selected \{[^}]*opacity: 0\.85;/.test(listSource),
+);
+
+// The rim does not stop at the bottom hairline in a row: it turns the corner and
+// runs up the right edge, thicker than the hairline, so an unread post is marked
+// on the side you scroll past. Only the rows view gets it; Cards, the one-line
+// list and the grid keep the rim they had.
+check(
+  "an unread row's rim turns the corner into a thicker right edge",
+  (() => {
+    const trim = /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*content: "";/.test(
+      listSource,
+    );
+    const edges =
+      /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*border-right: 3px solid color-mix\(in srgb, var\(--accent\) 88%, transparent\)/.test(
+        listSource,
+      ) &&
+      /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*border-bottom-right-radius: 12px/.test(
+        listSource,
+      ) &&
+      /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*border-bottom: 1px solid/.test(
+        listSource,
+      );
+    return trim && edges;
+  })(),
+  "3px up the right edge, a 12px radius at the corner, and the 1px hairline along the bottom",
+);
+
+check(
+  "the trim is drawn, not painted into the row's own borders",
+  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*pointer-events: none;/.test(
+    listSource,
+  ) && /\.row \{\s*position: relative;/.test(listSource),
 );
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);
