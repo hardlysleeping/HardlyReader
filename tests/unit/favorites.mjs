@@ -636,6 +636,42 @@ try {
 
   {
     const reader = fresh();
+    // Hold the first write open, so the second press arrives while it is out.
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let viewWrites = 0;
+    reply = async (url, init) => {
+      const body = init?.body ? JSON.parse(init.body) : {};
+      if (url === FAVORITES_VIEW_URL) {
+        viewWrites += 1;
+        if (viewWrites === 1) await gate;
+        return { status: 200, body: { ok: true, favorites: favoritesBody({ view: body.view }) } };
+      }
+      return { status: 200, body: {} };
+    };
+
+    const first = reader.setFavoritesView("only");
+    check("a press is drawn before the write resolves", reader.favoriteView === "only", reader.favoriteView);
+
+    const second = reader.setFavoritesView("without");
+    check("a press during a write is drawn too", reader.favoriteView === "without");
+    check("...and it does not queue behind the first to draw", second instanceof Promise);
+
+    release();
+    await first;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const viewCalls = calls.filter((call) => call.url === FAVORITES_VIEW_URL);
+    check("the press made during the write is sent when it settles", viewCalls.length === 2, String(viewCalls.length));
+    check("...and it is the last one asked for", viewCalls.at(-1)?.body === '{"view":"without"}', String(viewCalls.at(-1)?.body));
+    check("the server ends on the pressed view", reader.favoriteView === "without", reader.favoriteView);
+    check("nothing is left busy", reader.favoritesBusy === false);
+  }
+
+  {
+    const reader = fresh();
     reader.favorites = unavailableFavorites();
     const outcome = await reader.cycleFavoritesView();
     check("no favorites extension means no view write", outcome === null && calls.length === 0);

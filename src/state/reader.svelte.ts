@@ -243,6 +243,9 @@ export class ReaderState {
   /** True while a favorite/view write is in flight. */
   favoritesBusy = $state(false);
 
+  /** The newest view pressed while a favorites write was still out. */
+  private favoritesQueuedView: FavoriteView | null = null;
+
   /**
    * Pins kept on this device: every feed pin, and category pins when the
    * server has no Pinned Categories to hold them.
@@ -1222,10 +1225,24 @@ export class ReaderState {
     }
   }
 
-  /** Switches the favorites view: optimistically, then against the server. */
+  /**
+   * Switches the favorites view: drawn now, sent when the wire is free.
+   *
+   * A press is never swallowed. One write at a time keeps the wire simple, but
+   * the screen changes on the press, and a press that arrives while the last
+   * write is still out is remembered and sent when it settles — so clicking
+   * through the cycle quickly cannot leave the label and the list disagreeing
+   * with what was asked for.
+   */
   async setFavoritesView(view: FavoriteView): Promise<FavoritesWriteOutcome | null> {
     const session = this.session;
-    if (session === null || !this.favoritesAvailable || this.favoritesBusy) return null;
+    if (session === null || !this.favoritesAvailable) return null;
+
+    if (this.favoritesBusy) {
+      this.favorites = withFavoritesView(this.favorites, view);
+      this.favoritesQueuedView = view;
+      return null;
+    }
 
     this.favoritesBusy = true;
     try {
@@ -1241,6 +1258,9 @@ export class ReaderState {
       return outcome;
     } finally {
       this.favoritesBusy = false;
+      const queued = this.favoritesQueuedView;
+      this.favoritesQueuedView = null;
+      if (queued !== null && queued !== this.favorites.view) void this.setFavoritesView(queued);
     }
   }
 

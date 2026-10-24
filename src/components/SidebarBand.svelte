@@ -149,7 +149,6 @@
     class="ctl pin"
     class:on={pinView !== "all"}
     onclick={cyclePins}
-    disabled={reader.favoritesBusy}
     title={`Pinned: ${PIN_VIEW_LABELS[pinView]} — click for ${
       PIN_VIEW_LABELS[nextPinView(pinView)]
     }${reader.favorites.available ? "" : " (Pinned Categories is not enabled)"}`}
