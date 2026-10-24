@@ -366,29 +366,49 @@ check(
 // runs up the right edge, thicker than the hairline, so an unread post is marked
 // on the side you scroll past. Only the rows view gets it; Cards, the one-line
 // list and the grid keep the rim they had.
+// The trim is one element of background layers: a hairline along the bottom, a
+// 2px edge up the right, and both turns filled out to the row's own corner with
+// a quarter-circle cut so the accent finishes in two lit corners. It used to be a
+// border box, which cannot paint past its own radius, so the corner showed the
+// row through it.
 check(
-  "an unread row's rim turns the corner into a thicker right edge",
+  "an unread row's rim turns the corner into an edge up the right",
   (() => {
-    const trim = /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*content: "";/.test(
-      listSource,
+    const rule = listSource.slice(
+      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after"),
     );
-    const edges =
-      /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*border-right: 3px solid color-mix\(in srgb, var\(--accent\) 88%, transparent\)/.test(
-        listSource,
-      ) &&
-      /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*border-bottom-right-radius: 12px/.test(
-        listSource,
-      ) &&
-      /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*border-bottom: 1px solid/.test(
-        listSource,
-      );
-    return trim && edges;
+    const body = rule.slice(0, rule.indexOf("\n  }"));
+    return (
+      /content: "";/.test(body) &&
+      /--trim-r: 13px;/.test(listSource) &&
+      /right \/ 2px 100% no-repeat/.test(body) &&
+      /bottom left \/ 100% 1px no-repeat/.test(body) &&
+      (body.match(/radial-gradient\(/g) || []).length === 2
+    );
   })(),
-  "3px up the right edge, a 12px radius at the corner, and the 1px hairline along the bottom",
+  "a 2px edge against the 1px hairline, and a filled turn at each end of it",
 );
 
 check(
-  "the trim is drawn, not painted into the row's own borders",
+  "both turns are filled, and the edge between them is quiet",
+  (() => {
+    const rule = listSource.slice(
+      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after"),
+    );
+    const body = rule.slice(0, rule.indexOf("\n  }"));
+    return (
+      /circle at 0 0,[\s\S]{0,200}?bottom right \/ var\(--trim-r\) var\(--trim-r\)/.test(body) &&
+      /circle at 0 100%,[\s\S]{0,200}?top right \/ var\(--trim-r\) var\(--trim-r\)/.test(body) &&
+      /var\(--accent\) 14%, transparent\) 46%/.test(body) &&
+      /top right \/ 92px 1px no-repeat/.test(body) &&
+      !/border-left|border-inline/.test(body)
+    );
+  })(),
+  "a solid bottom turn, a quiet top turn with a fading return, and a thread between them",
+);
+
+check(
+  "the trim is drawn over the row, never in the way of it",
   /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*pointer-events: none;/.test(
     listSource,
   ) && /\.row \{\s*position: relative;/.test(listSource),
