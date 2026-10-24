@@ -148,8 +148,8 @@ export const CARD_SIZE_TITLES: Record<CardSize, string> = {
 };
 
 /**
- * The shape of a card's picture window: 5 × 7.5, the digest size Archie has
- * printed for decades, which is also where a page of comics lands.
+ * The shape of a card's picture window: 5 × 7.5, the digest size a comic has
+ * been printed at for decades, which is also where a page of it lands.
  *
  * The picture is fitted inside that window instead of being cropped into it, so
  * a page is whole — the card's job here is to show the post, not a slice of it.

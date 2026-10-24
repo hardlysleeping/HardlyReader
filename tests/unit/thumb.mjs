@@ -198,9 +198,9 @@ check("panel urls resolve against the post and are not repeated", () => {
     alternate: LINK,
     content: {
       content:
-        '<img src="/img/1.jpg" alt="Hagar - PANEL 1">' +
-        '<img src="/img/1.jpg" alt="Hagar - Panel 1">' +
-        '<img src="/img/2.jpg" alt="Hagar - panel 2">',
+        '<img src="/img/1.jpg" alt="Comic - PANEL 1">' +
+        '<img src="/img/1.jpg" alt="Comic - Panel 1">' +
+        '<img src="/img/2.jpg" alt="Comic - panel 2">',
     },
   });
   assert.deepEqual(panels, ["https://example.com/img/1.jpg", "https://example.com/img/2.jpg"]);
@@ -212,47 +212,47 @@ check("panel extraction tolerates missing fields", () => {
 });
 
 /* ---------------------------------------------------------------- WordPress
-   A feed that publishes only the 150px crop beside the real comic (Buni,
-   bunicomic.com) put a soft square at the head of every card. These checks
-   pin the sharpening: the URL the card asks for, the crop it falls back
-   to when the big file is gone, and the shapes that must not be touched. */
+   A feed that publishes only the 150px crop beside the real comic put a soft
+   square at the head of every card. These checks pin the sharpening: the URL
+   the card asks for, the crop it falls back to when the big file is gone, and
+   the shapes that must not be touched. */
 
-const BUNI_CROP = "https://www.bunicomic.com/wp-content/uploads/2026/10/2026-10-21-Buni-150x150.jpg";
-const BUNI_FULL = "https://www.bunicomic.com/wp-content/uploads/2026/10/2026-10-21-Buni.jpg";
+const STRIP_CROP = "https://example.test/wp-content/uploads/2026/10/2026-10-21-strip-150x150.jpg";
+const STRIP_FULL = "https://example.test/wp-content/uploads/2026/10/2026-10-21-strip.jpg";
 
 /* The entry body exactly as FreshRSS stores it (read from the live DB). */
-const BUNI_BODY =
-  '<p><a href="https://www.bunicomic.com/comic/buni-2018/" title="Buni">' +
-  '<img width="150" height="150" src="' + BUNI_CROP + '" alt="" ' +
+const STRIP_BODY =
+  '<p><a href="https://example.test/comic/strip-2018/" title="strip">' +
+  '<img width="150" height="150" src="' + STRIP_CROP + '" alt="" ' +
   'data-sanitized-class="attachment-thumbnail size-thumbnail wp-post-image"></a>\r\n</p>';
 
-const BUNI_ITEM = {
+const STRIP_ITEM = {
   id: "1792647410983255",
-  alternate: [{ href: "https://www.bunicomic.com/comic/buni-2018/" }],
-  content: { content: BUNI_BODY },
-  summary: { content: BUNI_BODY },
+  alternate: [{ href: "https://example.test/comic/strip-2018/" }],
+  content: { content: STRIP_BODY },
+  summary: { content: STRIP_BODY },
 };
 
-check("Buni's 150x150 crop becomes the 780x1054 page, with the crop kept as fallback", () => {
-  const thumb = thumbnailOf(BUNI_ITEM);
-  assert.equal(thumb.url, BUNI_FULL);
+check("the 150x150 crop becomes the 780x1054 page, with the crop kept as fallback", () => {
+  const thumb = thumbnailOf(STRIP_ITEM);
+  assert.equal(thumb.url, STRIP_FULL);
   assert.equal(thumb.kind, "inline");
-  assert.equal(thumb.fallback, BUNI_CROP);
+  assert.equal(thumb.fallback, STRIP_CROP);
   // The card's onerror path asks for this: the file the feed actually named.
-  assert.equal(cropVariant(BUNI_FULL), BUNI_CROP);
+  assert.equal(cropVariant(STRIP_FULL), STRIP_CROP);
 });
 
 check("the client's own URL — wrapped by the image cache — still sharpens inside the wrapper", () => {
   // FreshRSS's ImageCache extension rewrites every src to the piccache proxy,
   // rawurlencode leaves `-` and `.` alone, so the crop name is still the tail.
-  const wrapped = "https://cache.example.test:8449/piccache.php?url=" + encodeURIComponent(BUNI_CROP);
-  const wrappedFull = "https://cache.example.test:8449/piccache.php?url=" + encodeURIComponent(BUNI_FULL);
-  const thumb = thumbnailOf({ alternate: [{ href: "https://www.bunicomic.com/comic/buni-2018/" }], content: { content: '<img src="' + wrapped + '">' } });
+  const wrapped = "https://cache.example.test:8449/piccache.php?url=" + encodeURIComponent(STRIP_CROP);
+  const wrappedFull = "https://cache.example.test:8449/piccache.php?url=" + encodeURIComponent(STRIP_FULL);
+  const thumb = thumbnailOf({ alternate: [{ href: "https://example.test/comic/strip-2018/" }], content: { content: '<img src="' + wrapped + '">' } });
   assert.equal(thumb.url, wrappedFull);
   assert.equal(thumb.fallback, wrapped);
   assert.equal(cropVariant(wrappedFull), wrapped);
   // A plain file behind the proxy is not "sharpened" into a 404.
-  assert.equal(fullSize("https://cache.example.test:8449/piccache.php?url=" + encodeURIComponent(BUNI_FULL)), null);
+  assert.equal(fullSize("https://cache.example.test:8449/piccache.php?url=" + encodeURIComponent(STRIP_FULL)), null);
 });
 
 check("a size suffix followed by a query string is stripped and the query kept", () => {
@@ -268,7 +268,7 @@ check("a size suffix followed by a query string is stripped and the query kept",
 });
 
 check("a picture that is not a WordPress crop is left exactly as it was", () => {
-  const plain = "https://cdn.example.com/comics/archie-2026-10-21.jpg";
+  const plain = "https://cdn.example.com/comics/strip-2026-10-21.jpg";
   const thumb = thumbnailOf({ alternate: LINK, enclosure: [{ href: plain, type: "image/jpeg" }] });
   assert.equal(thumb.url, plain);
   assert.equal(thumb.fallback, undefined);
@@ -294,7 +294,7 @@ check("a crop in srcset is sharpened, and a crop on an enclosure too", () => {
   assert.equal(cropVariant("https://e.test/l.jpg"), "https://e.test/l-768x512.jpg");
 });
 
-check("every picture of a multi-picture Buni-shaped post is sharpened too", () => {
+check("every picture of a multi-picture strip-shaped post is sharpened too", () => {
   const list = imagesOf({
     alternate: LINK,
     content: {

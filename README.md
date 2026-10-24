@@ -2,6 +2,8 @@
 
 A reader for FreshRSS that behaves like a reading app rather than a web page: three panes that fold to one, a keyboard that never needs the mouse, and no reflow while you scroll.
 
+It is also built for reading comics one after another: a Cards view where a page fills the pane at its own size, a wheel or a thumb that moves one post at a time, and an article pane that fits a page whole instead of cropping or blowing it up.
+
 Svelte 5, TypeScript, Tauri 2. Linux desktop today; the same code is the browser build.
 
 ![Three panes: feeds, posts, article](docs/screenshots/three-panes.png)
@@ -29,7 +31,17 @@ Svelte 5, TypeScript, Tauri 2. Linux desktop today; the same code is the browser
 - **Keyboard first.** Next/previous post, next/previous feed, mark read, star, open in the browser, go back — every one is a single key, and `?` lists them.
 - **Pull down in the post list** to ask the feed for new posts; pull down in an article to leave it, or go to the previous post when advance-on-scroll is on.
 - **Scroll that does not jump** — the reader only moves when you ask it to.
-- **Article images** can be shown, scaled, or turned off, and the same for row thumbnails.
+- **Article pictures** are fitted whole to the frame at the picture's own resolution, with a multiplier in the article toolbar to make one larger (up to 200%) or smaller (down to 50%) than that automatic fit. It is remembered for every post and across restarts. Row thumbnails have their own scale, and either can be turned off.
+
+### Comics
+
+Cards is the reading view for strips, and it is arranged around the things that actually go wrong when a page of comics meets a feed reader.
+
+- **A page is not cropped.** A card's picture fills the pane's width at its own aspect ratio and its own height — no height cap, no crop, no letterbox. A strip taller than the pane scrolls through it; a strip shorter than the pane is shown whole, with its neighbours peeking above and below.
+- **One push, one post.** A wheel notch past a card that fits steps to the next and centres it; a flick on a phone stops at the next card instead of sailing through three. The step is the same pull the article pane uses — the same effort setting and the same delay — and it never opens the post: a tap in the middle does that, and the edges of a card turn the page when it has more than one picture.
+- **Multi-picture posts** page by swipe (36px sideways to commit, 12px before it decides it is not a scroll), wrap at both ends, and show their pages as dots under the picture.
+- **Unread reads at a glance.** An unread row carries an accent hairline along the bottom that turns up its right edge over a filled corner; a read row steps back as a whole, artwork included.
+- **The article fits the page.** In the article pane a picture is fitted to the frame by width, by height and by its own pixel size — whichever is smallest — so a tall page arrives whole and a small file is not stretched into blur. The multiplier beside it goes past that when you want the picture bigger than the fit, or under it to give the text the room.
 
 ### Feeds, categories and the extensions
 
@@ -94,7 +106,7 @@ The tests cover the parts that are easy to get quietly wrong: the GReader client
 
 ## Status
 
-Early. The desktop app is the target; iOS, Android and a PWA are planned from the same code and are **not** built or tested yet. There is no offline cache of article bodies or images — a server that is down is a server that is down. No release bundles are published yet beyond the tagged source.
+0.2.0. The Linux desktop app is what is built and used; the same code runs as a browser build, and the phone layout is exercised but **not** tested on a device yet. There is no offline cache of article bodies or images — a server that is down is a server that is down. Releases are tagged source: no bundles are attached, because the 0.1.1 ones were built against a newer glibc than their targets and are not fit to ship.
 
 Screenshots are of a demo build with invented feeds — no real subscriptions appear in this repository.
 

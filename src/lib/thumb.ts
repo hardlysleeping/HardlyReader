@@ -41,9 +41,9 @@ const SIZE_SUFFIX = new RegExp(String.raw`^(.*)-\d+x\d+(${IMAGE_EXT})$`, "i");
  * picture at its full width, so the crop is upscaled into mush; the full-size
  * file is almost always sitting at the same path.
  *
- * Three shapes are handled, and all of them turn up on this reader's server:
+ * Three shapes are handled, and all of them turn up in the wild:
  *
- *   - the name itself ends the URL: `…/2026-10-21-Buni-150x150.jpg`;
+ *   - the name itself ends the URL: `…/2026-10-21-strip-150x150.jpg`;
  *   - the name is the end of a proxied URL, because FreshRSS's ImageCache
  *     extension rewrites every `src` to `piccache.php?url=<rawurlencoded src>`
  *     and `rawurlencode` leaves `-` and `.` alone — so the suffix is still the

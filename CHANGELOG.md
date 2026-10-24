@@ -4,6 +4,97 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-10-24
+
+Cards stops being a second grid and becomes the way this reads comics, the
+article pane learns to fit a page without blurring it, and a day of reading in
+one window no longer needs the mouse.
+
+### Added
+
+- **Cards is the comics view.** A card's picture fills the pane's width at its
+  own aspect ratio and its own height — no crop, no height cap, no letterbox —
+  and a strip taller than the pane scrolls through it normally instead of being
+  squeezed to fit. Small pictures are drawn up to the width; they are not
+  sharpened into mush. The masonry wall is still there as a separate pick.
+- **One card per push.** A wheel notch past a card that fits steps to the next
+  one and centres it, with its neighbours peeking above and below. The step is
+  the same pull the article pane uses — same effort setting, same delay — and it
+  never opens a post: a tap in the middle still does that.
+- **A finger gets the same promise.** On touch the column snaps card to centre
+  and stops a fling at each card, so a flick crosses one card instead of three
+  or four; a slow deliberate drag still scrolls the column and lands on a card.
+- **Multi-picture posts: swipe or step.** Pages wrap at both ends, a gesture has
+  to travel 36px sideways to turn one, and a drag that is mostly vertical is
+  left to the scroll. Invisible edge zones turn the page too, 10% of the card's
+  width per side by default and adjustable to 45%.
+- **Articles fit their pictures.** A picture in the article pane is fitted to
+  the frame — width, height and the file's own resolution, whichever is
+  smallest — so a page arrives whole and unblurred, and the text stays. A
+  multiplier in the article toolbar (50–200%, 5% steps) goes past that fit for
+  anyone who would rather have the picture bigger, or under it to give the text
+  the room; it is remembered for every post and across restarts, because it is a
+  preference about the reader, not about the post.
+- **Reading settings**: text, row, thumbnail and article-picture scales,
+  measure, leading, alignment, first-line indent, and one step size (5% by
+  default) shared by every size control, with typed values for anything past
+  the sliders.
+- **Settings in three tabs** behind a gear, instead of one long column: colours,
+  layout, reading. The header drops what does not fit into a menu rather than
+  scrolling sideways.
+- **Layout thresholds as settings**, with a switch for what a mode press does to
+  the window — *Keep widths* (the window is the sum of the panes) or *Keep
+  window* (the panes fit the window).
+- **Arrow keys on every seam**, and double-click to reset a pane to its default
+  width.
+- **Pull down** in the post list to ask a feed for new posts, or in an article
+  to leave it.
+- **A lock in the article toolbar** that goes home first, sync that reads as
+  finished when it is, and a short flood of accent light as feedback on a press.
+- **OPML in and out**, adding a feed from a pasted list, feed icons with a drawn
+  fallback, and thumbnails on unfolded posts in the one-column walk.
+
+### Changed
+
+- **Unread is said by the row itself.** No dot beside the headline: unread rows
+  carry an accent hairline along the bottom that turns up the right edge over a
+  filled corner, and read rows step back as a whole. Cards carry the same two
+  marks, so a post looks read in every view of it.
+- **Category rows are pinned or not.** The star and the wording switch are gone:
+  a favourite category here is a pinned one, and the two used to disagree.
+- **Mark read** is a named choice — manual by default — with the dwell time as a
+  setting, and **scroll effort** is adjustable rather than fixed.
+- The paragraph-indent option is gone; first-line indent is a reading setting.
+
+### Fixed
+
+- **A wheel gesture crossed several cards.** The handler stopped the notch that
+  tipped the step over and let the rest of the gesture through, so the column
+  scrolled underneath the step it had just made and the snap picked whichever
+  card it stopped near. Every delta over a card that fits now belongs to the
+  step, and one that arrives during the settle window holds it rather than
+  counting as a second gesture.
+- **Small article pictures were blown up.** The first fit scaled to the frame
+  regardless of the file, which is blur by default; the automatic size is now
+  capped at the file's own pixels.
+- **Pane one kept several widths.** The one-pane width was a stored number of
+  its own, so a mode switch moved the feeds pane; it is one width now.
+- **A mode press could resize the window without switching.** The measurement
+  that followed the press arrived inside the dead zone the layout keeps for
+  accidental drags, so the window grew and the mode stayed put.
+- Hidden-category writes are queued, so a fast sequence of clicks is neither
+  dropped nor repainted from a stale reply; a stream can no longer show one
+  stream's posts under another's title; the band keeps equal halves under the
+  lock and the feeds pane has a floor it fits into.
+
+### Notes
+
+- Source only: no bundles are attached to this release. The 0.1.1 Linux
+  artefacts were built against a newer glibc than the platforms they targeted
+  and are not fit to ship.
+- The article picture multiplier is a reading preference stored per device.
+  Carrying a reader's settings between devices is planned, not built.
+
 ## [0.1.1] — 2026-10-23
 
 The layout switch stops lying, pane one keeps its width, and this is the first

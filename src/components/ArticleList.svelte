@@ -98,8 +98,8 @@ import { plainPreview, relativeTime } from "../lib/format";
   /**
    * How wide each of a card's pictures is, against the widest one in the post.
    *
-   * Comics Kingdom draws the panels of one strip at different pixel widths —
-   * Hagar's are 997 and 933 — so fitting each to the card's width drew the
+   * A syndicated strip often draws its panels at different pixel widths —
+   * two of them might be 997 and 933 — so fitting each to the card's width drew the
    * narrower panel at a slightly larger scale and the comic jumped in size when
    * flipped. Scaling every picture by the same factor keeps one zoom for the
    * whole strip; the narrower panel is simply narrower on the card.
@@ -1822,7 +1822,7 @@ import { plainPreview, relativeTime } from "../lib/format";
      cards and the snap then picked whichever it happened to stop near. Stopping
      the fling at every snap point gives the thumb the same promise the wheel
      makes — one push, one card — without touching a slow deliberate drag, which
-     still scrolls the column. Measured on the Archie panels in a 390×740 phone
+     still scrolls the column. Measured on real strips in a 390×740 phone
      viewport: a 300px flick went from three cards to one, and a 140px push no
      longer left the card at all. */
   @media (pointer: coarse) {
