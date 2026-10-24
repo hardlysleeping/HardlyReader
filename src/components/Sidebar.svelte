@@ -515,13 +515,17 @@
   });
 
   /**
-   * Enter adds when there is one feed in the box, and starts a new line when
-   * there are several — so a list can be typed as well as pasted. Shift+Enter
-   * always opens a line, which is the way in for the first extra feed.
+   * Enter is a new line, always, and Ctrl/Cmd+Enter is the add.
+   *
+   * Enter used to add whenever the box held a single feed, so the box closed
+   * itself the moment one URL went in: the second feed of a list had to wait for
+   * the field to be opened again, which is exactly the chore a pasted list is
+   * meant to save. The box now behaves like the list it is for, and the Add
+   * button carries the count — "Add 4" — so it is clear what a click will do.
    */
   function onFeedKey(event: KeyboardEvent): void {
     if (event.key !== "Enter" || event.isComposing) return;
-    if (event.shiftKey || feedUrl.includes("\n")) return;
+    if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
     void submitFeed();
   }
@@ -1079,13 +1083,13 @@
   <div class="add">
     {#if adding}
       <form onsubmit={submitFeed}>
-        <label class="visually-hidden" for="feed-url">Feed URL, one per line</label>
+        <label class="visually-hidden" for="feed-url">Feed URLs, one per line</label>
         <textarea
           id="feed-url"
           class="url"
           class:grow={feedLines > 1}
           rows="1"
-          placeholder="https://example.com/feed.xml"
+          placeholder="One feed per line — ⌘/Ctrl+Enter to add"
           bind:value={feedUrl}
           bind:this={feedBox}
           disabled={reader.feedBusy}

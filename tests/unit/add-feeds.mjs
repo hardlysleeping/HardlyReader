@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { addFeedsMessage, isMultiLine, parseFeedUrls } from "../../src/lib/add-feeds.ts";
 
 let checks = 0;
@@ -78,6 +79,25 @@ check("a mixed run counts the good ones and names the first failure", () => {
 
 check("nothing at all says nothing", () => {
   assert.equal(addFeedsMessage({ added: [], failed: [] }), null);
+});
+
+// The add field is a list, so Enter has to stay a newline: it used to add
+// whenever the box held a single feed, which closed the box the moment the first
+// URL of a list went in.
+const sidebar = readFileSync(new URL("../../src/components/Sidebar.svelte", import.meta.url), "utf8");
+check("Enter opens a line, Ctrl/Cmd+Enter is the add", () => {
+  assert.match(sidebar, /if \(!event\.ctrlKey && !event\.metaKey\) return;/);
+  // The old rule: a box holding one feed submitted itself and closed.
+  assert.doesNotMatch(sidebar, /feedUrl\.includes\("\\n"\)/);
+});
+
+check("the field says how it submits", () => {
+  assert.match(sidebar, /placeholder="One feed per line — ⌘\/Ctrl\+Enter to add"/);
+});
+
+check("a pasted list grows the field", () => {
+  assert.match(sidebar, /class:grow=\{feedLines > 1\}/);
+  assert.match(sidebar, /const feedLines = \$derived\(parseFeedUrls\(feedUrl\)\.length\);/);
 });
 
 console.log(`\n${checks}/${checks} checks passed`);
