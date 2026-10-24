@@ -284,13 +284,27 @@ check("including one that failed before the listener existed", /complete && img\
 check("the pane prepares images on the first attach", /innerHTML = html;[\s\S]{0,120}prepareImages\(node\)/.test(pane));
 check("and on every update", /innerHTML = next;[\s\S]{0,120}prepareImages\(node\)/.test(pane));
 check("the lead is suppressed by comparing sources, not substrings", /imageSources\(body\)\.some\(\(src\) => sameImage\(src, url\)\)/.test(pane));
-// A picture is the page's width, not the reading column's: the column holds
-// text at 780px, and a picture sitting inside it left a band of empty space
-// either side. The picture keeps its own height, so nothing is cropped.
+// A picture is sized to the frame, not to the reading column: the column holds
+// text at 780px, and a picture inside it left a band of empty space either side.
+// The exact width is written by the pane, which is the only thing that can see
+// the file's natural size — at 100% a picture is never stretched past it.
 check(
-  "the article's pictures run the page's full width",
-  /\.content :global\(img\) \{[^}]*width: var\(--page-width, 100%\)[^}]*height: auto/.test(pane) &&
-    /\.content :global\(img\) \{[^}]*margin-inline: calc\(\(100% - var\(--page-width, 100%\)\) \/ 2\)/.test(pane),
+  "a picture is never drawn wider than its own file before it is measured",
+  /\.content :global\(img\) \{[^}]*width: auto;[^}]*max-width: var\(--page-width, 100%\)/.test(pane),
+);
+check(
+  "the pane writes each picture's width from its natural size and the fit",
+  /import \{ fittedWidth \} from "\.\.\/lib\/image-fit";/.test(pane) &&
+    /img\.style\.width = `\$\{width\}px`;/.test(pane) &&
+    /const width = fittedWidth\(\s*\{ width: img\.naturalWidth, height: img\.naturalHeight \},/.test(pane),
+);
+check(
+  "a fitted picture is centred on the pane, not on the prose column",
+  /img\.style\.marginInline = `calc\(\(100% - \$\{width\}px\) \/ 2\)`;/.test(pane),
+);
+check(
+  "the size control is in the article's own toolbar and steps the saved setting",
+  /reading\.stepImageScale\(-1\)/.test(pane) && /reading\.stepImageScale\(1\)/.test(pane),
 );
 check(
   "the reading column is what stays narrow",

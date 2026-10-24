@@ -27,6 +27,7 @@ import {
   TEXT_SCALE,
   STEP_INITIAL,
   THUMB_SCALE,
+  IMAGE_SCALE,
   FLIP_EDGE,
   clampFlipEdge,
   THUMB_SIDE_INITIAL,
@@ -133,6 +134,13 @@ class ReadingState {
    */
   thumbScale = $state(THUMB_SCALE.initial);
 
+  /**
+   * Pictures in the article, against the automatic fit. Saved with the rest of
+   * the reading settings: it is how this reader likes to read, not a property of
+   * one post, so it holds from article to article and across runs.
+   */
+  imageScale = $state(IMAGE_SCALE.initial);
+
   /** Left, right, or off. Off is not the same as "no picture": feeds decide that. */
   thumbSide = $state<ThumbSide>(THUMB_SIDE_INITIAL);
 
@@ -187,6 +195,7 @@ class ReadingState {
         leading?: unknown;
         textAlign?: unknown;
         thumbScale?: unknown;
+        imageScale?: unknown;
         thumbSide?: unknown;
         flipEdge?: unknown;
         articleImage?: unknown;
@@ -211,6 +220,7 @@ class ReadingState {
       if (isLeading(saved.leading)) this.leading = saved.leading;
       if (isTextAlign(saved.textAlign)) this.textAlign = saved.textAlign;
       this.thumbScale = clampScale(saved.thumbScale, THUMB_SCALE);
+      this.imageScale = clampScale(saved.imageScale, IMAGE_SCALE);
       if (typeof saved.flipEdge === "number") this.flipEdge = clampFlipEdge(saved.flipEdge);
       if (isThumbSide(saved.thumbSide)) this.thumbSide = saved.thumbSide;
       if (typeof saved.articleImage === "boolean") this.articleImage = saved.articleImage;
@@ -320,6 +330,16 @@ class ReadingState {
     return next;
   }
 
+  /** ⊖ / ⊕ for the pictures in an article. Returns the value applied. */
+  stepImageScale(direction: 1 | -1): number {
+    const next = stepScale(this.imageScale, direction, IMAGE_SCALE, this.stepPercent);
+    if (next !== this.imageScale) {
+      this.imageScale = next;
+      this.save();
+    }
+    return next;
+  }
+
   /** How far one press moves every size control. */
   setStepPercent(percent: StepPercent): void {
     if (!isStepPercent(percent) || this.stepPercent === percent) return;
@@ -366,6 +386,7 @@ class ReadingState {
     this.leading = LEADING_INITIAL;
     this.textAlign = ALIGN_INITIAL;
     this.thumbScale = THUMB_SCALE.initial;
+    this.imageScale = IMAGE_SCALE.initial;
     this.flipEdge = FLIP_EDGE.initial;
     this.articleImage = ARTICLE_IMAGE_INITIAL;
     this.stepPercent = STEP_INITIAL;
@@ -391,6 +412,7 @@ class ReadingState {
           leading: this.leading,
           textAlign: this.textAlign,
           thumbScale: this.thumbScale,
+          imageScale: this.imageScale,
           thumbSide: this.thumbSide,
           flipEdge: this.flipEdge,
           articleImage: this.articleImage,

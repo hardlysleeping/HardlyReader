@@ -63,6 +63,7 @@
       align: reading.textAlign,
       thumbScale: reading.thumbScale,
       thumbSide: reading.thumbSide,
+      imageScale: reading.imageScale,
       articleImage: reading.articleImage,
       stepPercent: reading.stepPercent,
     }),

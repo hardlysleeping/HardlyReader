@@ -153,10 +153,11 @@ check("a bad leading or alignment in memory still yields usable CSS", () => {
   assert.equal(vars["--read-align"], ALIGN_INITIAL);
 });
 
-check("the style string is five declarations", () => {
+check("the style string is six declarations", () => {
   const style = readingStyle({ ...LAYOUT_INITIAL });
-  assert.equal(style.split(";").length, 5);
+  assert.equal(style.split(";").length, 6);
   assert.ok(style.startsWith("--read-scale:1;"));
+  assert.ok(style.includes("--image-scale:1"), "the article's pictures start at their fit");
   assert.equal(style.includes("--read-indent"), false, "paragraph indent is gone");
 });
 

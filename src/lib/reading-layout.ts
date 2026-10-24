@@ -54,6 +54,17 @@ export const ROW_SCALE: ScaleSpec = { min: 0.8, max: 1.4, initial: 1 };
 export const THUMB_SCALE: ScaleSpec = { min: 0.6, max: 2, initial: 1 };
 
 /**
+ * A picture in the article, measured against the automatic fit.
+ *
+ * 100% is not a size, it is the fit: as large as the frame allows and no larger
+ * than the file itself. Above that the reader has asked for more than the file
+ * holds, and blur is the answer they chose; below it, the picture steps back so
+ * the words can have the screen. One setting for every article, because it is a
+ * property of how they read, not of the post they happen to be on.
+ */
+export const IMAGE_SCALE: ScaleSpec = { min: 0.5, max: 2, initial: 1 };
+
+/**
  * The picture's base size, before row and picture scaling.
  *
  * Exported so the panel can say "58px wide" using the same number the stylesheet
@@ -171,6 +182,8 @@ export interface ReadingLayout {
   align: TextAlign;
   thumbScale: number;
   thumbSide: ThumbSide;
+  /** A picture in the article, against the automatic fit. */
+  imageScale: number;
   articleImage: boolean;
   /** Percent per press, shared by every size control. */
   stepPercent: StepPercent;
@@ -183,6 +196,7 @@ export const LAYOUT_INITIAL: ReadingLayout = {
   align: ALIGN_INITIAL,
   thumbScale: THUMB_SCALE.initial,
   thumbSide: THUMB_SIDE_INITIAL,
+  imageScale: IMAGE_SCALE.initial,
   articleImage: ARTICLE_IMAGE_INITIAL,
   stepPercent: STEP_INITIAL,
 };
@@ -194,6 +208,7 @@ export function isDefaultLayout(layout: ReadingLayout): boolean {
     layout.leading === LEADING_INITIAL &&
     layout.align === ALIGN_INITIAL &&
     clampScale(layout.thumbScale, THUMB_SCALE) === THUMB_SCALE.initial &&
+    clampScale(layout.imageScale, IMAGE_SCALE) === IMAGE_SCALE.initial &&
     layout.articleImage === ARTICLE_IMAGE_INITIAL &&
     (layout.stepPercent ?? STEP_INITIAL) === STEP_INITIAL
   );
@@ -213,6 +228,7 @@ export function readingVars(layout: Partial<ReadingLayout>): Record<string, stri
     "--read-align": isTextAlign(layout.align) ? layout.align : ALIGN_INITIAL,
     "--row-scale": String(clampScale(layout.rowScale, ROW_SCALE)),
     "--thumb-scale": String(clampScale(layout.thumbScale, THUMB_SCALE)),
+    "--image-scale": String(clampScale(layout.imageScale, IMAGE_SCALE)),
   };
 }
 

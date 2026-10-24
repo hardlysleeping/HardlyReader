@@ -12,6 +12,8 @@
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
+  import { fittedWidth } from "../lib/image-fit";
+  import { IMAGE_SCALE, scalePercent } from "../lib/reading-layout";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { pullDown } from "../lib/pull";
   import { reader } from "../state/reader.svelte";
@@ -60,6 +62,60 @@
     observer.observe(page);
     return () => observer.disconnect();
   });
+  /** For the buttons' tooltips: what the pictures are currently sized to. */
+  const picturesAt = $derived(scalePercent(reading.imageScale, IMAGE_SCALE));
+
+  /**
+   * Draw one picture at the width the fit gives it.
+   *
+   * The width is written in pixels rather than left to the stylesheet because no
+   * stylesheet can see a file's natural size: `max-width: 100%` would upscale a
+   * 300px icon into a blurry 900px panel, and no CSS at all can say "this big,
+   * but never bigger than the file". `fittedWidth` decides that, and the pane's
+   * own box is the frame it decides against.
+   *
+   * The offset is the same trick the stylesheet used: the picture bleeds out of
+   * the 780px prose measure and centres on the pane, so a page can be as wide as
+   * the pane even though the words are not.
+   */
+  function paintPicture(img: HTMLImageElement): void {
+    const width = fittedWidth(
+      { width: img.naturalWidth, height: img.naturalHeight },
+      { width: pageWidth, height: pageHeight },
+      reading.imageScale,
+    );
+    if (width === null) return;
+    img.style.width = `${width}px`;
+    img.style.height = "auto";
+    img.style.maxWidth = "none";
+    img.style.maxHeight = "none";
+    img.style.marginInline = `calc((100% - ${width}px) / 2)`;
+  }
+
+  /** Fit every picture on the page, and keep fitting the ones still loading. */
+  function fitPictures(): void {
+    const root = scroller;
+    if (root === null) return;
+    for (const img of root.querySelectorAll("img")) {
+      if (img.dataset.fitBound !== "1") {
+        img.dataset.fitBound = "1";
+        // The natural size is not known until the file has decoded, and every
+        // measurement above is taken from it.
+        img.addEventListener("load", () => paintPicture(img));
+      }
+      paintPicture(img);
+    }
+  }
+
+  // A new article, a bigger or smaller picture setting, or a frame that changed
+  // shape: all three mean the same arithmetic has to run again.
+  $effect(() => {
+    void reading.imageScale;
+    void pageWidth;
+    void pageHeight;
+    fitPictures();
+  });
+
   /** Wheel travel accumulated at the bottom, in pixels, against the pull curve. */
   let pull = $state(0);
   /** The setting decides how much travel the pull is worth. */
@@ -328,6 +384,7 @@
     node.innerHTML = html;
     hardenLinks(node);
     prepareImages(node);
+    fitPictures();
     // Delegated here rather than via an inline handler: the markup is feed HTML,
     // not Svelte-owned elements, and keyboard users activate the links directly.
     node.addEventListener("click", intercept);
@@ -336,6 +393,7 @@
         node.innerHTML = next;
         hardenLinks(node);
         prepareImages(node);
+        fitPictures();
       },
       destroy() {
         node.removeEventListener("click", intercept);
@@ -361,6 +419,18 @@
         onclick={() => void reader.advanceArticle(1)}
       >↓</button>
       <div class="spacer"></div>
+      <button
+        class="icon pictures"
+        aria-label="Smaller pictures"
+        title={`Pictures at ${picturesAt} of the automatic fit — smaller, so the words get more room`}
+        onclick={() => reading.stepImageScale(-1)}
+      >⊖</button>
+      <button
+        class="icon pictures"
+        aria-label="Larger pictures"
+        title={`Pictures at ${picturesAt} of the automatic fit — larger, past the file's own size if you say so`}
+        onclick={() => reading.stepImageScale(1)}
+      >⊕</button>
       <button
         class="icon flow"
         class:on={reading.advanceOnScroll}
@@ -652,16 +722,17 @@
     /* The feed's own picture is the article's width, edge to edge: a comic page
        or a photograph shown whole, never letterboxed into a narrower box. */
     display: block;
-    width: var(--page-width, 100%);
-    max-width: none;
-    /* One page at a time: a comic taller than the frame is fitted to it and
-       centred, so the whole page is readable without scrolling. Its width, and
-       so its scale, is the largest that both edges allow — which for a page is
-       the frame's height. */
+    /* The automatic fit, for the moment before the file has decoded and the pane
+       has measured itself: no wider than the pane, no taller than it, and never
+       wider than the file. Once both are known the pane writes an exact width in
+       pixels, because only it can see the file's natural size — this is what a
+       picture looks like until then. */
+    width: auto;
+    max-width: var(--page-width, 100%);
     max-height: var(--page-height, none);
     height: auto;
     margin-block: 0 20px;
-    margin-inline: calc((100% - var(--page-width, 100%)) / 2);
+    margin-inline: auto;
     object-fit: contain;
     background: var(--hover);
   }
@@ -693,17 +764,17 @@
      column of empty space beside them is the thing being fixed. */
   .content :global(img) {
     display: block;
-    width: var(--page-width, 100%);
-    max-width: none;
-    /* Same rule as the lead: a page fits the frame rather than running past its
-       bottom. Contained, not cropped — the bars either side of a tall page are
-       the price of showing all of it, and the alternative is a page you scroll
-       to find the end of. */
+    /* Same rule as the lead, and the same reason: a page fits the frame rather
+       than running past its bottom, and it is never stretched past the file it
+       came from. The exact width comes from the pane in pixels; this is the
+       shape of a picture before that has happened. */
+    width: auto;
+    max-width: var(--page-width, 100%);
     max-height: var(--page-height, none);
     height: auto;
     object-fit: contain;
     margin-block: 1em;
-    margin-inline: calc((100% - var(--page-width, 100%)) / 2);
+    margin-inline: auto;
   }
 
   .content :global(pre) {
