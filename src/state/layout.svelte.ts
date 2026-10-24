@@ -51,7 +51,7 @@ import {
   thresholdsFor,
   widthFor,
 } from "../lib/panes";
-import { fitWindowTo, screenWidth } from "../lib/window-fit";
+import { canFitWindow, fitWindowTo, screenWidth } from "../lib/window-fit";
 
 const STORAGE_KEY = "hardlyreader.layout.v1";
 
@@ -375,6 +375,16 @@ class LayoutState {
   private pressTarget: number | null = null;
 
   /**
+   * Whether a press is still waiting for the window to reach the width it asked
+   * for. While this is true the frame's own reported width is not what the
+   * tracks are made of, so a resize tick is not a reason to draw the columns
+   * flat — see the resize observer in `Main.svelte`.
+   */
+  get pressing(): boolean {
+    return this.pressTarget !== null;
+  }
+
+  /**
    * The width to draw at: the width a press asked for, until the window agrees.
    *
    * `available` is what the frame measures right now — the truth, but a truth
@@ -527,9 +537,15 @@ class LayoutState {
       limit,
       this.keepWidths,
     );
-    if (target === null) {
+    if (target === null || !canFitWindow()) {
       // Nothing to resize to, so nothing to hold — and a hold left over from an
       // earlier press would otherwise draw a frame this press never asked for.
+      // A shell that cannot resize is the same case as one already the right
+      // size, and it is the common one on a phone or in a browser tab: holding
+      // the asked-for width there drew the slide's first frames at a geometry
+      // the frame never had (a strip of nothing where the extra width was), and
+      // then the refusal re-settled the columns underneath the animation. One
+      // geometry, one slide.
       this.pressTarget = null;
       this.settle(false);
       return false;
@@ -807,7 +823,10 @@ class LayoutState {
     // The frame being entered, through the same queue, the same press and the
     // same grace window a mode button uses: this names what it wants, so the
     // band must not hold the mode it is leaving.
-    const target = this.sizingFrame(value);
+    // Same rule as a mode press: a shell that cannot resize never holds a width
+    // it will not reach, or the toggle's own slide would be drawn at a geometry
+    // the frame does not have and then corrected under it.
+    const target = canFitWindow() ? this.sizingFrame(value) : null;
     this.pressTarget = target;
     if (target !== null) {
       this.pressUntil = Date.now() + PRESS_GRACE_MS;

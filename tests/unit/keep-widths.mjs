@@ -56,10 +56,15 @@ globalThis.localStorage = {
   },
 };
 
+// The desktop shell: it owns its window and may resize it. The other case — a
+// browser tab or a phone, which cannot — is the one that must never hold a width
+// it will not reach, and it is checked in `press-frame.mjs` by taking this
+// marker away.
 globalThis.window = {
   innerWidth: 1200,
   innerHeight: 900,
   screen: { width: 1920, height: 1080, availWidth: 1920, availHeight: 1080 },
+  __TAURI_INTERNALS__: {},
 };
 globalThis.matchMedia = (query) => ({
   matches: false,

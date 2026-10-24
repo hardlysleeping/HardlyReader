@@ -169,15 +169,21 @@ export const PANE_MOTIONS: readonly PaneMotion[] = ["off", "quick", "smooth"];
  * reflow in the last frames of the slide) or leave a strip of the pane's
  * background between its content and the seam. A spring that goes past 1 is a
  * spring over empty space; over rows and article text it is a pop. The curves
- * therefore decelerate into the target (`y` control points at most 1, `y1/x1`
- * well above 1 so the motion starts immediately) and the settle is what carries
- * the weight: 185ms and 250ms, the second with a longer tail rather than a
- * bounce.
+ * therefore decelerate into the target (`y` control points at most 1) and the
+ * settle is what carries the weight: 185ms and 250ms, the second with a longer
+ * tail rather than a bounce.
+ *
+ * Both also leave from rest (`y1` near 0). The first curves left at speed —
+ * `y1` 0.86 put 42% of the travel in the first tenth of the time — and a press
+ * then opened with a jolt whose size was whatever the frame timing made it,
+ * which is why the same button sometimes slid and sometimes snapped: the first
+ * painted frame was anywhere from a tenth to a third of the way across. A
+ * column that starts still and lands early reads as the frame opening.
  */
 export const PANE_MOTION: Record<PaneMotion, { ms: number; ease: string }> = {
   off: { ms: 0, ease: "linear" },
-  quick: { ms: 185, ease: "cubic-bezier(0.2, 0.86, 0.24, 1)" },
-  smooth: { ms: 250, ease: "cubic-bezier(0.28, 0.72, 0.18, 1)" },
+  quick: { ms: 185, ease: "cubic-bezier(0.2, 0, 0.2, 1)" },
+  smooth: { ms: 250, ease: "cubic-bezier(0.25, 0.1, 0.2, 1)" },
 };
 
 export function isPaneMotion(value: unknown): value is PaneMotion {

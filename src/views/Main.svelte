@@ -160,9 +160,18 @@
     const measure = (): void => {
       if (panes === null) return;
       layout.setAvailable(panes.clientWidth);
-      resizing = true;
-      if (resizeTimer !== null) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => (resizing = false), RESIZE_SETTLE_MS);
+      // A press that is waiting on a resize already draws from the width it
+      // asked for (`layout.pressing`), so the frame's own movement is not
+      // what the tracks are made of — and arming `resizing` here would take the
+      // transition off an element in the middle of the press's slide, which
+      // lands the columns at the end value in one frame. That is the press that
+      // snapped instead of sliding, and it only happened when the window
+      // happened to report its new size while the slide was still running.
+      if (!layout.pressing) {
+        resizing = true;
+        if (resizeTimer !== null) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => (resizing = false), RESIZE_SETTLE_MS);
+      }
       // Once more after layout: WebKit reports a resize before it has finished
       // laying out, so the width read in the event is sometimes the old one.
       requestAnimationFrame(() => {
@@ -435,7 +444,14 @@
   /** The press already drawn, so a non-press change of slots is not animated. */
   let animatedPress = 0;
 
-  $effect(() => {
+  // A pre-effect, not an effect: this must be part of the same flush as the
+  // track list it is arming. An effect runs after the DOM has taken the new
+  // tracks, so the first change of a press was resolved with no transition on
+  // the element — the browser then had to work out where the motion began, and
+  // it began wherever the last frame happened to land. That was the lurch: the
+  // first painted frame of a press was already a quarter of the way across, and
+  // how far in depended on when the press fell inside a frame.
+  $effect.pre(() => {
     // Read so the effect re-arms on every press, and on a change of feel.
     const press = layout.pressSeq;
     const ms = motionMs(layout.motion);
@@ -449,6 +465,15 @@
     if (press === 0) return;
     sliding = ms > 0;
     if (!sliding) return;
+    // A press is the panes moving, and any resize it causes is the frame
+    // following them. Drawing that flat would land the columns in one frame, so
+    // a press takes the class off and leaves the frame's own travel to be drawn
+    // by the tracks it is already heading for.
+    resizing = false;
+    if (resizeTimer !== null) {
+      clearTimeout(resizeTimer);
+      resizeTimer = null;
+    }
     // A pane that was not drawn and now is: it comes in from its own side and
     // settles with a small overshoot. Panes that stay put and panes that leave
     // are untouched — the leaving ones keep their width and are clipped.

@@ -58,10 +58,15 @@ globalThis.localStorage = {
   },
 };
 
+// The desktop shell: it owns its window and may resize it. The other case — a
+// browser tab or a phone, which cannot — is the one that must never hold a width
+// it will not reach, and it is checked in `press-frame.mjs` by taking this
+// marker away.
 globalThis.window = {
   innerWidth: 1200,
   innerHeight: 900,
   screen: { width: 1920, height: 1080, availWidth: 1920, availHeight: 1080 },
+  __TAURI_INTERNALS__: {},
 };
 globalThis.matchMedia = (query) => ({
   matches: false,
@@ -174,6 +179,38 @@ try {
       layout.columns() === `280px 6px ${1000 - 286}px 0px 0px`,
       layout.columns(),
     );
+  }
+
+  // --- a shell that cannot resize never holds a width ----------------------
+  {
+    // A browser tab, a phone, a PWA: `fitWindowTo()` cannot succeed there at
+    // all. Holding the asked-for width anyway drew the slide's first frames at a
+    // geometry the frame never had and then corrected itself under the
+    // animation, which is a jump in the middle of a press. The press must draw
+    // the frame it is in, once, and slide from there.
+    const layout = await start(generated, { mode: 2, keepWidths: true, chosen: true });
+    layout.setAvailable(834);
+    const marker = globalThis.window.__TAURI_INTERNALS__;
+    delete globalThis.window.__TAURI_INTERNALS__;
+    void layout.chooseMode(1);
+    check(
+      "a shell that cannot resize holds nothing",
+      layout.pressing === false,
+      `pressing ${layout.pressing}`,
+    );
+    check(
+      "and draws the frame it is in, not a width it will never reach",
+      layout.drawn === 834 && layout.columns() === "834px 0px 0px 0px 0px",
+      `drawn ${layout.drawn}, ${layout.columns()}`,
+    );
+    // Pressing back out of it is the same picture: one geometry, the frame's.
+    void layout.chooseMode(2);
+    check(
+      "and pressing back into two panes does the same",
+      layout.pressing === false && layout.drawn === 834 && layout.columns() === "280px 6px 548px 0px 0px",
+      `drawn ${layout.drawn}, ${layout.columns()}`,
+    );
+    globalThis.window.__TAURI_INTERNALS__ = marker;
   }
 
   // --- Keep window holds nothing: the panes fit the frame they are in --------

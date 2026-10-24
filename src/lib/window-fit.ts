@@ -34,6 +34,19 @@ export async function screenWidth(): Promise<number | null> {
 }
 
 /**
+ * Whether this shell can resize its own window at all.
+ *
+ * A browser tab and a phone cannot, and the difference matters *before* a press
+ * is drawn, not after it fails: a press that asks for a width it will never get
+ * draws its first frames at that width, then the refusal re-settles the columns
+ * and the slide ends somewhere else. Ask here and a shell that cannot resize
+ * draws the press from the frame it is actually in, once.
+ */
+export function canFitWindow(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/**
  * Ask the desktop window to become a width, and say whether it did.
  *
  * Only the Tauri build can do this: a browser tab cannot resize itself, so the

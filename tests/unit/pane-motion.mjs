@@ -124,12 +124,17 @@ check(
     }),
     moving.map((feel) => PANE_MOTION[feel].ease).join(" / "),
   );
+  // ...and they leave from rest. A first control point high up the travel means
+  // the curve is doing 40% of the run in the first tenth of the time, which is
+  // the press opening with a jolt whose size depends on where the frame boundary
+  // fell — the same button sliding one time and snapping the next.
   check(
-    "and both leave at once and settle, rather than easing in and out",
+    "and both leave from rest, so the first frame is not a jump",
     moving.every((feel) => {
       const [x1, y1] = points(PANE_MOTION[feel].ease);
-      return x1 > 0 && y1 > 0 && y1 / x1 > 1.5;
+      return x1 > 0 && y1 <= 0.25 && y1 / x1 < 1;
     }),
+    moving.map((feel) => PANE_MOTION[feel].ease).join(" / "),
   );
   check(
     "the longer of the two settles instead of bouncing",
