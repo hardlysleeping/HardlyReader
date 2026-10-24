@@ -366,12 +366,9 @@ check(
 // runs up the right edge, thicker than the hairline, so an unread post is marked
 // on the side you scroll past. Only the rows view gets it; Cards, the one-line
 // list and the grid keep the rim they had.
-// The right end of a regular row is a squircle — 28px on a 70–104px tall row —
-// and the unread mark is the border of that shape: 6px up the right, 1px along
-// the bottom. Both are borders of the same rounded box, so they meet inside the
-// corner and taper into each other, one continuous piece of accent. An earlier
-// version painted the turns with radials on a square box, which left the row
-// showing through the corner.
+// A regular row ends in a turn rather than a corner, and the unread mark is the
+// accent of that turn: borders on the box the row already is, so there is no
+// region outside the accent left to fill in, and no wedge painted behind it.
 check(
   "an unread row's rim turns the corner into an edge up the right",
   (() => {
@@ -381,34 +378,65 @@ check(
     const body = rule.slice(0, rule.indexOf("\n  }"));
     return (
       /content: "";/.test(body) &&
-      /border-right: 6px solid color-mix\(in srgb, var\(--accent\) 88%, transparent\);/.test(body) &&
-      /border-bottom: 1px solid color-mix\(in srgb, var\(--accent\) 62%, transparent\);/.test(body) &&
-      !/border-top:|border-left:/.test(body) &&
-      !/radial-gradient\(/.test(body) &&
-      !/--trim-r/.test(listSource)
+      /border-right: 5px solid color-mix\(in srgb, var\(--accent\) 92%, transparent\);/.test(body) &&
+      /border-bottom: 1px solid color-mix\(in srgb, var\(--accent\) 58%, transparent\);/.test(body) &&
+      /border-top: 1px solid color-mix\(in srgb, var\(--accent\) 58%, transparent\);/.test(body) &&
+      /border-radius: 0 30px 30px 0;/.test(body)
     );
   })(),
-  "a 6px edge against the 1px hairline, and no top line to double up on the row above",
+  "5px up the edge, a hairline either side, and the same 30px turn as the row",
 );
 
 check(
-  "the accent follows the row's own corner, so the turn has no join in it",
+  "the end is pulled in from the pane's edge, so the turn is a turn",
   (() => {
     const rule = listSource.slice(
       listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row {"),
     );
     const body = rule.slice(0, rule.indexOf("\n  }"));
-    const draw = listSource.slice(
-      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after"),
-    );
-    const drawn = draw.slice(0, draw.indexOf("\n  }"));
     return (
-      /border-radius: 0 28px 28px 0;/.test(body) &&
-      /border-radius: 0 28px 28px 0;/.test(drawn) &&
-      /inset: 0;/.test(drawn)
+      /margin-right: 9px;/.test(body) &&
+      !/overflow: hidden;/.test(body) &&
+      // Held against the edge the end reads as a cut-off corner, or asks for the
+      // two corners the turn leaves to be filled in — and a filled gap between
+      // two pills reads as a rail down the column rather than as a row ending.
+      !/::before/.test(
+        listSource.slice(
+          listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:not(.read)"),
+          listSource.indexOf(".row.read {"),
+        ),
+      )
     );
   })(),
-  "the row is rounded on the right and the trim is rounded the same way",
+  "9px of air at the edge, and no fill between one end and the next",
+);
+
+check(
+  "one post is separated from the next by space, not by a rule",
+  (() => {
+    const rule = listSource.slice(
+      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row {"),
+    );
+    const body = rule.slice(0, rule.indexOf("\n  }"));
+    return /margin-bottom: 4px;/.test(body) && /border-bottom: 0;/.test(body);
+  })(),
+  "4px between rows, and the hairline gone with it",
+);
+
+check(
+  "the end has a shadow of its own, so it reads as something you could press",
+  (() => {
+    const rule = listSource.slice(
+      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row {"),
+    );
+    const body = rule.slice(0, rule.indexOf("\n  }"));
+    // Flat: a shadow dropped to the right, not an inner light or a bevel. The row
+    // stays a 2D shape with a curve; the shadow is the only relief it gets.
+    return (
+      /box-shadow: 3px 2px 7px -4px rgba\(0, 0, 0, 0\.55\);/.test(body) &&
+      !/inset/.test(body)
+    );
+  })(),
 );
 
 check(

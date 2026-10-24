@@ -351,6 +351,7 @@ import { plainPreview, relativeTime } from "../lib/format";
   let listPull = $state(0);
   let listPullTimer: ReturnType<typeof setTimeout> | null = null;
   let listSettleUntil = 0;
+  let stepTimer: ReturnType<typeof setTimeout> | null = null;
   const listThreshold = $derived(thresholdFor(reading.scrollEffort));
 
   function resetListPull(): void {
@@ -371,16 +372,31 @@ import { plainPreview, relativeTime } from "../lib/format";
   /**
    * The card in the middle of the pane: the one being read.
    *
-   * Cards sit centred with their neighbours peeking, so "the first row whose
-   * bottom is below the top edge" would name the card peeking above instead of
-   * the one you are looking at. What is in the middle is the answer.
+   * The nearest card to the middle, by the distance from the pane's middle to
+   * the card's own middle — not "the first card whose bottom is past the
+   * middle". Those two disagree exactly when the middle falls in a gap between
+   * two cards, and there it is not a toss-up: the first-bottom test answers with
+   * the card *below* the middle, which is the next one along, not the one you
+   * are looking at. Since a wheel step is `current + 1`, being one card out here
+   * lands two cards along — the skip — every time the column settled a few
+   * pixels off centre, which it does whenever a picture resizes under it after
+   * the thread has already been centred.
    */
   function currentCard(): HTMLElement | null {
     const el = itemsEl;
     if (!el) return null;
     const middle = el.getBoundingClientRect().top + el.clientHeight / 2;
-    const rows = cardRows();
-    return rows.find((row) => row.getBoundingClientRect().bottom > middle) ?? rows.at(-1) ?? null;
+    let best: HTMLElement | null = null;
+    let bestDistance = Infinity;
+    for (const row of cardRows()) {
+      const box = row.getBoundingClientRect();
+      const distance = Math.abs(box.top + box.height / 2 - middle);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = row;
+      }
+    }
+    return best;
   }
 
   /** A card that fits the pane, so the whole of it is on screen at once. */
@@ -446,7 +462,7 @@ import { plainPreview, relativeTime } from "../lib/format";
     if (!target || target === current) return;
     // Its picture starts loading before the scroll moves, not after it lands.
     prefetchFrom(target.dataset.id ?? undefined);
-    centreCard(target);
+    landOn(target);
     syncSnap();
   }
 
@@ -465,11 +481,41 @@ import { plainPreview, relativeTime } from "../lib/format";
     const port = el.getBoundingClientRect();
     const box = card.getBoundingClientRect();
     const offset = box.top - port.top;
-    if (box.height > el.clientHeight) {
-      el.scrollTop += offset;
-      return;
+    // Snapping is a separate opinion about where the column should stop, and on
+    // a programmatic scroll it is an opinion the browser can act on twice: the
+    // position is set, and then the snap engine picks the nearest snap point to
+    // *that*, which after a step is a card further on. The thread knows where it
+    // put the card, so the column is released from snapping for the length of
+    // the step and takes it back when the thread is quiet.
+    if (!el.classList.contains("stepping")) {
+      el.classList.add("stepping");
+      if (stepTimer !== null) clearTimeout(stepTimer);
+      stepTimer = setTimeout(() => {
+        el.classList.remove("stepping");
+        stepTimer = null;
+      }, SETTLE_MS);
     }
-    el.scrollTop += offset - (el.clientHeight - box.height) / 2;
+    // Absolute, not `+=`: the position is written as the card's own place in the
+    // column, so whatever happened to the scroll between the gesture and this
+    // call cannot be inherited. With a relative step, a scroll the webview
+    // applied on its own account — the native wheel it may still run alongside
+    // this handler, or the snap engine's second opinion — moved the landing a
+    // card further on, in whichever direction the wheel went.
+    const place = box.top - port.top + el.scrollTop;
+    el.scrollTop =
+      box.height > el.clientHeight ? place : place - (el.clientHeight - box.height) / 2;
+  }
+
+  /**
+   * Put a card in the middle, once, at an absolute position.
+   *
+   * Not a relative nudge and not something to keep correcting frame by frame:
+   * re-placing the card after the webview has acted on it fights the scroll it
+   * is running, and a step that argues with the column is a step that sometimes
+   * does not happen at all.
+   */
+  function landOn(card: HTMLElement): void {
+    centreCard(card);
   }
 
   /**
@@ -508,9 +554,10 @@ import { plainPreview, relativeTime } from "../lib/format";
     // then snapped back onto whichever one it happened to land near.
     event.preventDefault();
     if (performance.now() < listSettleUntil) {
-      // Same gesture still arriving. Hold the step until the wheel is quiet,
-      // rather than counting the rest of the gesture as a second one.
-      listSettleUntil = performance.now() + SETTLE_MS;
+      // Still inside the tail of the step just taken. The window is a fixed
+      // interval, not one that every arriving delta pushes out again: a hand
+      // that keeps scrolling never goes quiet, and holding the step until it
+      // does meant that scrolling without moving the mouse did nothing at all.
       resetListPull();
       return;
     }
@@ -1407,29 +1454,66 @@ import { plainPreview, relativeTime } from "../lib/format";
       inset 0 -7px 12px -9px color-mix(in srgb, var(--accent) 45%, transparent);
   }
 
-  /* The right end of a row is a squircle, not a corner: 28px of radius on a
-     stroke that is 70–104px tall sits between a square and a half-circle, which
-     is the shape that stops a column of rows reading as a stack of bricks
-     without turning each one into a pill. Only the right end is rounded — the
-     left sits on the pane's edge, where a radius would be a gap. */
+  /* A regular row does not end in a corner: it turns. 30px on a 70–104px row is
+     a squircle — square where it leaves the pane, round where it stops — which
+     is the shape that keeps a column of rows from reading as a stack of bricks
+     without turning each one into a pill. `overflow: hidden` is what makes it
+     hold: the row's own background, its hairline and anything inside it are cut
+     to the turn, so nothing paints the corner back in behind the accent. */
+  /* A thin gap between one row and the next, so two rounded ends are two ends
+     rather than one lump: enough air to separate them, not enough to turn a list
+     into a stack of cards. The row's own hairline goes with it — the gap does
+     that job now, and a line on top of a gap only doubles it. */
   .items:not(.compact):not(.cards):not(.grid) .row {
-    border-radius: 0 28px 28px 0;
+    border-bottom: 0;
+    border-radius: 0 30px 30px 0;
+    /* Separation by space, not by a rule: the rows already stack in normal flow,
+       so this is a margin rather than a gap. */
+    margin-bottom: 4px;
+    /* An inner shadow on the turn, deepest at the end: the row's right hand side
+       sits back a little behind the accent, so the end reads as an edge with
+       thickness rather than a flat shape with a line on it. */
+    /* Flat, and only flat: a soft shadow dropped to the right of the turn. No
+       inner light, no bevel — the end stays a 2D shape with a curve, and the
+       shadow is what gives it a little relief against the column. It needs the
+       9px of margin below to have anywhere to fall. */
+    box-shadow: 3px 2px 7px -4px rgba(0, 0, 0, 0.55);
+    /* Away from the pane's edge, so the turn has room to be seen as a turn. Held
+       against the edge it either looks like a cut-off corner or asks for the two
+       corners it leaves to be filled in, and a filled gap between two pills reads
+       as a rail down the column rather than as a row ending. */
+    margin-right: 9px;
   }
 
-  /* Unread is the rim going round that end. The band up the right edge is 6px
-     and the hairline along the bottom is 1px; because both are borders on the
-     same rounded box they meet *inside* the corner and taper into each other
-     there, so the turn is one continuous piece of accent with no join to see and
-     nothing filled in afterwards to hide a step. The top gets no line of its
-     own: the band curls round the top corner and ends on the row's top edge. */
+  /* Unread is the accent of that turn, filled: 5px along the right edge and 1px
+     along the bottom and 1px along the top, as borders of the same rounded box.
+     They meet inside the corner and run into each other there, so the accent is
+     one continuous piece that closes the turn — no open end to read as a gap,
+     and nothing outside the row to fill in afterwards, because the accent is the
+     border of the shape the row already is. */
   .items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
     content: "";
     position: absolute;
-    inset: 0;
+    inset: 0 0 -1px 0;
     pointer-events: none;
-    border-right: 6px solid color-mix(in srgb, var(--accent) 88%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--accent) 62%, transparent);
-    border-radius: 0 28px 28px 0;
+    /* Two washes. The first fills the end itself, deepest at the edge and gone
+       by the middle of the row, so an unread post reads as a lit end rather than
+       a row with a line down it. The second darkens the band towards the row's
+       outer edge — a border cannot take a gradient, so the band gets one laid
+       over it. */
+    background:
+      linear-gradient(to right, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(
+        to left,
+        color-mix(in srgb, var(--accent) 18%, transparent) 0,
+        color-mix(in srgb, var(--accent) 8%, transparent) 36px,
+        color-mix(in srgb, var(--accent) 3%, transparent) 50%,
+        transparent 64%
+      );
+    border-right: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
+    border-radius: 0 30px 30px 0;
   }
 
   .row.read {
@@ -1772,6 +1856,15 @@ import { plainPreview, relativeTime } from "../lib/format";
      list drops snapping while one is the card in the middle, and takes it back
      when the next one fits. */
   .cards[data-tallcard="true"] {
+    scroll-snap-type: none;
+  }
+
+  /* While the wheel is stepping the thread places the card itself, so the snap
+     engine must not also place it — see `centreCard`. */
+  /* Global because the class is put on the element directly: it has to be in
+     force for the scroll assignment in the same tick, and a state change would
+     not have reached the DOM yet. */
+  :global(.cards.stepping) {
     scroll-snap-type: none;
   }
 
