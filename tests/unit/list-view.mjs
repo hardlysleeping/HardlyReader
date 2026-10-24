@@ -366,11 +366,12 @@ check(
 // runs up the right edge, thicker than the hairline, so an unread post is marked
 // on the side you scroll past. Only the rows view gets it; Cards, the one-line
 // list and the grid keep the rim they had.
-// The trim is one element of background layers: a hairline along the bottom, a
-// 2px edge up the right, and both turns filled out to the row's own corner with
-// a quarter-circle cut so the accent finishes in two lit corners. It used to be a
-// border box, which cannot paint past its own radius, so the corner showed the
-// row through it.
+// The right end of a regular row is a squircle — 28px on a 70–104px tall row —
+// and the unread mark is the border of that shape: 6px up the right, 1px along
+// the bottom. Both are borders of the same rounded box, so they meet inside the
+// corner and taper into each other, one continuous piece of accent. An earlier
+// version painted the turns with radials on a square box, which left the row
+// showing through the corner.
 check(
   "an unread row's rim turns the corner into an edge up the right",
   (() => {
@@ -380,31 +381,34 @@ check(
     const body = rule.slice(0, rule.indexOf("\n  }"));
     return (
       /content: "";/.test(body) &&
-      /--trim-r: 13px;/.test(listSource) &&
-      /right \/ 2px 100% no-repeat/.test(body) &&
-      /bottom left \/ 100% 1px no-repeat/.test(body) &&
-      (body.match(/radial-gradient\(/g) || []).length === 2
+      /border-right: 6px solid color-mix\(in srgb, var\(--accent\) 88%, transparent\);/.test(body) &&
+      /border-bottom: 1px solid color-mix\(in srgb, var\(--accent\) 62%, transparent\);/.test(body) &&
+      !/border-top:|border-left:/.test(body) &&
+      !/radial-gradient\(/.test(body) &&
+      !/--trim-r/.test(listSource)
     );
   })(),
-  "a 2px edge against the 1px hairline, and a filled turn at each end of it",
+  "a 6px edge against the 1px hairline, and no top line to double up on the row above",
 );
 
 check(
-  "both turns are filled, and the edge between them is quiet",
+  "the accent follows the row's own corner, so the turn has no join in it",
   (() => {
     const rule = listSource.slice(
-      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after"),
+      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row {"),
     );
     const body = rule.slice(0, rule.indexOf("\n  }"));
+    const draw = listSource.slice(
+      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after"),
+    );
+    const drawn = draw.slice(0, draw.indexOf("\n  }"));
     return (
-      /circle at 0 0,[\s\S]{0,200}?bottom right \/ var\(--trim-r\) var\(--trim-r\)/.test(body) &&
-      /circle at 0 100%,[\s\S]{0,200}?top right \/ var\(--trim-r\) var\(--trim-r\)/.test(body) &&
-      /var\(--accent\) 14%, transparent\) 46%/.test(body) &&
-      /top right \/ 92px 1px no-repeat/.test(body) &&
-      !/border-left|border-inline/.test(body)
+      /border-radius: 0 28px 28px 0;/.test(body) &&
+      /border-radius: 0 28px 28px 0;/.test(drawn) &&
+      /inset: 0;/.test(drawn)
     );
   })(),
-  "a solid bottom turn, a quiet top turn with a fading return, and a thread between them",
+  "the row is rounded on the right and the trim is rounded the same way",
 );
 
 check(

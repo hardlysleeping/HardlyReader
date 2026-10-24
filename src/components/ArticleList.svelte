@@ -1407,71 +1407,29 @@ import { plainPreview, relativeTime } from "../lib/format";
       inset 0 -7px 12px -9px color-mix(in srgb, var(--accent) 45%, transparent);
   }
 
-  /* The trim: in a row the accent does not stop at the bottom hairline, it
-     turns. One hairline along the bottom, an edge up the right, and at both ends
-     of that edge the turn is filled out to the row's own corner, so the accent
-     finishes in two lit corners instead of two drawn ends.
-
-     Weight is the whole trick here. The edge is 2px against the 1px hairline,
-     the turn is 13px rather than a quarter of the row, and the stretch between
-     the corners is barely there — so a column of unread rows reads as a bright
-     foot and a faint thread up the side, not as a fence. Everything is
-     background layers on one element: a border cannot paint past its own radius,
-     and a mask cannot be solid at each end and whisper in the middle. */
-  .items:not(.compact):not(.cards):not(.grid) .row:not(.read) {
-    --trim-r: 13px;
+  /* The right end of a row is a squircle, not a corner: 28px of radius on a
+     stroke that is 70–104px tall sits between a square and a half-circle, which
+     is the shape that stops a column of rows reading as a stack of bricks
+     without turning each one into a pill. Only the right end is rounded — the
+     left sits on the pane's edge, where a radius would be a gap. */
+  .items:not(.compact):not(.cards):not(.grid) .row {
+    border-radius: 0 28px 28px 0;
   }
 
+  /* Unread is the rim going round that end. The band up the right edge is 6px
+     and the hairline along the bottom is 1px; because both are borders on the
+     same rounded box they meet *inside* the corner and taper into each other
+     there, so the turn is one continuous piece of accent with no join to see and
+     nothing filled in afterwards to hide a step. The top gets no line of its
+     own: the band curls round the top corner and ends on the row's top edge. */
   .items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
     content: "";
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background:
-      /* the bottom turn, filled out to the corner point */
-      radial-gradient(
-          circle at 0 0,
-          transparent 0 calc(var(--trim-r) - 0.5px),
-          color-mix(in srgb, var(--accent) 80%, transparent) calc(var(--trim-r) - 0.5px)
-        )
-        bottom right / var(--trim-r) var(--trim-r) no-repeat,
-      /* the top turn, the same shape upside down and quieter */
-      radial-gradient(
-          circle at 0 100%,
-          transparent 0 calc(var(--trim-r) - 0.5px),
-          color-mix(in srgb, var(--accent) 42%, transparent) calc(var(--trim-r) - 0.5px)
-        )
-        top right / var(--trim-r) var(--trim-r) no-repeat,
-      /* the edge between them: bright where it leaves the foot, a thread halfway
-         up, a quiet cap at the top */
-      linear-gradient(
-          to top,
-          color-mix(in srgb, var(--accent) 88%, transparent) 0,
-          color-mix(in srgb, var(--accent) 88%, transparent) var(--trim-r),
-          color-mix(in srgb, var(--accent) 14%, transparent) 46%,
-          color-mix(in srgb, var(--accent) 34%, transparent) calc(100% - var(--trim-r)),
-          color-mix(in srgb, var(--accent) 42%, transparent) 100%
-        )
-        right / 2px 100% no-repeat,
-      /* the top turn gets a return, or it reads as the start of a frame that was
-         never finished: a short stub running left and dissolving, which is what
-         makes the upper corner look deliberate rather than clipped */
-      linear-gradient(
-          to left,
-          color-mix(in srgb, var(--accent) 40%, transparent),
-          color-mix(in srgb, var(--accent) 40%, transparent) 6px,
-          transparent 92px
-        )
-        top right / 92px 1px no-repeat,
-      /* the hairline along the bottom: full strength where it meets the foot,
-         easing off towards the thumbnail so the row is marked, not boxed */
-      linear-gradient(
-          to left,
-          color-mix(in srgb, var(--accent) 58%, transparent) 0%,
-          color-mix(in srgb, var(--accent) 50%, transparent) 26%,
-          color-mix(in srgb, var(--accent) 30%, transparent) 100%
-        )
-        bottom left / 100% 1px no-repeat;
+    border-right: 6px solid color-mix(in srgb, var(--accent) 88%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 62%, transparent);
+    border-radius: 0 28px 28px 0;
   }
 
   .row.read {
