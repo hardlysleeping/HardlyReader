@@ -1350,10 +1350,26 @@
     background: var(--hover);
   }
 
+  /* Selected: the accent is the highlight and the hairline around the row, and
+     the words keep the ink every other row uses. Accent text on a 16% wash of
+     the same hue is the accent drawn on its own glow — and at 12.5px in light
+     mode the title was the one thing on the selected row that could not be
+     read. The mark is a border and a fill, never the colour of the letters.
+     `outline` rather than `box-shadow` so a pinned row, which already wears a
+     ring, does not lose it by being selected. */
   .row.active {
     background: var(--accent-soft);
-    color: var(--accent-text);
-    box-shadow: inset 2px 0 0 var(--accent);
+    color: var(--text);
+    outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline-offset: -1px;
+    border-radius: 5px;
+  }
+
+  /* Both marks on one row: the pin's own ring is the stronger claim about what
+     this row is, so it keeps the edge, and the selection keeps the fill. */
+  .row.pinned.active,
+  .feed.pinned.active {
+    outline-color: color-mix(in srgb, var(--tone-pinned) 45%, transparent);
   }
 
   .row.strong .label {
@@ -1571,8 +1587,10 @@
     color: var(--text-dim);
   }
 
+  /* Selected, a feed keeps the ink of every other row and is marked by the
+     highlight its title wears — never by turning the letters the accent. */
   .feed.active {
-    color: var(--accent-text);
+    color: var(--text);
   }
 
   .feed.unfolded {
