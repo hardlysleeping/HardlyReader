@@ -31,7 +31,11 @@
  */
 :root {
   --bg: #fdfdfd;
-  --surface: #f4f4f5;
+  /* The surface is written as a solid colour and then thinned by --glass: 100%
+     is the plain panel, 82% lets a background picture through when the theme
+     asks for glass. One derived value instead of two palettes. */
+  --surface-solid: #f4f4f5;
+  --surface: color-mix(in srgb, var(--surface-solid) var(--glass, 100%), transparent);
   --bg-alt: #f4f4f5;
   --border: #d2d2d8;
   --border-soft: #e8e8ec;
@@ -70,7 +74,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     --bg: #17171a;
-    --surface: #1f1f23;
+    --surface-solid: #1f1f23;
     --bg-alt: #1f1f23;
     --border: #33333a;
     --border-soft: #26262b;
@@ -90,7 +94,7 @@
      somewhere to be brighter than, and the borders are lighter than the gaps
      between them so a divider is a line rather than a smudge. */
   --bg: #0c0c0e;
-  --surface: #131316;
+  --surface-solid: #131316;
   --bg-alt: #131316;
   --border: #3a3a44;
   --border-soft: #212128;
@@ -106,7 +110,7 @@
    a machine whose OS is dark. */
 :root[data-theme="light"] {
   --bg: #fdfdfd;
-  --surface: #f4f4f5;
+  --surface-solid: #f4f4f5;
   --bg-alt: #f4f4f5;
   --border: #d2d2d8;
   --border-soft: #e8e8ec;
@@ -122,8 +126,43 @@
   color-scheme: light;
 }
 
+html {
+  background: var(--bg);
+}
+
 * {
   box-sizing: border-box;
+}
+
+/* A background picture, if the theme has one.
+   -----------------------------------------------------------------------------
+
+   Two layers behind everything: the picture, blurred by --bg-blur; then the page
+   colour as a veil at --bg-dim, so a bright photograph in light mode does not
+   turn the ink grey. Both are fixed — the picture is the window's, not the
+   list's — and neither takes the pointer.
+
+   The picture layer is inset by more than the largest blur: a blurred edge
+   smears inward, and the smear would otherwise show as a vignette on the frame. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+}
+
+body::before {
+  inset: calc(-1 * max(var(--bg-blur, 0px), 0px) - 16px);
+  z-index: -2;
+  background: var(--bg-image, none) center / cover no-repeat;
+  filter: blur(var(--bg-blur, 0px));
+}
+
+body::after {
+  inset: 0;
+  z-index: -1;
+  background: var(--bg);
+  opacity: var(--bg-dim, 0);
 }
 
 html,
@@ -188,7 +227,9 @@ body {
      header moves what does not fit into its menu. A horizontal scrollbar here
      would mean a measurement is wrong, so it is not offered. */
   overflow-x: hidden;
-  background: var(--bg);
+  /* The page colour lives on <html>: body is the layer stack a background
+     picture needs, and a background on body itself would paint over it. */
+  background: transparent;
   color: var(--text);
   font-size: 15px;
   line-height: 1.5;

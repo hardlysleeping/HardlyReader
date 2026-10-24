@@ -56,6 +56,30 @@ export interface Theme {
    * for anyone who wants the rows to stay one grey.
    */
   monotoneActions: boolean;
+  /**
+   * The page itself, or `null` for the mode's own colour.
+   *
+   * `null` is the important case: dark and light each have a page colour that
+   * was chosen to sit under their ink, and a theme that has never picked one
+   * keeps following the mode instead of freezing whichever was on screen when
+   * it was set. Clearing it is how you get back.
+   */
+  bg: string | null;
+  /** A picture behind everything, already downscaled, as a data URL. */
+  bgImage: string | null;
+  /** How far the picture is out of focus, in px. */
+  bgBlur: number;
+  /** A veil of the page colour over the picture, as a percentage. */
+  bgDim: number;
+  /**
+   * Let the panels show the page through them.
+   *
+   * With a picture behind it, an opaque panel is a card laid on a photo; with
+   * the panels thinned and the picture already blurred, the whole window reads
+   * as one surface. Off by default: text on a photograph is a reading problem
+   * before it is a look.
+   */
+  bgGlass: boolean;
 }
 
 export const DEFAULT_THEME: Theme = {
@@ -72,6 +96,17 @@ export const DEFAULT_THEME: Theme = {
   link: "#0078e0",
   star: "#e8b93c",
   monotoneActions: false,
+  bg: null,
+  bgImage: null,
+  bgBlur: 0,
+  bgDim: 0,
+  bgGlass: false,
+};
+
+/** The page each mode uses when the theme has not picked one. */
+export const PAGE_COLOURS: Record<"dark" | "light", string> = {
+  dark: "#0c0c0e",
+  light: "#fdfdfd",
 };
 
 export const THEME_KEY = "hardlyreader.theme.v1";
@@ -90,6 +125,15 @@ export function isHexColor(value: unknown): value is string {
 
 function colour(value: unknown, fallback: string): string {
   return isHexColor(value) ? value.trim().toLowerCase() : fallback;
+}
+
+export const MAX_BG_BLUR = 24;
+export const MAX_BG_DIM = 60;
+
+function clamp(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
 }
 
 /** Reads a stored theme, keeping the default for anything missing or wrong. */
@@ -114,6 +158,16 @@ export function parseTheme(raw: unknown): Theme {
       typeof saved.monotoneActions === "boolean"
         ? saved.monotoneActions
         : DEFAULT_THEME.monotoneActions,
+    bg: isHexColor(saved.bg) ? saved.bg.trim().toLowerCase() : null,
+    // Only an image the app itself produced: a data URL, so the stored theme
+    // never points at a file that has since moved.
+    bgImage:
+      typeof saved.bgImage === "string" && saved.bgImage.startsWith("data:image/")
+        ? saved.bgImage
+        : null,
+    bgBlur: clamp(saved.bgBlur, 0, MAX_BG_BLUR, DEFAULT_THEME.bgBlur),
+    bgDim: clamp(saved.bgDim, 0, MAX_BG_DIM, DEFAULT_THEME.bgDim),
+    bgGlass: typeof saved.bgGlass === "boolean" ? saved.bgGlass : DEFAULT_THEME.bgGlass,
   };
 }
 
@@ -140,6 +194,14 @@ export function themeVariables(theme: Theme): Record<string, string> {
     "--act-star": theme.monotoneActions ? "var(--muted)" : theme.star,
     "--act-read": theme.monotoneActions ? "var(--muted)" : theme.trim,
     "--act-link": theme.monotoneActions ? "var(--muted)" : theme.link,
+    // The page: a colour the user picked, or nothing at all, so the mode's own
+    // --bg stands (see state/theme.svelte.ts, which removes the property).
+    ...(theme.bg ? { "--bg": theme.bg } : {}),
+    "--bg-image": theme.bgImage ? `url("${theme.bgImage}")` : "none",
+    "--bg-blur": `${theme.bgBlur}px`,
+    "--bg-dim": (theme.bgDim / 100).toFixed(2),
+    /** Panels are as solid as the theme wants them; 100% is the plain surface. */
+    "--glass": theme.bgGlass ? "82%" : "100%",
     // Derived here rather than in CSS because it is a choice, not a shade:
     // `var(--border)` follows the mode, and the mix has to land on top of it.
     "--edge": theme.accentEdges ? "color-mix(in srgb, var(--accent) 24%, var(--border))" : "var(--border)",

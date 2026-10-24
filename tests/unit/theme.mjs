@@ -16,6 +16,9 @@ import { dirname, join } from "node:path";
 import {
   DEFAULT_THEME,
   MARKER_PATH,
+  MAX_BG_BLUR,
+  MAX_BG_DIM,
+  PAGE_COLOURS,
   THEME_KEY,
   isHexColor,
   parseTheme,
@@ -98,12 +101,18 @@ check("accent separators are on unless turned off", () => {
   assert.equal(parseTheme({ accentEdges: false }).accentEdges, false);
   assert.equal(parseTheme({ accentEdges: "no" }).accentEdges, true, "junk keeps the default");
 });
-check("exactly the nine colour variables, the two edges and the three action names are written", Object.keys(vars).length === 14, String(Object.keys(vars).length));
+check("exactly the nine colour variables, the two edges, the three action names and the four background ones are written", Object.keys(vars).length === 18, String(Object.keys(vars).length));
 check("no undefined values", () =>
   Object.entries(vars).every(([name, value]) =>
     typeof value === "string" &&
     value.length > 0 &&
-    (name.startsWith("--edge") || name.startsWith("--act") || value.startsWith("#")),
+    (name.startsWith("--edge") ||
+      name.startsWith("--act") ||
+      name === "--bg-image" ||
+      name === "--bg-blur" ||
+      name === "--bg-dim" ||
+      name === "--glass" ||
+      value.startsWith("#")),
   ));
 
 // The three row actions are the one place a theme chooses a colour that is not
@@ -164,6 +173,49 @@ check("the panel offers trim, link and the monotone switch", () => {
   assert.match(panel, /key: "link", label: "Link"/);
   assert.match(panel, /theme\.set\("monotoneActions", true\)/);
   assert.match(panel, /theme\.set\("monotoneActions", false\)/);
+});
+
+// The page: a colour the theme chose, or none at all — and "none" has to be
+// representable, because clearing the choice is how dark and light each keep
+// their own page.
+check("the page colour is optional, and cleared means follow the mode", () => {
+  assert.equal(DEFAULT_THEME.bg, null);
+  assert.equal(themeVariables(DEFAULT_THEME)["--bg"], undefined, "no override when unset");
+  const set = themeVariables({ ...DEFAULT_THEME, bg: "#101820" });
+  assert.equal(set["--bg"], "#101820");
+  assert.equal(parseTheme({ bg: "#101820" }).bg, "#101820");
+  assert.equal(parseTheme({ bg: "red" }).bg, null);
+  assert.equal(parseTheme({ bg: 42 }).bg, null);
+  assert.equal(PAGE_COLOURS.dark, "#0c0c0e");
+  assert.equal(PAGE_COLOURS.light, "#fdfdfd");
+});
+
+check("a background picture is a data URL or nothing", () => {
+  const png = "data:image/jpeg;base64,AAAA";
+  assert.equal(themeVariables({ ...DEFAULT_THEME, bgImage: png })["--bg-image"], `url("${png}")`);
+  assert.equal(themeVariables(DEFAULT_THEME)["--bg-image"], "none");
+  assert.equal(parseTheme({ bgImage: png }).bgImage, png);
+  // A path would point at a file that can move, and an http URL would be a
+  // request per launch: neither is a background this app stores.
+  assert.equal(parseTheme({ bgImage: "/home/me/wall.png" }).bgImage, null);
+  assert.equal(parseTheme({ bgImage: "https://example.com/wall.png" }).bgImage, null);
+});
+
+check("blur and dim are clamped to what the controls offer", () => {
+  assert.equal(parseTheme({ bgBlur: 10 }).bgBlur, 10);
+  assert.equal(parseTheme({ bgBlur: 999 }).bgBlur, MAX_BG_BLUR);
+  assert.equal(parseTheme({ bgBlur: -5 }).bgBlur, 0);
+  assert.equal(parseTheme({ bgBlur: "nope" }).bgBlur, 0);
+  assert.equal(parseTheme({ bgDim: 999 }).bgDim, MAX_BG_DIM);
+  assert.equal(themeVariables({ ...DEFAULT_THEME, bgBlur: 8, bgDim: 25 })["--bg-blur"], "8px");
+  assert.equal(themeVariables({ ...DEFAULT_THEME, bgDim: 25 })["--bg-dim"], "0.25");
+});
+
+check("glass thins the panels, solid leaves them whole", () => {
+  assert.equal(themeVariables(DEFAULT_THEME)["--glass"], "100%");
+  assert.equal(themeVariables({ ...DEFAULT_THEME, bgGlass: true })["--glass"], "82%");
+  assert.equal(parseTheme({ bgGlass: true }).bgGlass, true);
+  assert.equal(parseTheme({ bgGlass: "yes" }).bgGlass, false);
 });
 
 check("the words are pinned's", pinWords().add === "Pin" && pinWords().count === "Pinned" && pinWords().remove === "Unpin");

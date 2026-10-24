@@ -9,7 +9,14 @@
    * hidden, pinned, the two lock states.
    */
   import type { ThemeMode } from "../lib/theme";
-  import { THEME_MODES, THEME_MODE_LABELS } from "../lib/theme";
+  import {
+    MAX_BG_BLUR,
+    MAX_BG_DIM,
+    PAGE_COLOURS,
+    THEME_MODES,
+    THEME_MODE_LABELS,
+  } from "../lib/theme";
+  import { backgroundFromFile } from "../lib/background-image";
   import {
     DWELL_SECONDS_DEFAULT,
     DWELL_SECONDS_HARD_MAX,
@@ -93,6 +100,34 @@
    * has to work it out — and because the heading says "Lock", the colours under
    * it do not have to say it again.
    */
+  /** The colour the page is right now: the theme's, or whichever mode is showing. */
+  function pageColour(): string {
+    if (theme.current.bg !== null) return theme.current.bg;
+    const mode = theme.current.mode;
+    const dark =
+      mode === "dark" ||
+      (mode === "system" &&
+        typeof window !== "undefined" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches);
+    return dark ? PAGE_COLOURS.dark : PAGE_COLOURS.light;
+  }
+
+  /**
+   * A picked file, turned into a stored background.
+   *
+   * The input is cleared first: choosing the same file twice in a row fires no
+   * change event otherwise, and "replace it with the one I already had" is a
+   * thing people do.
+   */
+  async function pickBackground(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = "";
+    if (file === null) return;
+    const url = await backgroundFromFile(file);
+    if (url !== null) theme.set("bgImage", url);
+  }
+
   const swatchGroups: {
     id: string;
     label: string;
@@ -262,6 +297,90 @@
               {/each}
             </div>
           {/each}
+        </div>
+        <!-- The page itself. Everything above is ink and signal; this is what
+             they sit on, and it is the one setting with a picture in it.
+
+             "Default" is not a colour, it is the absence of one: cleared, the
+             page follows the mode, so a light window and a dark window each get
+             their own page without the theme carrying two. -->
+        <div class="swgroup bgsection">
+          <span class="sglabel">Background</span>
+          <div class="row bgrow">
+            <span class="key">Page</span>
+            <span class="pick">
+              <input
+                type="color"
+                value={pageColour()}
+                aria-label="Page colour"
+                oninput={(event) => theme.set("bg", event.currentTarget.value)}
+              />
+              <button
+                class="mini"
+                title="Follow the light or dark page"
+                disabled={theme.current.bg === null}
+                onclick={() => theme.set("bg", null)}>Default</button>
+            </span>
+          </div>
+          <div class="row bgrow">
+            <span class="key">Picture</span>
+            <span class="pick">
+              <label class="mini file">
+                {theme.current.bgImage === null ? "Choose" : "Replace"}
+                <input type="file" accept="image/*" onchange={pickBackground} />
+              </label>
+              <button
+                class="mini"
+                title="Remove the picture"
+                disabled={theme.current.bgImage === null}
+                onclick={() => theme.set("bgImage", null)}>Clear</button>
+            </span>
+          </div>
+          <div class="row slider bgslider">
+            <span class="key">Blur</span>
+            <span class="num"><span class="affix">{theme.current.bgBlur}px</span></span>
+            <input
+              class="range wide"
+              type="range"
+              min="0"
+              max={MAX_BG_BLUR}
+              step="1"
+              value={theme.current.bgBlur}
+              aria-label="Background blur"
+              oninput={(event) => theme.set("bgBlur", Number(event.currentTarget.value))}
+            />
+          </div>
+          <div class="row slider bgslider">
+            <span class="key">Dim</span>
+            <span class="num"><span class="affix">{theme.current.bgDim}%</span></span>
+            <input
+              class="range wide"
+              type="range"
+              min="0"
+              max={MAX_BG_DIM}
+              step="5"
+              value={theme.current.bgDim}
+              aria-label="Dim over the background"
+              oninput={(event) => theme.set("bgDim", Number(event.currentTarget.value))}
+            />
+          </div>
+          <div class="row bgrow">
+            <span class="key">Glass</span>
+            <div class="seg" role="group" aria-label="Panels over the background">
+              <button
+                class="segbtn"
+                class:on={!theme.current.bgGlass}
+                aria-pressed={!theme.current.bgGlass}
+                title="Panels stay solid"
+                onclick={() => theme.set("bgGlass", false)}>Solid</button>
+              <button
+                class="segbtn"
+                class:on={theme.current.bgGlass}
+                aria-pressed={theme.current.bgGlass}
+                title="Let the background through the panels"
+                onclick={() => theme.set("bgGlass", true)}>Glass</button>
+            </div>
+          </div>
         </div>
         <div class="row end">
           <button class="reset" onclick={() => theme.reset()}>Reset colours</button>
@@ -843,6 +962,60 @@
 
   /* A group is a section: a short rule and a breath, so accent and trim do not
      read as the first two of ten. */
+  /* The background's controls are rows, not swatch cells: they are a colour, a
+     file, two sliders and a switch, and only the first of those is square. */
+  .bgsection {
+    display: block;
+    margin-top: 4px;
+    padding-top: 5px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .bgsection .bgrow {
+    padding: 2px 0;
+  }
+
+  .bgslider {
+    padding: 3px 0;
+  }
+
+  .mini {
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .mini:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  .mini:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  /* The file input is the button: a label with an invisible input over it, so it
+     looks like the Clear beside it and the picker is still the browser's. */
+  .file {
+    position: relative;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .file input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
   .swgroup + .swgroup {
     margin-top: 4px;
     padding-top: 5px;
