@@ -29,6 +29,7 @@ import { plainPreview, relativeTime } from "../lib/format";
   } from "../lib/list-view";
   import { cardLayout } from "../lib/card-layout.svelte";
   import { near } from "../lib/near-view";
+  import { fitWindowTo, screenSize } from "../lib/window-fit";
   import { pullDown } from "../lib/pull";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { reader } from "../state/reader.svelte";
@@ -428,10 +429,80 @@ import { plainPreview, relativeTime } from "../lib/format";
    */
   let heldId = $state<string | null>(null);
 
+  /**
+   * Fit the window to the comic on screen.
+   *
+   * Experimental, and deliberately simple. A card draws its picture across the
+   * pane at the picture's own shape, so the pane's width is the only thing that
+   * decides how big a page is: this asks for the width at which the page's
+   * height fills the screen, capped by the picture's natural size and by what
+   * the monitor has, and then for the height that width needs. Two rules keep it
+   * from being a takeover — the window never grows past the current pane, so a
+   * comic that already fits changes nothing, and the feeds pane's width is
+   * subtracted, never touched.
+   */
+  let fitComic = $state(false);
+  /** Set while a fit is landing: the resize it causes must not ask for another. */
+  let fitting = false;
+
+  function toggleFitComic(): void {
+    fitComic = !fitComic;
+    if (fitComic) void fitToComic();
+  }
+
+  async function fitToComic(): Promise<void> {
+    if (!fitComic || fitting || view !== "cards") return;
+    const el = itemsEl;
+    const card = currentCard();
+    if (!el || !card) return;
+    const img = card.querySelector<HTMLImageElement>(".lead img");
+    if (!img) return;
+    if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+      // Its shape is not known until it lands; ask again then.
+      img.addEventListener("load", () => void fitToComic(), { once: true });
+      return;
+    }
+    const screen = await screenSize();
+    if (!screen) return;
+    const feeds = document.querySelector<HTMLElement>('[data-pane="feeds"]');
+    const pane1 = feeds ? Math.round(feeds.getBoundingClientRect().width) : 0;
+    // Everything in the window that is not the posts pane: the gutter, and in
+    // three-pane mode the article pane too. Left alone, whatever it is.
+    const rest = Math.max(0, Math.round(window.innerWidth - pane1 - el.clientWidth));
+    const header = document.querySelector<HTMLElement>('[data-pane="posts"] .list-header');
+    const chrome =
+      card.offsetHeight - Math.round(img.getBoundingClientRect().height) +
+      (header ? Math.round(header.getBoundingClientRect().height) : 0);
+    const pane2 = el.clientWidth;
+    const natural = img.naturalWidth / img.naturalHeight;
+    const availW = Math.max(240, screen.width - pane1 - rest - 8);
+    const availH = Math.max(240, screen.height - chrome - 8);
+    // Width for a page whose height fills the screen, then the two caps: its own
+    // pixels, and the room the monitor has. Below the current pane it does not
+    // go — a fit that shrank the window would be a fit the reader did not ask
+    // for.
+    const wanted = Math.max(pane2, Math.min(availH * natural, img.naturalWidth, availW));
+    const paneNext = Math.round(Math.min(wanted, availW));
+    const pictureH = Math.round(paneNext / natural);
+    const height = Math.min(screen.height, Math.max(window.innerHeight, chrome + pictureH));
+    if (paneNext === el.clientWidth && height === window.innerHeight) return;
+    fitting = true;
+    try {
+      await fitWindowTo(pane1 + rest + paneNext, height);
+    } finally {
+      // A resize moves the cards under the port, which is a scroll away from
+      // asking for the same fit again. One fit per settling is enough.
+      setTimeout(() => (fitting = false), 400);
+    }
+  }
+
   function syncSnap(): void {
     const card = view === "cards" ? currentCard() : null;
     tallCard = !!card && !cardFits(card);
-    heldId = card?.dataset.id ?? null;
+    const next = card?.dataset.id ?? null;
+    if (next === heldId) return;
+    heldId = next;
+    if (fitComic) void fitToComic();
   }
 
   function onCardsScroll(): void {
@@ -862,6 +933,14 @@ import { plainPreview, relativeTime } from "../lib/format";
               >
             {/each}
           {/if}
+          <button
+            class="sizebtn fit"
+            class:on={fitComic}
+            aria-pressed={fitComic}
+            aria-label="Fit the window to the comic"
+            title="Fit the window to the comic: the whole picture, at its own shape"
+            onclick={toggleFitComic}
+          >fit</button>
         </div>
       {/if}
       <div class="filters" role="group" aria-label="Show posts">

@@ -40,17 +40,51 @@ export async function screenWidth(): Promise<number | null> {
  * call reports failure and the caller falls back to switching the mode alone —
  * the window keeps its size and the layout switch says it is squeezed. Height
  * is read from the window rather than passed in, because the reader owns that
- * and only the width belongs to the layout.
+ * and only the width belongs to the layout — unless a caller owns the height
+ * too, as fitting a picture to the screen does.
  */
-export async function fitWindowTo(width: number): Promise<boolean> {
+export async function fitWindowTo(width: number, height?: number): Promise<boolean> {
   if (typeof window === "undefined" || !Number.isFinite(width) || width <= 0) return false;
   if (!("__TAURI_INTERNALS__" in window)) return false;
+  const tall = Number.isFinite(height) && (height ?? 0) > 0 ? Math.round(height as number) : window.innerHeight;
   try {
     const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
-    const height = window.innerHeight;
-    await getCurrentWindow().setSize(new LogicalSize(Math.round(width), Math.round(height)));
+    await getCurrentWindow().setSize(new LogicalSize(Math.round(width), tall));
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * The screen the window is on, in logical pixels, or `null` when nothing answers.
+ *
+ * The height matters as much as the width here: fitting a comic to the window
+ * means fitting it to the screen, and a picture is only "whole" if its height
+ * has somewhere to go.
+ */
+export async function screenSize(): Promise<{ width: number; height: number } | null> {
+  if (typeof window === "undefined") return null;
+  if ("__TAURI_INTERNALS__" in window) {
+    try {
+      const { currentMonitor } = await import("@tauri-apps/api/window");
+      const monitor = await currentMonitor();
+      if (monitor !== null) {
+        const factor = monitor.scaleFactor || 1;
+        const width = monitor.size.width / factor;
+        const height = monitor.size.height / factor;
+        if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+          return { width: Math.round(width), height: Math.round(height) };
+        }
+      }
+    } catch {
+      // Fall through to the browser's answer.
+    }
+  }
+  const width = window.screen?.availWidth;
+  const height = window.screen?.availHeight;
+  if (typeof width === "number" && typeof height === "number" && width > 0 && height > 0) {
+    return { width, height };
+  }
+  return null;
 }

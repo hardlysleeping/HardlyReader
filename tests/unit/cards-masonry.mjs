@@ -636,7 +636,7 @@ check(
     const heldRule = src.indexOf(".cards .row.held {\n    opacity: 1;");
     return (
       /class:held=\{heldId === item\.id\}/.test(src) &&
-      /heldId = card\?\.dataset\.id \?\? null;/.test(src) &&
+      /const next = card\?\.dataset\.id \?\? null;/.test(src) && /heldId = next;/.test(src) &&
       /let heldId = \$state<string \| null>\(null\);/.test(src) &&
       readRule > 0 &&
       heldRule > readRule
@@ -658,6 +658,27 @@ check(
       // declared after the read/held rules, so a starred card keeps the star's
       // colour rather than whichever rule happened to come last
       src.indexOf(".row.starred {") > src.indexOf(".cards .row.held {")
+    );
+  })(),
+);
+
+
+// Fitting the window to the comic is a toggle in the cards view only, and the
+// arithmetic that keeps it honest: the feeds pane's width is subtracted and
+// never asked for, the picture's own pixels are a ceiling, and the monitor's
+// room is the other.
+check(
+  "fit to comic: cards only, own width kept out of it, screen a ceiling",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const fn = src.slice(src.indexOf("async function fitToComic"));
+    return (
+      /class="sizebtn fit"/.test(src) &&
+      /onclick=\{toggleFitComic\}/.test(src) &&
+      /const pane1 = feeds \? Math\.round\(feeds\.getBoundingClientRect\(\)\.width\) : 0;/.test(fn) &&
+      /const wanted = Math\.max\(pane2, Math\.min\(availH \* natural, img\.naturalWidth, availW\)\);/.test(fn) &&
+      /await fitWindowTo\(pane1 \+ rest \+ paneNext, height\);/.test(fn) &&
+      /if \(!fitComic \|\| fitting \|\| view !== "cards"\) return;/.test(fn)
     );
   })(),
 );
