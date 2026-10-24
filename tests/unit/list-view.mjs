@@ -349,17 +349,17 @@ check(
 // Regular rows say "unread" with the row itself. The dot took its width off the
 // headline's left edge, which is the pane's left edge.
 check(
-  "the regular row has no marker beside its headline",
-  /\{#if view !== "regular"\}\s*<span class="dot"/.test(listSource),
+  "only the one-line row carries the marker",
+  /\{#if view === "list"\}\s*<span class="dot"/.test(listSource),
 );
 check(
   "an unread row draws an accent rim along its bottom",
-  /\.items:not\(\.cards\) \.row:not\(\.read\) \{[^}]*box-shadow:[^}]*var\(--accent\) 62%/.test(listSource),
+  /\.row:not\(\.read\) \{[^}]*box-shadow:[^}]*var\(--accent\) 62%/.test(listSource),
 );
 check(
   "a read row steps back as a whole",
-  /\.items:not\(\.cards\) \.row\.read \{[^}]*opacity: 0\.55;/.test(listSource) &&
-    /\.items:not\(\.cards\) \.row\.read:hover,\s*\n?\s*\.items:not\(\.cards\) \.row\.read\.selected \{[^}]*opacity: 0\.85;/.test(listSource),
+  /\.row\.read \{[^}]*opacity: 0\.55;/.test(listSource) &&
+    /\.row\.read:hover,\s*\n?\s*\.row\.read\.selected \{[^}]*opacity: 0\.85;/.test(listSource),
 );
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

@@ -530,5 +530,18 @@ check(
     /function syncSnap\(\): void \{[\s\S]{0,200}cardFits\(card\)/.test(read("src/components/ArticleList.svelte")),
 );
 
+// Unread and read are marks on the row, and a card is a row: the same treatment
+// reaches the comics view instead of stopping at the text views.
+check(
+  "a card says unread and read the same way a row does",
+  !/\.items:not\(\.cards\)/.test(read("src/components/ArticleList.svelte")) &&
+    /\.row:not\(\.read\) \{[\s\S]{0,200}?var\(--accent\) 62%/.test(read("src/components/ArticleList.svelte")) &&
+    /\.row\.read \{\s*opacity: 0\.55;/.test(read("src/components/ArticleList.svelte")),
+);
+check(
+  "a card carries no marker beside its headline",
+  /\{#if view === "list"\}\s*<span class="dot"/.test(read("src/components/ArticleList.svelte")),
+);
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

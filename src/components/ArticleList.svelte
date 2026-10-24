@@ -848,10 +848,11 @@ import { plainPreview, relativeTime } from "../lib/format";
           {/if}
           <span class="body">
             <span class="line">
-              <!-- Regular rows do not carry the marker: it took a dot's width off
-                   the headline's left edge, which is the edge of the pane. The
-                   row itself says whether it is read. -->
-              {#if view !== "regular"}
+              <!-- Only the one-line view carries the marker: in Regular rows and
+                   on a card it took a dot's width off the headline's left edge,
+                   which is the edge of the pane. Those say whether a post is
+                   read with the row itself. -->
+              {#if view === "list"}
                 <span class="dot" class:hidden={isRead(item)} aria-hidden="true"></span>
               {/if}
               <span class="title">{item.title || "(untitled)"}</span>
@@ -1395,21 +1396,20 @@ import { plainPreview, relativeTime } from "../lib/format";
   /* Unread is said by the row, not beside the headline: an accent hairline on
      the bottom rim, with the faintest glow above it so it reads at a glance
      without becoming a bar. Read rows have no rim and step back as a whole —
-     the title alone dimming was not enough to pick a row out at speed. Cards
-     are exempt: a comic page is the picture, and greying it says the wrong
-     thing. */
-  .items:not(.cards) .row:not(.read) {
+     the title alone dimming was not enough to pick a row out at speed. The same
+     two marks carry over to Cards, so a post looks read in every view of it. */
+  .row:not(.read) {
     box-shadow:
       inset 0 -1px 0 color-mix(in srgb, var(--accent) 62%, transparent),
       inset 0 -7px 12px -9px color-mix(in srgb, var(--accent) 45%, transparent);
   }
 
-  .items:not(.cards) .row.read {
+  .row.read {
     opacity: 0.55;
   }
 
-  .items:not(.cards) .row.read:hover,
-  .items:not(.cards) .row.read.selected {
+  .row.read:hover,
+  .row.read.selected {
     opacity: 0.85;
   }
 
