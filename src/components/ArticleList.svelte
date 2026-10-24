@@ -32,6 +32,7 @@ import { plainPreview, relativeTime } from "../lib/format";
   import { fitWindowTo, screenSize } from "../lib/window-fit";
   import { openExternal } from "../lib/open-external";
   import { isExternalHttp } from "../lib/sanitize";
+  import { tabbed, type Tabbed } from "../lib/date-tabs";
   import { pullDown } from "../lib/pull";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { reader } from "../state/reader.svelte";
@@ -273,6 +274,35 @@ import { plainPreview, relativeTime } from "../lib/format";
 
   /** The shape of this column, global for the same reason as the filter. */
   const view = $derived(reading.listView);
+
+  /**
+   * Which date tabs are shut.
+   *
+   * A tab is a thing you put away, so this is only what the reader closed: the
+   * default is everything open, and a key that is not in here is unfolded.
+   */
+  let closedTabs = $state(new Set<string>());
+
+  /** The date tabs the reader shut, by key. Toggling copies: a Set in place is not a change. */
+  function toggleTab(key: string) {
+    const next = new Set(closedTabs);
+    if (!next.delete(key)) next.add(key);
+    closedTabs = next;
+  }
+
+  /**
+   * What the list draws: the posts, with a month, a week and a day tab before
+   * the runs they cover.
+   *
+   * Only the list view folds its dates — the regular rows, the cards and the
+   * grid are read by the shape of what is in them, and a tab between two cards
+   * would break the page of them. Every other view gets the bare posts.
+   */
+  const entries = $derived<Tabbed<StreamItem>[]>(
+    view === "list"
+      ? tabbed(reader.listItems, closedTabs)
+      : reader.listItems.map((item) => ({ kind: "post" as const, item })),
+  );
 
 
   /**
@@ -1015,7 +1045,25 @@ import { plainPreview, relativeTime } from "../lib/format";
         {/each}
       </div>
     {/if}
-    {#each reader.listItems as item (item.id)}
+    {#each entries as entry (entry.kind === "post" ? entry.item.id : entry.tab.key)}
+      {#if entry.kind === "tab"}
+        <!-- A folder tab: its top corners are rounded and its bottom edge is not,
+             so it reads as the front of a thing the posts are filed inside. months
+             sit at the left edge, weeks a step in, days a step further. -->
+        <button
+          class="tab"
+          class:closed={entry.closed}
+          class:month={entry.tab.level === 0}
+          style:--depth={entry.tab.level}
+          aria-expanded={!entry.closed}
+          onclick={() => toggleTab(entry.tab.key)}
+        >
+          <svg class="caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" /></svg>
+          <span class="tab-name">{entry.tab.label}</span>
+          <span class="tab-count">{entry.tab.count}</span>
+        </button>
+      {:else}
+      {@const item = entry.item}
       {@const picture = image(item)}
       {@const strip = picture === null ? [] : pictures(item)}
       {@const page = strip.length > 1 ? pageOf(item, strip.length) : 0}
@@ -1177,6 +1225,7 @@ import { plainPreview, relativeTime } from "../lib/format";
           {/if}
         </div>
       </div>
+      {/if}
     {/each}
 
     {#if !reader.loadingList && reader.listItems.length === 0}
@@ -2023,6 +2072,81 @@ import { plainPreview, relativeTime } from "../lib/format";
   .compact .act svg {
     width: 16px;
     height: 16px;
+  }
+
+  /* ------------------------------------------------------------- date tabs --
+     A month, the weeks inside it, the days inside those. Each tab is the front
+     of a folder: rounded on top, open at the bottom, and set in further than the
+     one it belongs to, so the nesting is legible before a word is read. */
+  .items .tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    max-width: calc(100% - var(--depth, 0) * 14px);
+    /* The step in: a month at the pane's edge, a week 14px in, a day 28px. */
+    margin: calc(5px * var(--row-scale, 1)) 0 0 calc(var(--depth, 0) * 14px);
+    padding: 2px 9px 3px 5px;
+    border: 1px solid var(--border-soft);
+    /* No bottom edge: the tab is the top of a box, not a chip floating alone. */
+    border-bottom-color: transparent;
+    border-radius: 8px 8px 0 0;
+    background: color-mix(in srgb, var(--accent) calc(4% + var(--depth, 0) * 4%), transparent);
+    color: var(--muted);
+    font: inherit;
+    font-size: calc(11px * var(--row-scale, 1));
+    letter-spacing: 0.015em;
+    cursor: pointer;
+    transition: color 120ms ease, background 120ms ease;
+  }
+
+  .items .tab:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) calc(8% + var(--depth, 0) * 5%), transparent);
+  }
+
+  .items .tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .items .tab .caret {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    /* Open points down at what it holds; shut points at the tab itself. */
+    transform: rotate(90deg);
+    transition: transform 130ms ease;
+  }
+
+  .items .tab.closed .caret {
+    transform: none;
+  }
+
+  .items .tab-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .items .tab-count {
+    flex: none;
+    opacity: 0.5;
+    font-size: calc(10px * var(--row-scale, 1));
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A month is the heading of the list, so it is the one that speaks up. */
+  .items .tab.month {
+    color: var(--text-dim);
+    text-transform: uppercase;
+    font-size: calc(10px * var(--row-scale, 1));
+    letter-spacing: 0.08em;
   }
 
   /* --------------------------------------------------------------- cards --

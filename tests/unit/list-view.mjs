@@ -495,5 +495,48 @@ check(
   })(),
 );
 
+
+// The list view folds its dates into tabs. The rule that matters is that the
+// fold is the list's alone: cards, grid and regular rows are read by shape, and
+// a tab between two cards would cut the page of them in half.
+check(
+  "only the list view folds its dates",
+  (() => {
+    const derive = listSource.slice(listSource.indexOf("const entries = $derived"));
+    return (
+      /view === "list"\s*\? tabbed\(reader\.listItems, closedTabs\)/.test(derive) &&
+      /: reader\.listItems\.map/.test(derive)
+    );
+  })(),
+);
+check(
+  "a tab is a button that opens and shuts",
+  (() => {
+    const tab = listSource.slice(listSource.indexOf('class="tab"'));
+    return (
+      /class:closed=\{entry\.closed\}/.test(tab.slice(0, 400)) &&
+      /aria-expanded=\{!entry\.closed\}/.test(tab.slice(0, 400)) &&
+      /onclick=\{\(\) => toggleTab\(entry\.tab\.key\)\}/.test(tab.slice(0, 400))
+    );
+  })(),
+);
+check(
+  "the tabs step in: month at the edge, week in, day further in",
+  (() => {
+    const css = listSource.slice(listSource.indexOf(".items .tab {"));
+    const rule = css.slice(0, css.indexOf("}"));
+    return (
+      /var\(--depth, 0\) \* 14px/.test(rule) &&
+      /border-radius: 8px 8px 0 0/.test(rule) &&
+      /border-bottom-color: transparent/.test(rule)
+    );
+  })(),
+);
+check(
+  "a month is the level that speaks up",
+  /class:month=\{entry\.tab\.level === 0\}/.test(listSource) &&
+    /\.items \.tab\.month \{/.test(listSource),
+);
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
