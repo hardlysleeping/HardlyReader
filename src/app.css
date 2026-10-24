@@ -33,12 +33,16 @@
   --bg: #fdfdfd;
   --surface: #f4f4f5;
   --bg-alt: #f4f4f5;
-  --border: #d8d8dc;
-  --border-soft: #ebebee;
-  --hover: #eeeef0;
-  --text: #1c1c1f;
-  --text-dim: #46464e;
-  --muted: #6b6b74;
+  --border: #d2d2d8;
+  --border-soft: #e8e8ec;
+  /* Hover is the accent, not a slightly darker white: #eeeef0 is a difference of
+     two or three steps from #fdfdfd, which is why a hand moving across a light
+     list could not see what it was on. Mixed into the page it reads as a tinted
+     row rather than a highlighted one. */
+  --hover: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  --text: #0a0a0b;
+  --text-dim: #2e2e35;
+  --muted: #55555e;
   --star: #d19a00;
 
   /* Chosen by the theme; these defaults match DEFAULT_THEME. */
@@ -70,7 +74,9 @@
     --bg-alt: #1f1f23;
     --border: #33333a;
     --border-soft: #26262b;
-    --hover: #25252b;
+    /* The same accent hover, dimmer: on a dark row a 16% tint is a lamp, and the
+       list already has light in it. */
+    --hover: color-mix(in srgb, var(--accent) 9%, var(--bg));
     --text: #e7e7ea;
     --text-dim: #c2c2cb;
     --muted: #9a9aa4;
@@ -88,7 +94,7 @@
   --bg-alt: #131316;
   --border: #3a3a44;
   --border-soft: #212128;
-  --hover: #1e1e24;
+  --hover: color-mix(in srgb, var(--accent) 9%, var(--bg));
   --text: #f4f4f7;
   --text-dim: #d2d2da;
   --muted: #9b9ba6;
@@ -102,12 +108,16 @@
   --bg: #fdfdfd;
   --surface: #f4f4f5;
   --bg-alt: #f4f4f5;
-  --border: #d8d8dc;
-  --border-soft: #ebebee;
-  --hover: #eeeef0;
-  --text: #1c1c1f;
-  --text-dim: #46464e;
-  --muted: #6b6b74;
+  --border: #d2d2d8;
+  --border-soft: #e8e8ec;
+  /* Hover is the accent, not a slightly darker white: #eeeef0 is a difference of
+     two or three steps from #fdfdfd, which is why a hand moving across a light
+     list could not see what it was on. Mixed into the page it reads as a tinted
+     row rather than a highlighted one. */
+  --hover: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  --text: #0a0a0b;
+  --text-dim: #2e2e35;
+  --muted: #55555e;
   --star: #d19a00;
   color-scheme: light;
 }
