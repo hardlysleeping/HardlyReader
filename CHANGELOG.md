@@ -4,6 +4,58 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-10-23
+
+The layout switch stops lying, pane one keeps its width, and this is the first
+release with something to download.
+
+### Fixed
+
+- **Pressing 3 sometimes resized the window without switching.** From one pane,
+  the press asked the window for the three-pane width, the measurement that
+  followed arrived inside the 120px dead zone the layout keeps for accidental
+  drags, and the mode stayed at one — a wide window with a single stretched
+  pane. It looked intermittent because it depended on whether the window resize
+  or the promise came back first, and pressing 3 twice appeared to fix it. A
+  press now claims the measurements that follow it before the resize travels,
+  and two fast presses are applied in the order they were made.
+- **Pane one's width is one number.** The one-pane width was a separate stored
+  value, so pressing 1 always collapsed the window to it and the feeds pane came
+  back an odd size. It is now the width of pane one itself: the settings slider
+  and a dragged divider write the same value, and 3 → 2 → 1 → 3 leaves every
+  pane exactly where it was.
+- A window wider than the display it is judged by is no longer squeezed to that
+  display when it collapses.
+
+### Added
+
+- **Settings → Layout → "On a switch"**: *Keep widths* (the window is the sum of
+  the panes, so 3 → 2 slides the article out and takes its width with it) or
+  *Keep window* (the window stays and the posts pane takes the space). Saved with
+  the layout.
+- **Android**: `docs/android.md`, `scripts/android-build.sh`, the generated
+  Android project, and a signed universal release build.
+- **Reader view extraction** (`src/lib/extract.ts`) — keep the article, drop the
+  page around it — with its own rules and suite.
+- **Watching for changes made elsewhere** (`src/lib/watch-changes.ts`), so
+  extension state written by the website shows up without a reload.
+- **Automatic sync** (`src/lib/auto-sync.ts`): on launch and every few hours
+  while the window is open. Off by default.
+- **The app's own feed order** (`src/lib/feed-order.ts`), with drag reordering.
+- **A passcode keypad** (`src/lib/pinpad.ts`, `PinPad.svelte`) whose rules are
+  tested without a DOM.
+- **The server this window is on** in the top bar (`src/lib/server-label.ts`),
+  reduced to `host:port` so it never pushes the account out.
+- **Drag-scroll** and **near-view** helpers: drag the content like a
+  touchscreen, and hand the engine only the pictures close to the viewport.
+- Twelve new unit suites; the suite now runs 43 files.
+
+### Notes
+
+- Linux packaging: see the release notes. The AppImage still needs
+  `libwebkit2gtk-4.1` on the host, because a Tauri app links against the
+  platform webview rather than bundling one.
+
 ## [0.1.0] — 2026-10-23
 
 First tagged release: a desktop FreshRSS reader that is usable for a day's
