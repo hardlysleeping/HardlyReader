@@ -566,46 +566,33 @@
       </p>
       {/if}
 
-      <!-- Two frames, two answers. Holding a phone upright there is no width
-           beside it to give a pane, so upright ships keeping the window and
-           sharing what is there; the same phone turned sideways ships keeping
-           its columns. Outside the gate above because this question belongs to
-           the shape with the least room to spare, and each shape is remembered
-           on its own — turning the device never rewrites the other answer. -->
+      <!-- One control, two shapes. It edits the answer for the shape the device
+           is in when it is pressed — held upright, or turned sideways — and that
+           shape's answer is remembered, so the same row means the right thing
+           when the phone is the other way round. Outside the gate above because
+           this question belongs to the shape with the least room to spare. -->
       <div class="row">
-        <span class="key">Portrait</span>
-        <div class="seg" role="group" aria-label="What a layout switch does with the width, holding the device upright">
+        <span class="key">On a switch</span>
+        <div class="seg" role="group" aria-label="What a layout switch does with the width">
           <button
             class="segbtn"
-            class:on={layout.keepWidthsInPortrait}
-            aria-pressed={layout.keepWidthsInPortrait}
-            title="Upright: the window shrinks and grows with the panes, so every pane keeps its width"
-            onclick={() => layout.setKeepWidthsFor("portrait", true)}>Keep widths</button>
+            class:on={layout.keepWidths}
+            aria-pressed={layout.keepWidths}
+            title="The window shrinks and grows with the panes, so every pane keeps its width"
+            onclick={() => layout.setKeepWidths(true)}>Keep widths</button>
           <button
             class="segbtn"
-            class:on={!layout.keepWidthsInPortrait}
-            aria-pressed={!layout.keepWidthsInPortrait}
-            title="Upright: the window stays where it is and the panes share it"
-            onclick={() => layout.setKeepWidthsFor("portrait", false)}>Keep window</button>
+            class:on={!layout.keepWidths}
+            aria-pressed={!layout.keepWidths}
+            title="The window stays where it is and the posts column takes the width of the pane that left"
+            onclick={() => layout.setKeepWidths(false)}>Keep window</button>
         </div>
       </div>
-      <div class="row">
-        <span class="key">Landscape</span>
-        <div class="seg" role="group" aria-label="What a layout switch does with the width, holding the device sideways">
-          <button
-            class="segbtn"
-            class:on={layout.keepWidthsInLandscape}
-            aria-pressed={layout.keepWidthsInLandscape}
-            title="Sideways: the window shrinks and grows with the panes, so every pane keeps its width"
-            onclick={() => layout.setKeepWidthsFor("landscape", true)}>Keep widths</button>
-          <button
-            class="segbtn"
-            class:on={!layout.keepWidthsInLandscape}
-            aria-pressed={!layout.keepWidthsInLandscape}
-            title="Sideways: the window stays where it is and the panes share it"
-            onclick={() => layout.setKeepWidthsFor("landscape", false)}>Keep window</button>
-        </div>
-      </div>
+      <p class="hint">
+        Remembered for this way up: {layout.keepWidthsInPortrait ? "keep widths" : "keep window"} held
+        upright, {layout.keepWidthsInLandscape ? "keep widths" : "keep window"} turned sideways. Turn the
+        device and this row shows the other answer.
+      </p>
 
       <!-- How the columns move when a press changes the layout. Outside the
            gate above because a phone changes layout too (the walk, and the
