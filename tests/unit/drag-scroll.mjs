@@ -79,5 +79,12 @@ check("the release arms nothing else", /panning = false;\s*\n\s*pointer = null;\
 check("the grabbing cursor is defined once", /html\.drag-panning/.test(css));
 check("the panning class is added and removed", new RegExp(`classList\\.add\\(PANNING_CLASS\\)`).test(source) && /classList\.remove\(PANNING_CLASS\)/.test(source));
 
+// A press on a 24px toggle is smaller than a hand is steady: if it slides past
+// the threshold it becomes a pan, and the pan swallows the click — the button
+// reads as dead. The toggles therefore own the pointer.
+const list = read("../../src/components/ArticleList.svelte");
+check("the star, read and source toggles own the pointer", /class="acts" data-no-drag-scroll/.test(list));
+check("and the rule that gives it to them is the one the module reads", /\[data-no-drag-scroll\]/.test(source));
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

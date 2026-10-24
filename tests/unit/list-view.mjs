@@ -142,8 +142,8 @@ check(
 
 // The actions block must not sit inside a per-view conditional: one `.acts`
 // for the whole list is the shape that cannot go missing in a new view.
-const acts = list.indexOf('<div class="acts">');
-check("star and read are drawn once, for every shape", acts > 0 && list.indexOf('<div class="acts">', acts + 1) === -1);
+const acts = list.indexOf('<div class="acts" data-no-drag-scroll>');
+check("star and read are drawn once, for every shape", acts > 0 && list.indexOf('<div class="acts" data-no-drag-scroll>', acts + 1) === -1);
 const actsTail = list.slice(acts, list.indexOf("</div>", acts));
 check(
   "the star button is inside that block",
@@ -455,7 +455,7 @@ check(
 check(
   "a row can be opened at its source, in every view",
   (() => {
-    const acts = listSource.slice(listSource.indexOf('<div class="acts">'));
+    const acts = listSource.slice(listSource.indexOf('<div class="acts" data-no-drag-scroll>'));
     const group = acts.slice(0, acts.indexOf("</div>"));
     return (
       /class="act open"/.test(group) &&

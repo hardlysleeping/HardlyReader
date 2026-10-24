@@ -1180,7 +1180,11 @@ import { plainPreview, relativeTime } from "../lib/format";
             onclick={(event) => flip(event, item, strip.length, 1)}
             onkeydown={(event) => keyFlip(event, item, strip.length, 1)}></span>
         {/if}
-        <div class="acts">
+        <!-- The toggles own the pointer. Without this, a press that slides a few
+             pixels becomes a list pan, and the pan swallows the click it ends
+             with — the button looks dead for exactly the reason the drag exists.
+             24px is smaller than a hand is steady. -->
+        <div class="acts" data-no-drag-scroll>
           <button
             class="act"
             class:on={isStarred(item)}
