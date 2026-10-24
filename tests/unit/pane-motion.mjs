@@ -196,14 +196,19 @@ check(
 // The sizing toggle is a press too, and for the same reason: switching between
 // keeping the pane widths and sharing the window changes the frame, so the tracks
 // must move rather than snap — once, not once per resize tick.
+// The toggle now answers once per frame shape — `setKeepWidths` names the shape
+// it is in and hands it to `setKeepWidthsFor` — so the press, the fit and the
+// queue are pinned on the half that draws them, and the delegate is pinned too
+// or a call could stop reaching it.
 check(
   "and the sizing toggle, which names the frame it is entering",
-  /setKeepWidths\(value: boolean\): void \{[\s\S]{0,1100}this\.press\(\);/.test(layout) &&
-    /setKeepWidths\(value: boolean\): void \{[\s\S]{0,2200}fitWindowTo\(target\)/.test(layout),
+  /setKeepWidths\(value: boolean\): void \{\s*this\.setKeepWidthsFor\(/.test(layout) &&
+    /setKeepWidthsFor\(frame:[\s\S]{0,2600}this\.press\(\);/.test(layout) &&
+    /setKeepWidthsFor\(frame:[\s\S]{0,3600}fitWindowTo\(target\)/.test(layout),
 );
 check(
   "it asks for that frame through the same queue a mode press uses",
-  /setKeepWidths\(value: boolean\): void \{[\s\S]{0,1200}const ask = this\.resizing\.then\(\(\) => fitWindowTo\(target\)\);/.test(layout),
+  /setKeepWidthsFor\(frame:[\s\S]{0,3000}const ask = this\.resizing\.then\(\(\) => fitWindowTo\(target\)\);/.test(layout),
 );
 check(
   "and nothing else — not a resize, not a drag, not a slider",

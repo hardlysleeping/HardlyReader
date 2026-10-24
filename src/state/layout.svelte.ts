@@ -87,6 +87,8 @@ interface SavedLayout {
   collapsed?: boolean;
   /** Whether a mode press keeps pane widths or shares the window. */
   keepWidths?: boolean;
+  /** The upright answer; absent in a save from before the two were split. */
+  keepWidthsPortrait?: boolean;
   /**
    * The frame "Keep window" last had, so the toggle can put it back.
    *
@@ -200,25 +202,52 @@ class LayoutState {
    * posts column takes the difference, which is what two panes sharing a wide
    * window looks like. Both are honest; they are just different answers.
    */
-  private keepWidthsWanted = $state(true);
-
   /**
-   * Whether the frame follows the panes that are left.
+   * "Keep widths" for each frame shape, kept apart on purpose.
    *
-   * The panel's answer, except in a portrait frame — a phone held upright, a
-   * tablet upright, a window dragged taller than it is wide. There is no spare
-   * width beside a portrait frame to give a pane, and asking the window for it
-   * is asking it to become landscape; so a portrait frame shares what it has,
-   * which is the "Keep window" answer, and chooses again the moment it is turned
-   * or widened. The setting itself is untouched, so the shape you left is the
-   * shape you come back to in a frame wide enough to draw it.
+   * A portrait frame and a landscape one are two different questions about the
+   * same window: a phone held upright has no width beside it to give a pane, so
+   * it ships keeping the window and sharing what it has, while the same phone
+   * turned sideways ships keeping its columns. They are separate settings rather
+   * than one rule with an exception, so a reader can have both, either or
+   * neither, and turning the device does not rewrite the other answer.
    */
+  private keepWidthsUpright = $state(false);
+  private keepWidthsSideways = $state(true);
+
+  /** Whether the frame follows the panes that are left, in the shape it is in. */
   get keepWidths(): boolean {
-    return this.keepWidthsWanted && !this.portrait;
+    return this.portrait ? this.keepWidthsUpright : this.keepWidthsSideways;
   }
 
-  /** A frame taller than it is wide. */
+  /** The upright answer, for the panel to draw. */
+  get keepWidthsInPortrait(): boolean {
+    return this.keepWidthsUpright;
+  }
+
+  /** The sideways answer, for the panel to draw. */
+  get keepWidthsInLandscape(): boolean {
+    return this.keepWidthsSideways;
+  }
+
+  /**
+   * Whether the device is standing upright.
+   *
+   * Asked of the screen, not of the window: a window is resized by the app
+   * itself, so judging its shape would let "Keep widths" pressing the frame
+   * narrower change which setting is in force — a setting that moves the
+   * goalposts it is measured against. A phone or tablet turned upright reports
+   * a taller screen, a monitor reports a wider one, and rotating the device
+   * swaps the two. The window's own shape is only the fallback where no screen
+   * size is available.
+   */
   private get portrait(): boolean {
+    const screen = typeof window === "undefined" ? null : (window.screen ?? null);
+    const width = screen?.width;
+    const height = screen?.height;
+    if (typeof width === "number" && typeof height === "number" && width > 0 && height > 0) {
+      return height > width;
+    }
     return this.height > this.available;
   }
 
@@ -743,13 +772,38 @@ class LayoutState {
    * written down, and `keepWindowWidth` is what the toggle comes back to.
    */
   setKeepWidths(value: boolean): void {
-    if (this.keepWidthsWanted === value) return;
+    this.setKeepWidthsFor(this.portrait ? "portrait" : "landscape", value);
+  }
+
+  /**
+   * Sets one frame shape's answer.
+   *
+   * The shape on screen settles at once; the other is only written down, because
+   * a frame that is not on screen has nothing to move — its geometry is applied
+   * the first time the window is that shape again.
+   */
+  setKeepWidthsFor(frame: "portrait" | "landscape", value: boolean): void {
+    const current = frame === (this.portrait ? "portrait" : "landscape");
+    if (frame === "portrait") {
+      if (this.keepWidthsUpright === value) return;
+    } else if (this.keepWidthsSideways === value) {
+      return;
+    }
+
     // Leaving "Keep window": the frame it is in is the one to come back to.
     // Written before the flag flips, because the flag is what decides which
     // width the panes are drawn at from here.
     // A frame that has not been measured yet is not a frame to come back to.
-    if (value && this.available > 0) this.keepWindowWidth = Math.round(this.available);
-    this.keepWidthsWanted = value;
+    if (value && current && this.available > 0) {
+      this.keepWindowWidth = Math.round(this.available);
+    }
+    if (frame === "portrait") this.keepWidthsUpright = value;
+    else this.keepWidthsSideways = value;
+
+    if (!current) {
+      this.save();
+      return;
+    }
     // The frame being entered, through the same queue, the same press and the
     // same grace window a mode button uses: this names what it wants, so the
     // band must not hold the mode it is leaving.
@@ -947,7 +1001,13 @@ class LayoutState {
         this.chosen = saved.chosen === true;
       }
       if (typeof saved.collapsed === "boolean") this.sidebarCollapsed = saved.collapsed;
-      if (typeof saved.keepWidths === "boolean") this.keepWidthsWanted = saved.keepWidths;
+      // One answer used to serve every frame. It becomes the landscape answer,
+      // which is the shape it was chosen in; upright starts at its own default
+      // unless this build has already stored one.
+      if (typeof saved.keepWidths === "boolean") this.keepWidthsSideways = saved.keepWidths;
+      if (typeof saved.keepWidthsPortrait === "boolean") {
+        this.keepWidthsUpright = saved.keepWidthsPortrait;
+      }
       // The frame the other sizing mode had. Read, clamped, and deliberately not
       // acted on: the window at launch is the OS's to size, so this is only used
       // when the toggle is used — including after a relaunch.
@@ -1137,7 +1197,8 @@ class LayoutState {
           thresholds: { one: this.thresholds.one },
           chosen: this.chosen,
           collapsed: this.sidebarCollapsed,
-          keepWidths: this.keepWidthsWanted,
+          keepWidths: this.keepWidthsSideways,
+          keepWidthsPortrait: this.keepWidthsUpright,
           keepWindowWidth: this.keepWindowWidth,
           motion: this.motion,
           stacked: this.stacked,

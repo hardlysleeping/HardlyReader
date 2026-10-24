@@ -211,25 +211,37 @@ try {
     );
   }
 
-  // --- a portrait frame shares it, whatever the setting remembers -----------
-  // A phone upright, a tablet upright, a window dragged taller than it is wide:
-  // there is no width beside it to give a pane, so it keeps the window and the
-  // panes fit what there is. Turned or widened, the choice is honoured again.
+  // --- the two shapes keep two answers --------------------------------------
+  // The screen decides the shape, not the window: holding a phone upright is
+  // portrait, the same phone turned is landscape, a monitor is landscape — and
+  // a window the app resized itself never changes which setting is in force.
   {
+    const landscapeScreen = { width: 1920, height: 1080 };
+    const portraitScreen = { width: 1080, height: 1920 };
     const layout = await start(generated, { mode: 2, keepWidths: true, chosen: true });
     layout.setAvailable(700);
+    check("a wide screen keeps the setting", layout.keepWidths === true);
     check(
-      "a portrait frame keeps the window",
-      layout.keepWidths === false && layout.mode === 2,
-      `${layout.keepWidths}/${layout.mode}`,
+      "...even when the window itself is taller than it is wide",
+      layout.keepWidthsInLandscape === true && layout.keepWidthsInPortrait === false,
+      `${layout.keepWidthsInLandscape}/${layout.keepWidthsInPortrait}`,
     );
-    check(
-      "and its panes fit it",
-      layout.drawn === 700 && layout.columns() === "280px 6px 414px 0px 0px",
-      `${layout.drawn}: ${layout.columns()}`,
-    );
-    layout.setAvailable(1200);
-    check("widened again, the setting is honoured", layout.keepWidths === true);
+
+    // Upright: its own answer, which ships as Keep window.
+    globalThis.window.screen = portraitScreen;
+    check("upright starts keeping the window", layout.keepWidths === false);
+    layout.setKeepWidthsFor("portrait", true);
+    check("upright can be set to keep widths", layout.keepWidths === true);
+
+    // Turned: the other answer is untouched by that.
+    globalThis.window.screen = landscapeScreen;
+    check("turning back is the landscape answer", layout.keepWidths === true);
+    layout.setKeepWidthsFor("landscape", false);
+    check("landscape can be set on its own", layout.keepWidths === false);
+
+    globalThis.window.screen = portraitScreen;
+    check("and upright still holds its own", layout.keepWidths === true);
+    globalThis.window.screen = landscapeScreen;
   }
 
   // --- the memory survives a save and a relaunch ---------------------------
