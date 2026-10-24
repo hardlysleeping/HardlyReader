@@ -39,20 +39,55 @@
   import { reading } from "../state/reading.svelte";
   import { theme } from "../state/theme.svelte";
   import { layout } from "../state/layout.svelte";
+  import { lan } from "../state/lan.svelte";
+  import { LAN_LABELS, LAN_PORT_MAX, LAN_PORT_MIN, lanNote } from "../lib/lan";
+  import { openExternal } from "../lib/open-external";
   import { DEFAULT_WIDTHS, MODE_HYSTERESIS, THRESHOLD_LIMITS } from "../lib/panes";
 
   let open = $state(false);
 
-  type TabId = "colours" | "layout" | "reading";
+  /** The Web tab's two verbs: open the address, and copy it for a phone. */
+  let copied = $state(false);
+
+  async function openWeb(): Promise<void> {
+    if (lan.url === null) return;
+    await openExternal(lan.url);
+  }
+
+  async function copyWeb(): Promise<void> {
+    if (lan.url === null) return;
+    try {
+      await navigator.clipboard.writeText(lan.url);
+      copied = true;
+      window.setTimeout(() => (copied = false), 1500);
+    } catch {
+      // A webview with no clipboard permission: the address is on screen to be
+      // read out, which is how it would be typed anyway.
+    }
+  }
+
+  type TabId = "colours" | "layout" | "reading" | "web";
 
   /** Colour first: it is what someone opens this panel for most of the time. */
   const TABS: { id: TabId; label: string }[] = [
     { id: "colours", label: "Colours" },
     { id: "layout", label: "Layout" },
     { id: "reading", label: "Reading" },
+    // The reader is a web app in a window; this is the tab that says so, and the
+    // switch that puts it on the network for a phone.
+    { id: "web", label: "Web" },
   ];
 
   let tab = $state<TabId>("colours");
+
+  // After a window reload the Rust side may still be serving; ask once, on open,
+  // rather than polling a server that is almost always off.
+  let asked = false;
+  $effect(() => {
+    if (!open || asked) return;
+    asked = true;
+    void lan.sync();
+  });
 
   /** Opened from the compact menu, where the gear has no room to sit. */
   export function openSettings() {
@@ -639,7 +674,7 @@
       <button class="done" onclick={() => (open = false)}>Done</button>
         </div>
       </div>
-    {:else}
+    {:else if tab === "reading"}
       <div
         class="tabpanel"
         role="tabpanel"
@@ -792,6 +827,80 @@
       </p>
         <div class="row end">
       <button class="done" onclick={() => (open = false)}>Done</button>
+        </div>
+      </div>
+    {:else}
+      <div
+        class="tabpanel"
+        role="tabpanel"
+        id="settings-panel-web"
+        aria-labelledby="settings-tab-web"
+      >
+      <!-- The reader is a web app; the desktop build is that app in a window, and
+           the phone build is the same app in a browser. This tab is the bridge:
+           the address, the switch, and nothing that pretends to be a sync
+           service. The phone keeps its own session and its own cached posts. -->
+      {#if !lan.available}
+        <p class="hint">
+          This is the web version. Open it on a phone at the address of the
+          machine serving it, and add it to the home screen — it runs in the
+          browser there, with its own session.
+        </p>
+      {:else}
+        <div class="row">
+          <span class="key">Share on network</span>
+          <div class="seg" role="group" aria-label="Serve the reader to the network">
+            <button
+              class="segbtn"
+              class:on={lan.url === null}
+              aria-pressed={lan.url === null}
+              title="Nothing is served"
+              disabled={lan.busy}
+              onclick={() => void lan.stop()}>Off</button>
+            <button
+              class="segbtn"
+              class:on={lan.url !== null}
+              aria-pressed={lan.url !== null}
+              title="Serve the reader to anything on this network"
+              disabled={lan.busy}
+              onclick={() => void lan.start()}>On</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="key">Port</span>
+          <span class="num">
+            <input
+              class="value"
+              type="number"
+              min={LAN_PORT_MIN}
+              max={LAN_PORT_MAX}
+              step="1"
+              value={lan.port}
+              aria-label="Port to serve on"
+              onchange={(event) => void lan.setPort(Number(event.currentTarget.value))}
+              onblur={(event) => (event.currentTarget.value = String(lan.port))}
+            />
+          </span>
+        </div>
+        {#if lan.url !== null}
+          <div class="row">
+            <span class="key">Address</span>
+            <span class="pick">
+              <button class="mini" title="Open in the browser" onclick={() => void openWeb()}>Open</button>
+              <button class="mini" title="Copy the address" onclick={() => void copyWeb()}>
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </span>
+          </div>
+          <p class="hint"><code class="lanurl">{lan.url}</code></p>
+        {/if}
+        <p class="hint">{LAN_LABELS[lan.state]} — {lanNote(lan.state)}</p>
+        {#if lan.error !== null}
+          <p class="hint error">{lan.error}</p>
+        {/if}
+      {/if}
+        <div class="row end">
+          <button class="done" onclick={() => (open = false)}>Done</button>
         </div>
       </div>
     {/if}
@@ -1225,5 +1334,21 @@
   .done {
     border-color: color-mix(in srgb, var(--accent) 60%, transparent);
     color: var(--accent-text);
+  }
+
+  /* The address is long and gets typed into a phone: it is set as code, on its
+     own line, and it wraps rather than being cut. */
+  .lanurl {
+    display: inline-block;
+    padding: 3px 6px;
+    border: 1px solid var(--border-soft);
+    border-radius: 5px;
+    background: var(--bg);
+    font-size: 11px;
+    word-break: break-all;
+  }
+
+  .hint.error {
+    color: var(--tone-hidden);
   }
 </style>
