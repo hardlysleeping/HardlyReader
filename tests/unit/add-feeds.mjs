@@ -86,7 +86,7 @@ check("nothing at all says nothing", () => {
 // URL of a list went in.
 const sidebar = readFileSync(new URL("../../src/components/Sidebar.svelte", import.meta.url), "utf8");
 check("Enter opens a line, Ctrl/Cmd+Enter is the add", () => {
-  assert.match(sidebar, /if \(!event\.ctrlKey && !event\.metaKey\) return;/);
+  assert.match(sidebar, /if \(event\.ctrlKey \|\| event\.metaKey\) \{/);
   // The old rule: a box holding one feed submitted itself and closed.
   assert.doesNotMatch(sidebar, /feedUrl\.includes\("\\n"\)/);
 });
@@ -98,6 +98,38 @@ check("the field says how it submits", () => {
 check("a pasted list grows the field", () => {
   assert.match(sidebar, /class:grow=\{feedLines > 1\}/);
   assert.match(sidebar, /const feedLines = \$derived\(parseFeedUrls\(feedUrl\)\.length\);/);
+});
+
+// The box grows upward over the feeds and stops at Starred: the height and the
+// line limit come from the same arithmetic, because a textarea's scrollHeight
+// carries a spare line and would answer "no room" to a single URL.
+check("the box is one line tall for one feed, and grows by a line", () => {
+  assert.match(sidebar, /const FEED_BOX_FLOOR = 30;/);
+  assert.match(sidebar, /const FEED_LINE = 16;/);
+  assert.match(sidebar, /return FEED_PAD \+ Math\.max\(1, lines\) \* FEED_LINE;/);
+  assert.match(sidebar, /box\.style\.height = `\$\{Math\.min\(feedBoxHeight\(feedTextLines\), cap\)\}px`;/);
+  assert.doesNotMatch(sidebar, /Math\.min\(feedBox\.scrollHeight, 128\)/);
+});
+
+check("the height stops at the Starred row", () => {
+  assert.match(sidebar, /bind:this=\{starredRow\}/);
+  assert.match(sidebar, /const star = starredRow\?\.getBoundingClientRect\(\) \?\? null;/);
+  // The row is measured by how far down the tree it sits, because the tree
+  // clips from the bottom: the last row to go is the one nearest the top.
+  assert.match(sidebar, /const depth = star === null \? list\.height \* 0\.4 : star\.bottom - list\.top;/);
+  assert.match(sidebar, /box\.style\.maxHeight = `\$\{cap\}px`;/);
+});
+
+check("Enter cannot add a line the box has no room to show", () => {
+  assert.match(sidebar, /const room = Math\.max\(0, Math\.min\(list\.height - depth - 6, list\.height \* 0\.7\)\);/);
+  assert.match(sidebar, /if \(feedTextLines >= feedLineLimit\(Math\.max\(FEED_BOX_FLOOR, feedCap\(\)\)\)\) event\.preventDefault\(\);/);
+  assert.match(sidebar, /function feedLineLimit\(cap: number\): number \{/);
+  assert.match(sidebar, /return Math\.max\(1, Math\.floor\(\(cap - FEED_PAD\) \/ FEED_LINE\)\);/);
+});
+
+check("a long paste stops at the cap and scrolls instead", () => {
+  assert.match(sidebar, /overflow-y: auto;/);
+  assert.match(sidebar, /Math\.round\(Math\.min\(FEED_BOX_FLOOR \+ room, 360\)\)/);
 });
 
 console.log(`\n${checks}/${checks} checks passed`);

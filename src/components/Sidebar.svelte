@@ -500,18 +500,92 @@
    * when there is a second line in it, and stays one line otherwise.
    */
   let feedBox = $state<HTMLTextAreaElement | null>(null);
+  let feedTree = $state<HTMLElement | null>(null);
+  let starredRow = $state<HTMLButtonElement | null>(null);
   const feedLines = $derived(parseFeedUrls(feedUrl).length);
 
+  /** The field at its floor: one line, nothing in it. */
+  const FEED_BOX_FLOOR = 30;
+
+  /* The box's own metrics, so its height and its line limit come from the same
+     arithmetic instead of from a measurement: Chrome reports a textarea's
+     `scrollHeight` with a line to spare, which makes "does this fit" answer no
+     even for a single line. */
+  const FEED_LINE = 16;
+  const FEED_PAD = 14; // 6px top and bottom, plus the border
+
+  /** Lines in the text as typed, blank ones included: they hold their height. */
+  const feedTextLines = $derived(Math.max(1, feedUrl.split("\n").length));
+
+  function feedBoxHeight(lines: number): number {
+    return FEED_PAD + Math.max(1, lines) * FEED_LINE;
+  }
+
+  /** How many lines the cap will show before the box starts scrolling. */
+  function feedLineLimit(cap: number): number {
+    return Math.max(1, Math.floor((cap - FEED_PAD) / FEED_LINE));
+  }
+
+  /**
+   * The tallest the box may get, measured from the Starred row.
+   *
+   * The tree is the only part of the panel that gives height, so every pixel the
+   * box takes comes off the bottom of the tree — the box grows upward over the
+   * feeds. That growth stops at Starred: the row is the landmark the panel is
+   * read from, and a box that swallowed it would leave nothing to say where the
+   * list went. Measured with the box forced back to its floor, because the room
+   * left at any other height is the room already spent.
+   *
+   * A long paste is not growth: past the cap the box scrolls, so two hundred
+   * pasted feeds are a box and a count, not a wall across the panel.
+   */
+  function feedCap(): number {
+    const box = feedBox;
+    const tree = feedTree;
+    if (box === null || tree === null) return 128;
+
+    const was = box.style.height;
+    const scrolled = box.scrollTop;
+    box.style.height = `${FEED_BOX_FLOOR}px`;
+    const list = tree.getBoundingClientRect();
+    const star = starredRow?.getBoundingClientRect() ?? null;
+    box.style.height = was;
+    box.scrollTop = scrolled;
+
+    // The tree clips from the bottom, so the row that survives longest is the
+    // one nearest its top: the limit is measured as the depth the row sits at,
+    // not the space beneath it. Growth stops while the tree still shows every
+    // row down to Starred.
+    const depth = star === null ? list.height * 0.4 : star.bottom - list.top;
+    const room = Math.max(0, Math.min(list.height - depth - 6, list.height * 0.7));
+    return Math.round(Math.min(FEED_BOX_FLOOR + room, 360));
+  }
+
   function fitFeedBox(): void {
-    if (feedBox === null) return;
-    feedBox.style.height = "auto";
-    const needed = Math.min(feedBox.scrollHeight, 128);
-    feedBox.style.height = `${needed}px`;
+    const box = feedBox;
+    if (box === null) return;
+    const cap = Math.max(FEED_BOX_FLOOR, feedCap());
+    box.style.height = `${Math.min(feedBoxHeight(feedTextLines), cap)}px`;
+    box.style.maxHeight = `${cap}px`;
   }
 
   $effect(() => {
     feedUrl;
     fitFeedBox();
+  });
+
+  // The cap is the tree's spare height, so it has to be taken again when the
+  // box appears and whenever the panel changes height — a window resize is the
+  // same measurement with a different answer.
+  $effect(() => {
+    if (!adding) return;
+    const fit = () => fitFeedBox();
+    const frame = requestAnimationFrame(fit);
+    window.addEventListener("resize", fit);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", fit);
+    };
   });
 
   /**
@@ -525,9 +599,15 @@
    */
   function onFeedKey(event: KeyboardEvent): void {
     if (event.key !== "Enter" || event.isComposing) return;
-    if (!event.ctrlKey && !event.metaKey) return;
-    event.preventDefault();
-    void submitFeed();
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      void submitFeed();
+      return;
+    }
+    // A new line is only worth adding while the box can show it: the box stops
+    // at Starred, and a line past that edge cannot be read back. Pasting is
+    // untouched — a pasted list arrives as a block, and it scrolls.
+    if (feedTextLines >= feedLineLimit(Math.max(FEED_BOX_FLOOR, feedCap()))) event.preventDefault();
   }
 
   async function submitFeed(event?: SubmitEvent) {
@@ -744,6 +824,7 @@
        block stay put below. The list is the only thing with a length. -->
   <div
     class="scroll"
+    bind:this={feedTree}
     use:pullDown={{
       label: "Pull down to check for new posts",
       readyLabel: "Release to check for new posts",
@@ -907,6 +988,7 @@
     <button
       class="row strong"
       class:active={reader.activeStream === STATE_STARRED}
+      bind:this={starredRow}
       onclick={() => open(STATE_STARRED, "Starred")}
     >
       <span class="label">Starred</span>
@@ -1846,7 +1928,7 @@
   .url {
     display: block;
     width: 100%;
-    min-height: 28px;
+    min-height: 30px;
     padding: 6px 8px;
     border: 1px solid var(--border);
     border-radius: 7px;
@@ -1860,8 +1942,9 @@
   }
 
   .url.grow {
-    /* A list is being built: give the field a floor before it has scrolled. */
-    min-height: 44px;
+    /* A list is being built: two lines, before the height is set from the
+       line count. */
+    min-height: 46px;
   }
 
   .url:focus-visible {
