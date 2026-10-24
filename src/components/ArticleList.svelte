@@ -525,12 +525,62 @@ import { plainPreview, relativeTime } from "../lib/format";
    */
   function cardWheel(el: HTMLElement) {
     el.addEventListener("wheel", onListWheel, { passive: false });
+    el.addEventListener("pointerdown", onPanDown);
+    window.addEventListener("pointerup", onPanUp);
+    window.addEventListener("pointercancel", onPanUp);
     return {
       destroy() {
         el.removeEventListener("wheel", onListWheel);
+        el.removeEventListener("pointerdown", onPanDown);
+        window.removeEventListener("pointerup", onPanUp);
+        window.removeEventListener("pointercancel", onPanUp);
         resetListPull();
       },
     };
+  }
+
+  /**
+   * A mouse drag on the column, in cards.
+   *
+   * The pan itself is the app's own drag-to-scroll, which moves the content 1:1
+   * with the hand. With snapping on, that pan is then pulled back to whichever
+   * centre it is nearest, so a drag of under half a card does nothing at all —
+   * which is what made dragging feel like work next to the wheel. Here the drag
+   * is only ever a direction: the card the hand started on, and which way it
+   * went. A drag that travels `PAN_STEP` moves one card that way and centres it,
+   * a smaller one puts the card back, and a long drag still moves one card rather
+   * than however many the pointer passed.
+   */
+  const PAN_STEP = 24;
+  let panFrom: HTMLElement | null = null;
+  let panTop = 0;
+
+  function onPanDown(event: PointerEvent): void {
+    if (view !== "cards" || event.pointerType !== "mouse") return;
+    const el = itemsEl;
+    if (!el) return;
+    panFrom = currentCard();
+    panTop = el.scrollTop;
+  }
+
+  function onPanUp(event: PointerEvent): void {
+    const from = panFrom;
+    panFrom = null;
+    if (view !== "cards" || !from || event.pointerType !== "mouse") return;
+    const el = itemsEl;
+    if (!el) return;
+    const moved = el.scrollTop - panTop;
+    if (Math.abs(moved) < PAN_STEP) {
+      landOn(from);
+      return;
+    }
+    const rows = cardRows();
+    const index = rows.indexOf(from);
+    const target = rows[Math.min(Math.max(index + (moved > 0 ? 1 : -1), 0), rows.length - 1)];
+    if (!target) return;
+    prefetchFrom(target.dataset.id ?? undefined);
+    landOn(target);
+    syncSnap();
   }
 
   function onListWheel(event: WheelEvent): void {
@@ -1856,6 +1906,14 @@ import { plainPreview, relativeTime } from "../lib/format";
      list drops snapping while one is the card in the middle, and takes it back
      when the next one fits. */
   .cards[data-tallcard="true"] {
+    scroll-snap-type: none;
+  }
+
+  /* While a mouse pan is in hand the column follows the pointer exactly:
+     snapping mid-drag pulls the card back out from under the hand, and the drag
+     then has to be long enough to beat the pull instead of just long enough to
+     mean something. The pan's end decides the card — see `onPanUp`. */
+  :global(.drag-panning) .cards {
     scroll-snap-type: none;
   }
 
