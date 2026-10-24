@@ -133,6 +133,17 @@
     else layout.reset(which);
   }
 
+  /**
+   * Put the tucked pane back.
+   *
+   * The tucked side is the argument: a tuck is a toggle, and pressing the side
+   * that is away is what brings it back. Named here rather than inline so the
+   * narrowing is in one place instead of in the template.
+   */
+  function showTucked(): void {
+    if (tuck !== null) layout.tuckStack(tuck);
+  }
+
   const label = $derived(
     vertical
       ? `Resize the ${topName} and the ${bottomName}`
@@ -200,6 +211,7 @@
          tuck the top pane, tuck the bottom one. Both tucks are toggles, so the
          way back is the control that hid the pane — which is why the seam stays
          here, over the pane that stayed, when one of them is away. -->
+    {#if tuck === null}
     <div class="ctl-bar" role="group" aria-label="Stacked panes">
       <button
         type="button"
@@ -245,6 +257,29 @@
         </svg>
       </button>
     </div>
+    {:else}
+    <!-- One pane is away, so there is exactly one thing to do about it, and the
+         three glyphs that were here are not it. A labelled pill, in the accent,
+         where the seam already is: press it and the pane comes back to the
+         split it left from. -->
+    <div class="restore-bar" role="group" aria-label="Stacked panes">
+      <button
+        type="button"
+        aria-label={`Show the ${tuckedName}`}
+        title={`Show the ${tuckedName}`}
+        onclick={showTucked}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          {#if tuck === "top"}
+            <path d="M3.6 9.6 8 5.2l4.4 4.4" />
+          {:else}
+            <path d="M3.6 6.4 8 10.8l4.4-4.4" />
+          {/if}
+        </svg>
+        <span>Show the {tuckedName}</span>
+      </button>
+    </div>
+    {/if}
   {/if}
 
   {#if fold}
@@ -411,6 +446,62 @@
   .ctl-bar button:disabled {
     opacity: 0.3;
     cursor: default;
+  }
+
+  /* The way back when a stacked pane is away. Bigger than the chip it replaces
+     and carrying words: a control you can only find if you already know it is
+     there is not a way back. The bar passes pointer events through, so the seam
+     it sits on is still a seam and still drags. */
+  .restore-bar {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    padding: 2px;
+    border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--edge-soft));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.32);
+    pointer-events: none;
+  }
+
+  .restore-bar button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 11px 0 8px;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 11.5px;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background-color 0.12s ease;
+  }
+
+  .restore-bar button:hover {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+
+  .restore-bar button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .restore-bar button svg {
+    width: 11px;
+    height: 11px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   /* The fold's chip, at the middle of the feeds seam: a narrow pill with the

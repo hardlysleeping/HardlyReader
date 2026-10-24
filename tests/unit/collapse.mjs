@@ -259,7 +259,9 @@ function method(source, name) {
   check(
     "the stacked pair keeps its own three controls, untouched by the fold",
     (gutter.match(/class="ctl-bar"/g) ?? []).length === 1 &&
-      (gutter.match(/layout\.tuckStack\(/g) ?? []).length === 2 &&
+      // Two tuck buttons while both panes are there, and one more press — the
+      // labelled way back — for when one of them is not.
+      (gutter.match(/layout\.tuckStack\(/g) ?? []).length === 3 &&
       (gutter.match(/layout\.toggleStackSwap\(\)/g) ?? []).length === 1,
   );
   check(

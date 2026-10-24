@@ -533,5 +533,40 @@ check(
   );
 }
 
+
+// A tucked pane must be findable. The three-glyph chip is fine while both panes
+// are there — the controls live where the seam is and the seam is between two
+// things — but the moment one is away the only job left is putting it back, and
+// that has to say so in words rather than in an arrow nobody has learned.
+check(
+  "the chip's three glyphs are only drawn while both panes are there",
+  /\{#if tuck === null\}\s*<div class="ctl-bar"/.test(gutter),
+);
+check(
+  "a tucked pane is offered back as a labelled control",
+  /class="restore-bar"/.test(gutter) &&
+    /<span>Show the \{tuckedName\}<\/span>/.test(gutter) &&
+    /aria-label=\{`Show the \$\{tuckedName\}`\}/.test(gutter) &&
+    /onclick=\{showTucked\}/.test(gutter),
+);
+check(
+  "and the press is the tuck's own toggle, on the side that is away",
+  /function showTucked\(\): void \{\s*if \(tuck !== null\) layout\.tuckStack\(tuck\);/.test(gutter) &&
+    nextTuck("top", "top") === null &&
+    nextTuck("bottom", "bottom") === null &&
+    nextTuck(null, "top") === "top",
+);
+check(
+  "the way back points at the edge the pane will come from",
+  /\{#if tuck === "top"\}\s*<path d="M3\.6 9\.6 8 5\.2l4\.4 4\.4"/.test(gutter) &&
+    /\{:else\}\s*<path d="M3\.6 6\.4 8 10\.8l4\.4-4\.4"/.test(gutter),
+);
+check(
+  "it is a bigger target than the glyph it replaces, and the seam still drags",
+  /\.restore-bar button \{[\s\S]{0,300}height: 24px;/.test(gutter) &&
+    /\.restore-bar \{[\s\S]{0,400}pointer-events: none;/.test(gutter) &&
+    /\.restore-bar button \{[\s\S]{0,400}pointer-events: auto;/.test(gutter),
+);
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
