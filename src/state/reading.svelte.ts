@@ -13,7 +13,10 @@ import {
   isCardSize,
   isGridColumns,
   isListView,
+  isRowEnd,
   LIST_VIEW_DEFAULT,
+  ROW_END_DEFAULT,
+  type RowEnd,
   type CardSize,
   type GridColumns,
   type ListView,
@@ -84,6 +87,14 @@ class ReadingState {
    * the list — reading without leaving the list's place in the frame.
    */
   readInPane = $state(false);
+
+  /**
+   * How a regular row's end is shaped: `half` turns the bottom corners and runs
+   * the accent along the foot, `pill` is both right-hand corners as they were.
+   * Device-local like every other reading setting, and reversible so the look
+   * that shipped before this existed is never lost.
+   */
+  rowsEnd = $state<RowEnd>(ROW_END_DEFAULT);
 
   /** Tiles per row in the grid; `auto` is the grid's own judgement. */
   gridColumns = $state<GridColumns>(GRID_COLUMNS_DEFAULT);
@@ -195,6 +206,7 @@ class ReadingState {
         articleFilter?: unknown;
         listView?: unknown;
         readInPane?: unknown;
+        rowsEnd?: unknown;
         gridColumns?: unknown;
         cardSize?: unknown;
         markReadMode?: unknown;
@@ -217,6 +229,7 @@ class ReadingState {
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
       if (isListView(saved.listView)) this.listView = saved.listView;
       if (typeof saved.readInPane === "boolean") this.readInPane = saved.readInPane;
+      if (isRowEnd(saved.rowsEnd)) this.rowsEnd = saved.rowsEnd;
       if (isGridColumns(saved.gridColumns)) this.gridColumns = saved.gridColumns;
       if (isCardSize(saved.cardSize)) this.cardSize = saved.cardSize;
       // An explicit choice of mode is honoured; the old bare `autoMarkRead`
@@ -301,6 +314,22 @@ class ReadingState {
   toggleReadInPane(): void {
     this.readInPane = !this.readInPane;
     this.save();
+  }
+
+  /**
+   * The other end of a row: half a turn, or the full pill it used to be.
+   *
+   * One press, two looks, and the choice is saved — "drop the option" later
+   * means going back to `pill`, not hunting for the CSS that made it.
+   */
+  setRowsEnd(next: RowEnd): void {
+    if (!isRowEnd(next) || this.rowsEnd === next) return;
+    this.rowsEnd = next;
+    this.save();
+  }
+
+  toggleRowsEnd(): void {
+    this.setRowsEnd(this.rowsEnd === "half" ? "pill" : "half");
   }
 
   /** Tiles per row, for the grid. */
@@ -426,6 +455,7 @@ class ReadingState {
           articleFilter: this.articleFilter,
           listView: this.listView,
           readInPane: this.readInPane,
+          rowsEnd: this.rowsEnd,
           gridColumns: this.gridColumns,
           cardSize: this.cardSize,
           markReadMode: this.autoMarkRead ? "auto" : "manual",

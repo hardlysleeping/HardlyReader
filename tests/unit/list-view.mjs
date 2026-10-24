@@ -18,6 +18,9 @@ import { dirname, join } from "node:path";
 import {
   LIST_VIEWS,
   LIST_VIEW_DEFAULT,
+  ROW_ENDS,
+  ROW_END_DEFAULT,
+  isRowEnd,
   LIST_VIEW_LABELS,
   LIST_VIEW_TITLES,
   isListView,
@@ -301,7 +304,7 @@ check("the container is handed a column count, not a length", masonryTrack(4) ==
 check("columns and their gutter are the same 10px the rows were apart", MASONRY_GAP === 10);
 
 // The controls live in the bar and belong to one view each.
-check("the sizer is in the bar, not a panel", /class="bar"[\s\S]{0,4000}class="sizer"/.test(listSource));
+check("the sizer is in the bar, not a panel", /class="bar"[\s\S]{0,6000}class="sizer"/.test(listSource));
 check(
   "the grid's count is offered only in the grid",
   /\{#if view === "grid"\}[\s\S]{0,1600}type="range"/.test(listSource),
@@ -606,6 +609,66 @@ check(
   /if \(isRead\(item\)\) \{\s*reader\.setRead\(item, false\);\s*return;\s*\}/.test(readerSource) &&
     /reader\.markRead\(item\);\s*onRead\?\.\(\);/.test(readerSource) &&
     /onRead=\{closeInPane\}/.test(mainSource),
+);
+
+/* ---- how a row ends: half a turn, or the pill it used to be ---------------- */
+
+check(
+  "a row's end has two shapes, and both are shapes a row can have",
+  ROW_ENDS.length === 2 && ROW_ENDS.includes("half") && ROW_ENDS.includes("pill") &&
+    isRowEnd("half") && isRowEnd("pill") &&
+    !isRowEnd("full") && !isRowEnd(null) && !isRowEnd(undefined) && !isRowEnd(1),
+);
+check(
+  "the half turn is the shape that is drawn, and the pill is still one press away",
+  ROW_END_DEFAULT === "half" &&
+    /rowsEnd = \$state<RowEnd>\(ROW_END_DEFAULT\)/.test(readingSource) &&
+    /setRowsEnd\(next: RowEnd\)/.test(readingSource) &&
+    /toggleRowsEnd\(\): void \{\s*this\.setRowsEnd\(this\.rowsEnd === "half" \? "pill" : "half"\);/.test(
+      readingSource,
+    ),
+);
+check(
+  "the shape survives a reload",
+  /if \(isRowEnd\(saved\.rowsEnd\)\) this\.rowsEnd = saved\.rowsEnd;/.test(readingSource) &&
+    /rowsEnd: this\.rowsEnd,/.test(readingSource),
+);
+check(
+  "the option is offered where Rows is drawn, and says which shape is showing",
+  /class:on=\{reading\.rowsEnd === "half"\}/.test(listSource) &&
+    /aria-pressed=\{reading\.rowsEnd === "half"\}/.test(listSource) &&
+    /onclick=\{\(\) => reading\.toggleRowsEnd\(\)\}/.test(listSource),
+);
+check(
+  "half a turn is only the bottom, and the foot is as thick as the edge",
+  /\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{\s*border-radius: 0 0 30px 30px;/.test(
+    listSource,
+  ) &&
+    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-radius: 0 0 30px 30px;[^}]*border-bottom-width: 5px;/.test(
+      listSource,
+    ),
+);
+check(
+  "the pill steps in from the foot it would otherwise sit on",
+  /\.items\.half-end[^{]*\.acts \{\s*margin: 5px 11px 7px 0;/.test(listSource),
+);
+check(
+  "the old shape is untouched: both right-hand corners, one-pixel foot",
+  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,200}?border-radius: 0 30px 30px 0;/.test(
+    listSource,
+  ) &&
+    /\.row:not\(\.read\)::after \{[\s\S]{0,1600}?border-right: 5px solid[\s\S]{0,200}?border-bottom: 1px solid/.test(
+      listSource,
+    ),
+);
+check(
+  "the new shape only ever applies to a row, never to cards, the grid or the compact list",
+  (listSource.match(/\.items\.half-end/g) ?? []).length === 3 &&
+    (listSource.match(/\.items\.half-end/g) ?? []).every(() => true) &&
+    (listSource.match(/\.items\.half-end[^,{]*\{/g) ?? []).every((rule) =>
+      rule.includes(":not(.cards):not(.grid)"),
+    ) &&
+    /class:half-end=\{view === "regular" && reading\.rowsEnd === "half"\}/.test(listSource),
 );
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

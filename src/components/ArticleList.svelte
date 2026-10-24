@@ -923,6 +923,21 @@ import { plainPreview, relativeTime } from "../lib/format";
               <path d="M9.2 2.5v3.3h3.3" />
             </svg>
           </button>
+          <!-- How the row ends: half a turn, or the pill. Both kept. -->
+          <button
+            class="viewicon end"
+            class:on={reading.rowsEnd === "half"}
+            aria-pressed={reading.rowsEnd === "half"}
+            aria-label="Turn the bottom of each row"
+            title={reading.rowsEnd === "half"
+              ? "Rows turn at the bottom, with the accent running along their foot — press for the full pill at the end"
+              : "Rows turn at both right-hand corners, as a half pill — press to turn only the bottom"}
+            onclick={() => reading.toggleRowsEnd()}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2.5 2.5h11v7.2a3.3 3.3 0 0 1-3.3 3.3H5.8a3.3 3.3 0 0 1-3.3-3.3z" />
+            </svg>
+          </button>
         {/if}
       </div>
 
@@ -1046,6 +1061,7 @@ import { plainPreview, relativeTime } from "../lib/format";
     onscroll={onCardsScroll}
     class:grid={view === "grid"}
     class:square={view === "grid" && gridIsSquare(reading.gridColumns)}
+    class:half-end={view === "regular" && reading.rowsEnd === "half"}
     style:--grid-template={gridTemplate(reading.gridColumns)}
     style:--card-window={`${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
     style:--masonry-columns={masonryTrack(cardLayout.columns)}
@@ -1785,6 +1801,34 @@ import { plainPreview, relativeTime } from "../lib/format";
     border-top: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
     border-bottom: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
     border-radius: 0 30px 30px 0;
+  }
+
+  /* Half a turn, rather than a pill's whole right side: only the bottom of the
+     row turns — bottom right, and bottom left so the foot matches itself — and
+     the accent along that foot is as thick as the accent down the right edge
+     (5px against 5px). Both are borders of the same rounded box, so at the
+     corner they meet inside the radius and continue into each other: the row's
+     foot is one piece of accent, thick, with no join to hide. The top of the row
+     is square and unmarked, which is what makes the column read as a list of
+     feet rather than a stack of capsules. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .row {
+    border-radius: 0 0 30px 30px;
+  }
+
+  .items.half-end:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+    border-radius: 0 0 30px 30px;
+    /* The foot lives inside the row: the border is not drawn a pixel past it,
+       and the corner is the row's own corner. */
+    inset: 0;
+    border-bottom-width: 5px;
+  }
+
+  /* The pill steps in from the end it sits against. A 5px foot and a 5px edge
+     are a corner with substance, and a target that hugs it has its own corner
+     taken off — so it moves left, and up off the foot by the extra the foot now
+     takes. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .acts {
+    margin: 5px 11px 7px 0;
   }
 
   .row.read {

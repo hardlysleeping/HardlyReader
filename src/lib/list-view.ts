@@ -49,6 +49,29 @@ export function stepIndex(count: number, at: number, delta: -1 | 1): number | nu
   return next < 0 || next >= count ? null : next;
 }
 
+/**
+ * How a regular row's end is shaped.
+ *
+ * `pill` is the row as it stood: both corners on its right turn, so the row
+ * stops in a half-pill and the accent runs down the edge and round the two
+ * right-hand turns. `half` turns only the bottom — bottom right, and bottom left
+ * to match it — and thickens the foot to the width of the right edge, so the
+ * accent is one piece along the bottom and round both corners instead of a thick
+ * edge beside a hairline.
+ *
+ * A stored choice rather than a replacement: the old shape is one press away,
+ * so this can be dropped again without the look it replaced being lost.
+ */
+export const ROW_ENDS = ["half", "pill"] as const;
+
+export type RowEnd = (typeof ROW_ENDS)[number];
+
+export const ROW_END_DEFAULT: RowEnd = "half";
+
+export function isRowEnd(value: unknown): value is RowEnd {
+  return typeof value === "string" && (ROW_ENDS as readonly string[]).includes(value);
+}
+
 export function isListView(value: unknown): value is ListView {
   return typeof value === "string" && (LIST_VIEWS as readonly string[]).includes(value);
 }
