@@ -45,6 +45,8 @@ export interface Theme {
   trim: string;
   /** A post's own page: the colour of the open-at-source mark. */
   link: string;
+  /** The starred mark. Gold unless the theme says otherwise. */
+  star: string;
   /**
    * Draw the three row actions in one quiet ink instead of their own colours.
    *
@@ -68,6 +70,7 @@ export const DEFAULT_THEME: Theme = {
   sync: "#28a06b",
   trim: "#7c8492",
   link: "#0078e0",
+  star: "#e8b93c",
   monotoneActions: false,
 };
 
@@ -106,6 +109,7 @@ export function parseTheme(raw: unknown): Theme {
     sync: colour(saved.sync, DEFAULT_THEME.sync),
     trim: colour(saved.trim, DEFAULT_THEME.trim),
     link: colour(saved.link, DEFAULT_THEME.link),
+    star: colour(saved.star, DEFAULT_THEME.star),
     monotoneActions:
       typeof saved.monotoneActions === "boolean"
         ? saved.monotoneActions
@@ -133,7 +137,7 @@ export function themeVariables(theme: Theme): Record<string, string> {
     "--tone-link": theme.link,
     // The three row actions, resolved here so the stylesheet never has to know
     // whether it is drawing in colour: one switch, three names.
-    "--act-star": theme.monotoneActions ? "var(--muted)" : "var(--star)",
+    "--act-star": theme.monotoneActions ? "var(--muted)" : theme.star,
     "--act-read": theme.monotoneActions ? "var(--muted)" : theme.trim,
     "--act-link": theme.monotoneActions ? "var(--muted)" : theme.link,
     // Derived here rather than in CSS because it is a choice, not a shade:

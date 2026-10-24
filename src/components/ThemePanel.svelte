@@ -73,19 +73,69 @@
     element?.focus();
   }
 
-  const swatches: {
-    key: "accent" | "hidden" | "pinned" | "lockOpen" | "lockClosed" | "unlock" | "sync" | "trim" | "link";
+  type SwatchKey =
+    | "accent"
+    | "trim"
+    | "hidden"
+    | "pinned"
+    | "lockOpen"
+    | "unlock"
+    | "lockClosed"
+    | "sync"
+    | "star"
+    | "link";
+
+  /**
+   * The colours, in the groups they belong to.
+   *
+   * Ten swatches in one block was a wall of chips with no reading order. Four
+   * headings, each with its own rule, say what the tones are for before the eye
+   * has to work it out — and because the heading says "Lock", the colours under
+   * it do not have to say it again.
+   */
+  const swatchGroups: {
+    id: string;
     label: string;
+    items: { key: SwatchKey; label: string }[];
   }[] = [
-    { key: "accent", label: "Accent" },
-    { key: "hidden", label: "Hidden" },
-    { key: "pinned", label: "Pinned" },
-    { key: "lockOpen", label: "Lock open" },
-    { key: "lockClosed", label: "Lock locked" },
-    { key: "unlock", label: "Unlocked" },
-    { key: "sync", label: "Sync" },
-    { key: "trim", label: "Trim" },
-    { key: "link", label: "Link" },
+    {
+      id: "palette",
+      label: "Palette",
+      items: [
+        { key: "accent", label: "Accent" },
+        { key: "trim", label: "Trim" },
+      ],
+    },
+    {
+      id: "lists",
+      label: "Feed lists",
+      items: [
+        { key: "hidden", label: "Hidden" },
+        { key: "pinned", label: "Pinned" },
+      ],
+    },
+    {
+      id: "lock",
+      label: "Lock",
+      items: [
+        { key: "lockOpen", label: "Open" },
+        { key: "lockClosed", label: "Locked" },
+        { key: "unlock", label: "Unlocked" },
+      ],
+    },
+    {
+      id: "controls",
+      label: "Controls",
+      items: [{ key: "sync", label: "Sync" }],
+    },
+    {
+      id: "marks",
+      label: "Row marks",
+      items: [
+        { key: "star", label: "Star" },
+        { key: "link", label: "Link" },
+      ],
+    },
   ];
 </script>
 
@@ -149,20 +199,7 @@
           {/each}
         </div>
       </div>
-      {#each swatches as swatch (swatch.key)}
-        <label class="row">
-          <span class="key">{swatch.label}</span>
-          <span class="pick">
-            <input
-              type="color"
-              value={theme.current[swatch.key]}
-              aria-label={`${swatch.label} colour`}
-              oninput={(event) => theme.set(swatch.key, event.currentTarget.value)}
-            />
-            <code>{theme.current[swatch.key]}</code>
-          </span>
-        </label>
-      {/each}      <!-- The lines between panes are the one place the accent appears without
+      <!-- The lines between panes are the one place the accent appears without
            being asked: on, they take a quarter of it; off, they are the plain
            border this app used to have. -->
       <div class="row">
@@ -201,6 +238,30 @@
               title="One quiet ink for all three, as they were before"
               onclick={() => theme.set("monotoneActions", true)}>Monotone</button>
           </div>
+        </div>
+        <!-- Colours, two to a line, paired by what they answer: accent and trim,
+             then what the app hides and what it keeps, then the lock's states,
+             then the row's marks. Every cell is a label and a swatch — the hex
+             would not fit twice over in 268px, so the value is in the tooltip
+             and the picker itself is the colour. -->
+        <div class="swatches">
+          {#each swatchGroups as group (group.id)}
+            <div class="swgroup">
+              <span class="sglabel">{group.label}</span>
+              {#each group.items as swatch (swatch.key)}
+                <label class="sw" title={`${swatch.label} — ${theme.current[swatch.key].toUpperCase()}`}>
+                  <span class="key">{swatch.label}</span>
+                  <input
+                    type="color"
+                    value={theme.current[swatch.key]}
+                    aria-label={`${swatch.label} colour`}
+                    oninput={(event) => theme.set(swatch.key, event.currentTarget.value)}
+                  />
+                  <code>{theme.current[swatch.key]}</code>
+                </label>
+              {/each}
+            </div>
+          {/each}
         </div>
         <div class="row end">
           <button class="reset" onclick={() => theme.reset()}>Reset colours</button>
@@ -668,11 +729,11 @@
     right: 12px;
     z-index: 60;
     width: 268px;
-    /* A popup, not a page. Without a ceiling the three tabs add up to more than
-       a short window and the panel takes the whole side of it — the content is
-       not that long, only the scrollbar was. Capped, it scrolls its own short
-       side and the window keeps its own bar. */
-    max-height: min(72vh, 460px);
+    /* A popup, not a page: it is capped by the window, not by a fixed number of
+       pixels. 72vh was a guess that scrolled the colours tab on a tall window
+       with room to spare; the room the window actually has is what it gets, so a
+       tab scrolls only when the window itself is too short to hold it. */
+    max-height: calc(100vh - 68px);
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 10px 12px 12px;
@@ -749,6 +810,64 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  /* Two to a line. The panel is 268px, so a half cell is a label and a swatch
+     and nothing else — the hex would push the label into an ellipsis on the
+     longer names, and the value is one hover away. */
+  /* A rule above the colours, because the three rows above them are switches and
+     these ten are paint: without the line the grid read as more of the same list
+     and the section had no beginning. */
+  .swatches {
+    margin-top: 5px;
+    padding: 7px 0 4px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .swgroup {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px 12px;
+  }
+
+  /* The group's name, and the reason the colours under it are called Open and
+     Locked rather than Lock open and Lock locked. */
+  .sglabel {
+    grid-column: 1 / -1;
+    padding-bottom: 1px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* A group is a section: a short rule and a breath, so accent and trim do not
+     read as the first two of ten. */
+  .swgroup + .swgroup {
+    margin-top: 4px;
+    padding-top: 5px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .sw {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-width: 0;
+    padding: 2px 0;
+  }
+
+  /* No hex in the cells: at half width the label and the swatch are the whole
+     cell, and the value is in the tooltip. */
+  .sw code {
+    display: none;
+  }
+
+  .sw .key {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .range {

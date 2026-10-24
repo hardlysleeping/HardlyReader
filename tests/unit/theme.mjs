@@ -98,7 +98,7 @@ check("accent separators are on unless turned off", () => {
   assert.equal(parseTheme({ accentEdges: false }).accentEdges, false);
   assert.equal(parseTheme({ accentEdges: "no" }).accentEdges, true, "junk keeps the default");
 });
-check("exactly the eleven chosen colours and three action names are written", Object.keys(vars).length === 14, String(Object.keys(vars).length));
+check("exactly the nine colour variables, the two edges and the three action names are written", Object.keys(vars).length === 14, String(Object.keys(vars).length));
 check("no undefined values", () =>
   Object.entries(vars).every(([name, value]) =>
     typeof value === "string" &&
@@ -108,10 +108,15 @@ check("no undefined values", () =>
 
 // The three row actions are the one place a theme chooses a colour that is not
 // only decoration: gold for a star, the trim for read, its own blue for a link.
+check("the star has a colour of its own, gold by default", () => {
+  assert.equal(DEFAULT_THEME.star, "#e8b93c");
+  assert.equal(parseTheme({ star: "#ffffff" }).star, "#ffffff");
+  assert.equal(parseTheme({ star: "gold" }).star, DEFAULT_THEME.star);
+});
 check("trim and link are their own colours", vars["--tone-trim"] === DEFAULT_THEME.trim && vars["--tone-link"] === DEFAULT_THEME.link);
 check("the actions are drawn in colour by default", () => {
   assert.equal(DEFAULT_THEME.monotoneActions, false);
-  assert.equal(vars["--act-star"], "var(--star)");
+  assert.equal(vars["--act-star"], DEFAULT_THEME.star);
   assert.equal(vars["--act-read"], DEFAULT_THEME.trim);
   assert.equal(vars["--act-link"], DEFAULT_THEME.link);
 });
@@ -131,9 +136,31 @@ check("a stored monotone choice survives, junk does not", () => {
 
 // The colours are only usable if the panel offers them: trim and link in the
 // swatch list, and one row that turns all three row actions monotone.
+check("the panel lays its colours out two to a line", () => {
+  const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
+  assert.match(panel, /class="swatches"/);
+  assert.match(panel, /gap: 1px 12px/);
+  assert.match(panel, /\.sw code \{\s*display: none;/);
+  // Sections, each with its own rule: the heading carries the word, so the
+  // colours under Lock are called Open and Locked rather than repeating it.
+  assert.match(panel, /label: "Lock"/);
+  assert.match(panel, /\{ key: "lockOpen", label: "Open" \}/);
+  assert.match(panel, /\{ key: "lockClosed", label: "Locked" \}/);
+  assert.match(panel, /\.swgroup \+ \.swgroup \{/);
+});
+
+// The panel is capped by the room the window has, not by a fixed slice of it:
+// a tall window with a short tab should show the tab, not a scrollbar.
+check("the panel scrolls only when the window cannot hold it", () => {
+  const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
+  assert.match(panel, /max-height: calc\(100vh - 68px\);/);
+  assert.ok(!/max-height: min\(72vh/.test(panel), "no fixed slice of the viewport");
+});
+
 check("the panel offers trim, link and the monotone switch", () => {
   const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
   assert.match(panel, /key: "trim", label: "Trim"/);
+  assert.match(panel, /key: "star", label: "Star"/);
   assert.match(panel, /key: "link", label: "Link"/);
   assert.match(panel, /theme\.set\("monotoneActions", true\)/);
   assert.match(panel, /theme\.set\("monotoneActions", false\)/);

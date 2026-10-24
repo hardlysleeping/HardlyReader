@@ -67,7 +67,9 @@ const compact = header.slice(header.indexOf("@media (max-width: 560px)"));
 check("the name goes when compact", /\.account,/.test(compact));
 check("the bar-sized controls go when compact", /\.tools > :global\(\.reading\)/.test(compact) && /\.tools > :global\(\.themebar\)/.test(compact));
 check("but the group holding the panels is not hidden", !/\.tools\s*{[^}]*display:\s*none/.test(compact), compact.slice(0, 400));
-check("so a menu row can still open settings on a phone", /role="dialog"/.test(themePanel) && /max-height:\s*min\(72vh, 460px\)/.test(themePanel));
+// The cap is the room the window has, less the bar it hangs under — so a tall
+// window shows the whole tab and a phone still gets a panel that fits on screen.
+check("so a menu row can still open settings on a phone", /role="dialog"/.test(themePanel) && /max-height:\s*calc\(100vh - 68px\)/.test(themePanel));
 check("the settings popup keeps its tabs in reach", /position:\s*sticky/.test(themePanel));
 check("the menu button survives the compact rules", !/\.menu\s*{[^}]*display:\s*none/.test(compact));
 
