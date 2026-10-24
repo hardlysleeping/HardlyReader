@@ -41,6 +41,10 @@ centre offset 0.
 8. Then, unchanged: `t_cf505e1f` mosaic (a second layout for the same content, not needed to read
    comics), `t_4f48d289` mobile settings, `t_fee26ba5` sidebar band, `t_6e3f92e5` password reveal,
    `t_67425ccd` per-account device keys, `t_2c19f0af` Android update tab.
+9. **Preferences travel between apps** (`t_6ca4131e`) — the inventory is row 157 below. Not urgent
+   while there is one screen; **priority one the moment the phone build is in daily use**, because
+   that is the first time two devices hold the same account and disagree about zoom, text size and
+   colours. Sync the reader's settings, keep the window's on the device.
 
 Still gated on the owner: `t_03c31f66` publishing (needs the repo named), `t_599c0102` CI
 Hidden-Categories checkout.
@@ -703,3 +707,60 @@ Verified with the real Header and LoadAura mounted against a stub reader: aura t
 | 154 | Sidebar positions stored on the server (`GET`/`PUT /v1/positions`) | **repo, not deployed** | The adapter owns one thing of its own for the first time: a per-user `positions.json` under `DATA_PATH/users/<login>/extensions/HardlyRead/`, holding `{updatedAt, categories[], feeds[]}` — the two lists the app drags. Last write wins by the client's `updatedAt`; an older write is refused with `409 stale_positions` + the winning timestamp instead of clobbering a newer arrangement. A file, not the user config, because a finishing refresh rewrites the whole user config from its in-memory copy and silently drops anything another request wrote. `25 checks` in `extensions/xExtension-HardlyRead/tests/positions.php` (store round trip, dedupe, caps, corrupt file, path traversal, 401 before routing, 409, 503 without a store). **Deploy is gated on an explicit go-ahead.** |
 | 155 | Client reads and writes those positions instead of only `localStorage` | **todo** | `categoryOrder`/`feedOrder` stay the render source (local first, write after), but a launch and a completed drag reconcile with `GET`/`PUT /v1/positions` so the arrangement follows the account across PC, web, iPhone and Android. Local storage becomes the offline cache and the fallback when the route answers `404 route_not_found` (an older adapter). |
 | 156 | FreshRSS web sidebar honours the stored positions | **backlog** | Nothing on the website reads `/v1/positions` yet, on purpose: the app is the first consumer, and changing the web sidebar is a second change with its own risk. It means an admin-side hook that sorts `View->categories()` by the same two lists, with the pin band still on top. |
+
+## What survives a session — the inventory, and what has to travel (2026-10-24)
+
+Everything the app remembers today, where it lives, and whether another app should inherit it.
+Written down now because a phone and a desktop will disagree the moment both exist: one account, two
+sets of zoom and text size, and no way to say which is "the" setting. **This becomes priority one
+when mobile testing starts** (`t_6ca4131e`), because that is the first moment two of these can be
+open at once.
+
+### On the account already — travels today, through the server
+
+| what | where | who writes it |
+|---|---|---|
+| Stars, read/unread | FreshRSS itself (`edit-tag`) | client |
+| Pinned categories and the pinned view | HardlyRead extension, per user | `pins` routes |
+| Category and feed order — the arrangement you drag | extension `positions.json`, last write wins by `updatedAt` | `GET`/`PUT /v1/positions` |
+| Sidebar feed indent, in px | extension, per user | `PUT /v1/indent` |
+| Hidden categories, hidden set and passcode | HiddenCategories extension | that extension |
+| Feed priority ✕10 hidden, +20 favourite | FreshRSS `_feed.priority` | both |
+
+### On the device — does not travel
+
+| store | key | holds | verdict |
+|---|---|---|---|
+| reading | `hardlyreader.reading.v1` | view (regular/list/cards/grid), article filter, advance-on-scroll, scroll effort, mark-read mode and dwell seconds, text scale, row scale, thumb scale, **article picture scale**, leading, alignment, thumb side, card flip edge, step percent, extraction toggle, grid columns, card size (unused) | **sync** — this is how the reader reads |
+| cards | `hardlyreader.cards.v1` | cards layout (rows/masonry), masonry column count | **sync** |
+| theme | `hardlyreader.theme.v1` | theme mode; accent, edges, hidden, pinned, lock open/closed, unlock and sync colours; accent edges | **sync** — a taste, but a portable one |
+| search | `hardlyreader.search.v1` | deep search on/off | **sync** |
+| people | `hardlyreader.people.v1` | which accounts answer the author lookup | re-probe, not synced |
+| account prefs | `hardlyreader:prefs:<server>\|<email>` | pins mirror, collapsed categories, indent px (+ local-only flag, unsent value), feed order, category order, positions stamp | **sync**, but the server copy wins |
+| layout | `hardlyreader.layout.v1` | pane widths, keep-widths, one-pane width, collapsed pane, geometry per sizing mode | **device** — a 320px phone and a 1400px desktop have nothing to say to each other |
+| chrome | `hardlyreader.chrome.v1` | band collapsed, indent panel open, pin pad, auto-sync on/off and hours | **device** |
+| place | `hardlyreader:place:<server>\|<email>` | last stream, last article, unfolded feed | **device** — resume is where *this* screen was |
+| cache | IndexedDB `hardlyreader-cache` | sidebar snapshot, last page of 60 streams, 6h search index | **device** |
+| session | `hardlyreader.session` | server URL and the GReader token | **device, never** |
+
+### The shape of the fix
+
+One route on the extension — `GET`/`PUT /v1/preferences` — holding a versioned JSON blob per user,
+last write wins by an `updatedAt` stamp: the shape `/v1/positions` already proves, `409` on a stale
+write included. localStorage stays as the offline copy; the client reads on launch and after a sync,
+writes after a change with a short debounce. A device that has never seen the account adopts the
+server's blob whole; the device-local stores are left alone. Theme goes in the same blob, because a
+phone and a desktop set to different colours is the same complaint in a different place.
+
+Pitfalls recorded now so they are not rediscovered:
+
+- two windows at once — a stamp, never "the last one closed";
+- a phone writing `thumbScale` while the desktop drags — decide field-level merge or accept a
+  clobber, and write the decision down;
+- an older adapter with no such route — fall back to local, never an error;
+- a corrupt blob — keep the local copy and write it back rather than adopting garbage;
+- the article picture scale is *relative to the automatic fit*, so syncing it between a phone frame
+  and a desktop frame carries the intent, not the pixels. That is the right thing to sync.
+
+| 157 | Every remembered preference, inventoried and classified | **done** | The two tables above: six things the account already carries through the server, eleven device-local stores with a verdict on each — sync, device, or never. Written from the code (`reading.v1`, `cards.v1`, `theme.v1`, `search.v1`, `people.v1`, `layout.v1`, `chrome.v1`, `hardlyreader:prefs:*`, `hardlyreader:place:*`, `hardlyreader-cache`, `hardlyreader.session`) and from the extension's routes, not from memory. The line that matters: the reader's *settings* are account data and should travel; the *window* is not. |
+| 158 | Sync those preferences across apps | **next, priority one at mobile testing** | `t_6ca4131e`. Extension gains `GET`/`PUT /v1/preferences` (versioned blob, `updatedAt` stamp, `409` on stale, per user under `DATA_PATH/users/<login>/extensions/HardlyRead/preferences.json` — a file, not the user config, for the same reason `/v1/positions` is). Client: read at launch and after sync, debounced write after a change, local copy is the offline fallback, `404` from an older adapter means local-only. Scope is the "sync" column only — layout geometry, chrome, place, cache and the session stay on the device. Depends on 149 (per-account keys) for a second account, and on 155 for the same reconcile pattern. |
