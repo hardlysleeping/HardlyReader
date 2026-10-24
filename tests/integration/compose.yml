@@ -1,0 +1,34 @@
+services:
+  freshrss:
+    image: freshrss/freshrss:1.30.1
+    # No container_name: that is a global namespace, so a second compose
+    # project (the E2E run) would collide with the developer's harness. Compose
+    # names the container after the project; everything here addresses it by
+    # service.
+    ports: ["127.0.0.1:${HARDLYREAD_E2E_PORT:-18080}:80"]
+    environment:
+      TZ: UTC
+      FRESHRSS_INSTALL: |-
+        --api-enabled
+        --base-url ${HARDLYREAD_E2E_BASE_URL:-http://localhost:18080}
+        --db-type sqlite
+        --default-user itest
+        --environment development
+        --language en
+      FRESHRSS_USER: |-
+        --user itest
+        --password itest-password
+        --api-password hardlyread-test-password
+        --no-default-feeds
+        --language en
+    volumes:
+      - hardlyread-dev-data:/var/www/FreshRSS/data
+    healthcheck:
+      test: ["CMD", "cli/health.php"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  hardlyread-dev-data:

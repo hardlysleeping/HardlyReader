@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    HardlyReader. A feed mark drawn as geometry: one dot and two quarter arcs
+    struck from it, all three the same weight, so it stays legible at 32px and
+    needs no shading. One dot, two arcs, one warm gradient struck across them
+    so the mark has an identity in a dock of grey icons; nothing else.
+  -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#191C21"/>
+      <stop offset="1" stop-color="#0B0C0E"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="318" y1="706" x2="738" y2="286" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF6446"/>
+      <stop offset="1" stop-color="#FFAE58"/>
+    </linearGradient>
+  </defs>
+  <rect x="72" y="72" width="880" height="880" rx="190" fill="url(#tile)"/>
+  <g fill="none" stroke="url(#mark)" stroke-width="84" stroke-linecap="round">
+    <path d="M318 474 A232 232 0 0 1 550 706"/>
+    <path d="M318 286 A420 420 0 0 1 738 706"/>
+  </g>
+  <circle cx="318" cy="706" r="74" fill="url(#mark)"/>
+</svg>

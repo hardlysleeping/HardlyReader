@@ -1,0 +1,265 @@
+/* One pulse, two places: the sidebar band answers a lock and an unlock, the
+   header bar answers a sync. Same drawing each time — a thin ring on the bar's
+   own edge that grows a hair and fades — so an action reads as the app
+   responding rather than as light thrown across the window. `--pulse-tone` is
+   set by whoever fires it; the ring is gone on `animationend`. */
+@keyframes hrs-bar-pulse {
+  0% {
+    opacity: 1;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--pulse-tone, currentColor) 75%, transparent),
+      0 0 8px color-mix(in srgb, var(--pulse-tone, currentColor) 26%, transparent);
+  }
+  100% {
+    opacity: 0;
+    box-shadow:
+      inset 0 0 0 3px color-mix(in srgb, var(--pulse-tone, currentColor) 0%, transparent),
+      0 0 16px color-mix(in srgb, var(--pulse-tone, currentColor) 0%, transparent);
+  }
+}
+
+/*
+ * Palettes.
+ *
+ * Light is the base; `Auto` follows the OS through the media query, and an
+ * explicit choice stamps `data-theme` on <html> (see state/theme.svelte.ts)
+ * which wins over the media query because the attribute adds specificity.
+ *
+ * Only the *chosen* colours are variables set from the theme: every shade below
+ * them is a `color-mix()` against those, so one accent change reaches rings,
+ * fills, glows and underlights without a second palette in JavaScript.
+ */
+:root {
+  --bg: #fdfdfd;
+  --surface: #f4f4f5;
+  --bg-alt: #f4f4f5;
+  --border: #d8d8dc;
+  --border-soft: #ebebee;
+  --hover: #eeeef0;
+  --text: #1c1c1f;
+  --text-dim: #46464e;
+  --muted: #6b6b74;
+  --star: #d19a00;
+
+  /* Chosen by the theme; these defaults match DEFAULT_THEME. */
+  --accent: #0078e0;
+  --tone-hidden: #e5484d;
+  --tone-pinned: #0078e0;
+  --tone-lock-open: #e6b93f;
+  --tone-lock-closed: #f08c2e;
+  --tone-unlock: #3fbf6f;
+
+  --tone-sync: #28a06b;
+
+  /* Overridden by the theme when the accent is allowed to tint the pane lines. */
+  --edge: var(--border);
+  --edge-soft: var(--border-soft);
+
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-text: var(--accent);
+
+  color-scheme: light;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Auto: no explicit choice, so the OS decides. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #17171a;
+    --surface: #1f1f23;
+    --bg-alt: #1f1f23;
+    --border: #33333a;
+    --border-soft: #26262b;
+    --hover: #25252b;
+    --text: #e7e7ea;
+    --text-dim: #c2c2cb;
+    --muted: #9a9aa4;
+    --star: #e8b93c;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  /* Dark mode is meant to be dark: the panels sit on near-black so the text has
+     somewhere to be brighter than, and the borders are lighter than the gaps
+     between them so a divider is a line rather than a smudge. */
+  --bg: #0c0c0e;
+  --surface: #131316;
+  --bg-alt: #131316;
+  --border: #3a3a44;
+  --border-soft: #212128;
+  --hover: #1e1e24;
+  --text: #f4f4f7;
+  --text-dim: #d2d2da;
+  --muted: #9b9ba6;
+  --star: #f2bf3c;
+  color-scheme: dark;
+}
+
+/* Explicit light: the same palette as the base, spelled out so it also wins on
+   a machine whose OS is dark. */
+:root[data-theme="light"] {
+  --bg: #fdfdfd;
+  --surface: #f4f4f5;
+  --bg-alt: #f4f4f5;
+  --border: #d8d8dc;
+  --border-soft: #ebebee;
+  --hover: #eeeef0;
+  --text: #1c1c1f;
+  --text-dim: #46464e;
+  --muted: #6b6b74;
+  --star: #d19a00;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+/* Slim, quiet scrollbars: they appear where there is more content, not as a
+   column of chrome down the side of every panel. A short thumb is honest about a
+   long list; the track stays out of the way. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 42%, transparent) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 65%, transparent);
+}
+
+/* The pull gesture's feedback: one line at the top of the window, saying what
+   letting go will do. It is created by the action, so it cannot live in a
+   component's scoped styles. */
+.pull-pill {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  z-index: 80;
+  transform: translateX(-50%);
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.pull-pill.armed {
+  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+body {
+  /* Nothing in this app is wider than the window: panes share the width, the
+     header moves what does not fit into its menu. A horizontal scrollbar here
+     would mean a measurement is wrong, so it is not offered. */
+  overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The row being dragged, lifted out and following the pointer. Appended to
+   <body> by the drag module, so it is styled here rather than in the sidebar:
+   component-scoped styles do not reach it. */
+.feed-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  /* Moved with `transform` only. A fixed element positioned with `top` lays out
+     on every pointer frame; a transform is a compositor job, so the row tracks
+     the cursor instead of chasing it. No `transform` transition either — that
+     would lag the row behind the pointer rather than lifting it. */
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--panel, #1b1b1b);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
+  color: var(--text);
+  opacity: 0.99;
+  pointer-events: none;
+  overflow: hidden;
+  white-space: nowrap;
+  contain: layout paint;
+  transition: box-shadow 90ms ease, opacity 110ms ease;
+}
+
+/* Lifted: the row is off the panel, so the shadow says how far off. The scale
+   comes from the transform the drag writes, so the two never disagree. */
+.feed-ghost.lifted {
+  box-shadow:
+    0 16px 34px rgb(0 0 0 / 50%),
+    0 2px 6px rgb(0 0 0 / 35%);
+}
+
+/* Put down: it fades where the pointer released it while the list takes it in,
+   rather than vanishing on the frame of the release. */
+.feed-ghost.dropping {
+  opacity: 0;
+}
+
+/* The row that was lifted stays in the list, dimmed. Removing it would shift
+   every row below it — and the drop targets with them — under the pointer. */
+html.feed-dragging .feed[data-lifted] {
+  opacity: 0.35;
+}
+
+html.feed-dragging,
+html.feed-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* A drag-pan in progress: the hand is holding the content, so the cursor says
+   so and text under the pointer does not get selected along the way. */
+html.drag-panning,
+html.drag-panning * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
