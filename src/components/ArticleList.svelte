@@ -30,6 +30,8 @@ import { plainPreview, relativeTime } from "../lib/format";
   import { cardLayout } from "../lib/card-layout.svelte";
   import { near } from "../lib/near-view";
   import { fitWindowTo, screenSize } from "../lib/window-fit";
+  import { openExternal } from "../lib/open-external";
+  import { isExternalHttp } from "../lib/sanitize";
   import { pullDown } from "../lib/pull";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { reader } from "../state/reader.svelte";
@@ -764,6 +766,25 @@ import { plainPreview, relativeTime } from "../lib/format";
     event.stopPropagation();
     void reader.setRead(item, !isRead(item));
   }
+
+  /** Where the post lives on its own site, if the feed said. */
+  function sourceUrl(item: StreamItem): string | null {
+    const href = item.alternate?.[0]?.href ?? item.canonical?.[0]?.href ?? null;
+    return isExternalHttp(href) ? href : null;
+  }
+
+  /**
+   * Open the post where it was published.
+   *
+   * No prompt and no reader: the reader is a reading surface, and sometimes what
+   * is wanted is the site itself. The click stops at the button, so the row does
+   * not also open the post underneath it.
+   */
+  function openAtSource(item: StreamItem, event: MouseEvent): void {
+    event.stopPropagation();
+    const url = sourceUrl(item);
+    if (url !== null) void openExternal(url);
+  }
 </script>
 
 <section class="list" data-pane="posts" class:nested aria-label={reader.activeTitle}>
@@ -1003,6 +1024,7 @@ import { plainPreview, relativeTime } from "../lib/format";
       <!-- A feed whose posts are pictures has no text to preview; the row keeps
            its shape rather than reserving a blank line under the headline. -->
       {@const blurb = summary(item, view === "cards" ? 320 : 160)}
+      {@const source = sourceUrl(item)}
       <div
         class="row"
         class:selected={reader.selectedId === item.id}
@@ -1137,6 +1159,22 @@ import { plainPreview, relativeTime } from "../lib/format";
               ><circle cx="8" cy="8" r="5.4" /><path d="M5.2 8.2l2 2 3.6-3.9" /></svg
             >
           </button>
+          {#if source !== null}
+            <!-- A shortcut mark rather than a word: the arrow leaving the box is
+                 what every desktop already means by "open this somewhere else". -->
+            <button
+              class="act open"
+              aria-label="Open at source"
+              title="Open at source"
+              onclick={(event) => openAtSource(item, event)}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true"
+                ><path d="M9.2 2.2h4.6v4.6" /><path d="M13.4 2.6 7.4 8.6" /><path
+                  d="M12.2 9.6v3.1a1.3 1.3 0 0 1-1.3 1.3H3.3A1.3 1.3 0 0 1 2 12.7V5.1a1.3 1.3 0 0 1 1.3-1.3h3.2"
+                /></svg
+              >
+            </button>
+          {/if}
         </div>
       </div>
     {/each}

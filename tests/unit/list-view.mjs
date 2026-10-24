@@ -157,7 +157,9 @@ check(
 // the post. The third is the card pager: flipping a multi-picture card is the
 // one other thing on a row that must not open the article.
 const stops = list.match(/stopPropagation\(\)/g) ?? [];
-check("no control on a row also opens the post", stops.length === 3, String(stops.length));
+// star, read, open at source — and the card pager's flip, which stops a click
+// on a clicker from opening the post.
+check("no control on a row also opens the post", stops.length === 4, String(stops.length));
 check(
   "the handlers are the reader's own writes",
   /void reader\.toggleStar\(item\)/.test(list) && /void reader\.setRead\(item, !isRead\(item\)\)/.test(list),
@@ -444,6 +446,53 @@ check(
   /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*pointer-events: none;/.test(
     listSource,
   ) && /\.row \{\s*position: relative;/.test(listSource),
+);
+
+
+// Star and read were the only two acts. "Open at source" is the third, and it
+// lives in the one `acts` group every view draws — a card, a regular row, a
+// compact line and a grid tile all get it because none of them own the group.
+check(
+  "a row can be opened at its source, in every view",
+  (() => {
+    const acts = listSource.slice(listSource.indexOf('<div class="acts">'));
+    const group = acts.slice(0, acts.indexOf("</div>"));
+    return (
+      /class="act open"/.test(group) &&
+      /aria-label="Open at source"/.test(group) &&
+      /onclick=\{\(event\) => openAtSource\(item, event\)\}/.test(group) &&
+      // No view condition inside the group: whatever the shape, the same acts.
+      !/\{#if view/.test(group)
+    );
+  })(),
+);
+check(
+  "it opens the link and nothing else",
+  (() => {
+    const fn = listSource.slice(listSource.indexOf("function openAtSource"));
+    const where = listSource.slice(listSource.indexOf("function sourceUrl"));
+    return (
+      /event\.stopPropagation\(\);/.test(fn) &&
+      /void openExternal\(url\);/.test(fn) &&
+      // and it is only drawn when the feed said where the post lives
+      /\{#if source !== null\}/.test(listSource) &&
+      /const href = item\.alternate\?\.\[0\]\?\.href \?\? item\.canonical\?\.\[0\]\?\.href \?\? null;/.test(where) &&
+      /return isExternalHttp\(href\) \? href : null;/.test(where)
+    );
+  })(),
+);
+check(
+  "a link leaves the app rather than replacing it",
+  (() => {
+    const lib = read("src/lib/open-external.ts");
+    return (
+      /__TAURI_INTERNALS__/.test(lib) &&
+      /plugin-opener/.test(lib) &&
+      /window\.open\(url, "_blank", "noopener,noreferrer"\)/.test(lib) &&
+      // a prompt would be a dialog; this is meant to just go
+      !/confirm\(|prompt\(|alert\(/.test(lib)
+    );
+  })(),
 );
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);
