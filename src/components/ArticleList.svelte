@@ -2018,7 +2018,11 @@ import { plainPreview, relativeTime } from "../lib/format";
     width: 100%;
     container-type: inline-size;
     overflow: hidden;
-    background: var(--bg);
+    /* The air around a picture — the narrow bars either side of a tall page, the
+       strip under a short one — is not empty page, it is the card's mat: a
+       darker wash of the accent, so a comic sits in the card rather than
+       floating on the pane's own background. */
+    background: color-mix(in srgb, var(--accent) 28%, var(--bg));
   }
 
   .cards .lead img {
