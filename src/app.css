@@ -236,6 +236,23 @@ html.feed-dragging .feed[data-lifted] {
   opacity: 0.35;
 }
 
+/* A picked-up folder dims whole, and its ghost is the whole folder: the title,
+   the feeds in it and their gaps, clipped to something that still leaves the
+   list visible around it. */
+html.feed-dragging [data-drag-block][data-lifted] {
+  opacity: 0.3;
+}
+
+.feed-ghost.block {
+  display: block;
+  padding: 0;
+  white-space: normal;
+  border: 1px solid var(--edge-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
 html.feed-dragging,
 html.feed-dragging * {
   cursor: grabbing !important;

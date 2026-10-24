@@ -73,6 +73,14 @@ export interface RowDragOptions {
   headerFirstAttr?: string;
   /** Attribute on a list's block holding its own label, for drops in its gaps. */
   sectionCatAttr?: string;
+  /**
+   * Optional: attribute marking the block a row belongs to, when the drag should
+   * pick the block up rather than the row.
+   *
+   * A folder is moved by its title, but the thing that moves is the folder: its
+   * feeds come with it. Carrying the title alone reads as moving a label.
+   */
+  blockAttr?: string;
 }
 
 /** Feeds: a feed row, its category label, and the feed after it. */
@@ -294,13 +302,26 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
   let pending: { x: number; y: number } | null = null;
   let frame = 0;
 
-  function makeGhost(source: HTMLElement, width: number, height: number): HTMLElement {
+  function makeGhost(source: HTMLElement, width: number, height: number, block: boolean): HTMLElement {
     const clone = source.cloneNode(true) as HTMLElement;
     clone.removeAttribute("id");
     clone.classList.add("feed-ghost");
+    if (block) clone.classList.add("block");
     clone.style.width = `${width}px`;
     clone.style.height = `${height}px`;
     return clone;
+  }
+
+  /**
+   * The tallest a picked-up block is drawn.
+   *
+   * A folder with forty feeds in it is taller than the window, and a ghost that
+   * tall would sit under the pointer with its bottom off screen and hide the
+   * slots it is being carried over. Clipped, it still reads as a stack of rows.
+   */
+  function blockHeight(height: number): number {
+    const cap = Math.max(160, Math.round((globalThis.innerHeight || 800) * 0.6));
+    return Math.min(height, cap);
   }
 
   /** Put the ghost where the row was lifted from, in one write. */
@@ -312,17 +333,29 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
   function begin(event: PointerEvent, row: HTMLElement) {
     dragging = true;
     handlers.onStart?.();
-    const rect = row.getBoundingClientRect();
-    ghost = makeGhost(row, rect.width, rect.height);
+    // A block drag carries the whole block: the title and the rows under it, so
+    // what is under the hand is what is being moved rather than a label for it.
+    const block =
+      options.blockAttr === undefined ? null : row.closest<HTMLElement>(`[${options.blockAttr}]`);
+    const source = block ?? row;
+    const rect = source.getBoundingClientRect();
+    ghost = makeGhost(
+      source,
+      rect.width,
+      block === null ? rect.height : blockHeight(rect.height),
+      block !== null,
+    );
+    // Measured from the block, so the point that was grabbed stays under the
+    // pointer: the ghost appears exactly where the block was.
     grabX = event.clientX - rect.left;
     grabY = event.clientY - rect.top;
     placeGhost(event.clientX, event.clientY);
     document.body.append(ghost);
     // The row stays where it is, dimmed, so the list does not reflow under the
     // pointer — a row that vanished would shift every row below it and the drop
-    // target would move with them.
-    lifted = row;
-    row.setAttribute("data-lifted", "");
+    // target would move with them. A picked-up block dims whole: it left.
+    lifted = source;
+    source.setAttribute("data-lifted", "");
     document.documentElement.classList.add("feed-dragging");
     requestAnimationFrame(() => ghost?.classList.add("lifted"));
   }
@@ -354,7 +387,6 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
       }
     }
     const next = dropTargetAt(at.x, y, options);
-    placeGhost(at.x, at.y);
     const changed =
       next?.target !== target?.target || (next?.before ?? null) !== (target?.before ?? null);
     target = next;
@@ -372,6 +404,12 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
       begin(event, row);
     }
     event.preventDefault();
+    // The picture moves on the event and the question — "what is under it?" —
+    // waits for the next frame. A transform write is a compositor job and costs
+    // nothing to do more often; a hit test reads layout, and that is the part
+    // worth doing once per frame. Doing both per frame put the ghost a frame
+    // behind the hand at every pointer speed.
+    placeGhost(event.clientX, event.clientY);
     pending = { x: event.clientX, y: event.clientY };
     if (frame === 0) frame = requestAnimationFrame(flush);
   }
@@ -398,7 +436,7 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
       // where the pointer let go of it while the list underneath takes it in.
       settling.classList.remove("lifted");
       settling.classList.add("dropping");
-      window.setTimeout(() => settling.remove(), 140);
+      window.setTimeout(() => settling.remove(), 110);
     }
     document.documentElement.classList.remove("feed-dragging");
     dragging = false;

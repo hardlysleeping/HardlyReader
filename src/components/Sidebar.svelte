@@ -456,6 +456,8 @@
       sectionAttr: "data-cat-section",
       sectionNextAttr: "data-cat-next",
       listName: LIST_CATEGORIES,
+      // The title is the handle, the folder is what is carried.
+      blockAttr: "data-drag-block",
     },
   );
 
@@ -1002,6 +1004,7 @@
     {@const folded = reader.isCategoryCollapsed(category.id)}
     <div
       class="section"
+      data-drag-block
       data-cat-section={category.id}
       data-cat-next={reader.categories[index + 1]?.id ?? null}
       data-drop-section={category.label}
