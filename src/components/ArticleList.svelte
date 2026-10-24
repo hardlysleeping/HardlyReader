@@ -901,6 +901,29 @@ import { plainPreview, relativeTime } from "../lib/format";
             {/if}
           </button>
         {/each}
+        <!-- Read the tapped post here instead of in the article column. It sits
+             inside the view group because it is a thing the Rows view does, and
+             it is drawn only where Rows is: the other three shapes are for
+             scanning, and a page inside one of them would be a second kind of
+             card. -->
+        {#if view === "regular"}
+          <span class="viewsplit" aria-hidden="true"></span>
+          <button
+            class="viewicon pane"
+            class:on={reading.readInPane}
+            aria-pressed={reading.readInPane}
+            aria-label="Read posts in this column"
+            title={reading.readInPane
+              ? "Posts open here, in this column — press again to send them to the article column"
+              : "Open posts in the article column beside this one"}
+            onclick={() => reading.toggleReadInPane()}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 2.5h5.2L12.5 5.8v7.7H4z" />
+              <path d="M9.2 2.5v3.3h3.3" />
+            </svg>
+          </button>
+        {/if}
       </div>
 
       <!-- Sizing lives where the view is chosen, and only the view that has
@@ -1482,6 +1505,14 @@ import { plainPreview, relativeTime } from "../lib/format";
   .viewicon.on {
     color: var(--text);
     background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  /* The read-here toggle is a different kind of choice from the four shapes,
+     so a hairline separates it rather than a gap: same group, other question. */
+  .viewsplit {
+    width: 1px;
+    margin: 2px 1px;
+    background: color-mix(in srgb, var(--edge-soft) 90%, transparent);
   }
 
   .filters {

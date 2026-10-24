@@ -503,11 +503,15 @@ check(
     /\.slot\.away \{\s*visibility: hidden;/.test(main) && !/\{#if slots\./.test(main),
   );
   check(
+    // One ReaderPane for the article column, and one more only while the posts
+    // column is reading in place — the Rows view's own switch, not a second
+    // article pane. The list stays mounted either way, under the page.
     "each pane is mounted once, in its own slot, whatever the mode",
     (main.match(/<ArticleList \/>/g) ?? []).length === 1 &&
-      (main.match(/<ReaderPane /g) ?? []).length === 1 &&
-      /class="slot posts" class:away=\{!slots\.posts\}/.test(main) &&
-      /class="slot article" class:away=\{!slots\.article\}/.test(main),
+      (main.match(/<ReaderPane /g) ?? []).length === 2 &&
+      /class="slot posts" class:away=\{!slots\.posts\} class:reading=\{inPane\}/.test(main) &&
+      /class="slot article" class:away=\{!slots\.article \|\| inPane\}/.test(main) &&
+      /\{#if inPane\}\s*<div class="over">\s*<ReaderPane onClose=\{closeInPane\} onRead=\{closeInPane\} \/>/.test(main),
   );
   check(
     "the article keeps its own handler for the walk and its close for the panes",

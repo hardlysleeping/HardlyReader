@@ -210,8 +210,11 @@ function method(source, name) {
     /\.panes\.two \.slot\.posts,\s*\.panes\.two \.slot\.article \{\s*grid-column: 3 \/ 4;\s*\}/.test(main),
   );
   check(
+    // The seam is its own slot, drawn when the slot map says so — and away while
+    // the posts column is reading in place, because the page it would split from
+    // is over the list rather than beside it.
     "and the seam between them is their own slot",
-    /class="slot seam-x gut-posts" class:away=\{!slots\.seamPosts\}/.test(main),
+    /class="slot seam-x gut-posts" class:away=\{!slots\.seamPosts \|\| inPane\}/.test(main),
   );
   check(
     "the fold is offered to the seam in two panes only, and not once folded",

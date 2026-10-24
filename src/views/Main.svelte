@@ -273,6 +273,17 @@
   }
 
   /**
+   * Back to the list, from an article read in the posts column.
+   *
+   * The list never left — it was under the page the whole time — so this is the
+   * selection going away, not a column being rebuilt: the scroll position the
+   * reader was in is the one they come back to.
+   */
+  function closeInPane(): void {
+    reader.closeReader();
+  }
+
+  /**
    * One column is a walk through the same three things the panes show side by
    * side: the feeds, the posts of one feed, and the article. Back therefore
    * steps exactly one of those at a time — article, then posts, then feeds — so
@@ -312,6 +323,22 @@
    * actually showing — so the view names the state it is drawing.
    */
   const folded = $derived(mode >= 2 && layout.sidebarCollapsed);
+
+  /**
+   * Reading in the posts column rather than in the article column beside it.
+   *
+   * The option belongs to the Rows view, and to the arrangements where there is
+   * an article column to borrow room from. In the stacked pair and in two panes
+   * the article already has its own half of the frame, so the flag changes
+   * nothing there.
+   */
+  const inPane = $derived(
+    reading.readInPane &&
+      reading.listView === "regular" &&
+      reader.selectedId !== null &&
+      (mode === 3 || (mode === 2 && folded)) &&
+      !stackDrawn,
+  );
 
   const slots = $derived(
     paneSlots({
@@ -675,16 +702,29 @@
       </button>
     </div>
 
-    <div class="slot posts" class:away={!slots.posts} bind:this={postsSlot}>
-      <ArticleList />
+    <!-- The posts column, and — when the Rows view is asked to read here —
+         the article drawn over it. The list stays mounted underneath so it
+         keeps its scroll and its place, and it is inert while covered: a
+         list you cannot see must not be a list you can tab into. -->
+    <div class="slot posts" class:away={!slots.posts} class:reading={inPane} bind:this={postsSlot}>
+      <div class="under" inert={inPane}>
+        <ArticleList />
+      </div>
+      {#if inPane}
+        <div class="over">
+          <ReaderPane onClose={closeInPane} onRead={closeInPane} />
+        </div>
+      {/if}
     </div>
 
-    <div class="slot seam-x gut-posts" class:away={!slots.seamPosts}>
+    <div class="slot seam-x gut-posts" class:away={!slots.seamPosts || inPane}>
       <PaneGutter which="list" />
     </div>
 
-    <div class="slot article" class:away={!slots.article} bind:this={articleSlot}>
-      <ReaderPane onClose={closeArticle} onLock={mode === 1 ? lockFromArticle : undefined} />
+    <div class="slot article" class:away={!slots.article || inPane} bind:this={articleSlot}>
+      {#if !inPane}
+        <ReaderPane onClose={closeArticle} onLock={mode === 1 ? lockFromArticle : undefined} />
+      {/if}
     </div>
 
     <!-- The seam between the posts and the article when they are stacked: the
@@ -919,6 +959,37 @@
     min-height: 0;
   }
 
+  /* The list under the page, and the page over it. The list keeps its box — so
+     it keeps its scroll — while the article covers it; the page is taken out of
+     the flex row so the two do not share the column's width. */
+  .slot.posts .under {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .slot.posts .under > :global(*) {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .slot.posts .over {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex: none;
+    z-index: 3;
+    background: var(--bg);
+  }
+
+  .slot.posts .over > :global(*) {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
   /* A seam is not a pane: the chip that carries the stack's controls straddles
      the 6px track and must be allowed to paint over both panes. */
   .slot.seam-x,
@@ -1021,6 +1092,16 @@
 
   .panes.stacked.swapped .slot.article {
     grid-row: 2 / 3;
+  }
+
+  /* Reading in the posts column borrows the article column's room: the page
+     takes the list's track and the one beside it, and the seam that led to the
+     article goes with it. Two rules, one per arrangement that draws an article
+     column beside the list — the folded pair included, because the fold leaves
+     the same two columns standing. */
+  .panes.three .slot.posts.reading,
+  .panes.two.folded .slot.posts.reading {
+    grid-column: 3 / -1;
   }
 
   /* The stack on the phone is the same pair in the only column there is. */

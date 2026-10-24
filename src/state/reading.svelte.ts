@@ -75,6 +75,16 @@ class ReadingState {
    */
   listView = $state<ListView>(LIST_VIEW_DEFAULT);
 
+  /**
+   * Whether a tapped row is read in the posts column itself.
+   *
+   * Off by default: the column is a list, and a tap that swaps it for a page is
+   * not what a list is for unless you ask. On, the article takes the column
+   * (and the article column beside it) and the toolbar's back button returns
+   * the list — reading without leaving the list's place in the frame.
+   */
+  readInPane = $state(false);
+
   /** Tiles per row in the grid; `auto` is the grid's own judgement. */
   gridColumns = $state<GridColumns>(GRID_COLUMNS_DEFAULT);
 
@@ -184,6 +194,7 @@ class ReadingState {
         advanceOnScroll?: unknown;
         articleFilter?: unknown;
         listView?: unknown;
+        readInPane?: unknown;
         gridColumns?: unknown;
         cardSize?: unknown;
         markReadMode?: unknown;
@@ -205,6 +216,7 @@ class ReadingState {
       if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
       if (isListView(saved.listView)) this.listView = saved.listView;
+      if (typeof saved.readInPane === "boolean") this.readInPane = saved.readInPane;
       if (isGridColumns(saved.gridColumns)) this.gridColumns = saved.gridColumns;
       if (isCardSize(saved.cardSize)) this.cardSize = saved.cardSize;
       // An explicit choice of mode is honoured; the old bare `autoMarkRead`
@@ -277,6 +289,17 @@ class ReadingState {
   setListView(view: ListView): void {
     if (!isListView(view) || this.listView === view) return;
     this.listView = view;
+    this.save();
+  }
+
+  /**
+   * Read in the posts column, or in the article column beside it.
+   *
+   * Only Regular rows offer this: the other three views answer "scan many
+   * posts", and a page inside one of them would be a second kind of card.
+   */
+  toggleReadInPane(): void {
+    this.readInPane = !this.readInPane;
     this.save();
   }
 
@@ -402,6 +425,7 @@ class ReadingState {
           advanceOnScroll: this.advanceOnScroll,
           articleFilter: this.articleFilter,
           listView: this.listView,
+          readInPane: this.readInPane,
           gridColumns: this.gridColumns,
           cardSize: this.cardSize,
           markReadMode: this.autoMarkRead ? "auto" : "manual",

@@ -25,7 +25,22 @@
    * the one-column layout, where the band — and its lock — is not on screen
    * while you are reading.
    */
-  let { onClose, onLock }: { onClose?: () => void; onLock?: () => void } = $props();
+  let {
+    onClose,
+    onLock,
+    onRead,
+  }: {
+    onClose?: () => void;
+    onLock?: () => void;
+    /**
+     * Called when this pane marks the post read.
+     *
+     * The posts column draws the article over its own list when reading there,
+     * so marking it read is the end of the visit and the list comes back.
+     * Marking *unread* does not: that is a correction, not a finish.
+     */
+    onRead?: () => void;
+  } = $props();
 
   /** Locking needs something to lock with; without a passcode, say so instead. */
   const canLock = $derived(reader.hiddenAvailable && reader.hiddenHasPasscode && !reader.hiddenLocked);
@@ -463,7 +478,14 @@
         class="icon"
         aria-label={isRead(item) ? "Mark unread" : "Mark read"}
         title={isRead(item) ? "Mark unread" : "Mark read"}
-        onclick={() => (isRead(item) ? reader.setRead(item, false) : reader.markRead(item))}
+        onclick={() => {
+          if (isRead(item)) {
+            reader.setRead(item, false);
+            return;
+          }
+          reader.markRead(item);
+          onRead?.();
+        }}
       >{isRead(item) ? "◯" : "●"}</button>
       {#if link && canExtract(link)}
         <!-- Experimental: one article, fetched on demand. Sat next to "open

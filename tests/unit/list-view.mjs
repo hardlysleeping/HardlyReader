@@ -558,5 +558,55 @@ check(
     /\.items \.tab\.month \{/.test(listSource),
 );
 
+/*
+ * Reading in the column itself.
+ *
+ * The Rows view can hold the article a tap opened, instead of sending it to the
+ * column beside it. Three facts make that a promise rather than a drawing: the
+ * switch exists only for Rows, the choice is remembered, and marking the post
+ * read is what ends the visit — marking it unread is a correction, not a finish.
+ */
+const readingSource = readFileSync(join(root, "src/state/reading.svelte.ts"), "utf8");
+const mainSource = readFileSync(join(root, "src/views/Main.svelte"), "utf8");
+const readerSource = readFileSync(join(root, "src/components/ReaderPane.svelte"), "utf8");
+
+check(
+  "the read-here switch belongs to Rows, and sits beside the four views",
+  (() => {
+    const views = listSource.slice(listSource.indexOf('class="views"'));
+    const group = views.slice(0, views.indexOf("<!-- Sizing lives"));
+    return (
+      /\{#if view === "regular"\}/.test(group) &&
+      /aria-label="Read posts in this column"/.test(group) &&
+      /onclick=\{\(\) => reading\.toggleReadInPane\(\)\}/.test(group) &&
+      /class:on=\{reading\.readInPane\}/.test(group)
+    );
+  })(),
+);
+check(
+  "the choice is remembered, off by default",
+  /readInPane = \$state\(false\)/.test(readingSource) &&
+    /if \(typeof saved\.readInPane === "boolean"\) this\.readInPane = saved\.readInPane;/.test(readingSource) &&
+    /readInPane: this\.readInPane,/.test(readingSource),
+);
+check(
+  "the page is drawn over the list, not instead of it",
+  /inert=\{inPane\}/.test(mainSource) &&
+    /\.slot\.posts \.over \{\s*position: absolute;/.test(mainSource) &&
+    /class:reading=\{inPane\}/.test(mainSource),
+);
+check(
+  "the list keeps its place: the cover borrows the article column's room",
+  /\.panes\.three \.slot\.posts\.reading,\s*\.panes\.two\.folded \.slot\.posts\.reading \{\s*grid-column: 3 \/ -1;/.test(
+    mainSource,
+  ),
+);
+check(
+  "marking read ends the visit; marking unread does not",
+  /if \(isRead\(item\)\) \{\s*reader\.setRead\(item, false\);\s*return;\s*\}/.test(readerSource) &&
+    /reader\.markRead\(item\);\s*onRead\?\.\(\);/.test(readerSource) &&
+    /onRead=\{closeInPane\}/.test(mainSource),
+);
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
