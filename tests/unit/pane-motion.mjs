@@ -419,5 +419,30 @@ check(
   );
 }
 
+
+// A window resize is not a press. The columns are the frame's edge, so they land
+// where the frame is — every tick, with no transition in between — and the frame
+// is measured by the window as well as by the observer, because the observer is
+// not always the first to know.
+check(
+  "the frame being resized is drawn without a slide",
+  /class:resizing/.test(main) &&
+    /\.panes\.resizing \{\s*transition: none;/.test(main) &&
+    // later in the sheet than `sliding`, which is what makes it win
+    main.indexOf(".panes.resizing {") > main.indexOf(".panes.sliding {"),
+);
+check(
+  "and the window itself reports the width, not only the observer",
+  /window\.addEventListener\("resize", measure\)/.test(main) &&
+    /layout\.setAvailable\(panes\.clientWidth\)/.test(main) &&
+    /window\.removeEventListener\("resize", measure\)/.test(main),
+);
+check(
+  "measured once more after layout, because the event arrives before it",
+  /requestAnimationFrame\(\(\) => \{\s*if \(panes !== null\) layout\.setAvailable\(panes\.clientWidth\);\s*\}\);/.test(
+    main,
+  ),
+);
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

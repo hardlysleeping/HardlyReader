@@ -150,9 +150,34 @@
         : new ResizeObserver(([entry]) => layout.setAvailable(entry.contentRect.width));
     if (panes !== null && observer !== null) observer.observe(panes);
 
+    // The observer is the measurement, and on this platform it is not always the
+    // first to know: a frame that is dragged wider reports the new width to the
+    // window before (or without) the grid's box changing, and a resize that
+    // lands while a press's transition is still drawing used to leave the
+    // columns at an interpolated width. So the window says so itself, the panes
+    // are measured on the next frame as well, and the tracks are drawn without a
+    // transition until the frame has stopped moving.
+    const measure = (): void => {
+      if (panes === null) return;
+      layout.setAvailable(panes.clientWidth);
+      resizing = true;
+      if (resizeTimer !== null) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => (resizing = false), RESIZE_SETTLE_MS);
+      // Once more after layout: WebKit reports a resize before it has finished
+      // laying out, so the width read in the event is sometimes the old one.
+      requestAnimationFrame(() => {
+        if (panes !== null) layout.setAvailable(panes.clientWidth);
+      });
+    };
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+
     window.addEventListener("keydown", onkeydown);
     return () => {
       window.removeEventListener("keydown", onkeydown);
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+      if (resizeTimer !== null) clearTimeout(resizeTimer);
       observer?.disconnect();
       reader.stop();
     };
@@ -340,6 +365,23 @@
       keepWidths: layout.keepWidths,
     }),
   );
+
+  /**
+   * True while the window itself is being resized.
+   *
+   * A window resize is the one change of the tracks that must never be drawn
+   * over time: the frame is moving under the pointer, the panes are riding the
+   * frame's edge, and a 185ms transition on top of that is a column that arrives
+   * after the window has already stopped moving — pane two left behind the edge
+   * it is supposed to end at. Interrupting that transition mid-flight is also
+   * what leaves WebKit drawing an interpolated track list it never finishes.
+   * The measurement and the class both come from the frame itself, not from a
+   * press, so a press's own slide is untouched.
+   */
+  let resizing = $state(false);
+  let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** How long after the last resize event the frame counts as still moving. */
+  const RESIZE_SETTLE_MS = 140;
 
   /**
    * True for the moment a press takes to move the columns.
@@ -591,6 +633,7 @@
     class:tucked={stackDrawn && layout.stackTuck !== null}
     class:folded={mode === 2 && folded}
     class:sliding
+    class:resizing
     bind:this={panes}
     style:grid-template-columns={columns}
     style:grid-template-rows={layout.rows(stackDrawn)}
@@ -765,6 +808,13 @@
       grid-template-columns var(--slide-ms, 0ms) var(--slide-ease, ease),
       grid-template-rows var(--slide-ms, 0ms) var(--slide-ease, ease);
   }
+  /* The frame is being resized: the tracks land where the window is, every
+     tick, with nothing in between. Later in the sheet than `sliding` on
+     purpose — same specificity, so this is what wins while the frame moves. */
+  .panes.resizing {
+    transition: none;
+  }
+
 
   /* While a track moves, its pane's content is laid out at the width it will
      end at — `max(final, the track right now)`:
