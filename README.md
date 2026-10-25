@@ -25,6 +25,16 @@ Svelte 5, TypeScript, Tauri 2. Linux desktop today; the same code is the browser
 | ![Large type](docs/screenshots/type-large.png) | ![Reading settings](docs/screenshots/settings-reading.png) |
 | **Type and rows scale** independently, to 150% and 140%. | **Reading controls**: measure, leading, alignment, text advance and automatic read marking. |
 
+**Small windows are not a degraded mode.** Two panes, the posts and the page, in about nine hundred pixels of window — and the page still arrives whole, at its own size, so nothing is cropped or blown up to fit the pane.
+
+![Two panes in a narrow window](docs/screenshots/compact.png)
+
+**Scrolling a comics feed**, one page after another, each at its own size, with no reflow while it moves:
+
+![Scrolling a comics feed](docs/screenshots/comics-loop.gif)
+
+Full size as video: [comics-loop.webm](docs/screenshots/comics-loop.webm).
+
 **Hidden, then locked, then out of the way.** One loop, start to finish: the hidden categories and their feeds, hiding them, locking them, the lock tucking down to a single pin, the passcode that brings the list back, and the loop starting again.
 
 ![Hidden categories: reveal, hide, lock, unlock](docs/screenshots/lock-loop.gif)
