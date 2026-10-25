@@ -21,6 +21,9 @@ import {
   ROW_ENDS,
   ROW_END_DEFAULT,
   isRowEnd,
+  ROW_CURVE,
+  CURVE_DEFAULT,
+  clampCurve,
   LIST_VIEW_LABELS,
   LIST_VIEW_TITLES,
   isListView,
@@ -386,10 +389,10 @@ check(
       /border-right: 5px solid color-mix\(in srgb, var\(--accent\) 92%, transparent\);/.test(body) &&
       /border-bottom: 1px solid color-mix\(in srgb, var\(--accent\) 58%, transparent\);/.test(body) &&
       /border-top: 1px solid color-mix\(in srgb, var\(--accent\) 58%, transparent\);/.test(body) &&
-      /border-radius: 0 30px 30px 0;/.test(body)
+      /border-radius: 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\) 0;/.test(body)
     );
   })(),
-  "5px up the edge, a hairline either side, and the same 30px turn as the row",
+  "5px up the edge, a hairline either side, and the row's own turn",
 );
 
 check(
@@ -641,20 +644,20 @@ check(
 );
 check(
   "half a turn is only the bottom, and the foot is as thick as the edge",
-  /\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,400}?--foot: 2px;[\s\S]{0,200}?border-radius: 0 0 30px 30px;/.test(
+  /\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,400}?--foot: 2px;[\s\S]{0,200}?border-radius: 0 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\);/.test(
     listSource,
   ) &&
-    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-radius: 0 0 30px 30px;[^}]*border-bottom-width: var\(--foot\);[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
+    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-radius: 0 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\);[^}]*border-bottom-width: var\(--foot\);[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
       listSource,
     ),
 );
 check(
   "the pill steps in from the foot it would otherwise sit on, by the foot's own thickness",
-  /\.items\.half-end[^{]*\.acts \{\s*margin: 2px 11px 4px 0;\s*border-radius: 28px;/.test(listSource),
+  /\.items\.half-end[^{]*\.acts \{\s*margin: 2px 11px 4px 0;\s*border-radius: max\(0px, calc\(var\(--row-turn, 30px\) - var\(--foot\)\)\);/.test(listSource),
 );
 check(
   "the old shape is untouched: both right-hand corners, one-pixel foot",
-  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,200}?border-radius: 0 30px 30px 0;/.test(
+  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,300}?border-radius: 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\) 0;/.test(
     listSource,
   ) &&
     /\.row:not\(\.read\)::after \{[\s\S]{0,1600}?border-right: 5px solid[\s\S]{0,200}?border-bottom: 1px solid/.test(
@@ -685,6 +688,54 @@ check(
     /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,1600}?margin-right: 9px;/.test(
       listSource,
     ),
+);
+
+/* The turn's radius: one slider per shape, from square to a full semicircle,
+   with the numbers the rows had before it was a setting as the defaults. */
+check("the slider runs from square to a full turn", ROW_CURVE.min === 0 && ROW_CURVE.max === 60);
+check("a radius that is not a number falls back to the old one", clampCurve("30") === ROW_CURVE.initial);
+check("a radius is kept inside the range", clampCurve(-10) === 0 && clampCurve(400) === 60);
+check("a radius is a whole number of pixels", clampCurve(27.6) === 28);
+check(
+  "each shape starts at its own default, and the pill is the squarer of the two",
+  CURVE_DEFAULT.pill === 24 && CURVE_DEFAULT.half === 30 && CURVE_DEFAULT.pill < CURVE_DEFAULT.half,
+);
+
+const curveComponent = read("src/components/RowCurve.svelte");
+check(
+  "the list carries the turn it is drawn with",
+  /const rowTurn = \$derived\(reading\.rowsEnd === "half" \? reading\.curveHalf : reading\.curvePill\);/.test(
+    listSource,
+  ) && /style:--row-turn=\{`\$\{rowTurn\}px`\}/.test(listSource),
+);
+check(
+  "the rows turn by that number, and the action pill keeps its parallel curve",
+  /border-radius: 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\) 0;/.test(listSource) &&
+    /border-radius: 0 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\);/.test(listSource) &&
+    /border-radius: max\(0px, calc\(var\(--row-turn, 30px\) - 5px\)\);/.test(listSource) &&
+    /border-radius: max\(0px, calc\(var\(--row-turn, 30px\) - var\(--foot\)\)\);/.test(listSource),
+);
+check(
+  "the corners have their own button and popup on the list's bar, for the rows view only",
+  /\{#if view === "regular"\}[\s\S]{0,3600}?<RowCurve \/>/.test(listSource) &&
+    /class="corner"/.test(curveComponent) &&
+    /role="dialog" aria-label="Row corners"/.test(curveComponent) &&
+    // Live, not on release: the list is the preview.
+    /oninput=\{\(event\) => reading\.setCurve\("pill", Number\(event\.currentTarget\.value\)\)\}/.test(
+      curveComponent,
+    ) &&
+    /oninput=\{\(event\) => reading\.setCurve\("half", Number\(event\.currentTarget\.value\)\)\}/.test(
+      curveComponent,
+    ) &&
+    /reading\.resetCurves\(\)/.test(curveComponent),
+);
+check(
+  "both radii are saved with the rest of the reading preferences",
+  /curvePill: this\.curvePill,/.test(readingSource) &&
+    /curveHalf: this\.curveHalf,/.test(readingSource) &&
+    /this\.curvePill = clampCurve\(saved\.curvePill\)/.test(readingSource) &&
+    /this\.curveHalf = clampCurve\(saved\.curveHalf\)/.test(readingSource) &&
+    /if \(which === "pill"\) \{[\s\S]{0,200}?this\.curvePill = value;/.test(readingSource),
 );
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

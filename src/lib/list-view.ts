@@ -72,6 +72,31 @@ export function isRowEnd(value: unknown): value is RowEnd {
   return typeof value === "string" && (ROW_ENDS as readonly string[]).includes(value);
 }
 
+/* ---------------------------------------------------------------------------
+ * The turn's radius
+ * ------------------------------------------------------------------------- */
+
+/**
+ * How far a row's end is rounded, in pixels.
+ *
+ * Zero is a square corner; thirty is the shape the rows had before this was a
+ * setting; the top of the range is where a short row's end becomes a full
+ * semicircle, so one slider runs from squared to round without leaving the
+ * shape. Two numbers, not one: the pill turns the two right-hand corners and the
+ * foot turns the two bottom ones, and liking a soft pill does not mean wanting
+ * a soft foot.
+ */
+export const ROW_CURVE = { min: 0, max: 60, step: 2, initial: 30 } as const;
+
+/** What each shape starts at. The pill came down with the slider. */
+export const CURVE_DEFAULT: Record<RowEnd, number> = { pill: 24, half: 30 };
+
+/** A stored radius, or the default for a value that is not a number. */
+export function clampCurve(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return ROW_CURVE.initial;
+  return Math.min(ROW_CURVE.max, Math.max(ROW_CURVE.min, Math.round(value)));
+}
+
 export function isListView(value: unknown): value is ListView {
   return typeof value === "string" && (LIST_VIEWS as readonly string[]).includes(value);
 }

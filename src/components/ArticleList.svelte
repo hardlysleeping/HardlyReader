@@ -4,6 +4,7 @@
   import { authorOf, bylineOf, bylineTitle, feedNameOf } from "../lib/byline";
 import { plainPreview, relativeTime } from "../lib/format";
   import { cropVariant, imagesOf, panelsOf, thumbnailOf, type ThumbSource } from "../lib/thumb";
+  import RowCurve from "./RowCurve.svelte";
   import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
   import {
     CARD_LAYOUT_TITLES,
@@ -274,6 +275,16 @@ import { plainPreview, relativeTime } from "../lib/format";
 
   /** The shape of this column, global for the same reason as the filter. */
   const view = $derived(reading.listView);
+
+  /**
+   * How far this view's rows turn.
+   *
+   * Two stored radii, one drawn: the pill's right-hand corners when the rows are
+   * pills, the foot's bottom corners when they turn at the foot. Read here rather
+   * than in the stylesheet because the list is the only element that can carry
+   * it, and a custom property is what lets one slider reach every row.
+   */
+  const rowTurn = $derived(reading.rowsEnd === "half" ? reading.curveHalf : reading.curvePill);
 
   /**
    * Which date tabs are shut.
@@ -938,6 +949,8 @@ import { plainPreview, relativeTime } from "../lib/format";
               <path d="M2.5 2.5h11v7.2a3.3 3.3 0 0 1-3.3 3.3H5.8a3.3 3.3 0 0 1-3.3-3.3z" />
             </svg>
           </button>
+          <!-- How far those corners turn, on the bar of the view they turn on. -->
+          <RowCurve />
         {/if}
       </div>
 
@@ -1062,6 +1075,7 @@ import { plainPreview, relativeTime } from "../lib/format";
     class:grid={view === "grid"}
     class:square={view === "grid" && gridIsSquare(reading.gridColumns)}
     class:half-end={view === "regular" && reading.rowsEnd === "half"}
+    style:--row-turn={`${rowTurn}px`}
     style:--grid-template={gridTemplate(reading.gridColumns)}
     style:--card-window={`${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
     style:--masonry-columns={masonryTrack(cardLayout.columns)}
@@ -1753,7 +1767,9 @@ import { plainPreview, relativeTime } from "../lib/format";
      that job now, and a line on top of a gap only doubles it. */
   .items:not(.compact):not(.cards):not(.grid) .row {
     border-bottom: 0;
-    border-radius: 0 30px 30px 0;
+    /* The turn is a setting: `--row-turn` is set on the list, and 30px is what
+       the rows were before it was one. */
+    border-radius: 0 var(--row-turn, 30px) var(--row-turn, 30px) 0;
     /* Separation by space, not by a rule: the rows already stack in normal flow,
        so this is a margin rather than a gap. */
     margin-bottom: 4px;
@@ -1800,7 +1816,7 @@ import { plainPreview, relativeTime } from "../lib/format";
     border-right: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
     border-top: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
     border-bottom: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
-    border-radius: 0 30px 30px 0;
+    border-radius: 0 var(--row-turn, 30px) var(--row-turn, 30px) 0;
   }
 
   /* Half a turn, rather than a pill's whole right side: only the bottom of the
@@ -1816,7 +1832,7 @@ import { plainPreview, relativeTime } from "../lib/format";
        it — edge, foot and the bands that give them depth — so the three sides
        cannot drift apart, and making the shape thinner is one number. */
     --foot: 2px;
-    border-radius: 0 0 30px 30px;
+    border-radius: 0 0 var(--row-turn, 30px) var(--row-turn, 30px);
     /* Both ends of the foot match, so the row steps in from the pane's edge on
        both sides by the 9px it already kept on its right. The right side and its
        shadow are untouched; this is the same measurement, mirrored. */
@@ -1829,7 +1845,7 @@ import { plainPreview, relativeTime } from "../lib/format";
      gives the right edge its depth is mirrored for the same reason — an accent
      5px wide that is lit flat reads thinner than the one that is not. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
-    border-radius: 0 0 30px 30px;
+    border-radius: 0 0 var(--row-turn, 30px) var(--row-turn, 30px);
     /* The foot lives inside the row: the border is not drawn a pixel past it,
        and the corner is the row's own corner. */
     inset: 0;
@@ -1892,7 +1908,7 @@ import { plainPreview, relativeTime } from "../lib/format";
      thickness, so the two curves run parallel rather than crossing. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .acts {
     margin: 2px 11px 4px 0;
-    border-radius: 28px;
+    border-radius: max(0px, calc(var(--row-turn, 30px) - var(--foot)));
   }
 
   .row.read {
@@ -2131,7 +2147,9 @@ import { plainPreview, relativeTime } from "../lib/format";
   .items:not(.compact):not(.cards):not(.grid) .acts {
     margin: 5px 5px 5px 0;
     padding: 0 20px 0 14px;
-    border-radius: 25px;
+    /* The row's turn less the 5px the accent takes: the two curves run parallel
+       at any radius, and a squared row takes the radius to nothing. */
+    border-radius: max(0px, calc(var(--row-turn, 30px) - 5px));
     background: color-mix(in srgb, #000 12%, transparent);
   }
 

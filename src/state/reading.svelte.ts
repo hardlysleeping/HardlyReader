@@ -9,6 +9,8 @@
 import { isArticleFilter, type ArticleFilter } from "../lib/article-filter";
 import {
   CARD_SIZE_DEFAULT,
+  CURVE_DEFAULT,
+  clampCurve,
   GRID_COLUMNS_DEFAULT,
   isCardSize,
   isGridColumns,
@@ -95,6 +97,15 @@ class ReadingState {
    * that shipped before this existed is never lost.
    */
   rowsEnd = $state<RowEnd>(ROW_END_DEFAULT);
+
+  /**
+   * How far each shape's end turns, in pixels — the pill's right-hand corners and
+   * the foot's bottom ones. Kept apart because they are two shapes, not one
+   * setting with two names, and stored with the rest of the reading preferences
+   * so a chosen curve is there next time.
+   */
+  curvePill = $state(CURVE_DEFAULT.pill);
+  curveHalf = $state(CURVE_DEFAULT.half);
 
   /** Tiles per row in the grid; `auto` is the grid's own judgement. */
   gridColumns = $state<GridColumns>(GRID_COLUMNS_DEFAULT);
@@ -207,6 +218,8 @@ class ReadingState {
         listView?: unknown;
         readInPane?: unknown;
         rowsEnd?: unknown;
+        curvePill?: unknown;
+        curveHalf?: unknown;
         gridColumns?: unknown;
         cardSize?: unknown;
         markReadMode?: unknown;
@@ -230,6 +243,8 @@ class ReadingState {
       if (isListView(saved.listView)) this.listView = saved.listView;
       if (typeof saved.readInPane === "boolean") this.readInPane = saved.readInPane;
       if (isRowEnd(saved.rowsEnd)) this.rowsEnd = saved.rowsEnd;
+      if (saved.curvePill !== undefined) this.curvePill = clampCurve(saved.curvePill);
+      if (saved.curveHalf !== undefined) this.curveHalf = clampCurve(saved.curveHalf);
       if (isGridColumns(saved.gridColumns)) this.gridColumns = saved.gridColumns;
       if (isCardSize(saved.cardSize)) this.cardSize = saved.cardSize;
       // An explicit choice of mode is honoured; the old bare `autoMarkRead`
@@ -330,6 +345,26 @@ class ReadingState {
 
   toggleRowsEnd(): void {
     this.setRowsEnd(this.rowsEnd === "half" ? "pill" : "half");
+  }
+
+  /** The turn of one shape, in pixels. Clamped, and saved as it is dragged. */
+  setCurve(which: RowEnd, px: number): void {
+    const value = clampCurve(px);
+    if (which === "pill") {
+      if (this.curvePill === value) return;
+      this.curvePill = value;
+    } else {
+      if (this.curveHalf === value) return;
+      this.curveHalf = value;
+    }
+    this.save();
+  }
+
+  /** Both back to what each shape came with. */
+  resetCurves(): void {
+    this.curvePill = CURVE_DEFAULT.pill;
+    this.curveHalf = CURVE_DEFAULT.half;
+    this.save();
   }
 
   /** Tiles per row, for the grid. */
@@ -456,6 +491,8 @@ class ReadingState {
           listView: this.listView,
           readInPane: this.readInPane,
           rowsEnd: this.rowsEnd,
+          curvePill: this.curvePill,
+          curveHalf: this.curveHalf,
           gridColumns: this.gridColumns,
           cardSize: this.cardSize,
           markReadMode: this.autoMarkRead ? "auto" : "manual",
