@@ -214,7 +214,7 @@ function method(source, name) {
     // the posts column is reading in place, because the page it would split from
     // is over the list rather than beside it.
     "and the seam between them is their own slot",
-    /class="slot seam-x gut-posts" class:away=\{!slots\.seamPosts \|\| inPane\}/.test(main),
+    /class="slot seam-x gut-posts" class:away=\{!slots\.seamPosts\}/.test(main),
   );
   check(
     "the fold is offered to the seam in two panes only, and not once folded",

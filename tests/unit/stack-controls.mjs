@@ -494,7 +494,8 @@ check(
       main,
     ),
   );
-  const slotsCall = /const slots = \$derived\(\s*paneSlots\(\{[\s\S]{0,260}?\}\),\s*\)/.exec(main);
+  const slotsCall =
+    /const slots = \$derived\.by\(\(\) => \{\s*const drawn = paneSlots\(\{[\s\S]{0,300}?\}\);/.exec(main);
   check(
     "and which panes that draws comes from paneSlots, not from branches in the markup",
     slotsCall !== null && /tuck: layout\.stackTuck,/.test(slotsCall[0]) && /swapped: layout\.stackSwapped,/.test(slotsCall[0]),
@@ -505,17 +506,13 @@ check(
     /\.slot\.away \{\s*visibility: hidden;/.test(main) && !/\{#if slots\./.test(main),
   );
   check(
-    // One ReaderPane for the article column, and one more only while the posts
-    // column is reading in place — the Rows view's own switch, not a second
-    // article pane. The list stays mounted either way, under the page.
+    // One ReaderPane, one ArticleList, each in its own slot: a post read in the
+    // list grows inside the list, so there is no second article drawn anywhere.
     "each pane is mounted once, in its own slot, whatever the mode",
     (main.match(/<ArticleList \/>/g) ?? []).length === 1 &&
-      (main.match(/<ReaderPane /g) ?? []).length === 2 &&
-      /class="slot posts"[\s\S]{0,120}?class:away=\{!slots\.posts && !inPane\}[\s\S]{0,120}?class:reading=\{inPane\}/.test(
-        main,
-      ) &&
-      /class="slot article" class:away=\{!slots\.article \|\| inPane\}/.test(main) &&
-      /\{#if inPane\}\s*<div class="over">\s*<ReaderPane onClose=\{closeInPane\} onRead=\{closeInPane\} \/>/.test(main),
+      (main.match(/<ReaderPane /g) ?? []).length === 1 &&
+      /class="slot posts" class:away=\{!slots\.posts\}/.test(main) &&
+      /class="slot article" class:away=\{!slots\.article\}/.test(main),
   );
   check(
     "the article keeps its own handler for the walk and its close for the panes",
@@ -528,7 +525,7 @@ check(
   );
   check(
     "and its slot is the slot the tuck keeps, at every tuck",
-    /class="slot seam-y gut-stack" class:away=\{!slots\.seamStack \|\| inPane\}/.test(main) &&
+    /class="slot seam-y gut-stack" class:away=\{!slots\.seamStack\}/.test(main) &&
       paneSlots({ mode: 3, level: "article", stacked: true, collapsed: false, tuck: null, swapped: false }).seamStack ===
         paneSlots({ mode: 3, level: "article", stacked: true, collapsed: false, tuck: "top", swapped: false }).seamStack,
   );
@@ -576,33 +573,27 @@ check(
     /\.restore-bar button \{[\s\S]{0,400}pointer-events: auto;/.test(gutter),
 );
 
-/* Reading a post inside the posts column, where the article is stacked below it.
-   The pair is two rows of one column, so the page takes both of them; a page that
-   only took the list's row would sit above the article it meant to replace. */
+/* Reading a post inside the posts column does not rearrange the frame: the row
+   grows where it stands, so no mode, tuck or arrangement moves a track for it. */
 check(
-  "a page read in the list takes both rows of the stacked pair",
-  /\.panes\.stacked \.slot\.posts\.reading \{\s*grid-row: 2 \/ 5;/.test(main) &&
-    // Nothing about the stack's shape can switch the option off any more.
-    /\.slot\.posts\.reading/.test(main) &&
-    !/readInPane[\s\S]{0,400}!stackDrawn/.test(main),
+  "reading in the list never redraws the grid",
+  !/\.slot\.posts\.reading/.test(main) &&
+    !/class:reading=/.test(main) &&
+    /if \(readInline && drawn\.article && !drawn\.posts\)/.test(main),
 );
 
-/* The option is about borrowing a column, so it is offered where there is one to
-   borrow and nowhere else. Two plain panes already read a post in the article's
-   half of the frame — that is the way that frame works, not a setting — so the
-   button is not drawn there and the flag is not consulted there. */
+/* The option is about reading in the list instead of in the column beside it, so
+   it is offered where that column is the only alternative: two plain panes. Three
+   panes have an article column of their own, and one pane is a walk. */
 check(
-  "the read-here option is offered only with a third column to borrow",
-  /\{#if layout\.mode === 3\}[\s\S]{0,320}?aria-label="Read posts in this column"/.test(
+  "the read-here option is offered in two plain panes, and nowhere else",
+  /\{#if layout\.mode === 2 && !layout\.sidebarCollapsed\}[\s\S]{0,320}?aria-label="Read posts here in the list"/.test(
     read("src/components/ArticleList.svelte"),
   ) &&
-    /const inPane = \$derived\(\s*reading\.readInPane &&\s*reading\.listView === "regular" &&\s*reader\.selectedId !== null &&\s*\(mode === 3 \|\| \(mode === 2 && folded\)\),/.test(
+    /const readInline = \$derived\(\s*reading\.readInPane && reading\.listView === "regular" && mode === 2 && !folded,\s*\);/.test(
       main,
     ) &&
-    // The folded and stacked pairs are the three-pane frame with a column put
-    // away, so they keep it — and the list stays drawn while it is read in.
-    /\.panes\.two\.folded \.slot\.posts\.reading \{[^}]*grid-column: 3 \/ -1;/.test(main) &&
-    /class:away=\{!slots\.posts && !inPane\}/.test(main),
+    /class:away=\{!slots\.posts\}/.test(main),
 );
 
 /* The bar's A− and A+ belong to whichever column is open. With no article drawn
@@ -610,7 +601,7 @@ check(
 check(
   "the bar's size buttons follow the column that is open",
   /textTarget=\{articleShown \? "article" : "list"\}/.test(main) &&
-    /const articleShown = \$derived\(Boolean\(slots\.article\) \|\| inPane \|\| level === "article"\);/.test(
+    /const articleShown = \$derived\(\s*Boolean\(slots\.article\) \|\| \(readInline && reader\.selectedId !== null\) \|\| level === "article",\s*\);/.test(
       main,
     ) &&
     /<ReadingControls[\s\S]{0,160}?target=\{textTarget\}/.test(header) &&

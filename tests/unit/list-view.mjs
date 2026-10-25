@@ -587,9 +587,11 @@ check(
     const views = listSource.slice(listSource.indexOf('class="views"'));
     const group = views.slice(0, views.indexOf("<!-- Sizing lives"));
     return (
-      // Offered only with a third column to borrow: two plain panes already
-      // read a post in the article's half, and that is the frame, not a switch.
-      /\{#if layout\.mode === 3\}[\s\S]{0,320}?aria-label="Read posts in this column"/.test(group) &&
+      // Offered in two plain panes only: three panes have an article column to
+      // open into, and one pane is a walk down its own levels.
+      /\{#if layout\.mode === 2 && !layout\.sidebarCollapsed\}[\s\S]{0,320}?aria-label="Read posts here in the list"/.test(
+        group,
+      ) &&
       /onclick=\{\(\) => reading\.toggleReadInPane\(\)\}/.test(group) &&
       /class:on=\{reading\.readInPane\}/.test(group)
     );
@@ -601,25 +603,49 @@ check(
     /if \(typeof saved\.readInPane === "boolean"\) this\.readInPane = saved\.readInPane;/.test(readingSource) &&
     /readInPane: this\.readInPane,/.test(readingSource),
 );
+const listViewSource = readFileSync(join(root, "src/components/ArticleList.svelte"), "utf8");
+const inlineSource = readFileSync(join(root, "src/components/InlineArticle.svelte"), "utf8");
+
 check(
-  "the page is drawn over the list, not instead of it",
-  /inert=\{inPane\}/.test(mainSource) &&
-    /\.slot\.posts \.over \{\s*position: absolute;/.test(mainSource) &&
-    /class:reading=\{inPane\}/.test(mainSource),
+  "the post opens inside its own row, not over the list",
+  /import InlineArticle from "\.\/InlineArticle\.svelte";/.test(listViewSource) &&
+    /\{#if readHere && reader\.selectedId === item\.id\}\s*<!--[\s\S]{0,400}?<InlineArticle \{item\} oncollapse=\{\(\) => reader\.closeReader\(\)\} \/>/.test(
+      listViewSource,
+    ) &&
+    // The row grows a second line and the page fills it: the list around it is
+    // untouched, still scrollable, still the thing the post came out of.
+    /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row\.open \{\s*flex-wrap: wrap;/.test(
+      listViewSource,
+    ) &&
+    // And nothing is drawn on top of the column any more.
+    !/\.over\b/.test(mainSource) &&
+    !/inert=/.test(mainSource),
 );
 check(
-  "the list keeps its place: the cover borrows the article column's room",
-  // Every arrangement with a column beside the list: three panes, two plain
-  // ones, and the folded pair — which is a two-pane frame like any other.
-  /\.panes\.three \.slot\.posts\.reading,\s*\.panes\.two\.folded \.slot\.posts\.reading \{\s*grid-column: 3 \/ -1;/.test(
+  "the column the selection draws is the list, so the list keeps its place",
+  /if \(readInline && drawn\.article && !drawn\.posts\) \{\s*return \{ \.\.\.drawn, posts: true, article: false \};/.test(
     mainSource,
+  ) &&
+    /\.slot\.posts > :global\(\*\) \{\s*flex: 1 1 auto;/.test(mainSource),
+);
+check(
+  "the same press folds it away again, and another post still opens",
+  /if \(readHere && reader\.selectedId === item\.id\) \{\s*reader\.closeReader\(\);\s*onOpen\?\.\(\);\s*return;\s*\}\s*reader\.select\(item\);/.test(
+    listViewSource,
   ),
+);
+check(
+  "the expanded post is the article pane's own pipeline, not a second reader",
+  /chooseBody\(/.test(inlineSource) &&
+    /sanitizeArticle\(/.test(inlineSource) &&
+    /rememberedExtraction\(id\)/.test(inlineSource) &&
+    /prepareImages\(node\)/.test(inlineSource) &&
+    /hardenLinks\(node\)/.test(inlineSource),
 );
 check(
   "marking read ends the visit; marking unread does not",
   /if \(isRead\(item\)\) \{\s*reader\.setRead\(item, false\);\s*return;\s*\}/.test(readerSource) &&
-    /reader\.markRead\(item\);\s*onRead\?\.\(\);/.test(readerSource) &&
-    /onRead=\{closeInPane\}/.test(mainSource),
+    /reader\.markRead\(item\);\s*onRead\?\.\(\);/.test(readerSource),
 );
 
 /* ---- how a row ends: half a turn, or the pill it used to be ---------------- */

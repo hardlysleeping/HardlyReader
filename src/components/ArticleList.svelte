@@ -6,6 +6,7 @@
   import { layout } from "../state/layout.svelte";
   import { cropVariant, imagesOf, panelsOf, thumbnailOf, type ThumbSource } from "../lib/thumb";
   import RowCurve from "./RowCurve.svelte";
+  import InlineArticle from "./InlineArticle.svelte";
   import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
   import {
     CARD_LAYOUT_TITLES,
@@ -894,7 +895,34 @@
     return thumbnail(item);
   }
 
+  /**
+   * Reading here, in the list, rather than in a column of its own.
+   *
+   * The preference is Rows' own, and it is about a place to read: two plain
+   * panes draw an article column beside the list, so without this a post takes
+   * that column over. With it, the row itself grows. Three panes have their own
+   * article column, and one pane is a walk down its own levels, so neither asks
+   * the question — the switch is not drawn there and the flag is not read.
+   */
+  const readHere = $derived(
+    reading.readInPane &&
+      view === "regular" &&
+      (layout.mode === 2 ? !layout.sidebarCollapsed : layout.mode === 1),
+  );
+
+  /**
+   * Open a post, or fold the one already open away again.
+   *
+   * Reading here means the row grows and the list stays: the selection is the
+   * post being read, and pressing it a second time is the way out of it. Any
+   * other press still selects, so a post opening elsewhere is unchanged.
+   */
   function open(item: StreamItem) {
+    if (readHere && reader.selectedId === item.id) {
+      reader.closeReader();
+      onOpen?.();
+      return;
+    }
     reader.select(item);
     onOpen?.();
   }
@@ -1024,16 +1052,19 @@
              scanning, and a page inside one of them would be a second kind of
              card. -->
         {#if view === "regular"}
-          {#if layout.mode === 3}
+          <!-- Only in two plain panes: three panes have an article column of
+               their own to open into, and one pane is a walk through its own
+               levels. -->
+          {#if layout.mode === 2 && !layout.sidebarCollapsed}
           <span class="viewsplit" aria-hidden="true"></span>
           <button
             class="viewicon pane"
             class:on={reading.readInPane}
             aria-pressed={reading.readInPane}
-            aria-label="Read posts in this column"
+            aria-label="Read posts here in the list"
             title={reading.readInPane
-              ? "Posts open here, in this column — press again to send them to the article column"
-              : "Open posts in the article column beside this one"}
+              ? "A post opens here, in its own row, and folds away when you press it again — press to open posts as a page instead"
+              : "A post opens as a page of its own — press to read posts here, folded out of their rows"}
             onclick={() => reading.toggleReadInPane()}
           >
             <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -1265,6 +1296,7 @@
         class:read={isRead(item)}
         class:starred={isStarred(item)}
         class:held={heldId === item.id}
+        class:open={readHere && reader.selectedId === item.id}
         class:stacked={placement === "top"}
         data-id={item.id}
         use:near={{ root: itemsEl, near: (isNear: boolean) => markNear(item.id, isNear) }}
@@ -1370,6 +1402,12 @@
              pixels becomes a list pan, and the pan swallows the click it ends
              with — the button looks dead for exactly the reason the drag exists.
              24px is smaller than a hand is steady. -->
+        {#if readHere && reader.selectedId === item.id}
+          <!-- The post, opened out of its row: the list is still the list, and
+               the page is the bottom half of the row it belongs to. -->
+          <InlineArticle {item} oncollapse={() => reader.closeReader()} />
+        {/if}
+
         <div class="acts" data-no-drag-scroll>
           <button
             class="act star"
@@ -1898,6 +1936,12 @@
      rather than one lump: enough air to separate them, not enough to turn a list
      into a stack of cards. The row's own hairline goes with it — the gap does
      that job now, and a line on top of a gap only doubles it. */
+  /* An opened post is the row's second line, not a column beside its first:
+     the row wraps, and the page inside it takes the whole width. */
+  .items:not(.compact):not(.cards):not(.grid) .row.open {
+    flex-wrap: wrap;
+  }
+
   .items:not(.compact):not(.cards):not(.grid) .row {
     border-bottom: 0;
     /* The turn is a setting: `--row-turn` is set on the list, and 30px is what
