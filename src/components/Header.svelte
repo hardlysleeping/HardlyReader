@@ -436,8 +436,9 @@
 
   /* Wide enough for the bar to hold the account itself: the menu stops
      repeating what the bar shows. One media query, so the menu and the bar can
-     never disagree about how narrow the window is. */
-  @media (min-width: 561px) {
+     never disagree about how narrow the window is — and it is the account's own
+     breakpoint, because the account is what the sign-out row repeats. */
+  @media (min-width: 661px) {
     .sheet-server,
     .sheet .narrow-only {
       display: none;
@@ -713,6 +714,23 @@
     }
   }
 
+  /* The account block — the name and the server address — leaves the bar long
+     before the rest of it does.
+
+     Both strings are capped and ellipsised, so a narrow bar did not break:
+     it showed `hardlyrea…` and `cenvalweb.tail9…`, which reads as a bug and
+     tells you nothing the sheet does not. Measured on this bar, the pair comes
+     to ~218px, so with the brand, the layout switch, the reading and theme
+     triggers and the sync button around it, nothing is cut from about 650
+     upward and everything is cut below it. They come back at 660, which leaves
+     the switch in the bar at any width the bar can hold without changing size,
+     and the sheet already carries both strings for the widths below. */
+  @media (max-width: 660px) {
+    .account {
+      display: none;
+    }
+  }
+
   /* Compact: the bar keeps what identifies the window and what changes the
      layout, and the rest moves into the menu. Every item that leaves the bar
      here is still one press away in the sheet — nothing is lost, which is the
@@ -728,7 +746,6 @@
        sit at the component root, so hiding `.tools` used to take Settings and
        Reading with it — the menu opened nothing. Only the bar-sized controls
        are hidden; the rows in the menu still reach the same panels. */
-    .account,
     .tools > :global(.reading),
     .tools > :global(.themebar) {
       display: none;

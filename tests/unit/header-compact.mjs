@@ -43,7 +43,19 @@ check("five menu actions in total", (menu.match(/role="menuitem"/g) ?? []).lengt
 // Two ways to sign out is clutter; none is worse. One media query decides, so
 // there is no second copy of the breakpoint to drift away from it.
 check("the breakpoint exists once, in CSS", !/matchMedia\(/.test(header) && /@media \(max-width: 560px\)/.test(header));
-check("wide bars do not repeat the menu's sign out", /@media \(min-width: 561px\)\s*\{[\s\S]{0,120}narrow-only/.test(header));
+check("wide bars do not repeat the menu's sign out", /@media \(min-width: 661px\)\s*\{[\s\S]{0,120}narrow-only/.test(header));
+// The account block — name and server address — is ellipsised, so a bar too
+// narrow for it did not break: it showed `hardlyrea…`. It leaves at 660, which
+// is where both strings fit whole (measured: nothing is cut from ~650 up), and
+// the menu's sign-out row follows it out, so no width has two sign outs and no
+// width has none.
+check("the account leaves the bar where it stops fitting", /@media \(max-width: 660px\)\s*\{\s*\.account\s*\{\s*display: none;/.test(header));
+check("and the switch stays in the bar there", !/@media \(max-width: 660px\)[\s\S]{0,200}\.switch/.test(header));
+check("the sign-out row returns at the same width the account leaves", (() => {
+  const away = Number((header.match(/@media \(max-width: (\d+)px\)\s*\{\s*\.account/) ?? [])[1]);
+  const back = Number((header.match(/@media \(min-width: (\d+)px\)\s*\{\s*\.sheet-server/) ?? [])[1]);
+  return away === back - 1;
+})());
 
 // Sign out hangs off the name at full width, and the name is not a permanent
 // button of its own: nothing in the bar signs out until it is pressed.
@@ -86,7 +98,7 @@ check("reading can be opened from outside", /export function openPanel\(\)/.test
 // Compact rules: exactly the controls that do not fit are the ones that go —
 // the triggers, never the panels they open.
 const compact = header.slice(header.indexOf("@media (max-width: 560px)"));
-check("the name goes when compact", /\.account,/.test(compact));
+check("the name goes long before compact does", /@media \(max-width: 660px\)\s*\{\s*\.account\s*\{/.test(header));
 check("the bar-sized controls go when compact", /\.tools > :global\(\.reading\)/.test(compact) && /\.tools > :global\(\.themebar\)/.test(compact));
 check("but the group holding the panels is not hidden", !/\.tools\s*{[^}]*display:\s*none/.test(compact), compact.slice(0, 400));
 // The cap is the room the window has, less the bar it hangs under — so a tall

@@ -289,6 +289,23 @@ export const MIN: Record<"sidebar" | "list" | "article", number> = {
 export const DEFAULT_WIDTHS: PaneWidths = { sidebar: 280, list: 380 };
 
 /**
+ * The narrowest the window itself may be, which is not the narrowest a pane may
+ * be.
+ *
+ * The window's floor is the bar's, not the columns': below 280 the brand and the
+ * sync button together are wider than the window and the button is pushed off
+ * the right edge — measured, with the compact bar already in force, 264 is the
+ * point where it starts to leave. 280 is that with a few pixels of slack, and it
+ * sits under every pane floor above, so no mode is ever drawn in a window its
+ * columns cannot honour.
+ *
+ * A sidebar may still be dragged to 240 inside a wider window; only a window
+ * that narrow is refused, which is why the one-pane ask is clamped up to this
+ * number rather than the sidebar's floor being raised to meet it.
+ */
+export const WINDOW_FLOOR = 280;
+
+/**
  * The narrowest window in which each mode is honest, per device class.
  *
  * These are policy, not geometry. The geometric minimums above say a pane can
@@ -475,7 +492,14 @@ export function fitTarget(
   monitor?: number | null,
   keepWidths = true,
 ): number | null {
-  const want = widthFor(mode, device, thresholds);
+  // The ask is never for a window the window cannot be. A sidebar may be
+  // dragged to 240 and one pane fills the window, so the old ask was 240 — a
+  // width the window refuses, which meant the pane drew at the floor and every
+  // row re-flowed. The floor here is the bar's; a phone has no window manager
+  // to refuse anything, so its own numbers stand.
+  const want = device === "desktop"
+    ? Math.max(WINDOW_FLOOR, widthFor(mode, device, thresholds))
+    : widthFor(mode, device, thresholds);
   // Keeping pane widths, a press asks for the sum of this mode's own panes in
   // both directions: 3 → 2 takes the article's width away with the article
   // instead of pouring it into the posts column. Sharing the room, only growth
