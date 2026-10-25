@@ -286,6 +286,15 @@
   let swallowClick = false;
   let press: LongPressTracker | null = null;
 
+  /**
+   * The category the last tap in one panel selected.
+   *
+   * One panel has no separate posts column, so a tap on a category cannot mean
+   * "open" and "fold" at once without one of them happening by accident: the
+   * first tap picks the category, the next one on the same category opens it.
+   */
+  let pickedCategory = $state<string | null>(null);
+
   function toggle(id: string) {
     reader.toggleCategory(id);
   }
@@ -300,6 +309,38 @@
       return;
     }
     void open(category.id, category.label);
+  }
+
+  /**
+   * The category's own name, which does two things at once.
+   *
+   * A category is a feed: FreshRSS labels are streams, so the name opens every
+   * post in every feed under it — and it still folds and unfolds the group, which
+   * is what the name did before there was anything else to do with it.
+   *
+   * One panel is the exception, because the list is the screen: the first tap
+   * only selects the category (unfolded, so its feeds are in front of you), and
+   * the second tap on the same, already-selected category is the one that opens
+   * its posts. Below that a tap folds and unfolds as it always did.
+   */
+  function clickCategory(category: CategoryGroup, folded: boolean) {
+    if (categoryDrag.justDropped()) return;
+    if (!inlinePosts) {
+      toggle(category.id);
+      openCategory(category);
+      return;
+    }
+    if (pickedCategory !== category.id) {
+      pickedCategory = category.id;
+      if (folded) toggle(category.id);
+      return;
+    }
+    if (reader.activeStream !== category.id) {
+      if (folded) toggle(category.id);
+      openCategory(category);
+      return;
+    }
+    toggle(category.id);
   }
 
   function openFeed(feed: Subscription) {
@@ -1030,12 +1071,7 @@
           data-drop-head={category.label}
           data-drop-head-prev={reader.categories[index - 1]?.label ?? ""}
           data-drop-head-first={category.feeds[0]?.id ?? ""}
-          onclick={() => {
-            // The drag ends with a click on the row it landed on; without this
-            // every reorder would also fold or unfold the group.
-            if (categoryDrag.justDropped()) return;
-            toggle(category.id);
-          }}
+          onclick={() => clickCategory(category, folded)}
           aria-expanded={!folded}
           aria-label={folded ? `Expand ${category.label}` : `Collapse ${category.label}`}
           onpointerenter={() => reader.prefetchStream(category.id)}
