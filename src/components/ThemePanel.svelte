@@ -46,6 +46,9 @@
 
   let open = $state(false);
 
+  /** The bar has one panel open at a time, so it is told when this one opens. */
+  let { onopen }: { onopen?: () => void } = $props();
+
   /** The Web tab's two verbs: open the address, and copy it for a phone. */
   let copied = $state(false);
 
@@ -93,6 +96,18 @@
   export function openSettings() {
     tab = "colours";
     open = true;
+    onopen?.();
+  }
+
+  /** Shut from elsewhere: one panel at a time in the bar. */
+  export function closeSettings() {
+    open = false;
+  }
+
+  /** The gear itself: open it, and say so, so the Aa panel can stand down. */
+  function toggleSettings(): void {
+    open = !open;
+    if (open) onopen?.();
   }
 
   /**
@@ -216,7 +231,7 @@
     aria-expanded={open}
     aria-label="Settings"
     title="Settings"
-    onclick={() => (open = !open)}
+    onclick={toggleSettings}
   >
     <svg class="gear" viewBox="0 0 24 24" aria-hidden="true">
       <circle cx="12" cy="12" r="3.1" />

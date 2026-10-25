@@ -38,7 +38,7 @@
    * reader is actually looking at. The panel below keeps both sizes named
    * explicitly, so each can still be set on its own.
    */
-  let { target = "article" }: { target?: "article" | "list" } = $props();
+  let { target = "article", onopen }: { target?: "article" | "list"; onopen?: () => void } = $props();
 
   const onList = $derived(target === "list");
   const stepScaleSpec = $derived(onList ? ROW_SCALE : TEXT_SCALE);
@@ -58,6 +58,18 @@
   /** Opened from the compact menu, where the Aa has no room to sit. */
   export function openPanel() {
     open = true;
+    onopen?.();
+  }
+
+  /** Shut from elsewhere: one panel at a time in the bar. */
+  export function closePanel() {
+    open = false;
+  }
+
+  /** The Aa itself: open it, and say so, so the settings panel can stand down. */
+  function toggle(): void {
+    open = !open;
+    if (open) onopen?.();
   }
 
   const textPercent = $derived(scalePercent(reading.textScale, TEXT_SCALE));
@@ -132,7 +144,7 @@
     aria-expanded={open}
     aria-label="Reading options"
     title="Reading options"
-    onclick={() => (open = !open)}
+    onclick={toggle}
   >
     <span aria-hidden="true">Aa</span>
   </button>

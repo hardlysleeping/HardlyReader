@@ -613,8 +613,8 @@ check(
     /const articleShown = \$derived\(Boolean\(slots\.article\) \|\| inPane \|\| level === "article"\);/.test(
       main,
     ) &&
-    /<ReadingControls bind:this=\{readingControls\} target=\{textTarget\} \/>/.test(header) &&
-    /let \{ target = "article" \}: \{ target\?: "article" \| "list" \} = \$props\(\);/.test(
+    /<ReadingControls[\s\S]{0,160}?target=\{textTarget\}/.test(header) &&
+    /let \{ target = "article", onopen \}: \{ target\?: "article" \| "list"; onopen\?: \(\) => void \} = \$props\(\);/.test(
       readingControls,
     ) &&
     /if \(onList\) reading\.stepRowScale\(direction\);\s*else reading\.stepTextScale\(direction\);/.test(

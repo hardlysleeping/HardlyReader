@@ -9,8 +9,8 @@
 
   // Typed by what the menu needs from them, so a component's instance type
   // never has to be named here.
-  let readingControls = $state<{ openPanel: () => void } | undefined>();
-  let themePanel = $state<{ openSettings: () => void } | undefined>();
+  let readingControls = $state<{ openPanel: () => void; closePanel: () => void } | undefined>();
+  let themePanel = $state<{ openSettings: () => void; closeSettings: () => void } | undefined>();
 
   /**
    * The compact menu.
@@ -252,8 +252,14 @@
   <!-- Hidden as a group when the bar is compact; their panels open from the
        menu, and a fixed panel does not care that its trigger is not drawn. -->
   <span class="tools">
-    <ReadingControls bind:this={readingControls} target={textTarget} />
-    <ThemePanel bind:this={themePanel} />
+    <!-- Two panels in one bar, and never two at once: each closes the other on
+         its way open, so the one behind cannot be left covering the one in use. -->
+    <ReadingControls
+      bind:this={readingControls}
+      target={textTarget}
+      onopen={() => themePanel?.closeSettings()}
+    />
+    <ThemePanel bind:this={themePanel} onopen={() => readingControls?.closePanel()} />
   </span>
 
   <!-- The count and the percentage for as long as the sync lasts. The bar for

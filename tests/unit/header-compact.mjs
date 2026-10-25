@@ -58,6 +58,28 @@ check("sync is not part of the group that hides", !/class="sync"/.test(tools));
 check("the menu opens by the hamburger", /class="icon menu"/.test(header) && /aria-haspopup="menu"/.test(header));
 
 // Opening a panel from a menu row needs the panels to take orders.
+// Two panels hang from one bar. Each covers the other when both are up, so
+// opening either shuts the other on the way open — the header only relays the
+// news, since each panel owns its own open state.
+check(
+  "the Aa panel shuts the settings panel as it opens, from the button and from the menu",
+  /onopen\?: \(\) => void/.test(readingControls) &&
+    /function toggle\(\): void \{\s*open = !open;\s*if \(open\) onopen\?\.\(\);/.test(readingControls) &&
+    /export function openPanel\(\) \{\s*open = true;\s*onopen\?\.\(\);/.test(readingControls) &&
+    /export function closePanel\(\)/.test(readingControls),
+);
+check(
+  "the settings panel shuts the Aa panel as it opens, likewise",
+  /onopen\?: \(\) => void/.test(themePanel) &&
+    /function toggleSettings\(\): void \{\s*open = !open;\s*if \(open\) onopen\?\.\(\);/.test(themePanel) &&
+    /export function openSettings\(\) \{[^}]*onopen\?\.\(\);/.test(themePanel) &&
+    /export function closeSettings\(\)/.test(themePanel),
+);
+check(
+  "and the header wires each to the other",
+  /onopen=\{\(\) => themePanel\?\.closeSettings\(\)\}/.test(header) &&
+    /onopen=\{\(\) => readingControls\?\.closePanel\(\)\}/.test(header),
+);
 check("settings can be opened from outside", /export function openSettings\(\)/.test(themePanel));
 check("reading can be opened from outside", /export function openPanel\(\)/.test(readingControls));
 
