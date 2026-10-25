@@ -340,7 +340,11 @@ check("grid tracks take the tile's real height", /\.grid \{[\s\S]{0,1400}?grid-a
 
 check(
   "a list row keeps its side gutter small so the headline gets the width",
-  /\.compact \.item \{[^}]*padding: calc\(6px \* var\(--row-scale, 1\)\) 8px;/.test(listSource),
+  // The gutter on the toggles' side is still small; the headline's side carries
+  // the tree's indent, which is the nesting, not padding for its own sake.
+  /\.compact \.item \{[^}]*padding: calc\(6px \* var\(--row-scale, 1\)\) 8px calc\(6px \* var\(--row-scale, 1\)\) calc\(3 \* var\(--tab-step\) \+ 8px\);/.test(
+    listSource,
+  ),
 );
 
 check(
@@ -553,7 +557,7 @@ check(
     const css = listSource.slice(listSource.indexOf(".items .tab {"));
     const rule = css.slice(0, css.indexOf("}"));
     return (
-      /var\(--depth, 0\) \* 14px/.test(rule) &&
+      /var\(--depth, 0\) \* var\(--tab-step\)/.test(rule) &&
       /border-radius: 8px 8px 0 0/.test(rule) &&
       /border-bottom-color: transparent/.test(rule)
     );
@@ -670,9 +674,11 @@ check(
 );
 check(
   "the new shape only ever applies to a row, never to cards, the grid or the compact list",
-  (listSource.match(/\.items\.half-end/g) ?? []).length === 13 &&
-    (listSource.match(/\.items\.half-end[^,{]*\{/g) ?? []).every((rule) =>
-      rule.includes(":not(.compact):not(.cards):not(.grid)"),
+  (listSource.match(/\.items\.half-end/g) ?? []).length === 9 &&
+    (listSource.match(/\.items\.half-end[^,{]*\{/g) ?? []).every(
+      (rule) =>
+        // One bare block, and it only declares the filled picture's numbers.
+        rule.trim() === ".items.half-end {" || rule.includes(":not(.compact):not(.cards):not(.grid)"),
     ) &&
     /class:half-end=\{view === "regular" && reading\.rowsEnd === "half"\}/.test(listSource),
 );
@@ -709,6 +715,31 @@ check(
     ) &&
     /\.items\.half-end[^{]*\.body \{\s*gap: 2px;/.test(listSource) &&
     /\.items\.half-end[^{]*\.thumb\.left \{[^}]*margin-right: 4px;/.test(listSource),
+);
+
+/* The tree's shape: the labels name it, and its indent only ever gets deeper as
+   it opens — a month at the pane's edge, a week a step in, a day two, and the
+   posts under a day a step further than the day they are filed in. A post at the
+   edge would hang to the left of every tab above it, which is what it used to do. */
+check(
+  "the one-line view is the tree, and says so",
+  LIST_VIEW_LABELS.list === "Tree" &&
+    /^Tree: posts filed under their month, week and day$/.test(LIST_VIEW_TITLES.list),
+);
+check(
+  "the tree indents by one step per level, and the posts a step past the deepest tab",
+  /--tab-step: 14px;/.test(listSource) &&
+    /margin: calc\(5px \* var\(--row-scale, 1\)\) 0 0 calc\(var\(--depth, 0\) \* var\(--tab-step\)\);/.test(
+      listSource,
+    ) &&
+    // Three steps plus the row's own gutter: deeper than the day tab (two steps).
+    /\.compact \.item \{[^}]*padding: calc\(6px \* var\(--row-scale, 1\)\) 8px calc\(6px \* var\(--row-scale, 1\)\) calc\(3 \* var\(--tab-step\) \+ 8px\);/.test(
+      listSource,
+    ),
+);
+check(
+  "a nested list has no tabs of its own, so it keeps the plain gutter",
+  /\.list\.nested \.items \.item \{\s*padding-left: 8px;/.test(listSource),
 );
 
 /* The turn's radius: one slider per shape, from square to a full semicircle,
@@ -759,41 +790,43 @@ check(
     /if \(which === "pill"\) \{[\s\S]{0,200}?this\.curvePill = value;/.test(readingSource),
 );
 
-/* The picture that fills the corner instead of sitting in it. The row clips, the
-   box is the row's height and square, and nothing is inset — so a picture can
-   take the whole left end and the turn is what cuts it. */
-check("the inset picture is the default, and filling the corner is asked for", FLUSH_THUMB_DEFAULT === false);
+/* The picture that fills the row's end instead of sitting inside it. The row
+   clips, the box is the row's height and square, and nothing is inset — so a
+   picture can take the whole end and the row's own shape is what cuts it. Both
+   shapes have an end like that: the footed row and the pill, which is why the
+   option is not tied to either. */
+check("the inset picture is the default, and filling the end is asked for", FLUSH_THUMB_DEFAULT === false);
 check(
-  "the filled picture is the row's corner: flush, square, and clipped by the row",
-  /class:flush-thumb=\{view === "regular" && reading\.rowsEnd === "half" && reading\.flushThumb\}/.test(
+  "the filled picture is the row's end in either shape: flush, square, and clipped by the row",
+  /class:flush-thumb=\{view === "regular" && reading\.flushThumb\}/.test(listSource) &&
+    /\.items\.flush-thumb:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{\s*overflow: hidden;/.test(
+      listSource,
+    ) &&
+    /\.items\.flush-thumb[^{]*\.item \{\s*padding: 0;/.test(listSource) &&
+    /\.items\.flush-thumb[^{]*\.thumb \{[^}]*aspect-ratio: 1;[^}]*align-self: stretch;[^}]*margin: 0;[^}]*border-radius: 0;/.test(
+      listSource,
+    ) &&
+    // Out of the box's measurements, or the picture's own width would decide the end.
+    /\.items\.flush-thumb[^{]*\.thumb img \{\s*position: absolute;\s*inset: 0;/.test(listSource),
+);
+check(
+  "the text keeps the inset the picture no longer takes, in each shape's own numbers",
+  /\.items\.flush-thumb[^{]*\.body \{\s*padding: calc\(var\(--flush-block, 6px\) \* var\(--row-scale, 1\)\) 6px/.test(
     listSource,
   ) &&
-    /\.items\.half-end\.flush-thumb:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{\s*overflow: hidden;/.test(
-      listSource,
-    ) &&
-    /\.items\.half-end\.flush-thumb[^{]*\.item \{\s*padding: 0;/.test(listSource) &&
-    /\.items\.half-end\.flush-thumb[^{]*\.thumb \{[^}]*aspect-ratio: 1;[^}]*align-self: stretch;[^}]*margin: 0;[^}]*border-radius: 0;/.test(
-      listSource,
-    ) &&
-    // Out of the box's measurements, or the picture's own width would decide the corner.
-    /\.items\.half-end\.flush-thumb[^{]*\.thumb img \{\s*position: absolute;\s*inset: 0;/.test(
-      listSource,
-    ),
+    /\.items\.half-end \{[^}]*--flush-block: 4px;[^}]*--flush-text: 12px;/.test(listSource) &&
+    // The footed row's own padding would otherwise win on source order.
+    /\.items\.half-end:not\(\.flush-thumb\):not\(\.compact\)/.test(listSource),
 );
 check(
-  "the text keeps the inset the picture no longer takes",
-  /\.items\.half-end\.flush-thumb[^{]*\.body \{\s*padding: calc\(4px \* var\(--row-scale, 1\)\) 6px calc\(4px \* var\(--row-scale, 1\)\) 12px;/.test(
+  "the toggle is offered wherever Rows is drawn, because both shapes have an end",
+  /\{#if view === "regular"\}[\s\S]{0,900}?aria-label="Picture fills the row's end"[\s\S]{0,400}?onclick=\{\(\) => reading\.toggleFlushThumb\(\)\}/.test(
     listSource,
-  ),
+  ) &&
+    !/reading\.rowsEnd === "half"[\s\S]{0,80}?Picture fills/.test(listSource),
 );
 check(
-  "the toggle is only drawn in the one shape that has a corner to fill",
-  /\{#if reading\.rowsEnd === "half"\}[\s\S]{0,700}?aria-label="Picture fills the row's corner"[\s\S]{0,400}?onclick=\{\(\) => reading\.toggleFlushThumb\(\)\}/.test(
-    listSource,
-  ),
-);
-check(
-  "and it is saved with the shape it belongs to",
+  "and it is saved with the rows it belongs to",
   /flushThumb: this\.flushThumb,/.test(readingSource) &&
     /if \(typeof saved\.flushThumb === "boolean"\) this\.flushThumb = saved\.flushThumb;/.test(readingSource) &&
     /toggleFlushThumb\(\): void \{\s*this\.flushThumb = !this\.flushThumb;\s*this\.save\(\);/.test(readingSource),

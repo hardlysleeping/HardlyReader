@@ -21,7 +21,7 @@ export const LIST_VIEW_DEFAULT: ListView = "regular";
 
 export const LIST_VIEW_LABELS: Record<ListView, string> = {
   regular: "Regular",
-  list: "List",
+  list: "Tree",
   cards: "Cards",
   grid: "Grid",
 };
@@ -29,7 +29,7 @@ export const LIST_VIEW_LABELS: Record<ListView, string> = {
 /** Longer wording for the tooltip, so the pill stays short. */
 export const LIST_VIEW_TITLES: Record<ListView, string> = {
   regular: "Regular rows: preview, byline and the feed's picture",
-  list: "One line per post: headline, feed and time",
+  list: "Tree: posts filed under their month, week and day",
   cards: "Cards: the picture above the headline, one per row",
   grid: "Grid: tiles side by side, headline only",
 };

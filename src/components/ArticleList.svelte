@@ -954,16 +954,16 @@
           </button>
           <!-- How far those corners turn, on the bar of the view they turn on. -->
           <RowCurve />
-          {#if reading.rowsEnd === "half"}
-            <!-- Only the footed shape has a corner for a picture to fill. -->
+          {#if view === "regular"}
+            <!-- Both shapes have an end a picture can fill. -->
             <button
               class="viewicon flush"
               class:on={reading.flushThumb}
               aria-pressed={reading.flushThumb}
-              aria-label="Picture fills the row's corner"
+              aria-label="Picture fills the row's end"
               title={reading.flushThumb
-                ? "The picture fills the row's corner, and the turn cuts it — press to sit it inside the row again"
-                : "The picture sits inside the row — press to have it fill the corner"}
+                ? "The picture fills the row's end, and the row cuts it — press to sit it inside the row again"
+                : "The picture sits inside the row — press to have it fill the end, corner and all"}
               onclick={() => reading.toggleFlushThumb()}
             >
               <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -1096,7 +1096,7 @@
     class:grid={view === "grid"}
     class:square={view === "grid" && gridIsSquare(reading.gridColumns)}
     class:half-end={view === "regular" && reading.rowsEnd === "half"}
-    class:flush-thumb={view === "regular" && reading.rowsEnd === "half" && reading.flushThumb}
+    class:flush-thumb={view === "regular" && reading.flushThumb}
     style:--row-turn={`${rowTurn}px`}
     style:--grid-template={gridTemplate(reading.gridColumns)}
     style:--card-window={`${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
@@ -1922,19 +1922,23 @@
      instead of the picture sitting in a smaller rounded box beside it. Nothing
      is inset from anything, so the row's own padding goes and the text takes it
      back where it needs it. */
-  .items.half-end.flush-thumb:not(.compact):not(.cards):not(.grid) .row {
+  .items.flush-thumb:not(.compact):not(.cards):not(.grid) .row {
     overflow: hidden;
   }
 
-  .items.half-end.flush-thumb:not(.compact):not(.cards):not(.grid) .item {
+  .items.flush-thumb:not(.compact):not(.cards):not(.grid) .item {
     padding: 0;
   }
 
-  .items.half-end.flush-thumb:not(.compact):not(.cards):not(.grid) .body {
-    padding: calc(4px * var(--row-scale, 1)) 6px calc(4px * var(--row-scale, 1)) 12px;
+  /* The text takes back the gutter the picture no longer takes, in the shape's
+     own numbers: the footed row is the tighter of the two, and the two numbers
+     live with the shape rather than in this rule. */
+  .items.flush-thumb:not(.compact):not(.cards):not(.grid) .body {
+    padding: calc(var(--flush-block, 6px) * var(--row-scale, 1)) 6px
+      calc(var(--flush-block, 6px) * var(--row-scale, 1)) var(--flush-text, 10px);
   }
 
-  .items.half-end.flush-thumb:not(.compact):not(.cards):not(.grid) .thumb {
+  .items.flush-thumb:not(.compact):not(.cards):not(.grid) .thumb {
     /* The row's height, and as wide as it is tall: the user's picture size sets
        the inset square, and this shape does not use it. The height is stated
        rather than left to the flex line, because a stretched box plus a ratio is
@@ -1952,7 +1956,7 @@
 
   /* The picture is taken out of the box's measurements, or its own pixel width
      would decide how wide the corner is before the height ever got a say. */
-  .items.half-end.flush-thumb:not(.compact):not(.cards):not(.grid) .thumb img {
+  .items.flush-thumb:not(.compact):not(.cards):not(.grid) .thumb img {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -1963,7 +1967,18 @@
      clear the right one with, so a picture on the leading side is inset like the
      marks on the trailing side instead of sitting on the accent — which is what
      clipped it against the turn. Nothing on the right moves. */
-  .items.half-end:not(.compact):not(.cards):not(.grid) .item {
+  .items.half-end {
+    /* What the filled picture gives back when it takes the corner: the footed
+       row is tighter than the pill's, so its text steps in further and its
+       padding is smaller. */
+    --flush-block: 4px;
+    --flush-text: 12px;
+  }
+
+  /* The filled picture takes the padding and hands it back to the text, so this
+     rule stands aside while it does — the flush rules come earlier in the sheet
+     and would otherwise lose to it. */
+  .items.half-end:not(.flush-thumb):not(.compact):not(.cards):not(.grid) .item {
     /* Tighter than the pill's row: the foot makes the row read as a slab, and a
        slab with the pill's air reads as a loose one. The picture is bigger and
        everything around it smaller, which is the difference between a row with a
@@ -2283,14 +2298,26 @@
     }
   }
 
-  /* ---------------------------------------------------------------- list --
-     One line per post: the headline, the feed and the time. No preview, no
-     picture — that is the trade for fitting twice as many on a screen. */
+  /* ----------------------------------------------------------------- tree --
+     The posts filed under their dates: a month, the weeks in it, the days in
+     those, and then the posts — one line each: headline, feed and time. No
+     preview, no picture; that is the trade for fitting twice as many on a
+     screen. */
   .compact .item {
     /* The row's own gutter is small on purpose: a list row is a line of text and
        every pixel of side padding is a pixel of headline lost. The toggles'
-       clearance is made on the other side of the row, not here. */
-    padding: calc(6px * var(--row-scale, 1)) 8px;
+       clearance is made on the other side of the row, not here — but the line
+       starts in from the edge by the tree's own step, three of them, because
+       what it is filed under is a day and a day is two steps in. A post that sat
+       at the edge would hang to the left of every tab above it: the nesting has
+       to get deeper as it opens, never shallower. */
+    padding: calc(6px * var(--row-scale, 1)) 8px calc(6px * var(--row-scale, 1)) calc(3 * var(--tab-step) + 8px);
+  }
+
+  /* A nested list hangs under the feed row that names it, and has no tabs of its
+     own, so it keeps the plain gutter instead of the tree's indent. */
+  .list.nested .items .item {
+    padding-left: 8px;
   }
 
   .compact .body {
@@ -2346,14 +2373,21 @@
      A month, the weeks inside it, the days inside those. Each tab is the front
      of a folder: rounded on top, open at the bottom, and set in further than the
      one it belongs to, so the nesting is legible before a word is read. */
+  .items {
+    /* The tree's step: month at the edge, week one step in, day two, and the
+       posts under a day one step further than the day they are filed in. One
+       number, so a post can never sit outside a tab it belongs to. */
+    --tab-step: 14px;
+  }
+
   .items .tab {
     display: flex;
     align-items: center;
     gap: 6px;
     width: fit-content;
-    max-width: calc(100% - var(--depth, 0) * 14px);
-    /* The step in: a month at the pane's edge, a week 14px in, a day 28px. */
-    margin: calc(5px * var(--row-scale, 1)) 0 0 calc(var(--depth, 0) * 14px);
+    max-width: calc(100% - var(--depth, 0) * var(--tab-step));
+    /* The step in: a month at the pane's edge, a week one step in, a day two. */
+    margin: calc(5px * var(--row-scale, 1)) 0 0 calc(var(--depth, 0) * var(--tab-step));
     padding: 2px 9px 3px 5px;
     border: 1px solid var(--border-soft);
     /* No bottom edge: the tab is the top of a box, not a chip floating alone. */
