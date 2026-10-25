@@ -20,7 +20,7 @@ export const PIN_VIEW_CYCLE: readonly PinView[] = ["all", "only", "without"];
 /** The pin filter's three states, in the words the extension uses. */
 export const PIN_VIEW_LABELS: Record<PinView, string> = {
   all: "Mixed",
-  only: "Pinned",
+  only: "Only",
   without: "Unpinned",
 };
 
