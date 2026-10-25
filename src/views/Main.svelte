@@ -367,8 +367,82 @@
    */
   let pulled = $state(false);
 
+  /**
+   * The drawer's edge, dragged.
+   *
+   * A press slides the sheet and a phone closes one with a thumb, so the same edge
+   * takes a drag as well as a press: the sheet follows the pointer down and back
+   * up, and on release goes to whichever half it is nearest — or the way it was
+   * thrown, because a flick is how a drawer actually gets shut. `dragH` is the
+   * height under the finger; it is null the rest of the time, when the stylesheet
+   * owns the height and the press's own transition.
+   */
+  let dragH = $state<number | null>(null);
+  let dragging = $state(false);
+  let dragFromY = 0;
+  let dragFromH = 0;
+  let dragMaxH = 0;
+  let dragMoved = false;
+  let dragLastY = 0;
+  let dragLastT = 0;
+  let dragSpeed = 0;
+
+  function grabDown(event: PointerEvent): void {
+    const frame = panes;
+    if (frame === null) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    dragFromY = event.clientY;
+    dragLastY = event.clientY;
+    dragLastT = event.timeStamp;
+    dragSpeed = 0;
+    dragMaxH = Math.min(frame.clientHeight * 0.62, 560);
+    dragFromH = postsSlot?.getBoundingClientRect().height ?? 0;
+    dragH = dragFromH;
+    dragging = true;
+    dragMoved = false;
+    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+  }
+
+  function grabMove(event: PointerEvent): void {
+    if (!dragging) return;
+    const dt = event.timeStamp - dragLastT;
+    if (dt > 0) dragSpeed = (event.clientY - dragLastY) / dt;
+    dragLastY = event.clientY;
+    dragLastT = event.timeStamp;
+    if (Math.abs(event.clientY - dragFromY) > 4) dragMoved = true;
+    const next = dragFromH + (event.clientY - dragFromY);
+    dragH = Math.max(0, Math.min(dragMaxH, next));
+  }
+
+  function grabUp(event: PointerEvent): void {
+    if (!dragging) return;
+    dragging = false;
+    (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
+    const height = dragH ?? dragFromH;
+    // Nearest half, unless it was thrown: 0.5px/ms is slower than a flick and
+    // faster than a considered drag, so it only answers a real throw.
+    const thrown = Math.abs(dragSpeed) > 0.5 ? dragSpeed > 0 : null;
+    pulled = thrown === null ? height > dragMaxH * 0.42 : thrown;
+    // One frame with the height still pinned under the finger, then the stylesheet
+    // takes it back: the release slides from where the finger left it rather than
+    // jumping to the nearest end.
+    requestAnimationFrame(() => {
+      if (!dragging) dragH = null;
+    });
+  }
+
+  function grabCancel(): void {
+    if (!dragging) return;
+    dragging = false;
+    dragH = null;
+  }
+
   $effect(() => {
-    if (!drawer) pulled = false;
+    if (!drawer) {
+      pulled = false;
+      dragging = false;
+      dragH = null;
+    }
   });
 
   const slots = $derived.by(() => {
@@ -776,8 +850,10 @@
       class="slot posts"
       class:away={!slots.posts}
       class:drawer
-      class:pulled={drawer && pulled}
+      class:pulled={drawer && (pulled || dragging)}
       inert={drawer && !pulled}
+      style:height={dragH === null ? null : `${dragH}px`}
+      style:transition-duration={dragging ? "0ms" : null}
       bind:this={postsSlot}
     >
       <ArticleList onOpen={() => (pulled = false)} />
@@ -806,11 +882,23 @@
       <button
         type="button"
         class="grab"
-        class:down={pulled}
+        class:down={pulled || dragging}
         aria-label={pulled ? "Put the post list back up" : "Pull the post list down"}
         title={pulled ? "Put the post list back up" : "Pull the post list down"}
         aria-expanded={pulled}
-        onclick={() => (pulled = !pulled)}
+        style:top={dragH === null ? null : `${dragH}px`}
+        style:transition-duration={dragging ? "0ms" : null}
+        onpointerdown={grabDown}
+        onpointermove={grabMove}
+        onpointerup={grabUp}
+        onpointercancel={grabCancel}
+        onclick={() => {
+          if (dragMoved) {
+            dragMoved = false;
+            return;
+          }
+          pulled = !pulled;
+        }}
       >
         <svg viewBox="0 0 16 16" aria-hidden="true">
           {#if pulled}
@@ -1113,6 +1201,17 @@
     box-shadow: 0 4px 10px rgb(0 0 0 / 0.26);
     cursor: pointer;
     transition: top var(--slide-ms, 0ms) var(--slide-ease, ease);
+  }
+
+  /* A drag on the edge is the drawer's, not the browser's: without this the touch
+     scrolls the page under the finger and the sheet never moves. */
+  .panes.one .grab {
+    touch-action: none;
+    cursor: grab;
+  }
+
+  .panes.one .grab:active {
+    cursor: grabbing;
   }
 
   /* A thumb, not a hairline: the tab is 24px tall because that is what the shape

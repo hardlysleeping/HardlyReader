@@ -238,7 +238,7 @@ check(
   "and the list is a drawer over the open post, not a pane beside it",
   /const drawer = \$derived\(mode === 1 && level === "article"\);/.test(main) &&
     /if \(drawer\) return \{ \.\.\.drawn, posts: true, article: true \};/.test(main) &&
-    /class:drawer\s*\n?\s*class:pulled=\{drawer && pulled\}/.test(main),
+    /class:drawer[\s\S]{0,80}?class:pulled=\{drawer && \(pulled \|\| dragging\)\}/.test(main),
 );
 check(
   "the drawer is the list's own box: it animates its height, and the page keeps its size",
@@ -277,6 +277,44 @@ check(
 check(
   "while it is up the list is out of the tab order and out of reach",
   /inert=\{drawer && !pulled\}/.test(main),
+);
+// A press slides the drawer and a phone closes one with a thumb: the same edge
+// takes a drag, follows the finger, and lets go into the nearest half — or the way
+// it was thrown, because a flick is how a drawer actually gets shut.
+check(
+  "the drawer's edge can be dragged, not only pressed",
+  /onpointerdown=\{grabDown\}/.test(main) &&
+    /onpointermove=\{grabMove\}/.test(main) &&
+    /onpointerup=\{grabUp\}/.test(main) &&
+    /onpointercancel=\{grabCancel\}/.test(main) &&
+    /\.panes\.one \.grab \{[\s\S]{0,200}?touch-action: none;/.test(main),
+);
+check(
+  "and the sheet follows the finger instead of jumping to an end",
+  /let dragH = \$state<number \| null>\(null\);/.test(main) &&
+    /style:height=\{dragH === null \? null : `\$\{dragH\}px`\}/.test(main) &&
+    /style:top=\{dragH === null \? null : `\$\{dragH\}px`\}/.test(main) &&
+    /style:transition-duration=\{dragging \? "0ms" : null\}/.test(main) &&
+    /dragMaxH = Math\.min\(frame\.clientHeight \* 0\.62, 560\);/.test(main),
+);
+check(
+  "a drag is not also a press, and a press is still a press",
+  /if \(dragMoved\) \{\s*dragMoved = false;\s*return;\s*\}\s*pulled = !pulled;/.test(main) &&
+    /if \(Math\.abs\(event\.clientY - dragFromY\) > 4\) dragMoved = true;/.test(main),
+);
+check(
+  "and letting go is nearest half, unless it was thrown",
+  /const thrown = Math\.abs\(dragSpeed\) > 0\.5 \? dragSpeed > 0 : null;/.test(main) &&
+    /pulled = thrown === null \? height > dragMaxH \* 0\.42 : thrown;/.test(main),
+);
+check(
+  "the height goes back to the stylesheet after the release, so it slides",
+  /requestAnimationFrame\(\(\) => \{\s*if \(!dragging\) dragH = null;\s*\}\);/.test(main),
+);
+check(
+  "and the drag is view state: nothing about it is stored",
+  !/dragH/.test(layout) &&
+    !/dragH/.test(readFileSync(join(root, "src/state/reading.svelte.ts"), "utf8")),
 );
 check(
   "and a tuck left over from three panes is dropped with the mode that owned it",
