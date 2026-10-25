@@ -42,7 +42,10 @@
   import { lan } from "../state/lan.svelte";
   import { LAN_LABELS, LAN_PORT_MAX, LAN_PORT_MIN, lanNote } from "../lib/lan";
   import { openExternal } from "../lib/open-external";
-  import { DEFAULT_WIDTHS, MODE_HYSTERESIS, THRESHOLD_LIMITS } from "../lib/panes";
+  import { DEFAULT_WIDTHS, MODE_HYSTERESIS, THRESHOLD_LIMITS, thresholdLimits } from "../lib/panes";
+
+  /** The slider minimums for this device: a phone's are narrower than a desktop's. */
+  const limits = $derived(thresholdLimits(layout.device));
 
   let open = $state(false);
 
@@ -103,6 +106,36 @@
   export function closeSettings() {
     open = false;
   }
+
+  let panelEl = $state<HTMLElement | null>(null);
+  let gearEl = $state<HTMLElement | null>(null);
+
+  /**
+   * A press anywhere else in the app closes it.
+   *
+   * The panel is a dialog with no scrim, so before this a tap on the article, on
+   * the list, on a feed — anything — left it open over the thing that was just
+   * pressed. The gear itself is exempt: pressing it is how the panel is meant to
+   * be toggled, and closing on the way to the trigger would make it open twice.
+   */
+  $effect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target === null) return;
+      if (panelEl?.contains(target) || gearEl?.contains(target)) return;
+      open = false;
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") open = false;
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  });
 
   /** The gear itself: open it, and say so, so the Aa panel can stand down. */
   function toggleSettings(): void {
@@ -227,6 +260,7 @@
 <div class="themebar">
   <button
     class="swatch"
+    bind:this={gearEl}
     aria-haspopup="dialog"
     aria-expanded={open}
     aria-label="Settings"
@@ -243,7 +277,7 @@
 </div>
 
 {#if open}
-  <div class="panel" role="dialog" aria-label="Settings">
+  <div class="panel" role="dialog" aria-label="Settings" bind:this={panelEl}>
     <!-- Three sections instead of one long column: colour, the pane widths it
          shares a panel with, and how the reader behaves. -->
     <div class="tabs" role="tablist" aria-label="Settings sections">
@@ -464,7 +498,7 @@
           <input
             class="value"
             type="number"
-            min={THRESHOLD_LIMITS.two.min}
+            min={limits.two.min}
             max={layout.rangeFor("two").max}
             step="10"
             value={layout.thresholds.two}
@@ -484,7 +518,7 @@
         <input
           class="range wide"
           type="range"
-          min={THRESHOLD_LIMITS.two.min}
+          min={limits.two.min}
           max={layout.rangeFor("two").max}
           step="10"
           value={layout.thresholds.two}
@@ -500,7 +534,7 @@
           <input
             class="value"
             type="number"
-            min={THRESHOLD_LIMITS.three.min}
+            min={limits.three.min}
             max={layout.rangeFor("three").max}
             step="10"
             value={layout.thresholds.three}
@@ -520,7 +554,7 @@
         <input
           class="range wide"
           type="range"
-          min={THRESHOLD_LIMITS.three.min}
+          min={limits.three.min}
           max={layout.rangeFor("three").max}
           step="10"
           value={layout.thresholds.three}
@@ -539,7 +573,7 @@
           <input
             class="value"
             type="number"
-            min={THRESHOLD_LIMITS.one.min}
+            min={limits.one.min}
             max={layout.rangeFor("one").max}
             step="10"
             value={layout.thresholds.one}
@@ -559,7 +593,7 @@
         <input
           class="range wide"
           type="range"
-          min={THRESHOLD_LIMITS.one.min}
+          min={limits.one.min}
           max={layout.rangeFor("one").max}
           step="10"
           value={layout.thresholds.one}
@@ -659,8 +693,11 @@
           <button
             class="segbtn"
             class:on={!layout.stackChosen}
+            class:forced={layout.stackForced}
             aria-pressed={!layout.stackChosen}
-            title="Feeds, posts and article side by side, one column each"
+            title={layout.stackForced
+              ? "Side by side is chosen, but this window is not wide enough for three columns — press to widen the window"
+              : "Feeds, posts and article side by side, one column each"}
             onclick={() => layout.setStacked(false)}>Side by side</button>
           <button
             class="segbtn"
@@ -1345,6 +1382,34 @@
     color: var(--text);
     border-color: color-mix(in srgb, var(--accent) 60%, transparent);
     background: color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+
+  /* Chosen, and refused by the window: three columns need a width this window
+     does not have, so the pair is drawn instead. The button still says what was
+     chosen — pressing it again retries the resize — but it no longer looks
+     exactly like the "Stacked" button beside it, which is what made the setting
+     read as broken. Dashed, dimmed, and an exclamation in a ring. */
+  .segbtn.forced {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--text) 30%, transparent);
+    background: none;
+    color: var(--text-dim);
+  }
+
+  .segbtn.forced::after {
+    content: "!";
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    margin-left: 5px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--text) 32%, transparent);
+    color: var(--panel, #111);
+    font-size: 8.5px;
+    font-weight: 700;
+    line-height: 11px;
+    text-align: center;
+    vertical-align: 1px;
   }
 
   .reset,

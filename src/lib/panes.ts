@@ -419,11 +419,33 @@ export const THRESHOLD_LIMITS = {
   // not at a wider number: a margin dragged to 240 and then the "1" button used
   // to disagree by 40px, which is the same "it grew on me" jump as the window
   // floor caused from the other side.
-  one: { min: MIN.sidebar, max: 2000 },
-  two: { min: 360, max: 2000 },
-  three: { min: 440, max: 2600 },
+  // The layout sliders' minimums, given by the owner: one pane from 250, two
+  // from 500, three from 750. These were 240 / 360 / 440 — the sliders could be
+  // dragged down to widths the panes themselves could not honour, and the mode
+  // floors above were a different set of numbers entirely, which is what made
+  // "why is the two-pane minimum 700" a fair question.
+  one: { min: 250, max: 2000 },
+  two: { min: 500, max: 2000 },
+  three: { min: 750, max: 2600 },
   gap: 80,
 };
+
+/**
+ * The slider minimums for one device.
+ *
+ * A phone's own floors are narrower than the desktop's — 280 / 440 / 660 — and a
+ * phone may not be dragged below the width its panes can be drawn at, so each
+ * device takes the narrower of its own floor and the owner's desktop number.
+ */
+export function thresholdLimits(device: Device = "desktop") {
+  const narrow = (slider: number, floor: number) => Math.min(slider, floor);
+  return {
+    one: { min: narrow(THRESHOLD_LIMITS.one.min, NEEDED[device][1]), max: THRESHOLD_LIMITS.one.max },
+    two: { min: narrow(THRESHOLD_LIMITS.two.min, NEEDED[device][2]), max: THRESHOLD_LIMITS.two.max },
+    three: { min: narrow(THRESHOLD_LIMITS.three.min, NEEDED[device][3]), max: THRESHOLD_LIMITS.three.max },
+    gap: THRESHOLD_LIMITS.gap,
+  };
+}
 
 /** Runtime values from storage, a slider or a corrupt string, made legal. */
 export function clampThresholds(
@@ -433,10 +455,11 @@ export function clampThresholds(
   const fallback = THRESHOLDS[device];
   const whole = (value: unknown, or: number): number =>
     typeof value === "number" && Number.isFinite(value) ? Math.round(value) : or;
-  const { min: oneMin, max: oneMax } = THRESHOLD_LIMITS.one;
-  const { min: twoMin, max: twoMax } = THRESHOLD_LIMITS.two;
-  const { min: threeMin, max: threeMax } = THRESHOLD_LIMITS.three;
-  const { gap } = THRESHOLD_LIMITS;
+  const limits = thresholdLimits(device);
+  const { min: oneMin, max: oneMax } = limits.one;
+  const { min: twoMin, max: twoMax } = limits.two;
+  const { min: threeMin, max: threeMax } = limits.three;
+  const { gap } = limits;
   const two = Math.min(Math.max(whole(input.two, fallback.two), twoMin), twoMax);
   const three = Math.min(Math.max(whole(input.three, fallback.three), threeMin), threeMax);
   // Each mode needs its own width, and they have to stay in order: if "one"
@@ -785,14 +808,19 @@ export function thresholdsFor(
   one?: number,
   stacked = false,
 ): PaneThresholds {
-  return clampThresholds(
-    {
-      one: one ?? THRESHOLDS[device].one,
-      two: neededWidth(layout, 2, device),
-      three: neededWidth(layout, 3, device, stacked),
-    },
-    device,
-  );
+  // Derived, not entered: the panes decide these, so the sliders' own floors do
+  // not apply. They still have to be ordered — a stacked three legitimately comes
+  // out under the three-column slider's minimum, which is the whole point of
+  // stacking — so only the ordering and the gap are enforced here.
+  // A layout missing the pane this mode needs is not a requirement, it is a
+  // fallback: the old numbers came out of `clampThresholds`, which threw NaN away
+  // in favour of the device's defaults, and that tolerance is kept here.
+  const needTwo = neededWidth(layout, 2, device);
+  const needThree = neededWidth(layout, 3, device, stacked);
+  const two = Math.max(Number.isFinite(needTwo) ? needTwo : THRESHOLDS[device].two, NEEDED[device][1]);
+  const three = Math.max(Number.isFinite(needThree) ? needThree : THRESHOLDS[device].three, two + THRESHOLD_LIMITS.gap);
+  const oneWant = Math.round(one ?? THRESHOLDS[device].one);
+  return { one: Math.min(oneWant, two - THRESHOLD_LIMITS.gap), two, three };
 }
 
 /**

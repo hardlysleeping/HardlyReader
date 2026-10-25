@@ -270,7 +270,7 @@ check(
 );
 check(
   "both arrangements are named and pressed",
-  /class:on=\{!layout\.stackChosen\}[\s\S]{0,220}layout\.setStacked\(false\)[\s\S]{0,400}layout\.setStacked\(true\)/.test(
+  /class:on=\{!layout\.stackChosen\}[\s\S]{0,520}layout\.setStacked\(false\)[\s\S]{0,400}layout\.setStacked\(true\)/.test(
     panel,
   ),
 );

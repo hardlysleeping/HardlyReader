@@ -112,6 +112,26 @@
       close();
     }
   }
+
+  let panelEl = $state<HTMLElement | null>(null);
+  let moreEl = $state<HTMLElement | null>(null);
+
+  /**
+   * A press anywhere else in the app closes it, the same as the settings panel:
+   * a popover that stays open over whatever was just pressed is a popover that
+   * took the press. The Aa button itself is exempt, so it still toggles.
+   */
+  $effect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target === null) return;
+      if (panelEl?.contains(target) || moreEl?.contains(target)) return;
+      close();
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  });
 </script>
 
 <svelte:window onkeydown={open ? onkeydown : undefined} />
@@ -139,6 +159,7 @@
 
   <button
     class="more"
+    bind:this={moreEl}
     class:on={open}
     aria-haspopup="dialog"
     aria-expanded={open}
@@ -151,7 +172,7 @@
 </div>
 
 {#if open}
-  <div class="panel" role="dialog" aria-label="Reading options">
+  <div class="panel" role="dialog" aria-label="Reading options" bind:this={panelEl}>
     <div class="row">
       <span class="key" id="text-size-label">Text size</span>
       <div class="stepper" role="group" aria-labelledby="text-size-label">

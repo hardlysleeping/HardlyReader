@@ -126,5 +126,23 @@ check(
     !/aria-label="Minimize"/.test(header),
 );
 
+// A popover takes the press that lands outside it. Both panels are dialogs with
+// no scrim, so without this a tap on the article behind them left them open over
+// whatever had just been pressed — and their own trigger must still toggle.
+for (const [name, source] of [["settings", themePanel], ["reading", readingControls]]) {
+  check(
+    `${name} closes on a press elsewhere`,
+    /window\.addEventListener\("pointerdown", onDown, true\)/.test(source) &&
+      /contains\(target\)/.test(source) &&
+      /removeEventListener\("pointerdown", onDown, true\)/.test(source),
+  );
+  check(
+    `${name}'s own trigger is exempt, so it still toggles`,
+    /if \(panelEl\?\.contains\(target\) \|\| (gearEl|moreEl)\?\.contains\(target\)\) return;/.test(source),
+  );
+  check(`${name} has its panel bound for the containment test`, /class="panel"[^>]*bind:this=\{panelEl\}/.test(source));
+}
+check("settings also closes on Escape", /event\.key === "Escape"\) open = false/.test(themePanel));
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
