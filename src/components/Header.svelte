@@ -718,7 +718,7 @@
      before the rest of it does.
 
      Both strings are capped and ellipsised, so a narrow bar did not break:
-     it showed `hardlyrea…` and `cenvalweb.tail9…`, which reads as a bug and
+     it showed `hardlyrea…` and `reader.example…`, which reads as a bug and
      tells you nothing the sheet does not. Measured on this bar, the pair comes
      to ~218px, so with the brand, the layout switch, the reading and theme
      triggers and the sync button around it, nothing is cut from about 650
