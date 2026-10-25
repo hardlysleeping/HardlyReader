@@ -6,6 +6,8 @@ It is also built for reading comics one after another: a Cards view where a page
 
 Svelte 5, TypeScript, Tauri 2. Linux desktop today; the same code is the browser build.
 
+Its sidebar controls come from three small FreshRSS extensions, every one of them optional: **[Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories)** (hide, reveal, and lock a category), **[Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories)** (pin a category and order the pins), and the **[Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead)** that exposes their state over the API. Without them the app runs; the control that needs one says so instead of breaking.
+
 ![Three panes: feeds, posts, article](docs/screenshots/three-panes.png)
 
 ## What it does
@@ -76,7 +78,7 @@ Cards is the reading view for strips, and it is arranged around the things that 
 ## Requirements
 
 - FreshRSS with **API access enabled** (Settings → Authentication). The API password is what the app asks for, not the account password.
-- For the extension-backed features: **Pinned Categories** and/or **Hidden Categories**, plus the small **Hardly Read** adapter that exposes their state over the API.
+- For the extension-backed features: **[Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories)** and/or **[Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories)**, plus the small **[Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead)** that exposes their state over the API.
 - To build: Node 20+, pnpm, Rust, and Tauri 2's Linux dependencies (WebKitGTK 4.1).
 
 ## Running
@@ -106,8 +108,8 @@ On first launch, enter the base URL of your FreshRSS (e.g. `https://feeds.exampl
 | Extension | What the app uses it for |
 |---|---|
 | [Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories) | Which categories are pinned, and their order |
-| Hidden Categories | Which categories are hidden, the view state, and the lock |
-| Hardly Read adapter | One request that returns all of the above, plus the sidebar indent |
+| [Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories) | Which categories are hidden, the view state, and the lock |
+| [Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead) | One request that returns all of the above, plus the sidebar indent |
 
 Every one of them is optional. The website keeps working the same way with or without the app, and the app keeps working with or without them — it just says so, in the control that needs one.
 
