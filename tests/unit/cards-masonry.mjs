@@ -673,12 +673,62 @@ check(
     const src = read("src/components/ArticleList.svelte");
     const fn = src.slice(src.indexOf("async function fitToComic"));
     return (
-      /class="sizebtn fit"/.test(src) &&
+      /\{#if canFitWindow\(\)\}\s*<button\s*class="sizebtn fit"/.test(src) &&
+      /import \{ canFitWindow, fitWindowTo, screenSize \} from "\.\.\/lib\/window-fit";/.test(src) &&
       /onclick=\{toggleFitComic\}/.test(src) &&
       /const pane1 = feeds \? Math\.round\(feeds\.getBoundingClientRect\(\)\.width\) : 0;/.test(fn) &&
-      /const wanted = Math\.max\(pane2, Math\.min\(availH \* natural, img\.naturalWidth, availW\)\);/.test(fn) &&
+      // The room the page needs, capped by its own pixels and the monitor; the
+      // pane only ever grows to it unless the reader is the one resizing.
+      /const room = Math\.min\(availH \* natural, img\.naturalWidth, availW\);/.test(fn) &&
+      /Math\.min\(shrink \? room : Math\.max\(pane2, room\), availW\)/.test(fn) &&
+      /async function fitToComic\(shrink = false\): Promise<void>/.test(fn) &&
       /await fitWindowTo\(pane1 \+ rest \+ paneNext, height\);/.test(fn) &&
       /if \(!fitComic \|\| fitting \|\| view !== "cards"\) return;/.test(fn)
+    );
+  })(),
+);
+
+// A resize is the one thing that moves every card at once and tells the column
+// nothing: a card is as wide as the pane and as tall as its shape, so the whole
+// stream changes height while the scroll position stays in pixels. The port is
+// watched, the card being read is put back where it was, the snap state is asked
+// again, and a lit fit follows the window the reader made.
+check(
+  "a resize puts the card being read back where it was, and asks the snap again",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const settle = src.slice(src.indexOf("function settleResize"), src.indexOf("function cardResize"));
+    const watch = src.slice(src.indexOf("function cardResize"), src.indexOf("$effect(() => {", src.indexOf("function cardResize")));
+    return (
+      /use:cardResize/.test(src) &&
+      /new ResizeObserver\(\(\) => \{/.test(watch) &&
+      /observer\.observe\(el\);/.test(watch) &&
+      /seen = \{ w, h \};\s*settleResize\(\);/.test(watch) &&
+      // the reading place inside a page taller than the pane is a fraction of
+      // it, not a number of pixels down the column
+      /let heldFrac = 0;/.test(src) &&
+      /heldFrac = Math\.min\(Math\.max\(\(port\.top - box\.top\) \/ Math\.max\(box\.height, 1\), 0\), 1\)/.test(
+        src,
+      ) &&
+      /el\.scrollTop = box\.top - port\.top \+ el\.scrollTop \+ heldFrac \* box\.height;/.test(settle) &&
+      /if \(cardFits\(card\)\) \{\s*landOn\(card\);/.test(settle) &&
+      /\}\s*syncSnap\(\);\s*\}\);/.test(settle)
+    );
+  })(),
+);
+check(
+  "and a lit fit follows the reader's own resize, without arguing down the splitter",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const watch = src.slice(src.indexOf("function cardResize"), src.indexOf("$effect(() => {", src.indexOf("function cardResize")));
+    const settle = src.slice(src.indexOf("function settleResize"), src.indexOf("function cardResize"));
+    return (
+      /if \(view === "cards" && fitComic\) void fitToComic\(true\);/.test(watch) &&
+      /window\.addEventListener\("resize", onWindowResize\);/.test(watch) &&
+      /window\.removeEventListener\("resize", onWindowResize\);/.test(watch) &&
+      // the splitter changes the port but never the window, so it re-places the
+      // card and leaves the fit alone
+      !/fitToComic/.test(settle)
     );
   })(),
 );

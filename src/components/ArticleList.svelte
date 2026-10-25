@@ -31,7 +31,7 @@
   } from "../lib/list-view";
   import { cardLayout } from "../lib/card-layout.svelte";
   import { near } from "../lib/near-view";
-  import { fitWindowTo, screenSize } from "../lib/window-fit";
+  import { canFitWindow, fitWindowTo, screenSize } from "../lib/window-fit";
   import { openExternal } from "../lib/open-external";
   import { isExternalHttp } from "../lib/sanitize";
   import { tabbed, type Tabbed } from "../lib/date-tabs";
@@ -494,7 +494,17 @@
     if (fitComic) void fitToComic();
   }
 
-  async function fitToComic(): Promise<void> {
+  /**
+   * Fit the window to the comic on screen, at the size the reader has it.
+   *
+   * `shrink` is off while the reader is only moving through the stream: there,
+   * a fit may grow the window to hold a page but must not take it away from a
+   * reader who set it. It is on when the reader is the one resizing — then the
+   * window they make is the window they mean, and a fit that refused to narrow
+   * would be a fit that stopped fitting the moment the picture got taller than
+   * the screen.
+   */
+  async function fitToComic(shrink = false): Promise<void> {
     if (!fitComic || fitting || view !== "cards") return;
     const el = itemsEl;
     const card = currentCard();
@@ -525,11 +535,19 @@
     // pixels, and the room the monitor has. Below the current pane it does not
     // go — a fit that shrank the window would be a fit the reader did not ask
     // for.
-    const wanted = Math.max(pane2, Math.min(availH * natural, img.naturalWidth, availW));
-    const paneNext = Math.round(Math.min(wanted, availW));
+    const room = Math.min(availH * natural, img.naturalWidth, availW);
+    const paneNext = Math.round(Math.min(shrink ? room : Math.max(pane2, room), availW));
     const pictureH = Math.round(paneNext / natural);
-    const height = Math.min(screen.height, Math.max(window.innerHeight, chrome + pictureH));
-    if (paneNext === el.clientWidth && height === window.innerHeight) return;
+    const height = Math.min(
+      screen.height,
+      Math.max(shrink ? 240 : window.innerHeight, chrome + pictureH),
+    );
+    if (
+      Math.abs(paneNext - el.clientWidth) < 1 &&
+      Math.abs(height - window.innerHeight) < 1
+    ) {
+      return;
+    }
     fitting = true;
     try {
       await fitWindowTo(pane1 + rest + paneNext, height);
@@ -543,6 +561,14 @@
   function syncSnap(): void {
     const card = view === "cards" ? currentCard() : null;
     tallCard = !!card && !cardFits(card);
+    const el = itemsEl;
+    if (card && tallCard && el) {
+      const port = el.getBoundingClientRect();
+      const box = card.getBoundingClientRect();
+      heldFrac = Math.min(Math.max((port.top - box.top) / Math.max(box.height, 1), 0), 1);
+    } else {
+      heldFrac = 0;
+    }
     const next = card?.dataset.id ?? null;
     if (next === heldId) return;
     heldId = next;
@@ -557,8 +583,87 @@
     });
   }
 
-  // A view switch, a new stream or a resize puts different cards under the same
-  // scroll port, and none of them fire a scroll event of their own.
+  /**
+   * How far into the card in the middle the reader is, 0 to 1.
+   *
+   * A card that fits is read from its middle, so its place is not a fraction of
+   * anything. A page taller than the pane is read by scrolling it, and *that* is
+   * a place: resize the window twice and you want the same line of the comic in
+   * front of you, not the same number of pixels down the column.
+   */
+  let heldFrac = 0;
+
+  let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  let resizeFrame = 0;
+
+  /**
+   * A resize moves every card under the port, and the column is not told.
+   *
+   * A card's picture is as wide as the pane and as tall as its own shape, so
+   * changing the window's width changes the height of every card in the stream
+   * at once. The port keeps its scroll position in pixels and fires no scroll
+   * event, which left the reader wherever those pixels now happened to land —
+   * usually the middle of a different card — with the snapping still set for a
+   * card whose height no longer existed. This puts the card being read back
+   * where it was, and asks the snap state again.
+   */
+  function settleResize(): void {
+    if (resizeTimer !== null) clearTimeout(resizeTimer);
+    // Cards re-lay-out over a frame or two, and a pane being dragged does it
+    // once per step: wait for the last one instead of placing the card against
+    // a height that is about to change again.
+    resizeTimer = setTimeout(() => {
+      resizeTimer = null;
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => {
+        const el = itemsEl;
+        if (!el || view !== "cards") return;
+        const card = heldId
+          ? el.querySelector<HTMLElement>(`.row[data-id="${CSS.escape(heldId)}"]`)
+          : currentCard();
+        if (!card) return;
+        if (cardFits(card)) {
+          landOn(card);
+        } else {
+          const port = el.getBoundingClientRect();
+          const box = card.getBoundingClientRect();
+          el.scrollTop = box.top - port.top + el.scrollTop + heldFrac * box.height;
+        }
+        syncSnap();
+      });
+    }, 90);
+  }
+
+  /** The port's own size: a window resize, a dragged splitter, a rotated phone. */
+  function cardResize(el: HTMLElement) {
+    let seen = { w: el.clientWidth, h: el.clientHeight };
+    const observer = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w === seen.w && h === seen.h) return;
+      seen = { w, h };
+      settleResize();
+    });
+    observer.observe(el);
+    // The window is the reader's own hand, so a fit follows it in both
+    // directions. The splitter is not: a fit that undid the drag would be a
+    // control arguing with the reader.
+    const onWindowResize = () => {
+      if (view === "cards" && fitComic) void fitToComic(true);
+    };
+    window.addEventListener("resize", onWindowResize);
+    return {
+      destroy() {
+        observer.disconnect();
+        window.removeEventListener("resize", onWindowResize);
+        if (resizeTimer !== null) clearTimeout(resizeTimer);
+        cancelAnimationFrame(resizeFrame);
+      },
+    };
+  }
+
+  // A view switch or a new stream puts different cards under the same scroll
+  // port, and neither fires a scroll event of its own. A resize is `cardResize`.
   $effect(() => {
     void view;
     void reader.items.length;
@@ -1056,14 +1161,19 @@
               >
             {/each}
           {/if}
-          <button
-            class="sizebtn fit"
-            class:on={fitComic}
-            aria-pressed={fitComic}
-            aria-label="Fit the window to the comic"
-            title="Fit the window to the comic: the whole picture, at its own shape"
-            onclick={toggleFitComic}
-          >fit</button>
+          <!-- Only where a window can be asked for a size: a browser tab and a
+               phone cannot, and a control that is drawn where it cannot act reads
+               as a control that is broken. -->
+          {#if canFitWindow()}
+            <button
+              class="sizebtn fit"
+              class:on={fitComic}
+              aria-pressed={fitComic}
+              aria-label="Fit the window to the comic"
+              title="Fit the window to the comic: the whole picture, at its own shape"
+              onclick={toggleFitComic}
+            >fit</button>
+          {/if}
         </div>
       {/if}
       <div class="filters" role="group" aria-label="Show posts">
@@ -1102,6 +1212,7 @@
     style:--card-window={`${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
     style:--masonry-columns={masonryTrack(cardLayout.columns)}
     use:cardWheel
+    use:cardResize
     use:pullDown={{
       label: "Pull down to check for new posts",
       readyLabel: "Release to check for new posts",
