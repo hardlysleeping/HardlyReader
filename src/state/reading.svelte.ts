@@ -10,6 +10,7 @@ import { isArticleFilter, type ArticleFilter } from "../lib/article-filter";
 import {
   CARD_SIZE_DEFAULT,
   CURVE_DEFAULT,
+  CURVE_PILL_WAS,
   FLUSH_THUMB_DEFAULT,
   clampCurve,
   GRID_COLUMNS_DEFAULT,
@@ -248,7 +249,12 @@ class ReadingState {
       if (isListView(saved.listView)) this.listView = saved.listView;
       if (typeof saved.readInPane === "boolean") this.readInPane = saved.readInPane;
       if (isRowEnd(saved.rowsEnd)) this.rowsEnd = saved.rowsEnd;
-      if (saved.curvePill !== undefined) this.curvePill = clampCurve(saved.curvePill);
+      // The pill's shipped radius came down from 24 to 10; a stored 24 is that
+      // old default, not a choice, so it moves with the new one.
+      if (saved.curvePill !== undefined) {
+        const pill = clampCurve(saved.curvePill);
+        this.curvePill = pill === CURVE_PILL_WAS ? CURVE_DEFAULT.pill : pill;
+      }
       if (saved.curveHalf !== undefined) this.curveHalf = clampCurve(saved.curveHalf);
       if (typeof saved.flushThumb === "boolean") this.flushThumb = saved.flushThumb;
       if (isGridColumns(saved.gridColumns)) this.gridColumns = saved.gridColumns;

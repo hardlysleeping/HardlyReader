@@ -24,6 +24,7 @@ import {
   FLUSH_THUMB_DEFAULT,
   ROW_CURVE,
   CURVE_DEFAULT,
+  CURVE_PILL_WAS,
   clampCurve,
   LIST_VIEW_LABELS,
   LIST_VIEW_TITLES,
@@ -795,7 +796,14 @@ check("a radius is kept inside the range", clampCurve(-10) === 0 && clampCurve(4
 check("a radius is a whole number of pixels", clampCurve(27.6) === 28);
 check(
   "each shape starts at its own default, and the pill is the squarer of the two",
-  CURVE_DEFAULT.pill === 24 && CURVE_DEFAULT.half === 30 && CURVE_DEFAULT.pill < CURVE_DEFAULT.half,
+  CURVE_DEFAULT.pill === 10 && CURVE_DEFAULT.half === 30 && CURVE_DEFAULT.pill < CURVE_DEFAULT.half,
+);
+check(
+  // The number the old default wrote back is not a choice: it follows the new
+  // one on load, while any other saved radius is kept.
+  "a stored pill radius left at the old default moves with it, a chosen one does not",
+  CURVE_PILL_WAS === 24 &&
+    /this\.curvePill = pill === CURVE_PILL_WAS \? CURVE_DEFAULT\.pill : pill;/.test(readingSource),
 );
 
 const curveComponent = read("src/components/RowCurve.svelte");
@@ -839,7 +847,7 @@ check(
   "both radii are saved with the rest of the reading preferences",
   /curvePill: this\.curvePill,/.test(readingSource) &&
     /curveHalf: this\.curveHalf,/.test(readingSource) &&
-    /this\.curvePill = clampCurve\(saved\.curvePill\)/.test(readingSource) &&
+    /const pill = clampCurve\(saved\.curvePill\);/.test(readingSource) &&
     /this\.curveHalf = clampCurve\(saved\.curveHalf\)/.test(readingSource) &&
     /if \(which === "pill"\) \{[\s\S]{0,200}?this\.curvePill = value;/.test(readingSource),
 );

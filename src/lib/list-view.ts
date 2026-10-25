@@ -92,8 +92,17 @@ export function isRowEnd(value: unknown): value is RowEnd {
  */
 export const ROW_CURVE = { min: 0, max: 60, step: 2, initial: 30 } as const;
 
-/** What each shape starts at. The pill came down with the slider. */
-export const CURVE_DEFAULT: Record<RowEnd, number> = { pill: 24, half: 30 };
+/** What each shape starts at: the pill barely turns, the foot turns properly. */
+export const CURVE_DEFAULT: Record<RowEnd, number> = { pill: 10, half: 30 };
+
+/**
+ * The pill's radius as it shipped before it was tightened to 10.
+ *
+ * A stored number equal to this is a value nobody chose — it was written back
+ * by the old default — so `load()` lets it follow the new one. Any other saved
+ * radius is a choice and is kept.
+ */
+export const CURVE_PILL_WAS = 24;
 
 /**
  * Does the picture in a footed row fill the corner, or sit inside it?
