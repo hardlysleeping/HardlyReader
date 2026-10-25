@@ -33,6 +33,7 @@ import { readFileSync } from "node:fs";
 import {
   MIN,
   THRESHOLD_LIMITS,
+  WINDOW_FLOOR,
   effectiveMode,
   fitTarget,
   floorThresholds,
@@ -58,12 +59,13 @@ const conf = JSON.parse(
 const floor = conf.app.windows[0].minWidth;
 
 check("the window's floor is known", typeof floor === "number" && floor > 0, floor);
-check(
-  "and it never stops the one-pane width being reached",
-  floor <= THRESHOLD_LIMITS.one.min,
-  { floor, oneMin: THRESHOLD_LIMITS.one.min },
-);
-check("the one-pane floor is where a sidebar may be dragged to", THRESHOLD_LIMITS.one.min === MIN.sidebar);
+// The floor belongs to the bar, not to the columns: under 280 the brand and the
+// sync button no longer fit side by side and the button is pushed off the edge.
+// It used to be 240 — the narrowest a sidebar may be dragged — which is why the
+// button went missing long before any column complained.
+check("and it is the bar's own width, not the narrowest a pane may be", floor === WINDOW_FLOOR, { floor, WINDOW_FLOOR });
+check("which is above the sidebar's floor, so a pane is never the reason for it", WINDOW_FLOOR > MIN.sidebar, { WINDOW_FLOOR, sidebar: MIN.sidebar });
+check("the one-pane threshold cannot be dragged below it either", THRESHOLD_LIMITS.one.min >= MIN.sidebar);
 
 const shaped = thresholdsFor({ sidebar: 280, list: 380 }, "desktop", 280);
 check("a 280 sidebar is what pressing 1 asks for", widthFor(1, "desktop", shaped) === 280);
@@ -72,20 +74,31 @@ check(
   fitTarget(1, 1000, "desktop", shaped, null, true) === 280,
 );
 
+// A sidebar narrower than the window's floor is still a legal column in two and
+// three panes; pressing 1 with one shaped asks for the floor instead, so the
+// window never refuses the width and the pane is exactly what was asked for.
+const pinched = thresholdsFor({ sidebar: MIN.sidebar, list: 380 }, "desktop", MIN.sidebar);
+check(
+  "a 240 sidebar asks for the window's floor, not a width the window refuses",
+  fitTarget(1, 1000, "desktop", pinched, null, true) === WINDOW_FLOOR,
+  { asked: fitTarget(1, 1000, "desktop", pinched, null, true), floor },
+);
+
 for (const sidebar of [MIN.sidebar, 280, 320, 400]) {
   const t = thresholdsFor({ sidebar, list: 380 }, "desktop", sidebar);
+  const asked = fitTarget(1, 1000, "desktop", t, null, true);
   check(
-    `a ${sidebar}px sidebar is asked for exactly (no growth on the way to one pane)`,
-    fitTarget(1, 1000, "desktop", t, null, true) === sidebar,
-    { asked: fitTarget(1, 1000, "desktop", t, null, true), sidebar },
+    `a ${sidebar}px sidebar is asked for exactly, or at the floor when it is under it`,
+    asked === Math.max(sidebar, WINDOW_FLOOR),
+    { asked, sidebar, floor },
   );
-  check(`and ${sidebar}px is reachable in the window`, sidebar >= floor, { sidebar, floor });
+  check(`and ${sidebar}px is reachable in the window`, Math.max(sidebar, WINDOW_FLOOR) >= floor, { sidebar, floor });
 }
 
 check(
   "the request is never below the window's floor either",
-  MIN.sidebar >= floor ? true : false,
-  { minSidebar: MIN.sidebar, floor },
+  WINDOW_FLOOR >= floor && fitTarget(1, 1000, "desktop", pinched, null, true) >= floor,
+  { floor },
 );
 
 // The other modes were never affected, because their widths sit above the floor;

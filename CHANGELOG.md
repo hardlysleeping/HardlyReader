@@ -4,6 +4,58 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-10-25
+
+One column that actually works as one column, rows that carry a picture and an
+action end without falling apart, and the sidebar stops rebuilding itself on
+every row it draws.
+
+### Added
+
+- **One column.** Feeds, then the posts of the feed you opened unfolded under
+  it, then the post itself — a list sheet pulled down over the page, closed by
+  its tab, the scrim, Back or Escape. The tab pulls the list down; the list body
+  still swipes to turn pages, and never to close.
+- **A category row opens the category's posts** under its own name, with the
+  feeds that are in it folded beneath, rather than jumping to a feed.
+- **Read a post where you found it**: in two panes, an opened post can expand
+  inline in the list instead of taking the article pane.
+- **Date tabs in List** — months, weeks and days as folder tabs, one step in per
+  level.
+- **Rows: the action end** holds its three marks together and says what they do;
+  the picture can fill the end of a row, corner and all, and the row's foot can
+  be tightened to a hairline.
+- **Cards: fit the window to the comic** (experimental, off by default), and
+  edge zones that turn the page on a post with more than one picture.
+- **Android and the network** (0.3.0): the same reader on a phone or tablet, a
+  server address you can type, and the window's own title bar under the bar.
+- **Settings: ten colours**, in the groups they belong to — background, and an
+  optional picture behind it — with a light theme that is a colour scheme rather
+  than a filter.
+
+### Changed
+
+- **Cards steps against the pane it is in.** In one column the list has no
+  scroll box of its own, so its wheel was measuring and scrolling a block that
+  cannot scroll: the wheel did nothing while the drag worked. It now finds the
+  box that actually moves.
+- **A press outside a panel closes it** — Settings, the reading controls and
+  every menu, anywhere in the app, without eating the press underneath.
+- **A mode press moves the columns once, from rest**, and the window it asks for
+  is the one it draws, even when the press happens mid-resize.
+- **A window has a floor**, and the bar has a breakpoint: the account block
+  leaves the bar before the rest of it does.
+
+### Fixed
+
+- The sidebar is built once per change, not once per row — an account with a few
+  hundred feeds made one paint take minutes and the window look frozen.
+- A hidden-category write that lands beside a read no longer flips the eye back.
+- Reopening the window lands where you were, down to the line in the post.
+- A flung list keeps going, and a hand on it stops it.
+- Three panes stay three panes when the window narrows; a resize is not a
+  scroll.
+
 ## [0.2.0] — 2026-10-24
 
 Cards stops being a second grid and becomes the way this reads comics, the

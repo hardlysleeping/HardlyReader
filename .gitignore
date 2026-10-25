@@ -42,3 +42,6 @@ preview-*.png
 
 # Test scratch the suites regenerate.
 tests/unit/.gen/
+
+# working notes: private, never published
+BACKLOG.md

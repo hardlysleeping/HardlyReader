@@ -169,15 +169,21 @@ export const PANE_MOTIONS: readonly PaneMotion[] = ["off", "quick", "smooth"];
  * reflow in the last frames of the slide) or leave a strip of the pane's
  * background between its content and the seam. A spring that goes past 1 is a
  * spring over empty space; over rows and article text it is a pop. The curves
- * therefore decelerate into the target (`y` control points at most 1, `y1/x1`
- * well above 1 so the motion starts immediately) and the settle is what carries
- * the weight: 185ms and 250ms, the second with a longer tail rather than a
- * bounce.
+ * therefore decelerate into the target (`y` control points at most 1) and the
+ * settle is what carries the weight: 185ms and 250ms, the second with a longer
+ * tail rather than a bounce.
+ *
+ * Both also leave from rest (`y1` near 0). The first curves left at speed —
+ * `y1` 0.86 put 42% of the travel in the first tenth of the time — and a press
+ * then opened with a jolt whose size was whatever the frame timing made it,
+ * which is why the same button sometimes slid and sometimes snapped: the first
+ * painted frame was anywhere from a tenth to a third of the way across. A
+ * column that starts still and lands early reads as the frame opening.
  */
 export const PANE_MOTION: Record<PaneMotion, { ms: number; ease: string }> = {
   off: { ms: 0, ease: "linear" },
-  quick: { ms: 185, ease: "cubic-bezier(0.2, 0.86, 0.24, 1)" },
-  smooth: { ms: 250, ease: "cubic-bezier(0.28, 0.72, 0.18, 1)" },
+  quick: { ms: 185, ease: "cubic-bezier(0.2, 0, 0.2, 1)" },
+  smooth: { ms: 250, ease: "cubic-bezier(0.25, 0.1, 0.2, 1)" },
 };
 
 export function isPaneMotion(value: unknown): value is PaneMotion {
@@ -283,6 +289,23 @@ export const MIN: Record<"sidebar" | "list" | "article", number> = {
 export const DEFAULT_WIDTHS: PaneWidths = { sidebar: 280, list: 380 };
 
 /**
+ * The narrowest the window itself may be, which is not the narrowest a pane may
+ * be.
+ *
+ * The window's floor is the bar's, not the columns': below 280 the brand and the
+ * sync button together are wider than the window and the button is pushed off
+ * the right edge — measured, with the compact bar already in force, 264 is the
+ * point where it starts to leave. 280 is that with a few pixels of slack, and it
+ * sits under every pane floor above, so no mode is ever drawn in a window its
+ * columns cannot honour.
+ *
+ * A sidebar may still be dragged to 240 inside a wider window; only a window
+ * that narrow is refused, which is why the one-pane ask is clamped up to this
+ * number rather than the sidebar's floor being raised to meet it.
+ */
+export const WINDOW_FLOOR = 280;
+
+/**
  * The narrowest window in which each mode is honest, per device class.
  *
  * These are policy, not geometry. The geometric minimums above say a pane can
@@ -312,8 +335,36 @@ export function minimums(device: Device = "desktop") {
   return MINIMUMS[device];
 }
 
+/**
+ * The narrowest window a stacked three can be drawn honestly in.
+ *
+ * Not the two-pane floor: the pair spends one content column instead of two, so
+ * a window that cannot hold feeds and a post list side by side can still hold
+ * feeds beside a column that is a post list above an article. Computed from the
+ * minimums rather than the shaped widths, because this is a floor and the shaped
+ * widths are a preference.
+ */
+export function stackFloor(device: Device = "desktop"): number {
+  const mins = MINIMUMS[device];
+  return mins.sidebar + GUTTER + Math.max(mins.list, mins.article);
+}
+
 export function needed(mode: PaneMode, device: Device = "desktop"): number {
   return NEEDED[device][mode];
+}
+
+/**
+ * Whether three panes can be three columns in this window.
+ *
+ * Below the three-pane floor three columns are not three panes, they are three
+ * slivers, so the arrangement becomes the pair instead. This is the question
+ * the layout asks rather than refusing the press: pressing 3 in a portrait
+ * tablet used to record the choice and then draw two panes, which reads as a
+ * button that does nothing — and, on a shell that cannot resize, as a button
+ * that briefly draws a frame the window never had.
+ */
+export function columnsFit(available: number, device: Device = "desktop"): boolean {
+  return available >= NEEDED[device][3];
 }
 
 /**
@@ -348,8 +399,14 @@ export const THRESHOLDS: Record<Device, PaneThresholds> = {
  * the window keeps what it has. Only a window too small for three honest
  * columns refuses, and that is the floor.
  */
-export function floorThresholds(device: Device = "desktop"): PaneThresholds {
-  return THRESHOLDS[device];
+export function floorThresholds(device: Device = "desktop", stacked = false): PaneThresholds {
+  const base = THRESHOLDS[device];
+  if (!stacked) return base;
+  // Three panes drawn as a pair spend one content column, not two, so the price
+  // of a third *column* is not the question — and a narrow window that is not
+  // buying one should not be refused. `stackFloor` is what the pair actually
+  // needs; the two-pane floor stays as a ceiling on how permissive this can get.
+  return { ...base, three: Math.min(base.two, stackFloor(device)) };
 }
 
 /**
@@ -362,11 +419,33 @@ export const THRESHOLD_LIMITS = {
   // not at a wider number: a margin dragged to 240 and then the "1" button used
   // to disagree by 40px, which is the same "it grew on me" jump as the window
   // floor caused from the other side.
-  one: { min: MIN.sidebar, max: 2000 },
-  two: { min: 360, max: 2000 },
-  three: { min: 440, max: 2600 },
+  // The layout sliders' minimums, given by the owner: one pane from 250, two
+  // from 500, three from 750. These were 240 / 360 / 440 — the sliders could be
+  // dragged down to widths the panes themselves could not honour, and the mode
+  // floors above were a different set of numbers entirely, which is what made
+  // "why is the two-pane minimum 700" a fair question.
+  one: { min: 250, max: 2000 },
+  two: { min: 500, max: 2000 },
+  three: { min: 750, max: 2600 },
   gap: 80,
 };
+
+/**
+ * The slider minimums for one device.
+ *
+ * A phone's own floors are narrower than the desktop's — 280 / 440 / 660 — and a
+ * phone may not be dragged below the width its panes can be drawn at, so each
+ * device takes the narrower of its own floor and the owner's desktop number.
+ */
+export function thresholdLimits(device: Device = "desktop") {
+  const narrow = (slider: number, floor: number) => Math.min(slider, floor);
+  return {
+    one: { min: narrow(THRESHOLD_LIMITS.one.min, NEEDED[device][1]), max: THRESHOLD_LIMITS.one.max },
+    two: { min: narrow(THRESHOLD_LIMITS.two.min, NEEDED[device][2]), max: THRESHOLD_LIMITS.two.max },
+    three: { min: narrow(THRESHOLD_LIMITS.three.min, NEEDED[device][3]), max: THRESHOLD_LIMITS.three.max },
+    gap: THRESHOLD_LIMITS.gap,
+  };
+}
 
 /** Runtime values from storage, a slider or a corrupt string, made legal. */
 export function clampThresholds(
@@ -376,10 +455,11 @@ export function clampThresholds(
   const fallback = THRESHOLDS[device];
   const whole = (value: unknown, or: number): number =>
     typeof value === "number" && Number.isFinite(value) ? Math.round(value) : or;
-  const { min: oneMin, max: oneMax } = THRESHOLD_LIMITS.one;
-  const { min: twoMin, max: twoMax } = THRESHOLD_LIMITS.two;
-  const { min: threeMin, max: threeMax } = THRESHOLD_LIMITS.three;
-  const { gap } = THRESHOLD_LIMITS;
+  const limits = thresholdLimits(device);
+  const { min: oneMin, max: oneMax } = limits.one;
+  const { min: twoMin, max: twoMax } = limits.two;
+  const { min: threeMin, max: threeMax } = limits.three;
+  const { gap } = limits;
   const two = Math.min(Math.max(whole(input.two, fallback.two), twoMin), twoMax);
   const three = Math.min(Math.max(whole(input.three, fallback.three), threeMin), threeMax);
   // Each mode needs its own width, and they have to stay in order: if "one"
@@ -435,7 +515,14 @@ export function fitTarget(
   monitor?: number | null,
   keepWidths = true,
 ): number | null {
-  const want = widthFor(mode, device, thresholds);
+  // The ask is never for a window the window cannot be. A sidebar may be
+  // dragged to 240 and one pane fills the window, so the old ask was 240 — a
+  // width the window refuses, which meant the pane drew at the floor and every
+  // row re-flowed. The floor here is the bar's; a phone has no window manager
+  // to refuse anything, so its own numbers stand.
+  const want = device === "desktop"
+    ? Math.max(WINDOW_FLOOR, widthFor(mode, device, thresholds))
+    : widthFor(mode, device, thresholds);
   // Keeping pane widths, a press asks for the sum of this mode's own panes in
   // both directions: 3 → 2 takes the article's width away with the article
   // instead of pouring it into the posts column. Sharing the room, only growth
@@ -721,14 +808,19 @@ export function thresholdsFor(
   one?: number,
   stacked = false,
 ): PaneThresholds {
-  return clampThresholds(
-    {
-      one: one ?? THRESHOLDS[device].one,
-      two: neededWidth(layout, 2, device),
-      three: neededWidth(layout, 3, device, stacked),
-    },
-    device,
-  );
+  // Derived, not entered: the panes decide these, so the sliders' own floors do
+  // not apply. They still have to be ordered — a stacked three legitimately comes
+  // out under the three-column slider's minimum, which is the whole point of
+  // stacking — so only the ordering and the gap are enforced here.
+  // A layout missing the pane this mode needs is not a requirement, it is a
+  // fallback: the old numbers came out of `clampThresholds`, which threw NaN away
+  // in favour of the device's defaults, and that tolerance is kept here.
+  const needTwo = neededWidth(layout, 2, device);
+  const needThree = neededWidth(layout, 3, device, stacked);
+  const two = Math.max(Number.isFinite(needTwo) ? needTwo : THRESHOLDS[device].two, NEEDED[device][1]);
+  const three = Math.max(Number.isFinite(needThree) ? needThree : THRESHOLDS[device].three, two + THRESHOLD_LIMITS.gap);
+  const oneWant = Math.round(one ?? THRESHOLDS[device].one);
+  return { one: Math.min(oneWant, two - THRESHOLD_LIMITS.gap), two, three };
 }
 
 /**
@@ -1017,9 +1109,12 @@ export function paneSlots(input: SlotsInput): PaneSlots {
   const { mode, level, collapsed, tuck, swapped } = input;
   const stacked = input.stacked === true;
   if (mode === 1) {
+    // One column does not stack: a stack is two panes sharing a column, and there
+    // is no second pane to share it with. A post opened here is the whole pane,
+    // and the list comes down over it as the view's drawer — so the article is
+    // the only slot, and `stacked` is a three-pane question.
     if (level === "feeds") return { ...NO_SLOTS, sidebar: true };
-    if (!stacked) return { ...NO_SLOTS, article: true };
-    return { ...NO_SLOTS, ...stackedSlots(tuck, swapped) };
+    return { ...NO_SLOTS, article: true };
   }
   if (mode === 2) {
     if (collapsed) {

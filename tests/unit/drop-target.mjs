@@ -251,9 +251,9 @@ check(
   /requestAnimationFrame\(flush\)/.test(drag) && /cancelAnimationFrame\(frame\)/.test(drag),
 );
 check(
-  "each frame measures before it writes",
-  drag.indexOf("const next = dropTargetAt(at.x, y, options);") <
-    drag.indexOf("placeGhost(at.x, at.y);"),
+  "the ghost moves on the event, and only the hit test waits for a frame",
+  /placeGhost\(event\.clientX, event\.clientY\);\s*pending = \{/.test(drag) &&
+    !/placeGhost\(at\.x, at\.y\)/.test(drag),
 );
 check(
   "nothing in the move path reads a layout value it then writes against",
@@ -272,6 +272,33 @@ check(
 check(
   "the ghost does not transition its transform, which would trail the pointer",
   !/\.feed-ghost[\s\S]{0,400}transition:[^;]*transform/.test(css),
+);
+
+
+// A folder drag picks the folder up. The title is the handle; what moves is the
+// block — the title and the feeds inside it — and the list it came from dims
+// whole, so the gesture reads as carrying something rather than renaming it.
+check(
+  "a folder is carried as the whole folder",
+  /blockAttr\?: string;/.test(drag) &&
+    /row\.closest<HTMLElement>\(`\[\$\{options\.blockAttr\}\]`\)/.test(drag) &&
+    /const source = block \?\? row;/.test(drag) &&
+    /if \(block\) clone\.classList\.add\("block"\);/.test(drag),
+);
+check(
+  "and a tall one is clipped, so it cannot hide the list it is carried over",
+  /function blockHeight\(height: number\): number \{[\s\S]{0,220}Math\.min\(height, cap\)/.test(drag) &&
+    /block === null \? rect\.height : blockHeight\(rect\.height\)/.test(drag),
+);
+check(
+  "the block it came from dims, and the ghost is a block rather than a row",
+  /html\.feed-dragging \[data-drag-block\]\[data-lifted\]/.test(css) &&
+    /\.feed-ghost\.block \{[\s\S]{0,220}display: block;/.test(css),
+);
+check(
+  "the sidebar marks the block a category drag lifts",
+  /data-drag-block/.test(read("src/components/Sidebar.svelte")) &&
+    /blockAttr: "data-drag-block"/.test(read("src/components/Sidebar.svelte")),
 );
 
 console.log(`${checks} checks, ${failures} failure(s)`);

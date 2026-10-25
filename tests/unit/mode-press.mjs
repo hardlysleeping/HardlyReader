@@ -58,10 +58,13 @@ globalThis.localStorage = {
 };
 
 /** A desktop: a fine pointer, a 1920×1080 screen, and no window it can resize. */
+// The desktop shell, which can resize its own window (see `press-frame.mjs` for
+// the shell that cannot).
 globalThis.window = {
   innerWidth: 1100,
   innerHeight: 720,
   screen: { width: 1920, height: 1080, availWidth: 1920, availHeight: 1080 },
+  __TAURI_INTERNALS__: {},
 };
 globalThis.matchMedia = (query) => ({
   matches: false,

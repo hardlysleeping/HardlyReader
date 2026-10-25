@@ -1,4 +1,10 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { capabilitiesFor } from "../../src/lib/platform.ts";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 let failures = 0;
 let checks = 0;
@@ -43,6 +49,18 @@ check("capabilities are stable", a === b);
 check(
   "the phone set is exactly one true flag",
   Object.values(capabilitiesFor("phone", false)).filter(Boolean).length === 1,
+);
+
+// The app is a layout, not a document: a pinch zoomed the header and the panes
+// independently of the reading size the app already offers, and on Android every
+// zoom step arrives as a `visualViewport` resize.
+const html = readFileSync(join(root, "index.html"), "utf8");
+const css = readFileSync(join(root, "src/app.css"), "utf8");
+check("the viewport refuses zoom", /user-scalable=no/.test(html) && /maximum-scale=1(\.0)?\b/.test(html));
+check("and still asks for the whole screen", /viewport-fit=cover/.test(html));
+check(
+  "a finger pans and drags, it does not pinch",
+  /touch-action: pan-x pan-y;/.test(css) && /-webkit-text-size-adjust: 100%;/.test(css),
 );
 
 console.log(`${checks - failures}/${checks} checks passed`);

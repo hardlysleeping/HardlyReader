@@ -51,6 +51,9 @@ const read = (path) => readFileSync(join(root, path), "utf8");
 const layout = read("src/state/layout.svelte.ts");
 const gutter = read("src/components/PaneGutter.svelte");
 const main = read("src/views/Main.svelte");
+const header = read("src/components/Header.svelte");
+const readingControls = read("src/components/ReadingControls.svelte");
+const panel = read("src/components/ThemePanel.svelte");
 
 /**
  * The column as the app draws it, from the same values the seam writes.
@@ -315,10 +318,10 @@ check("and the seam is the same 6px it always was", tracksOf(split.rows)[2] === 
     [...seen].every((tuck) => drawn({ share: 0.42, tuck }).share === 0.42 && shareOf(drawn({ share: 0.42, tuck }).rows) === 0.42),
   );
   check(
-    "and it is the same pair on the phone's one surface",
+    "and one column has no pair to tuck: the drawers are the view's, not the layout's",
     [...seen].every((tuck) => {
       const phone = drawn({ tuck, mode: 1 });
-      return JSON.stringify(phone.panes) === JSON.stringify(drawn({ tuck }).panes) && phone.rows === drawn({ tuck }).rows;
+      return phone.slots.article === true && phone.slots.posts !== true;
     }),
   );
 }
@@ -398,12 +401,12 @@ check(
 );
 check(
   "a tuck that cannot be seen is dropped, not stored for later",
-  /this\.stackTuck !== null && \(!this\.stacked \|\| this\.mode === 2\)\) this\.stackTuck = null;/.test(layout),
+  /this\.stackTuck !== null && \(!this\.stacked \|\| this\.mode !== 3\)\) this\.stackTuck = null;/.test(layout) &&
+    /if \(mode !== 3 && this\.stackTuck !== null\) this\.stackTuck = null;/.test(layout),
 );
 check(
-  "and it survives on the one-pane surface, which draws the same pair",
-  !/this\.mode !== 3[\)\s]*this\.stackTuck = null/.test(layout) &&
-    /if \(this\.stackTuck !== null && \(!this\.stacked \|\| this\.mode === 2\)\)/.test(layout),
+  "and it is dropped by the mode change itself, not at the next measurement",
+  /setMode\(mode: PaneMode\): void \{[\s\S]{0,300}?if \(mode !== 3 && this\.stackTuck !== null\) this\.stackTuck = null;/.test(layout),
 );
 
 // ---------------------------------------------------------------------------
@@ -488,11 +491,12 @@ check(
 {
   check(
     "one derived flag says when the pair is on screen, in either mode",
-    /const stackDrawn = \$derived\(\s*layout\.stacked && \(mode === 3 \|\| \(mode === 1 && level === "article"\)\),\s*\)/.test(
+    /const stackDrawn = \$derived\(layout\.stacked && mode === 3\)/.test(
       main,
     ),
   );
-  const slotsCall = /const slots = \$derived\(\s*paneSlots\(\{[\s\S]{0,260}?\}\),\s*\)/.exec(main);
+  const slotsCall =
+    /const slots = \$derived\.by\(\(\) => \{\s*const drawn = paneSlots\(\{[\s\S]{0,300}?\}\);/.exec(main);
   check(
     "and which panes that draws comes from paneSlots, not from branches in the markup",
     slotsCall !== null && /tuck: layout\.stackTuck,/.test(slotsCall[0]) && /swapped: layout\.stackSwapped,/.test(slotsCall[0]),
@@ -503,10 +507,12 @@ check(
     /\.slot\.away \{\s*visibility: hidden;/.test(main) && !/\{#if slots\./.test(main),
   );
   check(
+    // One ReaderPane, one ArticleList, each in its own slot: a post read in the
+    // list grows inside the list, so there is no second article drawn anywhere.
     "each pane is mounted once, in its own slot, whatever the mode",
-    (main.match(/<ArticleList \/>/g) ?? []).length === 1 &&
+    (main.match(/<ArticleList[ \/]/g) ?? []).length === 1 &&
       (main.match(/<ReaderPane /g) ?? []).length === 1 &&
-      /class="slot posts" class:away=\{!slots\.posts\}/.test(main) &&
+      /class="slot posts"[\s\S]{0,120}?class:away=\{!slots\.posts\}/.test(main) &&
       /class="slot article" class:away=\{!slots\.article\}/.test(main),
   );
   check(
@@ -532,6 +538,123 @@ check(
       ),
   );
 }
+
+
+// A tucked pane must be findable. The three-glyph chip is fine while both panes
+// are there — the controls live where the seam is and the seam is between two
+// things — but the moment one is away the only job left is putting it back, and
+// the way back belongs on the edge that pane left, as a tab: the middle of the
+// column belongs to the page being read.
+check(
+  "the chip's three glyphs are only drawn while both panes are there",
+  /\{#if tuck === null\}\s*<div class="ctl-bar"/.test(gutter),
+);
+check(
+  "a tucked pane is offered back by a tab on the edge it left",
+  /class="restore-bar"\s*class:from-bottom=\{tuck === "bottom"\}/.test(gutter) &&
+    /aria-label=\{`Show the \$\{tuckedName\}`\}/.test(gutter) &&
+    /title=\{`Show the \$\{tuckedName\}`\}/.test(gutter) &&
+    /onclick=\{showTucked\}/.test(gutter) &&
+    // The name is in the label and the tooltip, not in the tab: a chevron with a
+    // sentence beside it is the pill this replaced.
+    !/<span>Show the \{tuckedName\}<\/span>/.test(gutter),
+);
+check(
+  "the tab hangs off the top edge, and off the bottom when that is the pane away",
+  /\.restore-bar \{[\s\S]{0,200}?top: 0;/.test(gutter) &&
+    /\.restore-bar\.from-bottom \{[\s\S]{0,120}?bottom: 0;/.test(gutter) &&
+    /\.restore-bar button \{[\s\S]{0,400}?border-radius: 0 0 10px 10px;/.test(gutter) &&
+    /\.restore-bar\.from-bottom button \{[\s\S]{0,200}?border-radius: 10px 10px 0 0;/.test(gutter),
+);
+check(
+  "and the press is the tuck's own toggle, on the side that is away",
+  /function showTucked\(\): void \{\s*if \(tuck !== null\) layout\.tuckStack\(tuck\);/.test(gutter) &&
+    nextTuck("top", "top") === null &&
+    nextTuck("bottom", "bottom") === null &&
+    nextTuck(null, "top") === "top",
+);
+check(
+  // The chevron points the way the pane will move: down from the top tab, up
+  // from the bottom one, like the drawer it is pulling open.
+  "the chevron points into the space the pane will fill",
+  /\{#if tuck === "top"\}\s*<path d="M3\.6 6\.4 8 10\.8l4\.4-4\.4"/.test(gutter) &&
+    /\{:else\}\s*<path d="M3\.6 9\.6 8 5\.2l4\.4 4\.4"/.test(gutter),
+);
+check(
+  "the tab is a target of its own, and the seam it sits on still drags",
+  /\.restore-bar button \{[\s\S]{0,300}?width: 36px;\s*height: 22px;/.test(gutter) &&
+    /\.restore-bar \{[\s\S]{0,400}pointer-events: none;/.test(gutter) &&
+    /\.restore-bar button \{[\s\S]{0,700}pointer-events: auto;/.test(gutter),
+);
+
+/* Reading a post inside the posts column does not rearrange the frame: the row
+   grows where it stands, so no mode, tuck or arrangement moves a track for it. */
+check(
+  "reading in the list never redraws the grid",
+  !/\.slot\.posts\.reading/.test(main) &&
+    !/class:reading=/.test(main) &&
+    /if \(readInline && drawn\.article && !drawn\.posts\)/.test(main),
+);
+
+/* The option is about reading in the list instead of in the column beside it, so
+   it is offered where that column is the only alternative: two plain panes. Three
+   panes have an article column of their own, and one pane is a walk. */
+check(
+  "the read-here option is offered in two plain panes, and nowhere else",
+  /\{#if layout\.mode === 2 && !layout\.sidebarCollapsed\}[\s\S]{0,320}?aria-label="Read posts here in the list"/.test(
+    read("src/components/ArticleList.svelte"),
+  ) &&
+    /const readInline = \$derived\(\s*reading\.readInPane && reading\.listView === "regular" && mode === 2 && !folded,\s*\);/.test(
+      main,
+    ) &&
+    /class:away=\{!slots\.posts\}/.test(main),
+);
+
+/* The bar's A− and A+ belong to whichever column is open. With no article drawn
+   they are the list's buttons; the panel still names both sizes on their own. */
+check(
+  "the bar's size buttons follow the column that is open",
+  /textTarget=\{articleShown \? "article" : "list"\}/.test(main) &&
+    /const articleShown = \$derived\(\s*Boolean\(slots\.article\) \|\| \(readInline && reader\.selectedId !== null\) \|\| level === "article",\s*\);/.test(
+      main,
+    ) &&
+    /<ReadingControls[\s\S]{0,160}?target=\{textTarget\}/.test(header) &&
+    /let \{ target = "article", onopen \}: \{ target\?: "article" \| "list"; onopen\?: \(\) => void \} = \$props\(\);/.test(
+      readingControls,
+    ) &&
+    /if \(onList\) reading\.stepRowScale\(direction\);\s*else reading\.stepTextScale\(direction\);/.test(
+      readingControls,
+    ),
+);
+
+/* Choosing columns is a request for a window that can hold them. Keeping the
+   widths, a press of Side by side in a window too narrow for three columns used
+   to land on a pair — or stay in the stack it had just turned off — and read as
+   a button that does nothing. */
+check(
+  "side by side asks the window for three columns",
+  /if \(!on\) void this\.fitWindowForMode\(3\);/.test(layout) &&
+    /private async fitWindowForMode\(mode: PaneMode\): Promise<boolean>/.test(layout),
+);
+
+// A slider's value is the width that mode needs, so the right half of the track
+// was a number the frame never honoured: it sprang back to what fitted, twice a
+// second, and looked dead. Releasing the thumb asks for that width — growing
+// only, because shrinking the window on release is a surprise, and only on
+// release, because a resize per tick is a stutter rather than a slide.
+check(
+  "releasing a slider asks the window to grow to it",
+  /commitThreshold\(\): void \{\s*if \(!canFitWindow\(\)\) return;/.test(layout) &&
+    /const target = fitTarget\(this\.mode, this\.available, this\.device, this\.thresholds, this\.monitor, this\.keepWidths\);\s*if \(target === null \|\| target <= this\.available\) return;/.test(
+      layout,
+    ) &&
+    /void this\.fitWindowForMode\(this\.mode\);/.test(layout),
+);
+check(
+  "and every slider commits its release, without resizing per pixel",
+  (panel.match(/onchange=\{\(\) => layout\.commitThreshold\(\)\}/g) ?? []).length === 3 &&
+    !/oninput=\{\(\) => layout\.commitThreshold\(\)\}/.test(panel),
+);
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

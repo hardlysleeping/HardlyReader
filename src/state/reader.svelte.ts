@@ -233,6 +233,14 @@ export class ReaderState {
   private hiddenChain: Promise<unknown> = Promise.resolve();
   /** Bumped on every intent, so a pending catch-up can tell it is stale. */
   private hiddenWriteGen = 0;
+  /**
+   * Hidden writes asked for but not answered yet.
+   *
+   * A read that runs beside them is a snapshot of the state *before* them, so
+   * drawing it makes the control jump a moment after the press. Nothing is read
+   * over a write: the reply, and the catch-up after it drains, are the truth.
+   */
+  private hiddenPending = 0;
   private hiddenCatchUp: ReturnType<typeof setTimeout> | null = null;
 
   /** Last lock/unlock message, so a wrong passcode is visible rather than silent. */
@@ -242,6 +250,9 @@ export class ReaderState {
   favorites = $state<FavoritesState>(unavailableFavorites());
   /** True while a favorite/view write is in flight. */
   favoritesBusy = $state(false);
+
+  /** The newest view pressed while a favorites write was still out. */
+  private favoritesQueuedView: FavoriteView | null = null;
 
   /**
    * Pins kept on this device: every feed pin, and category pins when the
@@ -1106,11 +1117,13 @@ export class ReaderState {
 
   /** Runs hidden writes one at a time, in the order they were asked for. */
   private enqueueHidden<T>(task: () => Promise<T>): Promise<T> {
+    this.hiddenPending += 1;
+    const settled = (): void => {
+      this.hiddenPending = Math.max(0, this.hiddenPending - 1);
+      this.scheduleHiddenCatchUp();
+    };
     const run = this.hiddenChain.then(task, task);
-    this.hiddenChain = run.then(
-      () => this.scheduleHiddenCatchUp(),
-      () => this.scheduleHiddenCatchUp(),
-    );
+    this.hiddenChain = run.then(settled, settled);
     return run;
   }
 
@@ -1222,10 +1235,24 @@ export class ReaderState {
     }
   }
 
-  /** Switches the favorites view: optimistically, then against the server. */
+  /**
+   * Switches the favorites view: drawn now, sent when the wire is free.
+   *
+   * A press is never swallowed. One write at a time keeps the wire simple, but
+   * the screen changes on the press, and a press that arrives while the last
+   * write is still out is remembered and sent when it settles — so clicking
+   * through the cycle quickly cannot leave the label and the list disagreeing
+   * with what was asked for.
+   */
   async setFavoritesView(view: FavoriteView): Promise<FavoritesWriteOutcome | null> {
     const session = this.session;
-    if (session === null || !this.favoritesAvailable || this.favoritesBusy) return null;
+    if (session === null || !this.favoritesAvailable) return null;
+
+    if (this.favoritesBusy) {
+      this.favorites = withFavoritesView(this.favorites, view);
+      this.favoritesQueuedView = view;
+      return null;
+    }
 
     this.favoritesBusy = true;
     try {
@@ -1241,6 +1268,9 @@ export class ReaderState {
       return outcome;
     } finally {
       this.favoritesBusy = false;
+      const queued = this.favoritesQueuedView;
+      this.favoritesQueuedView = null;
+      if (queued !== null && queued !== this.favorites.view) void this.setFavoritesView(queued);
     }
   }
 
@@ -1258,7 +1288,18 @@ export class ReaderState {
    * here: GReader cannot tell "hidden" from "deleted", so the extension state
    * is the only way to know, and `categories` applies it.
    */
+  /** The last build, with the state it was built from, so a read is not a rebuild. */
+  private allCategoriesMemo: {
+    subscriptions: Subscription[];
+    feedOrder: string[];
+    value: CategoryGroup[];
+  } | null = null;
+
   get allCategories(): CategoryGroup[] {
+    const memo = this.allCategoriesMemo;
+    if (memo !== null && memo.subscriptions === this.subscriptions && memo.feedOrder === this.feedOrder) {
+      return memo.value;
+    }
     const groups = new Map<string, CategoryGroup>();
     for (const feed of this.subscriptions) {
       const cats = feed.categories?.length
@@ -1276,7 +1317,7 @@ export class ReaderState {
         groups.set(category.id, group);
       }
     }
-    return [...groups.values()]
+    const value = [...groups.values()]
       .map((group) => ({
         ...group,
         // Name order is the base — FreshRSS returns feeds in its own order and
@@ -1288,18 +1329,64 @@ export class ReaderState {
         ),
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
+    this.allCategoriesMemo = { subscriptions: this.subscriptions, feedOrder: this.feedOrder, value };
+    return value;
   }
 
-  /** The sidebar's categories, with the hidden-categories view applied. */
+  /** The last arranged sidebar, and the state it was arranged from. */
+  private categoriesMemo: {
+    base: CategoryGroup[];
+    hidden: HiddenCategoriesState;
+    view: PinView;
+    pins: LocalPins;
+    favorites: FavoritesState;
+    feedOrder: string[];
+    categoryOrder: string[];
+    value: CategoryGroup[];
+  } | null = null;
+
+  /**
+   * The sidebar's categories, with the hidden-categories view applied.
+   *
+   * Memoised on purpose: a getter is read once per row while the sidebar draws,
+   * and rebuilding here is a full sort of every feed in every category. At a
+   * real account's size that turned one paint into minutes of blocked main
+   * thread — the window looked frozen because it was, inside this function.
+   */
   get categories(): CategoryGroup[] {
-    return arrangeByPins(
-      visibleGroups(this.allCategories, this.hiddenCategories),
+    const base = this.allCategories;
+    const memo = this.categoriesMemo;
+    if (
+      memo !== null &&
+      memo.base === base &&
+      memo.hidden === this.hiddenCategories &&
+      memo.view === this.pinView &&
+      memo.pins === this.localPins &&
+      memo.favorites === this.favorites &&
+      memo.feedOrder === this.feedOrder &&
+      memo.categoryOrder === this.categoryOrder
+    ) {
+      return memo.value;
+    }
+    const value = arrangeByPins(
+      visibleGroups(base, this.hiddenCategories),
       this.pinView,
       (label) => this.isCategoryPinned(label),
       (id) => this.isFeedPinned(id),
       this.feedOrder,
       this.categoryOrder,
     );
+    this.categoriesMemo = {
+      base,
+      hidden: this.hiddenCategories,
+      view: this.pinView,
+      pins: this.localPins,
+      favorites: this.favorites,
+      feedOrder: this.feedOrder,
+      categoryOrder: this.categoryOrder,
+      value,
+    };
+    return value;
   }
 
   countFor(id: string): number {
@@ -1342,7 +1429,14 @@ export class ReaderState {
     // The post is only reopened from what the first page holds; an older one is
     // not worth a request of its own, and the feed is open either way.
     const open = place.articleId === null ? undefined : this.items.find((item) => item.id === place.articleId);
-    if (open !== undefined) this.select(open);
+    if (open !== undefined) {
+      this.select(open);
+      // Resume on the line that was being read, not at the top of the post.
+      this.liveScroll.article = place.articleScroll;
+      this.articleScrollRestore = place.articleScroll > 0 ? place.articleScroll : null;
+    }
+    this.liveScroll.list = place.listScroll;
+    this.listScrollRestore = place.listScroll > 0 ? place.listScroll : null;
     this.savePlace();
   }
 
@@ -1377,6 +1471,8 @@ export class ReaderState {
           streamTitle: this.activeTitle,
           articleId: this.selectedId,
           expandedFeedId: this.expandedFeedId,
+          articleScroll: this.liveScroll.article,
+          listScroll: this.liveScroll.list,
         }),
       );
     } catch {
@@ -1506,22 +1602,39 @@ export class ReaderState {
    */
   async loadApiState(report?: SyncReport): Promise<void> {
     if (!this.session) return;
+    const generation = this.hiddenWriteGen;
     report?.start("extension");
     try {
       const state = await getApiStateFromServer(transport, this.session);
-      this.hiddenCategories = state.hiddenCategories;
+      // The hidden block is only drawn from a read that no write overtook: a
+      // snapshot taken beside a queued one is the state before it, and drawing
+      // it is what makes the control change on its own a moment after a press.
+      if (this.hiddenWritesSettled(generation)) this.hiddenCategories = state.hiddenCategories;
       this.favorites = state.favorites;
       this.sidebarIndent = this.withLocalIndent(state.sidebarIndent);
       this.hiddenError = null;
       this.retryUnsentIndent(state.sidebarIndent.px);
       report?.land("extension");
     } catch (error) {
-      this.hiddenCategories = unavailableState();
-      this.favorites = unavailableFavorites();
-      this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
+      // A failed read is not news about the state: when a write is still out,
+      // what is drawn stays drawn, and only a read with nothing in flight may
+      // report the extension gone.
+      if (this.hiddenWritesSettled(generation)) {
+        this.hiddenCategories = unavailableState();
+        this.favorites = unavailableFavorites();
+        this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
+      }
       this.hiddenError = message(error);
       report?.fail("extension");
     }
+  }
+
+  /**
+   * Whether a read may draw the hidden block: no write queued or in flight, and
+   * none asked for since the read started.
+   */
+  private hiddenWritesSettled(generation: number): boolean {
+    return this.hiddenPending === 0 && !this.hiddenBusy && generation === this.hiddenWriteGen;
   }
 
   /**
@@ -1532,11 +1645,13 @@ export class ReaderState {
    */
   async loadHiddenState(): Promise<void> {
     if (!this.session) return;
+    const generation = this.hiddenWriteGen;
     try {
-      this.hiddenCategories = await getHiddenState(transport, this.session);
+      const state = await getHiddenState(transport, this.session);
+      if (this.hiddenWritesSettled(generation)) this.hiddenCategories = state;
       this.hiddenError = null;
     } catch (error) {
-      this.hiddenCategories = unavailableState();
+      if (this.hiddenWritesSettled(generation)) this.hiddenCategories = unavailableState();
       this.hiddenError = message(error);
     }
   }
@@ -1912,6 +2027,8 @@ export class ReaderState {
     this.activeStream = streamId;
     this.activeTitle = title;
     this.selectedId = null;
+    this.liveScroll.list = 0;
+    this.listScrollRestore = null;
     this.savePlace();
     await this.reloadStream();
   }
@@ -2192,6 +2309,37 @@ export class ReaderState {
    * opens at its end rather than its title. */
   landingEdge = $state<"top" | "bottom">("top");
 
+  /** Offsets to put back on the next paint: the open post's and the list's. */
+  articleScrollRestore = $state<number | null>(null);
+  listScrollRestore = $state<number | null>(null);
+
+  /** Where the reader is scrolled to now, written to the place on a pause. */
+  private liveScroll = { article: 0, list: 0 };
+  private scrollSave: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Remembers how far the post or the list is scrolled.
+   *
+   * A scroll fires per frame, and the place is a small object in local storage,
+   * so the write waits for half a second of quiet: closing the window in the
+   * middle of a scroll still saves, because the timer is not cleared by the
+   * unload.
+   */
+  rememberScroll(part: "article" | "list", top: number): void {
+    this.liveScroll[part] = Math.max(0, Math.round(top));
+    if (this.scrollSave !== null) clearTimeout(this.scrollSave);
+    this.scrollSave = setTimeout(() => {
+      this.scrollSave = null;
+      this.savePlace();
+    }, 500);
+  }
+
+  /** A component that has put its offset back says so, so it is not put twice. */
+  clearScrollRestore(part: "article" | "list"): void {
+    if (part === "article") this.articleScrollRestore = null;
+    else this.listScrollRestore = null;
+  }
+
   /**
    * True when continuous reading ran out: every stream was tried and none had a
    * post left in the current view. Only reachable in the unread view, because
@@ -2290,6 +2438,9 @@ export class ReaderState {
 
   select(item: StreamItem, edge: "top" | "bottom" = "top"): void {
     this.selectedId = item.id;
+    // A post opened by hand starts at its edge; only a launch resumes a line.
+    this.liveScroll.article = 0;
+    this.articleScrollRestore = null;
     this.savePlace();
     this.landingEdge = edge;
     this.traversalEnded = false;

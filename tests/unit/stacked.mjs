@@ -23,10 +23,16 @@ import { fileURLToPath } from "node:url";
 
 import {
   FLAT_ROWS,
+  GUTTER,
+  MINIMUMS,
+  NEEDED,
   STACK_GUTTER,
   STACK_SHARE,
   clampShare,
+  columnsFit,
+  floorThresholds,
   paneSlots,
+  stackFloor,
   stackTemplate,
 } from "../../src/lib/panes.ts";
 
@@ -95,12 +101,50 @@ function ruleBody(css, selector) {
 // ---------------------------------------------------------------------------
 // The setting: two fields, saved with the rest of the layout, and an old payload
 // still loads — as side by side, which is what that payload was looking at.
-check("the arrangement is state", /stacked = \$state\(false\)/.test(layout));
+check(
+  "the drawn arrangement is the choice, or the only one a narrow window can draw",
+  /get stacked\(\): boolean \{\s*return this\.stackChoice \|\| !columnsFit\(this\.available, this\.device\);/.test(
+    layout,
+  ) &&
+    /get stackForced\(\): boolean \{\s*return !this\.stackChoice && this\.stacked;/.test(layout) &&
+    /get stackChosen\(\): boolean \{\s*return this\s*\.stackChoice;/.test(layout),
+);
+check(
+  "so the panel reports and edits the choice, and says when the window decided",
+  /class:on=\{!layout\.stackChosen\}/.test(panel) &&
+    /class:on=\{layout\.stackChosen\}/.test(panel) &&
+    /\{#if layout\.stackForced\}[\s\S]{0,400}narrower than three columns need/.test(panel),
+);
+check(
+  "three columns need the three-pane floor, and a stacked three does not",
+  columnsFit(NEEDED.desktop[3], "desktop") &&
+    !columnsFit(NEEDED.desktop[3] - 1, "desktop") &&
+    columnsFit(NEEDED.phone[3], "phone") &&
+    !columnsFit(NEEDED.phone[3] - 1, "phone"),
+);
+check(
+  "the stacked floor is the pair's own arithmetic, not the two-pane number",
+  stackFloor("desktop") === MINIMUMS.desktop.sidebar + GUTTER + Math.max(MINIMUMS.desktop.list, MINIMUMS.desktop.article) &&
+    stackFloor("phone") === MINIMUMS.phone.sidebar + GUTTER + Math.max(MINIMUMS.phone.list, MINIMUMS.phone.article) &&
+    stackFloor("desktop") < NEEDED.desktop[2],
+);
+check(
+  "and it is the floor a stacked three is judged by",
+  floorThresholds("desktop", true).three === stackFloor("desktop") &&
+    floorThresholds("desktop", true).two === floorThresholds("desktop").two &&
+    floorThresholds("desktop", true).three < floorThresholds("desktop").three &&
+    floorThresholds("desktop").three === NEEDED.desktop[3],
+);
+check(
+  "the settle asks for the stacked floor when the pair is what is drawn",
+  /floorThresholds\(this\.device, this\.stacked\)/.test(layout),
+);
+check("the arrangement is state", /private stackChoice = \$state\(false\)/.test(layout));
 check("so is the split", /stackShare = \$state<number>\(STACK_SHARE\.fallback\)/.test(layout));
-check("a saved arrangement is read", /this\.stacked = saved\.stacked === true;/.test(layout));
+check("a saved arrangement is read", /this\.stackChoice = saved\.stacked === true;/.test(layout));
 check(
   "and only an explicit true turns it on",
-  !/this\.stacked = saved\.stacked \?\?/.test(layout) && !/saved\.stacked !== false/.test(layout),
+  !/this\.stackChoice = saved\.stacked \?\?/.test(layout) && !/saved\.stacked !== false/.test(layout),
 );
 check(
   "a saved split is clamped into the range the setting allows",
@@ -112,7 +156,7 @@ check(
 );
 check(
   "both are written back with the layout, and the order beside them",
-  /stacked: this\.stacked,\s*stackSwapped: this\.stackSwapped,\s*stackShare: this\.stackShare,/.test(layout),
+  /stacked: this\.stackChoice,\s*stackSwapped: this\.stackSwapped,\s*stackShare: this\.stackShare,/.test(layout),
 );
 check(
   "the columns are drawn with the arrangement on screen, not the stored one",
@@ -226,7 +270,7 @@ check(
 );
 check(
   "both arrangements are named and pressed",
-  /class:on=\{!layout\.stacked\}[\s\S]{0,220}layout\.setStacked\(false\)[\s\S]{0,400}layout\.setStacked\(true\)/.test(
+  /class:on=\{!layout\.stackChosen\}[\s\S]{0,520}layout\.setStacked\(false\)[\s\S]{0,400}layout\.setStacked\(true\)/.test(
     panel,
   ),
 );
@@ -246,7 +290,7 @@ check(
 // Drawn: one grid holds the whole arrangement, and a stack is a placement in it.
 check(
   "three panes draw the stack when it is on",
-  /const stackDrawn = \$derived\(\s*layout\.stacked && \(mode === 3 \|\| \(mode === 1 && level === "article"\)\),\s*\)/.test(
+  /const stackDrawn = \$derived\(layout\.stacked && mode === 3\)/.test(
     main,
   ) && /class:stacked=\{stackDrawn\}/.test(main),
 );

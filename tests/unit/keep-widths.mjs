@@ -56,10 +56,15 @@ globalThis.localStorage = {
   },
 };
 
+// The desktop shell: it owns its window and may resize it. The other case — a
+// browser tab or a phone, which cannot — is the one that must never hold a width
+// it will not reach, and it is checked in `press-frame.mjs` by taking this
+// marker away.
 globalThis.window = {
   innerWidth: 1200,
   innerHeight: 900,
   screen: { width: 1920, height: 1080, availWidth: 1920, availHeight: 1080 },
+  __TAURI_INTERNALS__: {},
 };
 globalThis.matchMedia = (query) => ({
   matches: false,
@@ -193,7 +198,7 @@ try {
   // --- a toggle with no remembered frame does not resize --------------------
   {
     const layout = await start(generated, { mode: 2, keepWidths: true, chosen: true });
-    layout.setAvailable(700);
+    layout.setAvailable(1200);
     check("opening in a kept-widths window", layout.keepWidths === true && layout.mode === 2);
     check("with nothing remembered yet", layout.keepWindowWidth === null, String(layout.keepWindowWidth));
     const pressed = layout.pressSeq;
@@ -201,14 +206,47 @@ try {
     check("the toggle still slides once", layout.pressSeq === pressed + 1, `${pressed} → ${layout.pressSeq}`);
     check(
       "but it asks for no frame, because there is none to go back to",
-      layout.drawn === 700 && layout.available === 700,
+      layout.drawn === 1200 && layout.available === 1200,
       `drawn ${layout.drawn}, available ${layout.available}`,
     );
     check(
       "and the panes fit the frame they are already in",
-      layout.columns() === "280px 6px 414px 0px 0px",
+      layout.columns() === "280px 6px 914px 0px 0px",
       layout.columns(),
     );
+  }
+
+  // --- the two shapes keep two answers --------------------------------------
+  // The screen decides the shape, not the window: holding a phone upright is
+  // portrait, the same phone turned is landscape, a monitor is landscape — and
+  // a window the app resized itself never changes which setting is in force.
+  {
+    const landscapeScreen = { width: 1920, height: 1080 };
+    const portraitScreen = { width: 1080, height: 1920 };
+    const layout = await start(generated, { mode: 2, keepWidths: true, chosen: true });
+    layout.setAvailable(700);
+    check("a wide screen keeps the setting", layout.keepWidths === true);
+    check(
+      "...even when the window itself is taller than it is wide",
+      layout.keepWidthsInLandscape === true && layout.keepWidthsInPortrait === false,
+      `${layout.keepWidthsInLandscape}/${layout.keepWidthsInPortrait}`,
+    );
+
+    // Upright: its own answer, which ships as Keep window.
+    globalThis.window.screen = portraitScreen;
+    check("upright starts keeping the window", layout.keepWidths === false);
+    layout.setKeepWidthsFor("portrait", true);
+    check("upright can be set to keep widths", layout.keepWidths === true);
+
+    // Turned: the other answer is untouched by that.
+    globalThis.window.screen = landscapeScreen;
+    check("turning back is the landscape answer", layout.keepWidths === true);
+    layout.setKeepWidthsFor("landscape", false);
+    check("landscape can be set on its own", layout.keepWidths === false);
+
+    globalThis.window.screen = portraitScreen;
+    check("and upright still holds its own", layout.keepWidths === true);
+    globalThis.window.screen = landscapeScreen;
   }
 
   // --- the memory survives a save and a relaunch ---------------------------

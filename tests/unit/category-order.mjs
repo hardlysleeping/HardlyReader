@@ -129,5 +129,40 @@ check(
   ) === JSON.stringify(["Tech", "Design", "Art"]),
 );
 
+// A category is a feed. FreshRSS labels are streams, so the category's name opens
+// every post in every feed under it — and it still folds and unfolds the group,
+// which is what the name did before there was anything else to do with it.
+check(
+  "the category's name opens its own stream and still folds the group",
+  /if \(!inlinePosts\) \{\s*toggle\(category\.id\);\s*openCategory\(category\);\s*return;\s*\}/.test(
+    sidebar,
+  ),
+);
+check(
+  "and the click is the one the row calls",
+  /onclick=\{\(\) => clickCategory\(category, folded\)\}/.test(sidebar) &&
+    !/onclick=\{\(\) => \{[\s\S]{0,120}toggle\(category\.id\);/.test(sidebar),
+);
+// One panel is the exception: the list is the screen there, so a tap that both
+// opened a stream and folded a group would do one of them by accident. The first
+// tap picks the category, the next one on the same category opens it.
+check(
+  "one panel needs the second tap before the posts change",
+  /if \(pickedCategory !== category\.id\) \{\s*pickedCategory = category\.id;\s*if \(folded\) toggle\(category\.id\);\s*return;\s*\}/.test(
+    sidebar,
+  ) &&
+    /if \(reader\.activeStream !== category\.id\) \{\s*if \(folded\) toggle\(category\.id\);\s*openCategory\(category\);\s*return;\s*\}/.test(
+      sidebar,
+    ),
+);
+check(
+  "and a tap on the category that is already open folds it, as it always did",
+  /\n    toggle\(category\.id\);\n  \}/.test(sidebar),
+);
+check(
+  "the count button still opens the same stream",
+  /onclick=\{\(\) => openCategory\(category\)\}/.test(sidebar),
+);
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exitCode = 1;

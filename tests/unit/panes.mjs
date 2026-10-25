@@ -1,7 +1,7 @@
 import {
   MIN, GUTTER, NEEDED, MINIMUMS, THRESHOLDS, THRESHOLD_LIMITS, effectiveMode, clampWidths, dragPane,
   resetPane, nudge, gridTemplate, tracks, guttersFor, geometricMinimum, defaultModeFor, needed, minimums,
-  clampThresholds, widthFor, intentWidths, MODE_HYSTERESIS, fitTarget,
+  clampThresholds, widthFor, intentWidths, MODE_HYSTERESIS, fitTarget, thresholdLimits,
   DEFAULT_LAYOUT, layoutWidths, neededWidth, thresholdsFor, scaleLayout, settleRequirement,
   intentLayout, layoutFromWidths, extendToThree,
   STACK_GUTTER, STACK_SHARE, STACK_MIN_PANE, stackWidth, stackNeeded, clampShare,
@@ -35,6 +35,24 @@ check("below the custom two threshold it is one pane", effectiveMode(3, 899, "de
 check(
   "defaults when no thresholds are passed",
   effectiveMode(3, 1000) === 3 && effectiveMode(3, 999) === 2 && effectiveMode(3, 699) === 1,
+);
+
+// The owner's slider minimums: one pane from 250, two from 500, three from 750.
+// They are the settings' floors, not the mode floors above — the mode still needs
+// its own window, and a slider set to 500 is a window two panes appear at.
+check(
+  "the layout sliders bottom out where the owner said",
+  THRESHOLD_LIMITS.one.min === 250 && THRESHOLD_LIMITS.two.min === 500 && THRESHOLD_LIMITS.three.min === 750,
+  JSON.stringify({ one: THRESHOLD_LIMITS.one.min, two: THRESHOLD_LIMITS.two.min, three: THRESHOLD_LIMITS.three.min }),
+);
+check(
+  "a phone keeps its own narrower slider floors",
+  thresholdLimits("phone").two.min === NEEDED.phone[2] && thresholdLimits("phone").three.min === NEEDED.phone[3],
+  JSON.stringify(thresholdLimits("phone")),
+);
+check(
+  "and the desktop's are the owner's numbers themselves",
+  thresholdLimits("desktop").two.min === 500 && thresholdLimits("desktop").three.min === 750,
 );
 
 check("the sliders' floor and ceiling are enforced", () => {

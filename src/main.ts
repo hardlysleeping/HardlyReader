@@ -15,4 +15,15 @@ if (!target) {
 
 const app = mount(App, { target });
 
+// A phone can install this page once it offers a service worker, so the browser
+// version registers the empty one from `public/sw.js`. Never in the desktop
+// shell: there is nothing to install, and a worker over the asset protocol is a
+// second thing that can be stale.
+if (!("__TAURI_INTERNALS__" in globalThis) && "serviceWorker" in navigator) {
+  void navigator.serviceWorker.register("/sw.js").catch(() => {
+    // A page served without https, or a browser with workers off: it still runs,
+    // it just cannot be added to a home screen.
+  });
+}
+
 export default app;

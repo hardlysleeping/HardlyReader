@@ -50,7 +50,14 @@ class ThemeState {
     try {
       localStorage.setItem(THEME_KEY, JSON.stringify(this.current));
     } catch {
-      // The theme still applies for this session.
+      // An image is the one field big enough to fill the quota on its own. Keep
+      // the colours and drop the picture: a theme that half-saved is worse than
+      // a theme that saved without its photograph.
+      try {
+        localStorage.setItem(THEME_KEY, JSON.stringify({ ...this.current, bgImage: null }));
+      } catch {
+        // The theme still applies for this session.
+      }
     }
   }
 }
@@ -68,6 +75,10 @@ export function apply(theme: Theme): void {
   for (const [name, value] of Object.entries(themeVariables(theme))) {
     root.style.setProperty(name, value);
   }
+  // `--bg` is the one variable that is *unsaid* rather than set: a theme with no
+  // page colour of its own must delete the override, or the last colour it had
+  // before the mode changed would be the one it keeps.
+  if (theme.bg === null) root.style.removeProperty("--bg");
   if (theme.mode === "system") root.removeAttribute("data-theme");
   else root.dataset.theme = theme.mode;
 }

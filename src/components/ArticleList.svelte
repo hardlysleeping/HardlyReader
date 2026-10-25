@@ -2,8 +2,11 @@
   import type { StreamItem } from "../api/freshrss";
   import { isRead, isStarred } from "../api/freshrss";
   import { authorOf, bylineOf, bylineTitle, feedNameOf } from "../lib/byline";
-import { plainPreview, relativeTime } from "../lib/format";
+  import { plainPreview, relativeTime } from "../lib/format";
+  import { layout } from "../state/layout.svelte";
   import { cropVariant, imagesOf, panelsOf, thumbnailOf, type ThumbSource } from "../lib/thumb";
+  import RowCurve from "./RowCurve.svelte";
+  import InlineArticle from "./InlineArticle.svelte";
   import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
   import {
     CARD_LAYOUT_TITLES,
@@ -29,6 +32,10 @@ import { plainPreview, relativeTime } from "../lib/format";
   } from "../lib/list-view";
   import { cardLayout } from "../lib/card-layout.svelte";
   import { near } from "../lib/near-view";
+  import { canFitWindow, fitWindowTo, screenSize } from "../lib/window-fit";
+  import { openExternal } from "../lib/open-external";
+  import { isExternalHttp } from "../lib/sanitize";
+  import { tabbed, type Tabbed } from "../lib/date-tabs";
   import { pullDown } from "../lib/pull";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { reader } from "../state/reader.svelte";
@@ -271,6 +278,45 @@ import { plainPreview, relativeTime } from "../lib/format";
   /** The shape of this column, global for the same reason as the filter. */
   const view = $derived(reading.listView);
 
+  /**
+   * How far this view's rows turn.
+   *
+   * Two stored radii, one drawn: the pill's right-hand corners when the rows are
+   * pills, the foot's bottom corners when they turn at the foot. Read here rather
+   * than in the stylesheet because the list is the only element that can carry
+   * it, and a custom property is what lets one slider reach every row.
+   */
+  const rowTurn = $derived(reading.rowsEnd === "half" ? reading.curveHalf : reading.curvePill);
+
+  /**
+   * Which date tabs are shut.
+   *
+   * A tab is a thing you put away, so this is only what the reader closed: the
+   * default is everything open, and a key that is not in here is unfolded.
+   */
+  let closedTabs = $state(new Set<string>());
+
+  /** The date tabs the reader shut, by key. Toggling copies: a Set in place is not a change. */
+  function toggleTab(key: string) {
+    const next = new Set(closedTabs);
+    if (!next.delete(key)) next.add(key);
+    closedTabs = next;
+  }
+
+  /**
+   * What the list draws: the posts, with a month, a week and a day tab before
+   * the runs they cover.
+   *
+   * Only the list view folds its dates — the regular rows, the cards and the
+   * grid are read by the shape of what is in them, and a tab between two cards
+   * would break the page of them. Every other view gets the bare posts.
+   */
+  const entries = $derived<Tabbed<StreamItem>[]>(
+    view === "list"
+      ? tabbed(reader.listItems, closedTabs)
+      : reader.listItems.map((item) => ({ kind: "post" as const, item })),
+  );
+
 
   /**
    * Which rows are close to the viewport. Only those draw a picture.
@@ -351,6 +397,7 @@ import { plainPreview, relativeTime } from "../lib/format";
   let listPull = $state(0);
   let listPullTimer: ReturnType<typeof setTimeout> | null = null;
   let listSettleUntil = 0;
+  let stepTimer: ReturnType<typeof setTimeout> | null = null;
   const listThreshold = $derived(thresholdFor(reading.scrollEffort));
 
   function resetListPull(): void {
@@ -369,23 +416,65 @@ import { plainPreview, relativeTime } from "../lib/format";
   }
 
   /**
+   * The box the cards are actually scrolled in.
+   *
+   * As a pane of its own this list is its own port, and `itemsEl` is it. Nested
+   * under a feed row — the one-pane layout, where the list hangs under the feed
+   * it belongs to — the list is only a block: it has `overflow: visible`, no
+   * height of its own and no scrollbar, and the sidebar's feed box is what
+   * moves. Measuring and scrolling `itemsEl` there measured the whole column as
+   * if it were a pane the height of its content, so every card "fit" and the
+   * wheel took the delta for a step and then wrote the scroll to an element that
+   * cannot scroll — which is why the wheel did nothing at all in one-pane cards
+   * while the drag, which moves the sidebar itself, still worked. The nearest
+   * scrollable ancestor is the port in that case.
+   */
+  function scrollPort(): HTMLElement | null {
+    const el = itemsEl;
+    if (el === null || !nested) return el;
+    let loose: HTMLElement | null = null;
+    for (let p = el.parentElement; p !== null; p = p.parentElement) {
+      const overflowY = getComputedStyle(p).overflowY;
+      if (overflowY !== "auto" && overflowY !== "scroll") continue;
+      if (p.scrollHeight > p.clientHeight + 1) return p;
+      loose ??= p;
+    }
+    return loose ?? el;
+  }
+
+  /**
    * The card in the middle of the pane: the one being read.
    *
-   * Cards sit centred with their neighbours peeking, so "the first row whose
-   * bottom is below the top edge" would name the card peeking above instead of
-   * the one you are looking at. What is in the middle is the answer.
+   * The nearest card to the middle, by the distance from the pane's middle to
+   * the card's own middle — not "the first card whose bottom is past the
+   * middle". Those two disagree exactly when the middle falls in a gap between
+   * two cards, and there it is not a toss-up: the first-bottom test answers with
+   * the card *below* the middle, which is the next one along, not the one you
+   * are looking at. Since a wheel step is `current + 1`, being one card out here
+   * lands two cards along — the skip — every time the column settled a few
+   * pixels off centre, which it does whenever a picture resizes under it after
+   * the thread has already been centred.
    */
   function currentCard(): HTMLElement | null {
-    const el = itemsEl;
+    const el = scrollPort();
     if (!el) return null;
     const middle = el.getBoundingClientRect().top + el.clientHeight / 2;
-    const rows = cardRows();
-    return rows.find((row) => row.getBoundingClientRect().bottom > middle) ?? rows.at(-1) ?? null;
+    let best: HTMLElement | null = null;
+    let bestDistance = Infinity;
+    for (const row of cardRows()) {
+      const box = row.getBoundingClientRect();
+      const distance = Math.abs(box.top + box.height / 2 - middle);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = row;
+      }
+    }
+    return best;
   }
 
   /** A card that fits the pane, so the whole of it is on screen at once. */
   function cardFits(row: HTMLElement): boolean {
-    const el = itemsEl;
+    const el = scrollPort();
     if (!el) return false;
     return row.getBoundingClientRect().height <= el.clientHeight + 1;
   }
@@ -402,13 +491,120 @@ import { plainPreview, relativeTime } from "../lib/format";
    */
   let tallCard = $state(false);
   let snapFrame = 0;
+  /**
+   * The card the pane is holding in the middle.
+   *
+   * Read posts are dimmed by 0.48 everywhere — a list of comics that were all
+   * read, as a back-catalogue is, is then a list of dim cards. The one in the
+   * middle is the one being read, so it keeps its full weight and the dimming
+   * around it says which card that is.
+   */
+  let heldId = $state<string | null>(null);
+
+  /**
+   * Fit the window to the comic on screen.
+   *
+   * Experimental, and deliberately simple. A card draws its picture across the
+   * pane at the picture's own shape, so the pane's width is the only thing that
+   * decides how big a page is: this asks for the width at which the page's
+   * height fills the screen, capped by the picture's natural size and by what
+   * the monitor has, and then for the height that width needs. Two rules keep it
+   * from being a takeover — the window never grows past the current pane, so a
+   * comic that already fits changes nothing, and the feeds pane's width is
+   * subtracted, never touched.
+   */
+  let fitComic = $state(false);
+  /** Set while a fit is landing: the resize it causes must not ask for another. */
+  let fitting = false;
+
+  function toggleFitComic(): void {
+    fitComic = !fitComic;
+    if (fitComic) void fitToComic();
+  }
+
+  /**
+   * Fit the window to the comic on screen, at the size the reader has it.
+   *
+   * `shrink` is off while the reader is only moving through the stream: there,
+   * a fit may grow the window to hold a page but must not take it away from a
+   * reader who set it. It is on when the reader is the one resizing — then the
+   * window they make is the window they mean, and a fit that refused to narrow
+   * would be a fit that stopped fitting the moment the picture got taller than
+   * the screen.
+   */
+  async function fitToComic(shrink = false): Promise<void> {
+    if (!fitComic || fitting || view !== "cards") return;
+    const el = itemsEl;
+    const card = currentCard();
+    if (!el || !card) return;
+    const img = card.querySelector<HTMLImageElement>(".lead img");
+    if (!img) return;
+    if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+      // Its shape is not known until it lands; ask again then.
+      img.addEventListener("load", () => void fitToComic(), { once: true });
+      return;
+    }
+    const screen = await screenSize();
+    if (!screen) return;
+    const feeds = document.querySelector<HTMLElement>('[data-pane="feeds"]');
+    const pane1 = feeds ? Math.round(feeds.getBoundingClientRect().width) : 0;
+    // Everything in the window that is not the posts pane: the gutter, and in
+    // three-pane mode the article pane too. Left alone, whatever it is.
+    const rest = Math.max(0, Math.round(window.innerWidth - pane1 - el.clientWidth));
+    const header = document.querySelector<HTMLElement>('[data-pane="posts"] .list-header');
+    const chrome =
+      card.offsetHeight - Math.round(img.getBoundingClientRect().height) +
+      (header ? Math.round(header.getBoundingClientRect().height) : 0);
+    const pane2 = el.clientWidth;
+    const natural = img.naturalWidth / img.naturalHeight;
+    const availW = Math.max(240, screen.width - pane1 - rest - 8);
+    const availH = Math.max(240, screen.height - chrome - 8);
+    // Width for a page whose height fills the screen, then the two caps: its own
+    // pixels, and the room the monitor has. Below the current pane it does not
+    // go — a fit that shrank the window would be a fit the reader did not ask
+    // for.
+    const room = Math.min(availH * natural, img.naturalWidth, availW);
+    const paneNext = Math.round(Math.min(shrink ? room : Math.max(pane2, room), availW));
+    const pictureH = Math.round(paneNext / natural);
+    const height = Math.min(
+      screen.height,
+      Math.max(shrink ? 240 : window.innerHeight, chrome + pictureH),
+    );
+    if (
+      Math.abs(paneNext - el.clientWidth) < 1 &&
+      Math.abs(height - window.innerHeight) < 1
+    ) {
+      return;
+    }
+    fitting = true;
+    try {
+      await fitWindowTo(pane1 + rest + paneNext, height);
+    } finally {
+      // A resize moves the cards under the port, which is a scroll away from
+      // asking for the same fit again. One fit per settling is enough.
+      setTimeout(() => (fitting = false), 400);
+    }
+  }
 
   function syncSnap(): void {
     const card = view === "cards" ? currentCard() : null;
     tallCard = !!card && !cardFits(card);
+    const el = scrollPort();
+    if (card && tallCard && el) {
+      const port = el.getBoundingClientRect();
+      const box = card.getBoundingClientRect();
+      heldFrac = Math.min(Math.max((port.top - box.top) / Math.max(box.height, 1), 0), 1);
+    } else {
+      heldFrac = 0;
+    }
+    const next = card?.dataset.id ?? null;
+    if (next === heldId) return;
+    heldId = next;
+    if (fitComic) void fitToComic();
   }
 
   function onCardsScroll(): void {
+    if (itemsEl !== null) reader.rememberScroll("list", itemsEl.scrollTop);
     if (view !== "cards" || snapFrame) return;
     snapFrame = requestAnimationFrame(() => {
       snapFrame = 0;
@@ -416,13 +612,122 @@ import { plainPreview, relativeTime } from "../lib/format";
     });
   }
 
-  // A view switch, a new stream or a resize puts different cards under the same
-  // scroll port, and none of them fire a scroll event of their own.
+  /** The list offset being put back, until the rows are tall enough to reach it. */
+  let resumeAt = $state<number | null>(null);
+
+  // A launch reopens the stream where it was left, so the rows under the port
+  // are the ones that were being looked at.
+  $effect(() => {
+    const top = reader.listScrollRestore;
+    if (top === null) return;
+    reader.clearScrollRestore("list");
+    resumeAt = top;
+  });
+
+  // The port can only be scrolled as far as its rows are tall, and the first
+  // page arrives after the paint, so the offset is re-applied as rows land. It
+  // stays pending until it sticks: a scroll by hand gives it up instead, because
+  // then the reader is somewhere of their choosing.
+  $effect(() => {
+    void reader.items.length;
+    const want = resumeAt;
+    const el = itemsEl;
+    if (el === null || want === null) return;
+    el.scrollTop = want;
+    if (Math.abs(el.scrollTop - want) <= 1) resumeAt = null;
+  });
+
+  function dropResume(): void {
+    resumeAt = null;
+  }
+
+  /**
+   * How far into the card in the middle the reader is, 0 to 1.
+   *
+   * A card that fits is read from its middle, so its place is not a fraction of
+   * anything. A page taller than the pane is read by scrolling it, and *that* is
+   * a place: resize the window twice and you want the same line of the comic in
+   * front of you, not the same number of pixels down the column.
+   */
+  let heldFrac = 0;
+
+  let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  let resizeFrame = 0;
+
+  /**
+   * A resize moves every card under the port, and the column is not told.
+   *
+   * A card's picture is as wide as the pane and as tall as its own shape, so
+   * changing the window's width changes the height of every card in the stream
+   * at once. The port keeps its scroll position in pixels and fires no scroll
+   * event, which left the reader wherever those pixels now happened to land —
+   * usually the middle of a different card — with the snapping still set for a
+   * card whose height no longer existed. This puts the card being read back
+   * where it was, and asks the snap state again.
+   */
+  function settleResize(): void {
+    if (resizeTimer !== null) clearTimeout(resizeTimer);
+    // Cards re-lay-out over a frame or two, and a pane being dragged does it
+    // once per step: wait for the last one instead of placing the card against
+    // a height that is about to change again.
+    resizeTimer = setTimeout(() => {
+      resizeTimer = null;
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => {
+        const el = itemsEl;
+        if (!el || view !== "cards") return;
+        const card = heldId
+          ? el.querySelector<HTMLElement>(`.row[data-id="${CSS.escape(heldId)}"]`)
+          : currentCard();
+        if (!card) return;
+        if (cardFits(card)) {
+          landOn(card);
+        } else {
+          const port = el.getBoundingClientRect();
+          const box = card.getBoundingClientRect();
+          el.scrollTop = box.top - port.top + el.scrollTop + heldFrac * box.height;
+        }
+        syncSnap();
+      });
+    }, 90);
+  }
+
+  /** The port's own size: a window resize, a dragged splitter, a rotated phone. */
+  function cardResize(el: HTMLElement) {
+    let seen = { w: el.clientWidth, h: el.clientHeight };
+    const observer = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w === seen.w && h === seen.h) return;
+      seen = { w, h };
+      settleResize();
+    });
+    observer.observe(el);
+    // The window is the reader's own hand, so a fit follows it in both
+    // directions. The splitter is not: a fit that undid the drag would be a
+    // control arguing with the reader.
+    const onWindowResize = () => {
+      if (view === "cards" && fitComic) void fitToComic(true);
+    };
+    window.addEventListener("resize", onWindowResize);
+    return {
+      destroy() {
+        observer.disconnect();
+        window.removeEventListener("resize", onWindowResize);
+        if (resizeTimer !== null) clearTimeout(resizeTimer);
+        cancelAnimationFrame(resizeFrame);
+      },
+    };
+  }
+
+  // A view switch or a new stream puts different cards under the same scroll
+  // port, and neither fires a scroll event of its own. A resize is `cardResize`.
   $effect(() => {
     void view;
     void reader.items.length;
     if (view !== "cards") {
       tallCard = false;
+      heldId = null;
       return;
     }
     const frame = requestAnimationFrame(syncSnap);
@@ -446,7 +751,7 @@ import { plainPreview, relativeTime } from "../lib/format";
     if (!target || target === current) return;
     // Its picture starts loading before the scroll moves, not after it lands.
     prefetchFrom(target.dataset.id ?? undefined);
-    centreCard(target);
+    landOn(target);
     syncSnap();
   }
 
@@ -460,16 +765,46 @@ import { plainPreview, relativeTime } from "../lib/format";
    * to the top instead and read by scrolling it.
    */
   function centreCard(card: HTMLElement): void {
-    const el = itemsEl;
+    const el = scrollPort();
     if (!el) return;
     const port = el.getBoundingClientRect();
     const box = card.getBoundingClientRect();
     const offset = box.top - port.top;
-    if (box.height > el.clientHeight) {
-      el.scrollTop += offset;
-      return;
+    // Snapping is a separate opinion about where the column should stop, and on
+    // a programmatic scroll it is an opinion the browser can act on twice: the
+    // position is set, and then the snap engine picks the nearest snap point to
+    // *that*, which after a step is a card further on. The thread knows where it
+    // put the card, so the column is released from snapping for the length of
+    // the step and takes it back when the thread is quiet.
+    if (!el.classList.contains("stepping")) {
+      el.classList.add("stepping");
+      if (stepTimer !== null) clearTimeout(stepTimer);
+      stepTimer = setTimeout(() => {
+        el.classList.remove("stepping");
+        stepTimer = null;
+      }, SETTLE_MS);
     }
-    el.scrollTop += offset - (el.clientHeight - box.height) / 2;
+    // Absolute, not `+=`: the position is written as the card's own place in the
+    // column, so whatever happened to the scroll between the gesture and this
+    // call cannot be inherited. With a relative step, a scroll the webview
+    // applied on its own account — the native wheel it may still run alongside
+    // this handler, or the snap engine's second opinion — moved the landing a
+    // card further on, in whichever direction the wheel went.
+    const place = box.top - port.top + el.scrollTop;
+    el.scrollTop =
+      box.height > el.clientHeight ? place : place - (el.clientHeight - box.height) / 2;
+  }
+
+  /**
+   * Put a card in the middle, once, at an absolute position.
+   *
+   * Not a relative nudge and not something to keep correcting frame by frame:
+   * re-placing the card after the webview has acted on it fights the scroll it
+   * is running, and a step that argues with the column is a step that sometimes
+   * does not happen at all.
+   */
+  function landOn(card: HTMLElement): void {
+    centreCard(card);
   }
 
   /**
@@ -478,17 +813,94 @@ import { plainPreview, relativeTime } from "../lib/format";
    * that needs a non-passive listener.
    */
   function cardWheel(el: HTMLElement) {
+    const port = scrollPort();
+    let snapFrameNested = 0;
+    const onPortScroll = (): void => {
+      if (view !== "cards" || snapFrameNested) return;
+      snapFrameNested = requestAnimationFrame(() => {
+        snapFrameNested = 0;
+        syncSnap();
+      });
+    };
     el.addEventListener("wheel", onListWheel, { passive: false });
+    el.addEventListener("pointerdown", onPanDown);
+    window.addEventListener("pointerup", onPanUp);
+    window.addEventListener("pointercancel", onPanUp);
+    // Nested, the rows travel with the sidebar, and this block never fires a
+    // scroll of its own — so the card in the middle has to be read from the
+    // box that actually moved, or the one that was middle when the feed opened
+    // stays the one drawn at full weight.
+    const outer: HTMLElement | null = port !== null && port !== el ? port : null;
+    if (outer !== null) outer.addEventListener("scroll", onPortScroll, { passive: true });
     return {
       destroy() {
         el.removeEventListener("wheel", onListWheel);
+        el.removeEventListener("pointerdown", onPanDown);
+        window.removeEventListener("pointerup", onPanUp);
+        window.removeEventListener("pointercancel", onPanUp);
+        if (outer !== null) outer.removeEventListener("scroll", onPortScroll);
+        cancelAnimationFrame(snapFrameNested);
         resetListPull();
       },
     };
   }
 
-  function onListWheel(event: WheelEvent): void {
+  /**
+   * A mouse drag on the column, in cards.
+   *
+   * The pan itself is the app's own drag-to-scroll, which moves the content 1:1
+   * with the hand. With snapping on, that pan is then pulled back to whichever
+   * centre it is nearest, so a drag of under half a card does nothing at all —
+   * which is what made dragging feel like work next to the wheel. Here the drag
+   * is only ever a direction: the card the hand started on, and which way it
+   * went. A drag that travels `PAN_STEP` moves one card that way and centres it,
+   * a smaller one puts the card back, and a long drag still moves one card rather
+   * than however many the pointer passed.
+   */
+  const PAN_STEP = 24;
+  let panFrom: HTMLElement | null = null;
+  let panTop = 0;
+
+  function onPanDown(event: PointerEvent): void {
+    // A nested list has no port of its own: its drag is the sidebar's, which
+    // pans the rows 1:1 and does not step a card on release.
+    if (nested) return;
+    if (view !== "cards" || event.pointerType !== "mouse") return;
     const el = itemsEl;
+    if (!el) return;
+    panFrom = currentCard();
+    panTop = el.scrollTop;
+  }
+
+  function onPanUp(event: PointerEvent): void {
+    const from = panFrom;
+    panFrom = null;
+    if (nested || view !== "cards" || !from || event.pointerType !== "mouse") return;
+    const el = itemsEl;
+    if (!el) return;
+    const moved = el.scrollTop - panTop;
+    const rows = cardRows();
+    const index = rows.indexOf(from);
+    if (index < 0) return;
+    if (Math.abs(moved) < PAN_STEP) {
+      landOn(from);
+      return;
+    }
+    // How many cards the hand actually crossed, rounded to the nearest — but
+    // never fewer than one, because a drag that has passed `PAN_STEP` was meant
+    // as a move and not as a nudge.
+    const stride =
+      rows.length > 1 ? Math.abs(rows[1].offsetTop - rows[0].offsetTop) : from.offsetHeight;
+    const crossed = Math.max(1, Math.round(Math.abs(moved) / Math.max(1, stride)));
+    const target = rows[Math.min(Math.max(index + Math.sign(moved) * crossed, 0), rows.length - 1)];
+    if (!target) return;
+    prefetchFrom(target.dataset.id ?? undefined);
+    landOn(target);
+    syncSnap();
+  }
+
+  function onListWheel(event: WheelEvent): void {
+    const el = scrollPort();
     if (view !== "cards" || !reading.advanceOnScroll || !el || event.deltaY === 0) {
       resetListPull();
       return;
@@ -508,9 +920,10 @@ import { plainPreview, relativeTime } from "../lib/format";
     // then snapped back onto whichever one it happened to land near.
     event.preventDefault();
     if (performance.now() < listSettleUntil) {
-      // Same gesture still arriving. Hold the step until the wheel is quiet,
-      // rather than counting the rest of the gesture as a second one.
-      listSettleUntil = performance.now() + SETTLE_MS;
+      // Still inside the tail of the step just taken. The window is a fixed
+      // interval, not one that every arriving delta pushes out again: a hand
+      // that keeps scrolling never goes quiet, and holding the step until it
+      // does meant that scrolling without moving the mouse did nothing at all.
       resetListPull();
       return;
     }
@@ -559,7 +972,34 @@ import { plainPreview, relativeTime } from "../lib/format";
     return thumbnail(item);
   }
 
+  /**
+   * Reading here, in the list, rather than in a column of its own.
+   *
+   * The preference is Rows' own, and it is about a place to read: two plain
+   * panes draw an article column beside the list, so without this a post takes
+   * that column over. With it, the row itself grows. Three panes have their own
+   * article column, and one pane is a walk down its own levels, so neither asks
+   * the question — the switch is not drawn there and the flag is not read.
+   */
+  const readHere = $derived(
+    reading.readInPane &&
+      view === "regular" &&
+      (layout.mode === 2 ? !layout.sidebarCollapsed : layout.mode === 1),
+  );
+
+  /**
+   * Open a post, or fold the one already open away again.
+   *
+   * Reading here means the row grows and the list stays: the selection is the
+   * post being read, and pressing it a second time is the way out of it. Any
+   * other press still selects, so a post opening elsewhere is unchanged.
+   */
   function open(item: StreamItem) {
+    if (readHere && reader.selectedId === item.id) {
+      reader.closeReader();
+      onOpen?.();
+      return;
+    }
     reader.select(item);
     onOpen?.();
   }
@@ -577,6 +1017,25 @@ import { plainPreview, relativeTime } from "../lib/format";
   function toggleRead(item: StreamItem, event: MouseEvent): void {
     event.stopPropagation();
     void reader.setRead(item, !isRead(item));
+  }
+
+  /** Where the post lives on its own site, if the feed said. */
+  function sourceUrl(item: StreamItem): string | null {
+    const href = item.alternate?.[0]?.href ?? item.canonical?.[0]?.href ?? null;
+    return isExternalHttp(href) ? href : null;
+  }
+
+  /**
+   * Open the post where it was published.
+   *
+   * No prompt and no reader: the reader is a reading surface, and sometimes what
+   * is wanted is the site itself. The click stops at the button, so the row does
+   * not also open the post underneath it.
+   */
+  function openAtSource(item: StreamItem, event: MouseEvent): void {
+    event.stopPropagation();
+    const url = sourceUrl(item);
+    if (url !== null) void openExternal(url);
   }
 </script>
 
@@ -664,6 +1123,69 @@ import { plainPreview, relativeTime } from "../lib/format";
             {/if}
           </button>
         {/each}
+        <!-- Read the tapped post here instead of in the article column. It sits
+             inside the view group because it is a thing the Rows view does, and
+             it is drawn only where Rows is: the other three shapes are for
+             scanning, and a page inside one of them would be a second kind of
+             card. -->
+        {#if view === "regular"}
+          <!-- Only in two plain panes: three panes have an article column of
+               their own to open into, and one pane is a walk through its own
+               levels. -->
+          {#if layout.mode === 2 && !layout.sidebarCollapsed}
+          <span class="viewsplit" aria-hidden="true"></span>
+          <button
+            class="viewicon pane"
+            class:on={reading.readInPane}
+            aria-pressed={reading.readInPane}
+            aria-label="Read posts here in the list"
+            title={reading.readInPane
+              ? "A post opens here, in its own row, and folds away when you press it again — press to open posts as a page instead"
+              : "A post opens as a page of its own — press to read posts here, folded out of their rows"}
+            onclick={() => reading.toggleReadInPane()}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 2.5h5.2L12.5 5.8v7.7H4z" />
+              <path d="M9.2 2.5v3.3h3.3" />
+            </svg>
+          </button>
+          {/if}
+          <!-- How the row ends: half a turn, or the pill. Both kept. -->
+          <button
+            class="viewicon end"
+            class:on={reading.rowsEnd === "half"}
+            aria-pressed={reading.rowsEnd === "half"}
+            aria-label="Turn the bottom of each row"
+            title={reading.rowsEnd === "half"
+              ? "Rows turn at the bottom, with the accent running along their foot — press for the full pill at the end"
+              : "Rows turn at both right-hand corners, as a half pill — press to turn only the bottom"}
+            onclick={() => reading.toggleRowsEnd()}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2.5 2.5h11v7.2a3.3 3.3 0 0 1-3.3 3.3H5.8a3.3 3.3 0 0 1-3.3-3.3z" />
+            </svg>
+          </button>
+          <!-- How far those corners turn, on the bar of the view they turn on. -->
+          <RowCurve />
+          {#if view === "regular"}
+            <!-- Both shapes have an end a picture can fill. -->
+            <button
+              class="viewicon flush"
+              class:on={reading.flushThumb}
+              aria-pressed={reading.flushThumb}
+              aria-label="Picture fills the row's end"
+              title={reading.flushThumb
+                ? "The picture fills the row's end, and the row cuts it — press to sit it inside the row again"
+                : "The picture sits inside the row — press to have it fill the end, corner and all"}
+              onclick={() => reading.toggleFlushThumb()}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3 2.5h10v11H3z" />
+                <path d="M3 13.5h5.2A5.2 5.2 0 0 0 3 8.3z" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
+          {/if}
+        {/if}
       </div>
 
       <!-- Sizing lives where the view is chosen, and only the view that has
@@ -747,6 +1269,19 @@ import { plainPreview, relativeTime } from "../lib/format";
               >
             {/each}
           {/if}
+          <!-- Only where a window can be asked for a size: a browser tab and a
+               phone cannot, and a control that is drawn where it cannot act reads
+               as a control that is broken. -->
+          {#if canFitWindow()}
+            <button
+              class="sizebtn fit"
+              class:on={fitComic}
+              aria-pressed={fitComic}
+              aria-label="Fit the window to the comic"
+              title="Fit the window to the comic: the whole picture, at its own shape"
+              onclick={toggleFitComic}
+            >fit</button>
+          {/if}
         </div>
       {/if}
       <div class="filters" role="group" aria-label="Show posts">
@@ -776,12 +1311,18 @@ import { plainPreview, relativeTime } from "../lib/format";
     class:masonry={view === "cards" && cardLayout.masonry}
     data-tallcard={tallCard ? "true" : undefined}
     onscroll={onCardsScroll}
+    onwheel={dropResume}
+    ontouchstart={dropResume}
     class:grid={view === "grid"}
     class:square={view === "grid" && gridIsSquare(reading.gridColumns)}
+    class:half-end={view === "regular" && reading.rowsEnd === "half"}
+    class:flush-thumb={view === "regular" && reading.flushThumb}
+    style:--row-turn={`${rowTurn}px`}
     style:--grid-template={gridTemplate(reading.gridColumns)}
     style:--card-window={`${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
     style:--masonry-columns={masonryTrack(cardLayout.columns)}
     use:cardWheel
+    use:cardResize
     use:pullDown={{
       label: "Pull down to check for new posts",
       readyLabel: "Release to check for new posts",
@@ -800,7 +1341,25 @@ import { plainPreview, relativeTime } from "../lib/format";
         {/each}
       </div>
     {/if}
-    {#each reader.listItems as item (item.id)}
+    {#each entries as entry (entry.kind === "post" ? entry.item.id : entry.tab.key)}
+      {#if entry.kind === "tab"}
+        <!-- A folder tab: its top corners are rounded and its bottom edge is not,
+             so it reads as the front of a thing the posts are filed inside. months
+             sit at the left edge, weeks a step in, days a step further. -->
+        <button
+          class="tab"
+          class:closed={entry.closed}
+          class:month={entry.tab.level === 0}
+          style:--depth={entry.tab.level}
+          aria-expanded={!entry.closed}
+          onclick={() => toggleTab(entry.tab.key)}
+        >
+          <svg class="caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" /></svg>
+          <span class="tab-name">{entry.tab.label}</span>
+          <span class="tab-count">{entry.tab.count}</span>
+        </button>
+      {:else}
+      {@const item = entry.item}
       {@const picture = image(item)}
       {@const strip = picture === null ? [] : pictures(item)}
       {@const page = strip.length > 1 ? pageOf(item, strip.length) : 0}
@@ -809,10 +1368,14 @@ import { plainPreview, relativeTime } from "../lib/format";
       <!-- A feed whose posts are pictures has no text to preview; the row keeps
            its shape rather than reserving a blank line under the headline. -->
       {@const blurb = summary(item, view === "cards" ? 320 : 160)}
+      {@const source = sourceUrl(item)}
       <div
         class="row"
         class:selected={reader.selectedId === item.id}
         class:read={isRead(item)}
+        class:starred={isStarred(item)}
+        class:held={heldId === item.id}
+        class:open={readHere && reader.selectedId === item.id}
         class:stacked={placement === "top"}
         data-id={item.id}
         use:near={{ root: itemsEl, near: (isNear: boolean) => markNear(item.id, isNear) }}
@@ -851,7 +1414,7 @@ import { plainPreview, relativeTime } from "../lib/format";
           {/if}
           <span class="body">
             <span class="line">
-              <!-- Only the one-line view carries the marker: in Regular rows and
+              <!-- Only the one-line view carries the marker: in Rows and
                    on a card it took a dot's width off the headline's left edge,
                    which is the edge of the pane. Those say whether a post is
                    read with the row itself. -->
@@ -914,9 +1477,19 @@ import { plainPreview, relativeTime } from "../lib/format";
             onclick={(event) => flip(event, item, strip.length, 1)}
             onkeydown={(event) => keyFlip(event, item, strip.length, 1)}></span>
         {/if}
-        <div class="acts">
+        <!-- The toggles own the pointer. Without this, a press that slides a few
+             pixels becomes a list pan, and the pan swallows the click it ends
+             with — the button looks dead for exactly the reason the drag exists.
+             24px is smaller than a hand is steady. -->
+        {#if readHere && reader.selectedId === item.id}
+          <!-- The post, opened out of its row: the list is still the list, and
+               the page is the bottom half of the row it belongs to. -->
+          <InlineArticle {item} oncollapse={() => reader.closeReader()} />
+        {/if}
+
+        <div class="acts" data-no-drag-scroll>
           <button
-            class="act"
+            class="act star"
             class:on={isStarred(item)}
             aria-pressed={isStarred(item)}
             aria-label={isStarred(item) ? "Remove star" : "Star this post"}
@@ -941,8 +1514,25 @@ import { plainPreview, relativeTime } from "../lib/format";
               ><circle cx="8" cy="8" r="5.4" /><path d="M5.2 8.2l2 2 3.6-3.9" /></svg
             >
           </button>
+          {#if source !== null}
+            <!-- A shortcut mark rather than a word: the arrow leaving the box is
+                 what every desktop already means by "open this somewhere else". -->
+            <button
+              class="act open"
+              aria-label="Open at source"
+              title="Open at source"
+              onclick={(event) => openAtSource(item, event)}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true"
+                ><path d="M9.2 2.2h4.6v4.6" /><path d="M13.4 2.6 7.4 8.6" /><path
+                  d="M12.2 9.6v3.1a1.3 1.3 0 0 1-1.3 1.3H3.3A1.3 1.3 0 0 1 2 12.7V5.1a1.3 1.3 0 0 1 1.3-1.3h3.2"
+                /></svg
+              >
+            </button>
+          {/if}
         </div>
       </div>
+      {/if}
     {/each}
 
     {#if !reader.loadingList && reader.listItems.length === 0}
@@ -1197,6 +1787,14 @@ import { plainPreview, relativeTime } from "../lib/format";
     background: color-mix(in srgb, var(--accent) 30%, transparent);
   }
 
+  /* The read-here toggle is a different kind of choice from the four shapes,
+     so a hairline separates it rather than a gap: same group, other question. */
+  .viewsplit {
+    width: 1px;
+    margin: 2px 1px;
+    background: color-mix(in srgb, var(--edge-soft) 90%, transparent);
+  }
+
   .filters {
     display: flex;
     gap: 4px;
@@ -1381,6 +1979,11 @@ import { plainPreview, relativeTime } from "../lib/format";
     flex: 1;
     overflow-y: auto;
     padding-bottom: 12px;
+    /* The list is panned by the app, not by the browser: the drag module scrolls
+       this box and throws it, so a flick and a mouse drag feel the same. The
+       browser's own panning would take the gesture away mid-drag (a pointercancel
+       a few px in) and it has no throw to offer in its place. */
+    touch-action: none;
     /* The scroll port is the measure of "how much you can see", so a picture
        can be capped against it rather than against the window: in a three-pane
        desktop window the list is most of the height, on a phone it is all of
@@ -1407,71 +2010,235 @@ import { plainPreview, relativeTime } from "../lib/format";
       inset 0 -7px 12px -9px color-mix(in srgb, var(--accent) 45%, transparent);
   }
 
-  /* The trim: in a row the accent does not stop at the bottom hairline, it
-     turns. One hairline along the bottom, an edge up the right, and at both ends
-     of that edge the turn is filled out to the row's own corner, so the accent
-     finishes in two lit corners instead of two drawn ends.
-
-     Weight is the whole trick here. The edge is 2px against the 1px hairline,
-     the turn is 13px rather than a quarter of the row, and the stretch between
-     the corners is barely there — so a column of unread rows reads as a bright
-     foot and a faint thread up the side, not as a fence. Everything is
-     background layers on one element: a border cannot paint past its own radius,
-     and a mask cannot be solid at each end and whisper in the middle. */
-  .items:not(.compact):not(.cards):not(.grid) .row:not(.read) {
-    --trim-r: 13px;
+  /* A regular row does not end in a corner: it turns. 30px on a 70–104px row is
+     a squircle — square where it leaves the pane, round where it stops — which
+     is the shape that keeps a column of rows from reading as a stack of bricks
+     without turning each one into a pill. `overflow: hidden` is what makes it
+     hold: the row's own background, its hairline and anything inside it are cut
+     to the turn, so nothing paints the corner back in behind the accent. */
+  /* A thin gap between one row and the next, so two rounded ends are two ends
+     rather than one lump: enough air to separate them, not enough to turn a list
+     into a stack of cards. The row's own hairline goes with it — the gap does
+     that job now, and a line on top of a gap only doubles it. */
+  /* An opened post is the row's second line, not a column beside its first:
+     the row wraps, and the page inside it takes the whole width. */
+  .items:not(.compact):not(.cards):not(.grid) .row.open {
+    flex-wrap: wrap;
   }
 
+  .items:not(.compact):not(.cards):not(.grid) .row {
+    border-bottom: 0;
+    /* The turn is a setting: `--row-turn` is set on the list, and 30px is what
+       the rows were before it was one. */
+    border-radius: 0 var(--row-turn, 30px) var(--row-turn, 30px) 0;
+    /* Separation by space, not by a rule: the rows already stack in normal flow,
+       so this is a margin rather than a gap. */
+    margin-bottom: 4px;
+    /* An inner shadow on the turn, deepest at the end: the row's right hand side
+       sits back a little behind the accent, so the end reads as an edge with
+       thickness rather than a flat shape with a line on it. */
+    /* Flat, and only flat: a soft shadow dropped to the right of the turn. No
+       inner light, no bevel — the end stays a 2D shape with a curve, and the
+       shadow is what gives it a little relief against the column. It needs the
+       9px of margin below to have anywhere to fall. */
+    box-shadow: 3px 2px 7px -4px rgba(0, 0, 0, 0.55);
+    /* Away from the pane's edge, so the turn has room to be seen as a turn. Held
+       against the edge it either looks like a cut-off corner or asks for the two
+       corners it leaves to be filled in, and a filled gap between two pills reads
+       as a rail down the column rather than as a row ending. */
+    margin-right: 9px;
+  }
+
+  /* Unread is the accent of that turn, filled: 5px along the right edge and 1px
+     along the bottom and 1px along the top, as borders of the same rounded box.
+     They meet inside the corner and run into each other there, so the accent is
+     one continuous piece that closes the turn — no open end to read as a gap,
+     and nothing outside the row to fill in afterwards, because the accent is the
+     border of the shape the row already is. */
   .items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
     content: "";
     position: absolute;
-    inset: 0;
+    inset: 0 0 -1px 0;
     pointer-events: none;
+    /* Two washes. The first fills the end itself, deepest at the edge and gone
+       by the middle of the row, so an unread post reads as a lit end rather than
+       a row with a line down it. The second darkens the band towards the row's
+       outer edge — a border cannot take a gradient, so the band gets one laid
+       over it. */
     background:
-      /* the bottom turn, filled out to the corner point */
-      radial-gradient(
-          circle at 0 0,
-          transparent 0 calc(var(--trim-r) - 0.5px),
-          color-mix(in srgb, var(--accent) 80%, transparent) calc(var(--trim-r) - 0.5px)
-        )
-        bottom right / var(--trim-r) var(--trim-r) no-repeat,
-      /* the top turn, the same shape upside down and quieter */
-      radial-gradient(
-          circle at 0 100%,
-          transparent 0 calc(var(--trim-r) - 0.5px),
-          color-mix(in srgb, var(--accent) 42%, transparent) calc(var(--trim-r) - 0.5px)
-        )
-        top right / var(--trim-r) var(--trim-r) no-repeat,
-      /* the edge between them: bright where it leaves the foot, a thread halfway
-         up, a quiet cap at the top */
+      linear-gradient(to right, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
       linear-gradient(
-          to top,
-          color-mix(in srgb, var(--accent) 88%, transparent) 0,
-          color-mix(in srgb, var(--accent) 88%, transparent) var(--trim-r),
-          color-mix(in srgb, var(--accent) 14%, transparent) 46%,
-          color-mix(in srgb, var(--accent) 34%, transparent) calc(100% - var(--trim-r)),
-          color-mix(in srgb, var(--accent) 42%, transparent) 100%
-        )
-        right / 2px 100% no-repeat,
-      /* the top turn gets a return, or it reads as the start of a frame that was
-         never finished: a short stub running left and dissolving, which is what
-         makes the upper corner look deliberate rather than clipped */
+        to left,
+        color-mix(in srgb, var(--accent) 18%, transparent) 0,
+        color-mix(in srgb, var(--accent) 8%, transparent) 36px,
+        color-mix(in srgb, var(--accent) 3%, transparent) 50%,
+        transparent 64%
+      );
+    border-right: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
+    border-radius: 0 var(--row-turn, 30px) var(--row-turn, 30px) 0;
+  }
+
+  /* Half a turn, rather than a pill's whole right side: only the bottom of the
+     row turns — bottom right, and bottom left so the foot matches itself — and
+     the accent along that foot is as thick as the accent down the right edge
+     (5px against 5px). Both are borders of the same rounded box, so at the
+     corner they meet inside the radius and continue into each other: the row's
+     foot is one piece of accent, thick, with no join to hide. The top of the row
+     is square and unmarked, which is what makes the column read as a list of
+     feet rather than a stack of capsules. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .row {
+    /* One thickness for the whole foot. Every accent line of this shape reads
+       it — edge, foot and the bands that give them depth — so the three sides
+       cannot drift apart, and making the shape thinner is one number. */
+    --foot: 2px;
+    border-radius: 0 0 var(--row-turn, 30px) var(--row-turn, 30px);
+    /* Both ends of the foot match, so the row steps in from the pane's edge on
+       both sides by the 9px it already kept on its right. The right side and its
+       shadow are untouched; this is the same measurement, mirrored. */
+    margin-left: 9px;
+  }
+
+  /* The left edge of the foot is as thick as the right one: 5px of accent, the
+     same border of the same rounded box, so the two corners are one shape seen
+     from either end rather than a thick end and a cut corner. The dark band that
+     gives the right edge its depth is mirrored for the same reason — an accent
+     5px wide that is lit flat reads thinner than the one that is not. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+    border-radius: 0 0 var(--row-turn, 30px) var(--row-turn, 30px);
+    /* The foot lives inside the row: the border is not drawn a pixel past it,
+       and the corner is the row's own corner. */
+    inset: 0;
+    border-bottom-width: var(--foot);
+    border-right-width: var(--foot);
+    border-left: var(--foot) solid color-mix(in srgb, var(--accent) 92%, transparent);
+    background:
+      linear-gradient(to left, transparent calc(100% - var(--foot)), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(to right, transparent calc(100% - var(--foot)), rgba(0, 0, 0, 0.45) 100%),
       linear-gradient(
-          to left,
-          color-mix(in srgb, var(--accent) 40%, transparent),
-          color-mix(in srgb, var(--accent) 40%, transparent) 6px,
-          transparent 92px
-        )
-        top right / 92px 1px no-repeat,
-      /* the hairline along the bottom: full strength where it meets the foot,
-         easing off towards the thumbnail so the row is marked, not boxed */
-      linear-gradient(
-          to left,
-          color-mix(in srgb, var(--accent) 58%, transparent) 0%,
-          color-mix(in srgb, var(--accent) 50%, transparent) 26%,
-          color-mix(in srgb, var(--accent) 30%, transparent) 100%
-        )
-        bottom left / 100% 1px no-repeat;
+        to left,
+        color-mix(in srgb, var(--accent) 14%, transparent) 0,
+        color-mix(in srgb, var(--accent) 6%, transparent) 30px,
+        color-mix(in srgb, var(--accent) 2%, transparent) 44px,
+        transparent 56%
+      );
+  }
+
+  /* The accent the foot is drawn in is the whole of it: the row's own hairline
+     would sit 1px above a 2px border and read as a second, muddier line, so the
+     foot takes that job over and the glow above it is tightened to a shadow
+     rather than a band. The drop shadow to the right is kept as it was. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .row:not(.read) {
+    box-shadow:
+      3px 2px 7px -4px rgba(0, 0, 0, 0.55),
+      inset 0 -5px 9px -8px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+
+  /* The picture in a footed row sits level with the title rather than centred on
+     the row — a centred picture on a tall row hangs low, into the turn — and the
+     square is a little smaller than it is in the pill's shape, with a margin
+     under it of its own, so even the shortest row keeps the foot's 30px clear of
+     it. Its height is fixed, so a picture can never stretch a row. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .thumb {
+    /* The size is the row's, not this shape's: one picture size in every row, and
+       this is only where it sits. The footed row is the one most rows take, so at
+       a size of its own it was the only row in the pane that disagreed — and at
+       50 the picture sat in a band of empty row, a stamp with a third of the row's
+       height left over around it. */
+    align-self: flex-start;
+    margin-top: 1px;
+    margin-bottom: 3px;
+  }
+
+  /* Off the accent a little further than the text sits: a coloured block against
+     a coloured edge reads as touching long before it actually does. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .thumb.left {
+    margin-left: 0;
+    margin-right: 4px;
+  }
+
+  /* Filled rather than inset: the picture is the row's corner. It is as tall as
+     the row and square, flush to the row's own edges, and the turn does the
+     shaping — the row clips it, so the bottom-left curve cuts the picture itself
+     instead of the picture sitting in a smaller rounded box beside it. Nothing
+     is inset from anything, so the row's own padding goes and the text takes it
+     back where it needs it. */
+  .items.flush-thumb:not(.compact):not(.cards):not(.grid) .row {
+    overflow: hidden;
+  }
+
+  .items.flush-thumb:not(.compact):not(.cards):not(.grid) .item {
+    padding: 0;
+  }
+
+  /* The text takes back the gutter the picture no longer takes, in the shape's
+     own numbers: the footed row is the tighter of the two, and the two numbers
+     live with the shape rather than in this rule. */
+  .items.flush-thumb:not(.compact):not(.cards):not(.grid) .body {
+    padding: calc(var(--flush-block, 6px) * var(--row-scale, 1)) 6px
+      calc(var(--flush-block, 6px) * var(--row-scale, 1)) var(--flush-text, 10px);
+  }
+
+  .items.flush-thumb:not(.compact):not(.cards):not(.grid) .thumb {
+    /* The row's height, and as wide as it is tall: the user's picture size sets
+       the inset square, and this shape does not use it. The height is stated
+       rather than left to the flex line, because a stretched box plus a ratio is
+       the one combination engines disagree about, and disagreeing means nothing
+       is drawn. */
+    position: relative;
+    width: auto;
+    height: 100%;
+    aspect-ratio: 1;
+    min-width: calc(40px * var(--row-scale, 1));
+    align-self: stretch;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  /* The picture is taken out of the box's measurements, or its own pixel width
+     would decide how wide the corner is before the height ever got a say. */
+  .items.flush-thumb:not(.compact):not(.cards):not(.grid) .thumb img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* The row's own content clears that new left edge by the 11px the actions
+     clear the right one with, so a picture on the leading side is inset like the
+     marks on the trailing side instead of sitting on the accent — which is what
+     clipped it against the turn. Nothing on the right moves. */
+  .items.half-end {
+    /* What the filled picture gives back when it takes the corner: the footed
+       row is tighter than the pill's, so its text steps in further and its
+       padding is smaller. */
+    --flush-block: 4px;
+    --flush-text: 12px;
+  }
+
+  /* The filled picture takes the padding and hands it back to the text, so this
+     rule stands aside while it does — the flush rules come earlier in the sheet
+     and would otherwise lose to it. */
+  .items.half-end:not(.flush-thumb):not(.compact):not(.cards):not(.grid) .item {
+    /* Tighter than the pill's row: the foot makes the row read as a slab, and a
+       slab with the pill's air reads as a loose one. The picture is bigger and
+       everything around it smaller, which is the difference between a row with a
+       margin and a row with a picture in it. */
+    padding: calc(4px * var(--row-scale, 1)) 6px calc(4px * var(--row-scale, 1)) 12px;
+  }
+
+  .items.half-end:not(.compact):not(.cards):not(.grid) .body {
+    gap: 2px;
+  }
+
+  /* The pill steps in from the end it sits against, and follows the foot's
+     thickness: it moves left away from the accent, and up off the foot by
+     exactly what the foot takes. Its radius is the row's own turn less that
+     thickness, so the two curves run parallel rather than crossing. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .acts {
+    margin: 2px 11px 4px 0;
+    border-radius: max(0px, calc(var(--row-turn, 30px) - var(--foot)));
   }
 
   .row.read {
@@ -1481,6 +2248,22 @@ import { plainPreview, relativeTime } from "../lib/format";
   .row.read:hover,
   .row.read.selected {
     opacity: 0.85;
+  }
+
+  /* The centred card is the one being read: it keeps its weight even when the
+     post is already read, so a comic view of nothing but read posts is not a
+     view of nothing but dim cards. */
+  .cards .row.held {
+    opacity: 1;
+  }
+
+  /* A starred post is marked in the star's own colour. The card's marks all read
+     --accent — the unread rim, the picture's mat, the page pips — so pointing
+     --accent at the star for that row marks it once, in the colour the star
+     button beside it already uses, instead of in the app's accent while the star
+     burns a different one. */
+  .row.starred {
+    --accent: var(--star);
   }
 
   .row:hover {
@@ -1587,9 +2370,14 @@ import { plainPreview, relativeTime } from "../lib/format";
     display: block;
     flex: none;
     align-self: center;
-    width: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    height: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    margin-left: 10px;
+    /* 64, not 48: at the default scale a row is tall enough for the picture to
+       read as the post's face rather than a stamp beside it, and the box no
+       longer leaves a band of empty row above and below it. */
+    width: calc(64px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    height: calc(64px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    /* Close to the row's edge, so the width the pane has is spent on the
+       picture instead of on the gap around it. */
+    margin-left: 6px;
     border-radius: 6px;
     overflow: hidden;
     background: var(--hover);
@@ -1601,7 +2389,7 @@ import { plainPreview, relativeTime } from "../lib/format";
   .thumb.left {
     order: -1;
     margin-left: 0;
-    margin-right: 10px;
+    margin-right: 6px;
   }
 
   .thumb img,
@@ -1659,21 +2447,57 @@ import { plainPreview, relativeTime } from "../lib/format";
     opacity: 1;
   }
 
+  /* Hover keeps the hue it has: a mark that turns white under the pointer stops
+     being the mark. The wash behind it is the feedback. */
   .act:hover {
-    color: var(--text);
     background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
 
-  .act.on {
-    color: var(--star);
+  /* One colour per action, so a row says what its three marks are: the star in
+     gold, the read mark in the theme's trim, the link in its own blue. All three
+     are names rather than colours — `--act-*` resolves to a single quiet ink
+     when the Buttons row is set to Monotone, which is how the row looked before
+     there was a choice. */
+  .act.star {
+    color: var(--act-star);
   }
 
-  .act.on svg {
-    fill: currentColor;
+  .act.mark {
+    color: var(--act-read);
   }
 
+  .act.open {
+    color: var(--act-link);
+  }
+
+  /* The three actions are one object at the row's end, not three glyphs that
+     happen to be near each other.
+
+     It sits 5px inside the row, so the accent trim painted on that edge is
+     outside it rather than sliced through it, and its radius is the row's own
+     turn less that 5px — 25 against 30 — so the two curves run parallel to the
+     end instead of crossing. A dark wash, not a light one: the pill is a recess
+     in the row, and black at a few percent sinks in both themes without a
+     colour of its own. Read rows dim the whole thing, pill included. */
+  .items:not(.compact):not(.cards):not(.grid) .acts {
+    margin: 5px 5px 5px 0;
+    padding: 0 20px 0 14px;
+    /* The row's turn less the 5px the accent takes: the two curves run parallel
+       at any radius, and a squared row takes the radius to nothing. */
+    border-radius: max(0px, calc(var(--row-turn, 30px) - 5px));
+    background: color-mix(in srgb, #000 12%, transparent);
+  }
+
+  /* Read is shown by the mark's own colour, so it needs something else to be a
+     state: a wash of that same colour, quiet enough to read at a glance. */
   .act.mark.on {
-    color: var(--accent);
+    color: var(--act-read);
+    background: color-mix(in srgb, var(--act-read) 22%, transparent);
+  }
+
+  /* A starred post fills the star instead of recolouring it. */
+  .act.star.on svg {
+    fill: currentColor;
   }
 
   /* Thumbs need bigger targets than pointers do. */
@@ -1721,14 +2545,26 @@ import { plainPreview, relativeTime } from "../lib/format";
     }
   }
 
-  /* ---------------------------------------------------------------- list --
-     One line per post: the headline, the feed and the time. No preview, no
-     picture — that is the trade for fitting twice as many on a screen. */
+  /* ----------------------------------------------------------------- tree --
+     The posts filed under their dates: a month, the weeks in it, the days in
+     those, and then the posts — one line each: headline, feed and time. No
+     preview, no picture; that is the trade for fitting twice as many on a
+     screen. */
   .compact .item {
     /* The row's own gutter is small on purpose: a list row is a line of text and
        every pixel of side padding is a pixel of headline lost. The toggles'
-       clearance is made on the other side of the row, not here. */
-    padding: calc(6px * var(--row-scale, 1)) 8px;
+       clearance is made on the other side of the row, not here — but the line
+       starts in from the edge by the tree's own step, three of them, because
+       what it is filed under is a day and a day is two steps in. A post that sat
+       at the edge would hang to the left of every tab above it: the nesting has
+       to get deeper as it opens, never shallower. */
+    padding: calc(6px * var(--row-scale, 1)) 8px calc(6px * var(--row-scale, 1)) calc(3 * var(--tab-step) + 8px);
+  }
+
+  /* A nested list hangs under the feed row that names it, and has no tabs of its
+     own, so it keeps the plain gutter instead of the tree's indent. */
+  .list.nested .items .item {
+    padding-left: 8px;
   }
 
   .compact .body {
@@ -1780,6 +2616,88 @@ import { plainPreview, relativeTime } from "../lib/format";
     height: 16px;
   }
 
+  /* ------------------------------------------------------------- date tabs --
+     A month, the weeks inside it, the days inside those. Each tab is the front
+     of a folder: rounded on top, open at the bottom, and set in further than the
+     one it belongs to, so the nesting is legible before a word is read. */
+  .items {
+    /* The tree's step: month at the edge, week one step in, day two, and the
+       posts under a day one step further than the day they are filed in. One
+       number, so a post can never sit outside a tab it belongs to. */
+    --tab-step: 14px;
+  }
+
+  .items .tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    max-width: calc(100% - var(--depth, 0) * var(--tab-step));
+    /* The step in: a month at the pane's edge, a week one step in, a day two. */
+    margin: calc(5px * var(--row-scale, 1)) 0 0 calc(var(--depth, 0) * var(--tab-step));
+    padding: 2px 9px 3px 5px;
+    border: 1px solid var(--border-soft);
+    /* No bottom edge: the tab is the top of a box, not a chip floating alone. */
+    border-bottom-color: transparent;
+    border-radius: 8px 8px 0 0;
+    background: color-mix(in srgb, var(--accent) calc(4% + var(--depth, 0) * 4%), transparent);
+    color: var(--muted);
+    font: inherit;
+    font-size: calc(11px * var(--row-scale, 1));
+    letter-spacing: 0.015em;
+    cursor: pointer;
+    transition: color 120ms ease, background 120ms ease;
+  }
+
+  .items .tab:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) calc(8% + var(--depth, 0) * 5%), transparent);
+  }
+
+  .items .tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .items .tab .caret {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    /* Open points down at what it holds; shut points at the tab itself. */
+    transform: rotate(90deg);
+    transition: transform 130ms ease;
+  }
+
+  .items .tab.closed .caret {
+    transform: none;
+  }
+
+  .items .tab-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .items .tab-count {
+    flex: none;
+    opacity: 0.5;
+    font-size: calc(10px * var(--row-scale, 1));
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A month is the heading of the list, so it is the one that speaks up. */
+  .items .tab.month {
+    color: var(--text-dim);
+    text-transform: uppercase;
+    font-size: calc(10px * var(--row-scale, 1));
+    letter-spacing: 0.08em;
+  }
+
   /* --------------------------------------------------------------- cards --
      The picture gets the width and the headline sits under it. */
   .cards {
@@ -1814,6 +2732,23 @@ import { plainPreview, relativeTime } from "../lib/format";
      list drops snapping while one is the card in the middle, and takes it back
      when the next one fits. */
   .cards[data-tallcard="true"] {
+    scroll-snap-type: none;
+  }
+
+  /* While a mouse pan is in hand the column follows the pointer exactly:
+     snapping mid-drag pulls the card back out from under the hand, and the drag
+     then has to be long enough to beat the pull instead of just long enough to
+     mean something. The pan's end decides the card — see `onPanUp`. */
+  :global(.drag-panning) .cards {
+    scroll-snap-type: none;
+  }
+
+  /* While the wheel is stepping the thread places the card itself, so the snap
+     engine must not also place it — see `centreCard`. */
+  /* Global because the class is put on the element directly: it has to be in
+     force for the scroll assignment in the same tick, and a state change would
+     not have reached the DOM yet. */
+  :global(.cards.stepping) {
     scroll-snap-type: none;
   }
 
@@ -1883,7 +2818,11 @@ import { plainPreview, relativeTime } from "../lib/format";
     width: 100%;
     container-type: inline-size;
     overflow: hidden;
-    background: var(--bg);
+    /* The air around a picture — the narrow bars either side of a tall page, the
+       strip under a short one — is not empty page, it is the card's mat: a
+       darker wash of the accent, so a comic sits in the card rather than
+       floating on the pane's own background. */
+    background: color-mix(in srgb, var(--accent) 28%, var(--bg));
   }
 
   .cards .lead img {

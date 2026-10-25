@@ -18,6 +18,14 @@ import { dirname, join } from "node:path";
 import {
   LIST_VIEWS,
   LIST_VIEW_DEFAULT,
+  ROW_ENDS,
+  ROW_END_DEFAULT,
+  isRowEnd,
+  FLUSH_THUMB_DEFAULT,
+  ROW_CURVE,
+  CURVE_DEFAULT,
+  CURVE_PILL_WAS,
+  clampCurve,
   LIST_VIEW_LABELS,
   LIST_VIEW_TITLES,
   isListView,
@@ -142,8 +150,8 @@ check(
 
 // The actions block must not sit inside a per-view conditional: one `.acts`
 // for the whole list is the shape that cannot go missing in a new view.
-const acts = list.indexOf('<div class="acts">');
-check("star and read are drawn once, for every shape", acts > 0 && list.indexOf('<div class="acts">', acts + 1) === -1);
+const acts = list.indexOf('<div class="acts" data-no-drag-scroll>');
+check("star and read are drawn once, for every shape", acts > 0 && list.indexOf('<div class="acts" data-no-drag-scroll>', acts + 1) === -1);
 const actsTail = list.slice(acts, list.indexOf("</div>", acts));
 check(
   "the star button is inside that block",
@@ -157,7 +165,9 @@ check(
 // the post. The third is the card pager: flipping a multi-picture card is the
 // one other thing on a row that must not open the article.
 const stops = list.match(/stopPropagation\(\)/g) ?? [];
-check("no control on a row also opens the post", stops.length === 3, String(stops.length));
+// star, read, open at source — and the card pager's flip, which stops a click
+// on a clicker from opening the post.
+check("no control on a row also opens the post", stops.length === 4, String(stops.length));
 check(
   "the handlers are the reader's own writes",
   /void reader\.toggleStar\(item\)/.test(list) && /void reader\.setRead\(item, !isRead\(item\)\)/.test(list),
@@ -299,7 +309,7 @@ check("the container is handed a column count, not a length", masonryTrack(4) ==
 check("columns and their gutter are the same 10px the rows were apart", MASONRY_GAP === 10);
 
 // The controls live in the bar and belong to one view each.
-check("the sizer is in the bar, not a panel", /class="bar"[\s\S]{0,4000}class="sizer"/.test(listSource));
+check("the sizer is in the bar, not a panel", /class="bar"[\s\S]{0,6000}class="sizer"/.test(listSource));
 check(
   "the grid's count is offered only in the grid",
   /\{#if view === "grid"\}[\s\S]{0,1600}type="range"/.test(listSource),
@@ -331,7 +341,11 @@ check("grid tracks take the tile's real height", /\.grid \{[\s\S]{0,1400}?grid-a
 
 check(
   "a list row keeps its side gutter small so the headline gets the width",
-  /\.compact \.item \{[^}]*padding: calc\(6px \* var\(--row-scale, 1\)\) 8px;/.test(listSource),
+  // The gutter on the toggles' side is still small; the headline's side carries
+  // the tree's indent, which is the nesting, not padding for its own sake.
+  /\.compact \.item \{[^}]*padding: calc\(6px \* var\(--row-scale, 1\)\) 8px calc\(6px \* var\(--row-scale, 1\)\) calc\(3 \* var\(--tab-step\) \+ 8px\);/.test(
+    listSource,
+  ),
 );
 
 check(
@@ -366,11 +380,9 @@ check(
 // runs up the right edge, thicker than the hairline, so an unread post is marked
 // on the side you scroll past. Only the rows view gets it; Cards, the one-line
 // list and the grid keep the rim they had.
-// The trim is one element of background layers: a hairline along the bottom, a
-// 2px edge up the right, and both turns filled out to the row's own corner with
-// a quarter-circle cut so the accent finishes in two lit corners. It used to be a
-// border box, which cannot paint past its own radius, so the corner showed the
-// row through it.
+// A regular row ends in a turn rather than a corner, and the unread mark is the
+// accent of that turn: borders on the box the row already is, so there is no
+// region outside the accent left to fill in, and no wedge painted behind it.
 check(
   "an unread row's rim turns the corner into an edge up the right",
   (() => {
@@ -380,31 +392,65 @@ check(
     const body = rule.slice(0, rule.indexOf("\n  }"));
     return (
       /content: "";/.test(body) &&
-      /--trim-r: 13px;/.test(listSource) &&
-      /right \/ 2px 100% no-repeat/.test(body) &&
-      /bottom left \/ 100% 1px no-repeat/.test(body) &&
-      (body.match(/radial-gradient\(/g) || []).length === 2
+      /border-right: 5px solid color-mix\(in srgb, var\(--accent\) 92%, transparent\);/.test(body) &&
+      /border-bottom: 1px solid color-mix\(in srgb, var\(--accent\) 58%, transparent\);/.test(body) &&
+      /border-top: 1px solid color-mix\(in srgb, var\(--accent\) 58%, transparent\);/.test(body) &&
+      /border-radius: 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\) 0;/.test(body)
     );
   })(),
-  "a 2px edge against the 1px hairline, and a filled turn at each end of it",
+  "5px up the edge, a hairline either side, and the row's own turn",
 );
 
 check(
-  "both turns are filled, and the edge between them is quiet",
+  "the end is pulled in from the pane's edge, so the turn is a turn",
   (() => {
     const rule = listSource.slice(
-      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after"),
+      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row {"),
     );
     const body = rule.slice(0, rule.indexOf("\n  }"));
     return (
-      /circle at 0 0,[\s\S]{0,200}?bottom right \/ var\(--trim-r\) var\(--trim-r\)/.test(body) &&
-      /circle at 0 100%,[\s\S]{0,200}?top right \/ var\(--trim-r\) var\(--trim-r\)/.test(body) &&
-      /var\(--accent\) 14%, transparent\) 46%/.test(body) &&
-      /top right \/ 92px 1px no-repeat/.test(body) &&
-      !/border-left|border-inline/.test(body)
+      /margin-right: 9px;/.test(body) &&
+      !/overflow: hidden;/.test(body) &&
+      // Held against the edge the end reads as a cut-off corner, or asks for the
+      // two corners the turn leaves to be filled in — and a filled gap between
+      // two pills reads as a rail down the column rather than as a row ending.
+      !/::before/.test(
+        listSource.slice(
+          listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:not(.read)"),
+          listSource.indexOf(".row.read {"),
+        ),
+      )
     );
   })(),
-  "a solid bottom turn, a quiet top turn with a fading return, and a thread between them",
+  "9px of air at the edge, and no fill between one end and the next",
+);
+
+check(
+  "one post is separated from the next by space, not by a rule",
+  (() => {
+    const rule = listSource.slice(
+      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row {"),
+    );
+    const body = rule.slice(0, rule.indexOf("\n  }"));
+    return /margin-bottom: 4px;/.test(body) && /border-bottom: 0;/.test(body);
+  })(),
+  "4px between rows, and the hairline gone with it",
+);
+
+check(
+  "the end has a shadow of its own, so it reads as something you could press",
+  (() => {
+    const rule = listSource.slice(
+      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row {"),
+    );
+    const body = rule.slice(0, rule.indexOf("\n  }"));
+    // Flat: a shadow dropped to the right, not an inner light or a bevel. The row
+    // stays a 2D shape with a curve; the shadow is the only relief it gets.
+    return (
+      /box-shadow: 3px 2px 7px -4px rgba\(0, 0, 0, 0\.55\);/.test(body) &&
+      !/inset/.test(body)
+    );
+  })(),
 );
 
 check(
@@ -412,6 +458,450 @@ check(
   /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*pointer-events: none;/.test(
     listSource,
   ) && /\.row \{\s*position: relative;/.test(listSource),
+);
+
+
+// Star and read were the only two acts. "Open at source" is the third, and it
+// lives in the one `acts` group every view draws — a card, a regular row, a
+// compact line and a grid tile all get it because none of them own the group.
+check(
+  "a row can be opened at its source, in every view",
+  (() => {
+    const acts = listSource.slice(listSource.indexOf('<div class="acts" data-no-drag-scroll>'));
+    const group = acts.slice(0, acts.indexOf("</div>"));
+    return (
+      /class="act open"/.test(group) &&
+      /aria-label="Open at source"/.test(group) &&
+      /onclick=\{\(event\) => openAtSource\(item, event\)\}/.test(group) &&
+      // No view condition inside the group: whatever the shape, the same acts.
+      !/\{#if view/.test(group)
+    );
+  })(),
+);
+// Three glyphs on every row are the busiest thing in the list, so each one says
+// what it is by colour — and the same three names collapse to one ink when the
+// theme is set to Monotone. A class per act is what lets the stylesheet do that
+// without a second copy of the markup.
+check(
+  "each act wears its own colour, and one setting can take them all away",
+  (() => {
+    const group = listSource.slice(listSource.indexOf('<div class="acts" data-no-drag-scroll>'));
+    const acts = group.slice(0, group.indexOf("</div>"));
+    return (
+      /class="act star"/.test(acts) &&
+      /class="act mark"/.test(acts) &&
+      /class="act open"/.test(acts) &&
+      /\.act\.star \{\s*color: var\(--act-star\);/.test(listSource) &&
+      /\.act\.mark \{\s*color: var\(--act-read\);/.test(listSource) &&
+      /\.act\.open \{\s*color: var\(--act-link\);/.test(listSource)
+    );
+  })(),
+);
+
+check(
+  "it opens the link and nothing else",
+  (() => {
+    const fn = listSource.slice(listSource.indexOf("function openAtSource"));
+    const where = listSource.slice(listSource.indexOf("function sourceUrl"));
+    return (
+      /event\.stopPropagation\(\);/.test(fn) &&
+      /void openExternal\(url\);/.test(fn) &&
+      // and it is only drawn when the feed said where the post lives
+      /\{#if source !== null\}/.test(listSource) &&
+      /const href = item\.alternate\?\.\[0\]\?\.href \?\? item\.canonical\?\.\[0\]\?\.href \?\? null;/.test(where) &&
+      /return isExternalHttp\(href\) \? href : null;/.test(where)
+    );
+  })(),
+);
+check(
+  "a link leaves the app rather than replacing it",
+  (() => {
+    const lib = read("src/lib/open-external.ts");
+    return (
+      /__TAURI_INTERNALS__/.test(lib) &&
+      /plugin-opener/.test(lib) &&
+      /window\.open\(url, "_blank", "noopener,noreferrer"\)/.test(lib) &&
+      // a prompt would be a dialog; this is meant to just go
+      !/confirm\(|prompt\(|alert\(/.test(lib)
+    );
+  })(),
+);
+
+
+// The list view folds its dates into tabs. The rule that matters is that the
+// fold is the list's alone: cards, grid and regular rows are read by shape, and
+// a tab between two cards would cut the page of them in half.
+check(
+  "only the list view folds its dates",
+  (() => {
+    const derive = listSource.slice(listSource.indexOf("const entries = $derived"));
+    return (
+      /view === "list"\s*\? tabbed\(reader\.listItems, closedTabs\)/.test(derive) &&
+      /: reader\.listItems\.map/.test(derive)
+    );
+  })(),
+);
+check(
+  "a tab is a button that opens and shuts",
+  (() => {
+    const tab = listSource.slice(listSource.indexOf('class="tab"'));
+    return (
+      /class:closed=\{entry\.closed\}/.test(tab.slice(0, 400)) &&
+      /aria-expanded=\{!entry\.closed\}/.test(tab.slice(0, 400)) &&
+      /onclick=\{\(\) => toggleTab\(entry\.tab\.key\)\}/.test(tab.slice(0, 400))
+    );
+  })(),
+);
+check(
+  "the tabs step in: month at the edge, week in, day further in",
+  (() => {
+    const css = listSource.slice(listSource.indexOf(".items .tab {"));
+    const rule = css.slice(0, css.indexOf("}"));
+    return (
+      /var\(--depth, 0\) \* var\(--tab-step\)/.test(rule) &&
+      /border-radius: 8px 8px 0 0/.test(rule) &&
+      /border-bottom-color: transparent/.test(rule)
+    );
+  })(),
+);
+check(
+  "a month is the level that speaks up",
+  /class:month=\{entry\.tab\.level === 0\}/.test(listSource) &&
+    /\.items \.tab\.month \{/.test(listSource),
+);
+
+/*
+ * Reading in the column itself.
+ *
+ * The Rows view can hold the article a tap opened, instead of sending it to the
+ * column beside it. Three facts make that a promise rather than a drawing: the
+ * switch exists only for Rows, the choice is remembered, and marking the post
+ * read is what ends the visit — marking it unread is a correction, not a finish.
+ */
+const readingSource = readFileSync(join(root, "src/state/reading.svelte.ts"), "utf8");
+const mainSource = readFileSync(join(root, "src/views/Main.svelte"), "utf8");
+const readerSource = readFileSync(join(root, "src/components/ReaderPane.svelte"), "utf8");
+
+check(
+  "the read-here switch belongs to Rows, and sits beside the four views",
+  (() => {
+    const views = listSource.slice(listSource.indexOf('class="views"'));
+    const group = views.slice(0, views.indexOf("<!-- Sizing lives"));
+    return (
+      // Offered in two plain panes only: three panes have an article column to
+      // open into, and one pane is a walk down its own levels.
+      /\{#if layout\.mode === 2 && !layout\.sidebarCollapsed\}[\s\S]{0,320}?aria-label="Read posts here in the list"/.test(
+        group,
+      ) &&
+      /onclick=\{\(\) => reading\.toggleReadInPane\(\)\}/.test(group) &&
+      /class:on=\{reading\.readInPane\}/.test(group)
+    );
+  })(),
+);
+check(
+  "the choice is remembered, off by default",
+  /readInPane = \$state\(false\)/.test(readingSource) &&
+    /if \(typeof saved\.readInPane === "boolean"\) this\.readInPane = saved\.readInPane;/.test(readingSource) &&
+    /readInPane: this\.readInPane,/.test(readingSource),
+);
+const listViewSource = readFileSync(join(root, "src/components/ArticleList.svelte"), "utf8");
+const inlineSource = readFileSync(join(root, "src/components/InlineArticle.svelte"), "utf8");
+
+check(
+  "the post opens inside its own row, not over the list",
+  /import InlineArticle from "\.\/InlineArticle\.svelte";/.test(listViewSource) &&
+    /\{#if readHere && reader\.selectedId === item\.id\}\s*<!--[\s\S]{0,400}?<InlineArticle \{item\} oncollapse=\{\(\) => reader\.closeReader\(\)\} \/>/.test(
+      listViewSource,
+    ) &&
+    // The row grows a second line and the page fills it: the list around it is
+    // untouched, still scrollable, still the thing the post came out of.
+    /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row\.open \{\s*flex-wrap: wrap;/.test(
+      listViewSource,
+    ) &&
+    // And nothing is drawn on top of the column any more. The one inert box in
+    // the view is the one-column drawer's sheet while it is up, which is not
+    // this: a post read in its row is the list, not over it.
+    !/\.over\b/.test(mainSource) &&
+    (mainSource.match(/inert=/g) ?? []).length === 1 &&
+    /inert=\{drawer && !pulled\}/.test(mainSource),
+);
+check(
+  "the column the selection draws is the list, so the list keeps its place",
+  /if \(readInline && drawn\.article && !drawn\.posts\) \{\s*return \{ \.\.\.drawn, posts: true, article: false \};/.test(
+    mainSource,
+  ) &&
+    /\.slot\.posts > :global\(\*\) \{\s*flex: 1 1 auto;/.test(mainSource),
+);
+check(
+  "the same press folds it away again, and another post still opens",
+  /if \(readHere && reader\.selectedId === item\.id\) \{\s*reader\.closeReader\(\);\s*onOpen\?\.\(\);\s*return;\s*\}\s*reader\.select\(item\);/.test(
+    listViewSource,
+  ),
+);
+check(
+  "the expanded post is the article pane's own pipeline, not a second reader",
+  /chooseBody\(/.test(inlineSource) &&
+    /sanitizeArticle\(/.test(inlineSource) &&
+    /rememberedExtraction\(id\)/.test(inlineSource) &&
+    /prepareImages\(node\)/.test(inlineSource) &&
+    /hardenLinks\(node\)/.test(inlineSource),
+);
+check(
+  "marking read ends the visit; marking unread does not",
+  /if \(isRead\(item\)\) \{\s*reader\.setRead\(item, false\);\s*return;\s*\}/.test(readerSource) &&
+    /reader\.markRead\(item\);\s*onRead\?\.\(\);/.test(readerSource),
+);
+
+/* ---- how a row ends: half a turn, or the pill it used to be ---------------- */
+
+check(
+  "a row's end has two shapes, and both are shapes a row can have",
+  ROW_ENDS.length === 2 && ROW_ENDS.includes("half") && ROW_ENDS.includes("pill") &&
+    isRowEnd("half") && isRowEnd("pill") &&
+    !isRowEnd("full") && !isRowEnd(null) && !isRowEnd(undefined) && !isRowEnd(1),
+);
+check(
+  "the half turn is the shape that is drawn, and the pill is still one press away",
+  ROW_END_DEFAULT === "half" &&
+    /rowsEnd = \$state<RowEnd>\(ROW_END_DEFAULT\)/.test(readingSource) &&
+    /setRowsEnd\(next: RowEnd\)/.test(readingSource) &&
+    /toggleRowsEnd\(\): void \{\s*this\.setRowsEnd\(this\.rowsEnd === "half" \? "pill" : "half"\);/.test(
+      readingSource,
+    ),
+);
+check(
+  "the shape survives a reload",
+  /if \(isRowEnd\(saved\.rowsEnd\)\) this\.rowsEnd = saved\.rowsEnd;/.test(readingSource) &&
+    /rowsEnd: this\.rowsEnd,/.test(readingSource),
+);
+check(
+  "the option is offered where Rows is drawn, and says which shape is showing",
+  /class:on=\{reading\.rowsEnd === "half"\}/.test(listSource) &&
+    /aria-pressed=\{reading\.rowsEnd === "half"\}/.test(listSource) &&
+    /onclick=\{\(\) => reading\.toggleRowsEnd\(\)\}/.test(listSource),
+);
+check(
+  "half a turn is only the bottom, and the foot is as thick as the edge",
+  /\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,400}?--foot: 2px;[\s\S]{0,200}?border-radius: 0 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\);/.test(
+    listSource,
+  ) &&
+    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-radius: 0 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\);[^}]*border-bottom-width: var\(--foot\);[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
+      listSource,
+    ),
+);
+check(
+  "the pill steps in from the foot it would otherwise sit on, by the foot's own thickness",
+  /\.items\.half-end[^{]*\.acts \{\s*margin: 2px 11px 4px 0;\s*border-radius: max\(0px, calc\(var\(--row-turn, 30px\) - var\(--foot\)\)\);/.test(listSource),
+);
+check(
+  "the old shape is untouched: both right-hand corners, one-pixel foot",
+  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,300}?border-radius: 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\) 0;/.test(
+    listSource,
+  ) &&
+    /\.row:not\(\.read\)::after \{[\s\S]{0,1600}?border-right: 5px solid[\s\S]{0,200}?border-bottom: 1px solid/.test(
+      listSource,
+    ),
+);
+check(
+  "the new shape only ever applies to a row, never to cards, the grid or the compact list",
+  (listSource.match(/\.items\.half-end/g) ?? []).length === 9 &&
+    (listSource.match(/\.items\.half-end[^,{]*\{/g) ?? []).every(
+      (rule) =>
+        // One bare block, and it only declares the filled picture's numbers.
+        rule.trim() === ".items.half-end {" || rule.includes(":not(.compact):not(.cards):not(.grid)"),
+    ) &&
+    /class:half-end=\{view === "regular" && reading\.rowsEnd === "half"\}/.test(listSource),
+);
+
+/* The foot matches itself: the left edge is the right edge's weight, the row
+   steps in from the pane's edge on both sides by the same 9px, and the row's
+   content clears the new left edge by the 11px the actions clear the right.
+   The right-hand numbers are asserted above and are not restated here. */
+check(
+  "both ends of the foot are the same: one thickness on three sides, 9px in from the pane, 12px of clearance",
+  /\.items\.half-end[^{]*\.row \{[^}]*margin-left: 9px;/.test(listSource) &&
+    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
+      listSource,
+    ) &&
+    /\.items\.half-end[^{]*\.item \{[^}]*padding: calc\(4px \* var\(--row-scale, 1\)\) 6px calc\(4px \* var\(--row-scale, 1\)\) 12px;/.test(
+      listSource,
+    ) &&
+    // The right side keeps its own 9px: the left is a copy, not a replacement.
+    /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,1600}?margin-right: 9px;/.test(
+      listSource,
+    ),
+);
+
+/* Tighter than the pill's row: the foot makes a slab, and a slab with the pill's
+   air reads as a loose row. The picture grew and everything around it shrank,
+   and its size stays fixed — a picture that stretches sets the row's height. */
+// One picture size in every row, and the footed row differs in where it sits,
+// not in how big it is: a shape with its own size was the only row in the pane
+// that disagreed with the rest. The base is 64 rather than 48 because at the
+// default scale a row is tall enough for the picture to read as the post's face
+// rather than a stamp, with no band of empty row around it.
+check(
+  "every row draws the same picture, and the footed row only places it",
+  /\.thumb \{[^}]*width: calc\(64px \* var\(--row-scale, 1\) \* var\(--thumb-scale, 1\)\);[^}]*height: calc\(64px \* var\(--row-scale, 1\) \* var\(--thumb-scale, 1\)\);[^}]*margin-left: 6px;/.test(
+    listSource,
+  ) &&
+    /\.items\.half-end[^{]*\.thumb \{[^}]*align-self: flex-start;/.test(listSource) &&
+    !/\.items\.half-end[^{]*\.thumb \{[^}]*width:/.test(listSource) &&
+    !/\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.thumb \{[^}]*align-self: stretch;/.test(
+      listSource,
+    ) &&
+    /\.items\.half-end[^{]*\.body \{\s*gap: 2px;/.test(listSource) &&
+    /\.items\.half-end[^{]*\.thumb\.left \{[^}]*margin-right: 4px;/.test(listSource),
+);
+
+/* The tree's shape: the labels name it, and its indent only ever gets deeper as
+   it opens — a month at the pane's edge, a week a step in, a day two, and the
+   posts under a day a step further than the day they are filed in. A post at the
+   edge would hang to the left of every tab above it, which is what it used to do. */
+check(
+  "the one-line view is the tree, and says so",
+  LIST_VIEW_LABELS.list === "Tree" &&
+    /^Tree: the same posts filed under their month, week and day$/.test(LIST_VIEW_TITLES.list),
+);
+
+/* Four views, four words. The row view used to be "Regular", which described it
+   against nothing and sat in front of "rows" as though rows were a kind of
+   regular; it is Rows, beside Tree, Cards and Grid, and the sentence under the
+   pointer is what says what each one is. */
+check(
+  "the four views are one word each, in the same voice",
+  LIST_VIEWS.map((view) => LIST_VIEW_LABELS[view]).join(" ") === "Rows Tree Cards Grid" &&
+    LIST_VIEWS.every((view) => /^[A-Z][a-z]+$/.test(LIST_VIEW_LABELS[view])),
+);
+check(
+  "and each is described in one short line under the pointer, beginning with its name",
+  LIST_VIEWS.every(
+    (view) =>
+      LIST_VIEW_TITLES[view].startsWith(`${LIST_VIEW_LABELS[view]}: `) &&
+      LIST_VIEW_TITLES[view].length <= 64 &&
+      !/[.!]\s*$/.test(LIST_VIEW_TITLES[view]),
+  ),
+);
+check(
+  "the tree indents by one step per level, and the posts a step past the deepest tab",
+  /--tab-step: 14px;/.test(listSource) &&
+    /margin: calc\(5px \* var\(--row-scale, 1\)\) 0 0 calc\(var\(--depth, 0\) \* var\(--tab-step\)\);/.test(
+      listSource,
+    ) &&
+    // Three steps plus the row's own gutter: deeper than the day tab (two steps).
+    /\.compact \.item \{[^}]*padding: calc\(6px \* var\(--row-scale, 1\)\) 8px calc\(6px \* var\(--row-scale, 1\)\) calc\(3 \* var\(--tab-step\) \+ 8px\);/.test(
+      listSource,
+    ),
+);
+check(
+  "a nested list has no tabs of its own, so it keeps the plain gutter",
+  /\.list\.nested \.items \.item \{\s*padding-left: 8px;/.test(listSource),
+);
+
+/* The turn's radius: one slider per shape, from square to a full semicircle,
+   with the numbers the rows had before it was a setting as the defaults. */
+check("the slider runs from square to a full turn", ROW_CURVE.min === 0 && ROW_CURVE.max === 60);
+check("a radius that is not a number falls back to the old one", clampCurve("30") === ROW_CURVE.initial);
+check("a radius is kept inside the range", clampCurve(-10) === 0 && clampCurve(400) === 60);
+check("a radius is a whole number of pixels", clampCurve(27.6) === 28);
+check(
+  "each shape starts at its own default, and the pill is the squarer of the two",
+  CURVE_DEFAULT.pill === 10 && CURVE_DEFAULT.half === 30 && CURVE_DEFAULT.pill < CURVE_DEFAULT.half,
+);
+check(
+  // The number the old default wrote back is not a choice: it follows the new
+  // one on load, while any other saved radius is kept.
+  "a stored pill radius left at the old default moves with it, a chosen one does not",
+  CURVE_PILL_WAS === 24 &&
+    /this\.curvePill = pill === CURVE_PILL_WAS \? CURVE_DEFAULT\.pill : pill;/.test(readingSource),
+);
+
+const curveComponent = read("src/components/RowCurve.svelte");
+check(
+  "the list carries the turn it is drawn with",
+  /const rowTurn = \$derived\(reading\.rowsEnd === "half" \? reading\.curveHalf : reading\.curvePill\);/.test(
+    listSource,
+  ) && /style:--row-turn=\{`\$\{rowTurn\}px`\}/.test(listSource),
+);
+check(
+  "the rows turn by that number, and the action pill keeps its parallel curve",
+  /border-radius: 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\) 0;/.test(listSource) &&
+    /border-radius: 0 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\);/.test(listSource) &&
+    /border-radius: max\(0px, calc\(var\(--row-turn, 30px\) - 5px\)\);/.test(listSource) &&
+    /border-radius: max\(0px, calc\(var\(--row-turn, 30px\) - var\(--foot\)\)\);/.test(listSource),
+);
+check(
+  "the corners have their own button and popup on the list's bar, for the rows view only",
+  /\{#if view === "regular"\}[\s\S]{0,3600}?<RowCurve \/>/.test(listSource) &&
+    /class="corner"/.test(curveComponent) &&
+    /role="dialog" aria-label=\{which\}/.test(curveComponent) &&
+    /reading\.resetCurves\(\)/.test(curveComponent),
+);
+/* One shape is on screen at a time, so one corner is offered. Two sliders meant
+   the one for the shape that was not drawn did nothing at all when dragged — the
+   pill's ends while the rows were turning at the bottom — with nothing on the
+   panel to say why. */
+check(
+  "the corner offered is the drawn shape's own, and only that one",
+  /const footed = \$derived\(reading\.rowsEnd === "half"\);/.test(curveComponent) &&
+    /const which = \$derived\(footed \? "Foot corners" : "Pill ends"\);/.test(curveComponent) &&
+    /const value = \$derived\(footed \? reading\.curveHalf : reading\.curvePill\);/.test(curveComponent) &&
+    // one range, driven by the shape — never the pair it used to draw
+    (curveComponent.match(/<input[\s\S]{0,120}?type="range"/g) ?? []).length === 1 &&
+    /oninput=\{\(event\) =>\s*reading\.setCurve\(footed \? "half" : "pill", Number\(event\.currentTarget\.value\)\)\}/.test(
+      curveComponent,
+    ) &&
+    /role="dialog" aria-label=\{which\}/.test(curveComponent),
+);
+check(
+  "both radii are saved with the rest of the reading preferences",
+  /curvePill: this\.curvePill,/.test(readingSource) &&
+    /curveHalf: this\.curveHalf,/.test(readingSource) &&
+    /const pill = clampCurve\(saved\.curvePill\);/.test(readingSource) &&
+    /this\.curveHalf = clampCurve\(saved\.curveHalf\)/.test(readingSource) &&
+    /if \(which === "pill"\) \{[\s\S]{0,200}?this\.curvePill = value;/.test(readingSource),
+);
+
+/* The picture that fills the row's end instead of sitting inside it. The row
+   clips, the box is the row's height and square, and nothing is inset — so a
+   picture can take the whole end and the row's own shape is what cuts it. Both
+   shapes have an end like that: the footed row and the pill, which is why the
+   option is not tied to either. */
+check("the inset picture is the default, and filling the end is asked for", FLUSH_THUMB_DEFAULT === false);
+check(
+  "the filled picture is the row's end in either shape: flush, square, and clipped by the row",
+  /class:flush-thumb=\{view === "regular" && reading\.flushThumb\}/.test(listSource) &&
+    /\.items\.flush-thumb:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{\s*overflow: hidden;/.test(
+      listSource,
+    ) &&
+    /\.items\.flush-thumb[^{]*\.item \{\s*padding: 0;/.test(listSource) &&
+    /\.items\.flush-thumb[^{]*\.thumb \{[^}]*aspect-ratio: 1;[^}]*align-self: stretch;[^}]*margin: 0;[^}]*border-radius: 0;/.test(
+      listSource,
+    ) &&
+    // Out of the box's measurements, or the picture's own width would decide the end.
+    /\.items\.flush-thumb[^{]*\.thumb img \{\s*position: absolute;\s*inset: 0;/.test(listSource),
+);
+check(
+  "the text keeps the inset the picture no longer takes, in each shape's own numbers",
+  /\.items\.flush-thumb[^{]*\.body \{\s*padding: calc\(var\(--flush-block, 6px\) \* var\(--row-scale, 1\)\) 6px/.test(
+    listSource,
+  ) &&
+    /\.items\.half-end \{[^}]*--flush-block: 4px;[^}]*--flush-text: 12px;/.test(listSource) &&
+    // The footed row's own padding would otherwise win on source order.
+    /\.items\.half-end:not\(\.flush-thumb\):not\(\.compact\)/.test(listSource),
+);
+check(
+  "the toggle is offered wherever Rows is drawn, because both shapes have an end",
+  /\{#if view === "regular"\}[\s\S]{0,900}?aria-label="Picture fills the row's end"[\s\S]{0,400}?onclick=\{\(\) => reading\.toggleFlushThumb\(\)\}/.test(
+    listSource,
+  ) &&
+    !/reading\.rowsEnd === "half"[\s\S]{0,80}?Picture fills/.test(listSource),
+);
+check(
+  "and it is saved with the rows it belongs to",
+  /flushThumb: this\.flushThumb,/.test(readingSource) &&
+    /if \(typeof saved\.flushThumb === "boolean"\) this\.flushThumb = saved\.flushThumb;/.test(readingSource) &&
+    /toggleFlushThumb\(\): void \{\s*this\.flushThumb = !this\.flushThumb;\s*this\.save\(\);/.test(readingSource),
 );
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

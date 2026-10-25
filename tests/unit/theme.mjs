@@ -16,6 +16,9 @@ import { dirname, join } from "node:path";
 import {
   DEFAULT_THEME,
   MARKER_PATH,
+  MAX_BG_BLUR,
+  MAX_BG_DIM,
+  PAGE_COLOURS,
   THEME_KEY,
   isHexColor,
   parseTheme,
@@ -98,11 +101,122 @@ check("accent separators are on unless turned off", () => {
   assert.equal(parseTheme({ accentEdges: false }).accentEdges, false);
   assert.equal(parseTheme({ accentEdges: "no" }).accentEdges, true, "junk keeps the default");
 });
-check("exactly the nine chosen colours are written", Object.keys(vars).length === 9, String(Object.keys(vars).length));
+check("exactly the nine colour variables, the two edges, the three action names and the four background ones are written", Object.keys(vars).length === 18, String(Object.keys(vars).length));
 check("no undefined values", () =>
   Object.entries(vars).every(([name, value]) =>
-    typeof value === "string" && value.length > 0 && (name.startsWith("--edge") || value.startsWith("#")),
+    typeof value === "string" &&
+    value.length > 0 &&
+    (name.startsWith("--edge") ||
+      name.startsWith("--act") ||
+      name === "--bg-image" ||
+      name === "--bg-blur" ||
+      name === "--bg-dim" ||
+      name === "--glass" ||
+      value.startsWith("#")),
   ));
+
+// The three row actions are the one place a theme chooses a colour that is not
+// only decoration: gold for a star, the trim for read, its own blue for a link.
+check("the star has a colour of its own, gold by default", () => {
+  assert.equal(DEFAULT_THEME.star, "#e8b93c");
+  assert.equal(parseTheme({ star: "#ffffff" }).star, "#ffffff");
+  assert.equal(parseTheme({ star: "gold" }).star, DEFAULT_THEME.star);
+});
+check("trim and link are their own colours", vars["--tone-trim"] === DEFAULT_THEME.trim && vars["--tone-link"] === DEFAULT_THEME.link);
+check("the actions are drawn in colour by default", () => {
+  assert.equal(DEFAULT_THEME.monotoneActions, false);
+  assert.equal(vars["--act-star"], DEFAULT_THEME.star);
+  assert.equal(vars["--act-read"], DEFAULT_THEME.trim);
+  assert.equal(vars["--act-link"], DEFAULT_THEME.link);
+});
+check("monotone is one quiet ink for all three", () => {
+  const mono = themeVariables({ ...DEFAULT_THEME, monotoneActions: true });
+  assert.equal(mono["--act-star"], "var(--muted)");
+  assert.equal(mono["--act-read"], "var(--muted)");
+  assert.equal(mono["--act-link"], "var(--muted)");
+});
+check("a stored monotone choice survives, junk does not", () => {
+  assert.equal(parseTheme({ monotoneActions: true }).monotoneActions, true);
+  assert.equal(parseTheme({ monotoneActions: "yes" }).monotoneActions, false);
+  assert.equal(parseTheme({}).trim, DEFAULT_THEME.trim);
+  assert.equal(parseTheme({ trim: "nope" }).trim, DEFAULT_THEME.trim);
+  assert.equal(parseTheme({ link: "#123456" }).link, "#123456");
+});
+
+// The colours are only usable if the panel offers them: trim and link in the
+// swatch list, and one row that turns all three row actions monotone.
+check("the panel lays its colours out two to a line", () => {
+  const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
+  assert.match(panel, /class="swatches"/);
+  assert.match(panel, /gap: 1px 12px/);
+  assert.match(panel, /\.sw code \{\s*display: none;/);
+  // Sections, each with its own rule: the heading carries the word, so the
+  // colours under Lock are called Open and Locked rather than repeating it.
+  assert.match(panel, /label: "Lock"/);
+  assert.match(panel, /\{ key: "lockOpen", label: "Open" \}/);
+  assert.match(panel, /\{ key: "lockClosed", label: "Locked" \}/);
+  assert.match(panel, /\.swgroup \+ \.swgroup \{/);
+});
+
+// The panel is capped by the room the window has, not by a fixed slice of it:
+// a tall window with a short tab should show the tab, not a scrollbar.
+check("the panel scrolls only when the window cannot hold it", () => {
+  const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
+  assert.match(panel, /max-height: calc\(100vh - 68px\);/);
+  assert.ok(!/max-height: min\(72vh/.test(panel), "no fixed slice of the viewport");
+});
+
+check("the panel offers trim, link and the monotone switch", () => {
+  const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
+  assert.match(panel, /key: "trim", label: "Trim"/);
+  assert.match(panel, /key: "star", label: "Star"/);
+  assert.match(panel, /key: "link", label: "Link"/);
+  assert.match(panel, /theme\.set\("monotoneActions", true\)/);
+  assert.match(panel, /theme\.set\("monotoneActions", false\)/);
+});
+
+// The page: a colour the theme chose, or none at all — and "none" has to be
+// representable, because clearing the choice is how dark and light each keep
+// their own page.
+check("the page colour is optional, and cleared means follow the mode", () => {
+  assert.equal(DEFAULT_THEME.bg, null);
+  assert.equal(themeVariables(DEFAULT_THEME)["--bg"], undefined, "no override when unset");
+  const set = themeVariables({ ...DEFAULT_THEME, bg: "#101820" });
+  assert.equal(set["--bg"], "#101820");
+  assert.equal(parseTheme({ bg: "#101820" }).bg, "#101820");
+  assert.equal(parseTheme({ bg: "red" }).bg, null);
+  assert.equal(parseTheme({ bg: 42 }).bg, null);
+  assert.equal(PAGE_COLOURS.dark, "#0c0c0e");
+  assert.equal(PAGE_COLOURS.light, "#fdfdfd");
+});
+
+check("a background picture is a data URL or nothing", () => {
+  const png = "data:image/jpeg;base64,AAAA";
+  assert.equal(themeVariables({ ...DEFAULT_THEME, bgImage: png })["--bg-image"], `url("${png}")`);
+  assert.equal(themeVariables(DEFAULT_THEME)["--bg-image"], "none");
+  assert.equal(parseTheme({ bgImage: png }).bgImage, png);
+  // A path would point at a file that can move, and an http URL would be a
+  // request per launch: neither is a background this app stores.
+  assert.equal(parseTheme({ bgImage: "/home/me/wall.png" }).bgImage, null);
+  assert.equal(parseTheme({ bgImage: "https://example.com/wall.png" }).bgImage, null);
+});
+
+check("blur and dim are clamped to what the controls offer", () => {
+  assert.equal(parseTheme({ bgBlur: 10 }).bgBlur, 10);
+  assert.equal(parseTheme({ bgBlur: 999 }).bgBlur, MAX_BG_BLUR);
+  assert.equal(parseTheme({ bgBlur: -5 }).bgBlur, 0);
+  assert.equal(parseTheme({ bgBlur: "nope" }).bgBlur, 0);
+  assert.equal(parseTheme({ bgDim: 999 }).bgDim, MAX_BG_DIM);
+  assert.equal(themeVariables({ ...DEFAULT_THEME, bgBlur: 8, bgDim: 25 })["--bg-blur"], "8px");
+  assert.equal(themeVariables({ ...DEFAULT_THEME, bgDim: 25 })["--bg-dim"], "0.25");
+});
+
+check("glass thins the panels, solid leaves them whole", () => {
+  assert.equal(themeVariables(DEFAULT_THEME)["--glass"], "100%");
+  assert.equal(themeVariables({ ...DEFAULT_THEME, bgGlass: true })["--glass"], "82%");
+  assert.equal(parseTheme({ bgGlass: true }).bgGlass, true);
+  assert.equal(parseTheme({ bgGlass: "yes" }).bgGlass, false);
+});
 
 check("the words are pinned's", pinWords().add === "Pin" && pinWords().count === "Pinned" && pinWords().remove === "Unpin");
 check("there is no favourites wording left", !/avour/.test(JSON.stringify(pinWords())));

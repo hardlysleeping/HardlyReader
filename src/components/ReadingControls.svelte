@@ -32,11 +32,44 @@
   import { reading } from "../state/reading.svelte";
   import { FLIP_EDGE } from "../lib/reading-layout";
 
+  /**
+   * What the two bar buttons resize: the article's text, or — when no article is
+   * on screen — the list's. One pair of buttons, pointing at the column the
+   * reader is actually looking at. The panel below keeps both sizes named
+   * explicitly, so each can still be set on its own.
+   */
+  let { target = "article", onopen }: { target?: "article" | "list"; onopen?: () => void } = $props();
+
+  const onList = $derived(target === "list");
+  const stepScaleSpec = $derived(onList ? ROW_SCALE : TEXT_SCALE);
+  const stepValue = $derived(onList ? reading.rowScale : reading.textScale);
+  const stepPercentReadout = $derived(scalePercent(stepValue, stepScaleSpec));
+  const stepSmaller = $derived(atScaleLimit(stepValue, -1, stepScaleSpec));
+  const stepBigger = $derived(atScaleLimit(stepValue, 1, stepScaleSpec));
+  const stepWhat = $derived(onList ? "list text" : "text");
+
+  function step(direction: 1 | -1): void {
+    if (onList) reading.stepRowScale(direction);
+    else reading.stepTextScale(direction);
+  }
+
   let open = $state(false);
 
   /** Opened from the compact menu, where the Aa has no room to sit. */
   export function openPanel() {
     open = true;
+    onopen?.();
+  }
+
+  /** Shut from elsewhere: one panel at a time in the bar. */
+  export function closePanel() {
+    open = false;
+  }
+
+  /** The Aa itself: open it, and say so, so the settings panel can stand down. */
+  function toggle(): void {
+    open = !open;
+    if (open) onopen?.();
   }
 
   const textPercent = $derived(scalePercent(reading.textScale, TEXT_SCALE));
@@ -79,6 +112,26 @@
       close();
     }
   }
+
+  let panelEl = $state<HTMLElement | null>(null);
+  let moreEl = $state<HTMLElement | null>(null);
+
+  /**
+   * A press anywhere else in the app closes it, the same as the settings panel:
+   * a popover that stays open over whatever was just pressed is a popover that
+   * took the press. The Aa button itself is exempt, so it still toggles.
+   */
+  $effect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target === null) return;
+      if (panelEl?.contains(target) || moreEl?.contains(target)) return;
+      close();
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  });
 </script>
 
 <svelte:window onkeydown={open ? onkeydown : undefined} />
@@ -87,38 +140,39 @@
   <!-- The two that are pressed repeatedly live on the bar itself. -->
   <button
     class="step small"
-    onclick={() => reading.stepTextScale(-1)}
-    disabled={smallerTextAtLimit}
-    aria-label="Smaller text"
-    title={`Smaller text (${textPercent})`}
+    onclick={() => step(-1)}
+    disabled={stepSmaller}
+    aria-label={`Smaller ${stepWhat}`}
+    title={`Smaller ${stepWhat} (${stepPercentReadout})`}
   >
     <span aria-hidden="true">A<span class="sign">−</span></span>
   </button>
   <button
     class="step big"
-    onclick={() => reading.stepTextScale(1)}
-    disabled={biggerTextAtLimit}
-    aria-label="Bigger text"
-    title={`Bigger text (${textPercent})`}
+    onclick={() => step(1)}
+    disabled={stepBigger}
+    aria-label={`Bigger ${stepWhat}`}
+    title={`Bigger ${stepWhat} (${stepPercentReadout})`}
   >
     <span aria-hidden="true">A<span class="sign">+</span></span>
   </button>
 
   <button
     class="more"
+    bind:this={moreEl}
     class:on={open}
     aria-haspopup="dialog"
     aria-expanded={open}
     aria-label="Reading options"
     title="Reading options"
-    onclick={() => (open = !open)}
+    onclick={toggle}
   >
     <span aria-hidden="true">Aa</span>
   </button>
 </div>
 
 {#if open}
-  <div class="panel" role="dialog" aria-label="Reading options">
+  <div class="panel" role="dialog" aria-label="Reading options" bind:this={panelEl}>
     <div class="row">
       <span class="key" id="text-size-label">Text size</span>
       <div class="stepper" role="group" aria-labelledby="text-size-label">

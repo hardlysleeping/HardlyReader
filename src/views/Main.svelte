@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
 
   import type { Session, UserInfo } from "../api/freshrss";
   import ArticleList from "../components/ArticleList.svelte";
@@ -150,9 +150,43 @@
         : new ResizeObserver(([entry]) => layout.setAvailable(entry.contentRect.width));
     if (panes !== null && observer !== null) observer.observe(panes);
 
+    // The observer is the measurement, and on this platform it is not always the
+    // first to know: a frame that is dragged wider reports the new width to the
+    // window before (or without) the grid's box changing, and a resize that
+    // lands while a press's transition is still drawing used to leave the
+    // columns at an interpolated width. So the window says so itself, the panes
+    // are measured on the next frame as well, and the tracks are drawn without a
+    // transition until the frame has stopped moving.
+    const measure = (): void => {
+      if (panes === null) return;
+      layout.setAvailable(panes.clientWidth);
+      // A press that is waiting on a resize already draws from the width it
+      // asked for (`layout.pressing`), so the frame's own movement is not
+      // what the tracks are made of — and arming `resizing` here would take the
+      // transition off an element in the middle of the press's slide, which
+      // lands the columns at the end value in one frame. That is the press that
+      // snapped instead of sliding, and it only happened when the window
+      // happened to report its new size while the slide was still running.
+      if (!layout.pressing) {
+        resizing = true;
+        if (resizeTimer !== null) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => (resizing = false), RESIZE_SETTLE_MS);
+      }
+      // Once more after layout: WebKit reports a resize before it has finished
+      // laying out, so the width read in the event is sometimes the old one.
+      requestAnimationFrame(() => {
+        if (panes !== null) layout.setAvailable(panes.clientWidth);
+      });
+    };
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+
     window.addEventListener("keydown", onkeydown);
     return () => {
       window.removeEventListener("keydown", onkeydown);
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+      if (resizeTimer !== null) clearTimeout(resizeTimer);
       observer?.disconnect();
       reader.stop();
     };
@@ -218,6 +252,12 @@
         return;
       case "back":
         event.preventDefault();
+        // A drawer is the nearest thing in front of the reader, so it goes first:
+        // one press closes the list, the next leaves the article.
+        if (pulled) {
+          pulled = false;
+          return;
+        }
         // Out of the article. In one column that is the feed list again, with
         // the feed you were reading still open where you left it.
         if (reader.back()) return;
@@ -228,6 +268,11 @@
         layout.collapseOne();
         return;
       case "escape":
+        if (pulled) {
+          event.preventDefault();
+          pulled = false;
+          return;
+        }
         if (reader.menu !== null) {
           event.preventDefault();
           reader.closeCategoryMenu();
@@ -247,7 +292,7 @@
     reader.closeReader();
   }
 
-  /**
+    /**
    * One column is a walk through the same three things the panes show side by
    * side: the feeds, the posts of one feed, and the article. Back therefore
    * steps exactly one of those at a time — article, then posts, then feeds — so
@@ -256,6 +301,7 @@
    * reads as the app losing your place.
    */
   const level = $derived(levelOf(reader.selectedId));
+
 
   /**
    * The panes are one grid, and every mode is a placement in it.
@@ -269,9 +315,7 @@
    * and the slot classes say where, and the ones that are not drawn are hidden
    * rather than removed.
    */
-  const stackDrawn = $derived(
-    layout.stacked && (mode === 3 || (mode === 1 && level === "article")),
-  );
+  const stackDrawn = $derived(layout.stacked && mode === 3);
 
   /**
    * Whether the feeds pane is folded away in the mode being drawn.
@@ -288,15 +332,148 @@
    */
   const folded = $derived(mode >= 2 && layout.sidebarCollapsed);
 
-  const slots = $derived(
-    paneSlots({
+  /**
+   * Reading in the list itself: a post opens out of its own row.
+   *
+   * This is what the Rows view's reading button means, and it is the opposite of
+   * borrowing a column — the frame does not change at all. It is available in
+   * two plain panes, where the sealed column beside the feeds is the only place
+   * a post could otherwise be read; with three panes there is an article column
+   * and the button is not offered.
+   */
+  const readInline = $derived(
+    reading.readInPane && reading.listView === "regular" && mode === 2 && !folded,
+  );
+
+  /**
+   * The post list as a sheet over a post opened in one column.
+   *
+   * One column is the phone, and there the list and the article are two jobs, not
+   * two halves of a screen: the list is for browsing and the article for reading,
+   * and a split gives each of them too little to do either. So in one column the
+   * list is not a pane at all — it is a drawer pulled down over the article from
+   * the top edge, and put back up when a post is chosen, because choosing is the
+   * end of browsing. It used to stack instead, which put a permanent split where
+   * a phone wanted a page.
+   */
+  const drawer = $derived(mode === 1 && level === "article");
+
+  /**
+   * Whether that drawer is down.
+   *
+   * Deliberately not a preference: it is open for the length of one browse, and
+   * a list left hanging over a page the reader has walked away from would be
+   * covering the feed list the next time they arrive.
+   */
+  let pulled = $state(false);
+
+  /**
+   * The drawer's edge, dragged.
+   *
+   * A press slides the sheet and a phone closes one with a thumb, so the same edge
+   * takes a drag as well as a press: the sheet follows the pointer down and back
+   * up, and on release goes to whichever half it is nearest — or the way it was
+   * thrown, because a flick is how a drawer actually gets shut. `dragH` is the
+   * height under the finger; it is null the rest of the time, when the stylesheet
+   * owns the height and the press's own transition.
+   */
+  let dragH = $state<number | null>(null);
+  let dragging = $state(false);
+  let dragFromY = 0;
+  let dragFromH = 0;
+  let dragMaxH = 0;
+  let dragMoved = false;
+  let dragLastY = 0;
+  let dragLastT = 0;
+  let dragSpeed = 0;
+
+  function grabDown(event: PointerEvent): void {
+    const frame = panes;
+    if (frame === null) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    dragFromY = event.clientY;
+    dragLastY = event.clientY;
+    dragLastT = event.timeStamp;
+    dragSpeed = 0;
+    dragMaxH = Math.min(frame.clientHeight * 0.62, 560);
+    dragFromH = postsSlot?.getBoundingClientRect().height ?? 0;
+    dragH = dragFromH;
+    dragging = true;
+    dragMoved = false;
+    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+  }
+
+  function grabMove(event: PointerEvent): void {
+    if (!dragging) return;
+    const dt = event.timeStamp - dragLastT;
+    if (dt > 0) dragSpeed = (event.clientY - dragLastY) / dt;
+    dragLastY = event.clientY;
+    dragLastT = event.timeStamp;
+    if (Math.abs(event.clientY - dragFromY) > 4) dragMoved = true;
+    const next = dragFromH + (event.clientY - dragFromY);
+    dragH = Math.max(0, Math.min(dragMaxH, next));
+  }
+
+  function grabUp(event: PointerEvent): void {
+    if (!dragging) return;
+    dragging = false;
+    (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
+    const height = dragH ?? dragFromH;
+    // Nearest half, unless it was thrown: 0.5px/ms is slower than a flick and
+    // faster than a considered drag, so it only answers a real throw.
+    const thrown = Math.abs(dragSpeed) > 0.5 ? dragSpeed > 0 : null;
+    pulled = thrown === null ? height > dragMaxH * 0.42 : thrown;
+    // One frame with the height still pinned under the finger, then the stylesheet
+    // takes it back: the release slides from where the finger left it rather than
+    // jumping to the nearest end.
+    requestAnimationFrame(() => {
+      if (!dragging) dragH = null;
+    });
+  }
+
+  function grabCancel(): void {
+    if (!dragging) return;
+    dragging = false;
+    dragH = null;
+  }
+
+  $effect(() => {
+    if (!drawer) {
+      pulled = false;
+      dragging = false;
+      dragH = null;
+    }
+  });
+
+  const slots = $derived.by(() => {
+    const drawn = paneSlots({
       mode,
       level,
       stacked: stackDrawn,
       collapsed: folded,
       tuck: layout.stackTuck,
       swapped: layout.stackSwapped,
-    }),
+    });
+    // A post open in its own row is still the posts column: the selection has
+    // put a level on screen, but the page it would have drawn is inside the
+    // list, so the list is what the column shows.
+    if (readInline && drawn.article && !drawn.posts) {
+      return { ...drawn, posts: true, article: false };
+    }
+    // The drawer needs both: the page underneath at its full size, so pulling the
+    // list down covers what is being read instead of reflowing it.
+    if (drawer) return { ...drawn, posts: true, article: true };
+    return drawn;
+  });
+
+  /**
+   * Is there article text on screen for the bar's A− and A+ to resize? An article
+   * column, a page drawn over the list, or the one-pane view showing a post —
+   * anywhere the page is what the reader is looking at. Where it is not — the
+   * list alone, or the folded pair — the buttons resize the list instead.
+   */
+  const articleShown = $derived(
+    Boolean(slots.article) || (readInline && reader.selectedId !== null) || level === "article",
   );
 
   /**
@@ -342,6 +519,23 @@
   );
 
   /**
+   * True while the window itself is being resized.
+   *
+   * A window resize is the one change of the tracks that must never be drawn
+   * over time: the frame is moving under the pointer, the panes are riding the
+   * frame's edge, and a 185ms transition on top of that is a column that arrives
+   * after the window has already stopped moving — pane two left behind the edge
+   * it is supposed to end at. Interrupting that transition mid-flight is also
+   * what leaves WebKit drawing an interpolated track list it never finishes.
+   * The measurement and the class both come from the frame itself, not from a
+   * press, so a press's own slide is untouched.
+   */
+  let resizing = $state(false);
+  let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** How long after the last resize event the frame counts as still moving. */
+  const RESIZE_SETTLE_MS = 140;
+
+  /**
    * True for the moment a press takes to move the columns.
    *
    * Armed by `layout.pressSeq`, which only a press bumps — a window resize, a
@@ -351,6 +545,18 @@
    * resize from feeling rubbery).
    */
   let sliding = $state(false);
+
+  /**
+   * The one timer that turns the slide off.
+   *
+   * Held here rather than returned as this effect's cleanup: the effect re-runs
+   * whenever the slots it reads change, which outlives the press that armed it.
+   * Clearing the timer on that rerun left `sliding` on for good — the tracks
+   * were re-targeted under a live transition and the panes stayed drawn in the
+   * arrangement they were leaving, which is a side-by-side press that looks
+   * stacked.
+   */
+  let slideTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * The panes themselves, so an arriving one can be given its own small bounce.
@@ -366,7 +572,14 @@
   /** The press already drawn, so a non-press change of slots is not animated. */
   let animatedPress = 0;
 
-  $effect(() => {
+  // A pre-effect, not an effect: this must be part of the same flush as the
+  // track list it is arming. An effect runs after the DOM has taken the new
+  // tracks, so the first change of a press was resolved with no transition on
+  // the element — the browser then had to work out where the motion began, and
+  // it began wherever the last frame happened to land. That was the lurch: the
+  // first painted frame of a press was already a quarter of the way across, and
+  // how far in depended on when the press fell inside a frame.
+  $effect.pre(() => {
     // Read so the effect re-arms on every press, and on a change of feel.
     const press = layout.pressSeq;
     const ms = motionMs(layout.motion);
@@ -380,6 +593,15 @@
     if (press === 0) return;
     sliding = ms > 0;
     if (!sliding) return;
+    // A press is the panes moving, and any resize it causes is the frame
+    // following them. Drawing that flat would land the columns in one frame, so
+    // a press takes the class off and leaves the frame's own travel to be drawn
+    // by the tracks it is already heading for.
+    resizing = false;
+    if (resizeTimer !== null) {
+      clearTimeout(resizeTimer);
+      resizeTimer = null;
+    }
     // A pane that was not drawn and now is: it comes in from its own side and
     // settles with a small overshoot. Panes that stay put and panes that leave
     // are untouched — the leaving ones keep their width and are clipped.
@@ -397,8 +619,16 @@
       }));
       element.animate(frames, { duration: ms, easing: "linear", fill: "none" });
     }
-    const timer = setTimeout(() => (sliding = false), ms + 70);
-    return () => clearTimeout(timer);
+    if (slideTimer !== null) clearTimeout(slideTimer);
+    slideTimer = setTimeout(() => {
+      sliding = false;
+      slideTimer = null;
+    }, ms + 70);
+  });
+
+  onDestroy(() => {
+    if (slideTimer !== null) clearTimeout(slideTimer);
+    slideTimer = null;
   });
 
   /**
@@ -528,6 +758,7 @@
     controls={layoutSwitch}
     {onsignout}
     ontogglesidebar={showFeeds}
+    textTarget={articleShown ? "article" : "list"}
   />
 
   <!-- The seam under the bar doubles as the activity light. -->
@@ -591,6 +822,7 @@
     class:tucked={stackDrawn && layout.stackTuck !== null}
     class:folded={mode === 2 && folded}
     class:sliding
+    class:resizing
     bind:this={panes}
     style:grid-template-columns={columns}
     style:grid-template-rows={layout.rows(stackDrawn)}
@@ -632,8 +864,19 @@
       </button>
     </div>
 
-    <div class="slot posts" class:away={!slots.posts} bind:this={postsSlot}>
-      <ArticleList />
+    <!-- The posts column. A post opened here grows out of its own row, so the
+         list is never covered and never inert: there is nothing on top of it. -->
+    <div
+      class="slot posts"
+      class:away={!slots.posts}
+      class:drawer
+      class:pulled={drawer && (pulled || dragging)}
+      inert={drawer && !pulled}
+      style:height={dragH === null ? null : `${dragH}px`}
+      style:transition-duration={dragging ? "0ms" : null}
+      bind:this={postsSlot}
+    >
+      <ArticleList onOpen={() => (pulled = false)} />
     </div>
 
     <div class="slot seam-x gut-posts" class:away={!slots.seamPosts}>
@@ -650,6 +893,45 @@
     <div class="slot seam-y gut-stack" class:away={!slots.seamStack}>
       <PaneGutter axis="y" />
     </div>
+
+    {#if drawer}
+      <!-- The pull hangs from the drawer's bottom edge — the top of the pane
+           while it is up — and is the only thing on the page that is not the
+           page. A press or a swipe on the sheet's edge does the same job as the
+           arrow; the scrim below it means a press anywhere else puts it back. -->
+      <button
+        type="button"
+        class="grab"
+        class:down={pulled || dragging}
+        aria-label={pulled ? "Put the post list back up" : "Pull the post list down"}
+        title={pulled ? "Put the post list back up" : "Pull the post list down"}
+        aria-expanded={pulled}
+        style:top={dragH === null ? null : `${dragH}px`}
+        style:transition-duration={dragging ? "0ms" : null}
+        onpointerdown={grabDown}
+        onpointermove={grabMove}
+        onpointerup={grabUp}
+        onpointercancel={grabCancel}
+        onclick={() => {
+          if (dragMoved) {
+            dragMoved = false;
+            return;
+          }
+          pulled = !pulled;
+        }}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          {#if pulled}
+            <path d="M3.6 9.6 8 5.2l4.4 4.4" />
+          {:else}
+            <path d="M3.6 6.4 8 10.8l4.4-4.4" />
+          {/if}
+        </svg>
+      </button>
+      {#if pulled}
+        <div class="scrim" role="presentation" onclick={() => (pulled = false)}></div>
+      {/if}
+    {/if}
   </div>
 
   {#if menu}
@@ -765,6 +1047,13 @@
       grid-template-columns var(--slide-ms, 0ms) var(--slide-ease, ease),
       grid-template-rows var(--slide-ms, 0ms) var(--slide-ease, ease);
   }
+  /* The frame is being resized: the tracks land where the window is, every
+     tick, with nothing in between. Later in the sheet than `sliding` on
+     purpose — same specificity, so this is what wins while the frame moves. */
+  .panes.resizing {
+    transition: none;
+  }
+
 
   /* While a track moves, its pane's content is laid out at the width it will
      end at — `max(final, the track right now)`:
@@ -818,9 +1107,7 @@
     width: max(var(--t3), 100%);
   }
 
-  .panes.sliding.one .slot.article:not(.away) > :global(*),
-  .panes.sliding.stacked.one .slot.article:not(.away) > :global(*),
-  .panes.sliding.stacked.one .slot.posts:not(.away) > :global(*) {
+  .panes.sliding.one .slot.article:not(.away) > :global(*) {
     width: max(var(--t1), 100%);
   }
 
@@ -867,6 +1154,123 @@
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
+  }
+
+  /* The list fills its pane, and keeps its own box: an opened post grows inside
+     the column rather than over it. */
+  .slot.posts > :global(*) {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  /* One column with a post open: the list is a sheet over the page, pulled down
+     from the top edge and pushed back up. It is not a split — the article keeps
+     its size, its scroll and its place underneath, so browsing the list and
+     reading are one press apart instead of one reflow apart. The slide is the
+     panes' own motion, so reduced motion cuts instead of sliding. */
+  .panes.one .slot.posts.drawer {
+    position: absolute;
+    inset: 0 0 auto 0;
+    /* Its own grid area would place it in the posts' track, which in one column
+       has no width at all: an absolutely positioned grid child is placed in its
+       area, not in the frame. So the area is the whole frame. */
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    z-index: 6;
+    height: 0;
+    overflow: hidden;
+    background: var(--bg);
+    pointer-events: none;
+    visibility: hidden;
+    transition:
+      height var(--slide-ms, 0ms) var(--slide-ease, ease),
+      visibility 0s linear var(--slide-ms, 0ms);
+  }
+
+  .panes.one .slot.posts.drawer.pulled {
+    height: var(--sheet-h);
+    visibility: visible;
+    pointer-events: auto;
+    border-bottom-left-radius: 14px;
+    border-bottom-right-radius: 14px;
+    box-shadow: 0 14px 30px rgb(0 0 0 / 0.42);
+    transition:
+      height var(--slide-ms, 0ms) var(--slide-ease, ease),
+      visibility 0s;
+  }
+
+  /* The pull: a tab on the drawer's edge, the same language as the tab left by a
+     tucked pane, and the one control that is on the page but not of it. */
+  .panes.one .grab {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 9;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 24px;
+    padding: 0;
+    transform: translateX(-50%);
+    border: 1px solid var(--border);
+    border-top: 0;
+    border-radius: 0 0 10px 10px;
+    background: var(--bg-alt);
+    color: var(--muted);
+    box-shadow: 0 4px 10px rgb(0 0 0 / 0.26);
+    cursor: pointer;
+    transition: top var(--slide-ms, 0ms) var(--slide-ease, ease);
+  }
+
+  /* A drag on the edge is the drawer's, not the browser's: without this the touch
+     scrolls the page under the finger and the sheet never moves. */
+  .panes.one .grab {
+    touch-action: none;
+    cursor: grab;
+  }
+
+  .panes.one .grab:active {
+    cursor: grabbing;
+  }
+
+  /* A thumb, not a hairline: the tab is 24px tall because that is what the shape
+     wants, so the target around it is the size a finger actually is. */
+  .panes.one .grab::before {
+    content: "";
+    position: absolute;
+    /* Sideways and down, never up: above the tab is the crumb bar, and a tab that
+       eats presses meant for the trail is a tab in the way. */
+    inset: 0 -10px -12px;
+  }
+
+  .panes.one .grab.down {
+    top: var(--sheet-h);
+    border-bottom: 0;
+  }
+
+  .panes.one .grab:hover,
+  .panes.one .grab:focus-visible {
+    color: var(--text);
+  }
+
+  .panes.one .grab svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* Below the sheet only: the page is visible, dimmed, and a press on it is the
+     press that puts the list back. */
+  .panes.one .scrim {
+    position: absolute;
+    inset: var(--sheet-h) 0 0;
+    z-index: 7;
+    background: rgb(0 0 0 / 0.4);
   }
 
   /* A seam is not a pane: the chip that carries the stack's controls straddles
@@ -924,6 +1328,13 @@
     grid-row: 1 / -1;
   }
 
+  /* How much of the pane the drawer covers. A share of the pane rather than a
+     fixed height, so a phone and a desktop window both get the same proportion
+     of list, capped so a tall window does not hand the list two thirds of it. */
+  .panes.one {
+    --sheet-h: min(62%, 560px);
+  }
+
   /* One column: the surface is the first track, and only the first. With
      "Keep window" it keeps its own width and the rest of the frame is empty —
      pressing 1 changes what is drawn inside the frame, not the frame. */
@@ -973,19 +1384,9 @@
     grid-row: 2 / 3;
   }
 
-  /* The stack on the phone is the same pair in the only column there is. */
-  .panes.stacked.one .slot.posts,
-  .panes.stacked.one .slot.article {
-    grid-column: 1 / -1;
-  }
-
   .panes.stacked .slot.gut-stack {
     grid-column: 3 / -1;
     grid-row: 3 / 4;
-  }
-
-  .panes.stacked.one .slot.gut-stack {
-    grid-column: 1 / -1;
   }
 
   /* A tucked half leaves one pane filling the column, and the seam is drawn over

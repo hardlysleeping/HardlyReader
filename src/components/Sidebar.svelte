@@ -286,6 +286,15 @@
   let swallowClick = false;
   let press: LongPressTracker | null = null;
 
+  /**
+   * The category the last tap in one panel selected.
+   *
+   * One panel has no separate posts column, so a tap on a category cannot mean
+   * "open" and "fold" at once without one of them happening by accident: the
+   * first tap picks the category, the next one on the same category opens it.
+   */
+  let pickedCategory = $state<string | null>(null);
+
   function toggle(id: string) {
     reader.toggleCategory(id);
   }
@@ -300,6 +309,38 @@
       return;
     }
     void open(category.id, category.label);
+  }
+
+  /**
+   * The category's own name, which does two things at once.
+   *
+   * A category is a feed: FreshRSS labels are streams, so the name opens every
+   * post in every feed under it — and it still folds and unfolds the group, which
+   * is what the name did before there was anything else to do with it.
+   *
+   * One panel is the exception, because the list is the screen: the first tap
+   * only selects the category (unfolded, so its feeds are in front of you), and
+   * the second tap on the same, already-selected category is the one that opens
+   * its posts. Below that a tap folds and unfolds as it always did.
+   */
+  function clickCategory(category: CategoryGroup, folded: boolean) {
+    if (categoryDrag.justDropped()) return;
+    if (!inlinePosts) {
+      toggle(category.id);
+      openCategory(category);
+      return;
+    }
+    if (pickedCategory !== category.id) {
+      pickedCategory = category.id;
+      if (folded) toggle(category.id);
+      return;
+    }
+    if (reader.activeStream !== category.id) {
+      if (folded) toggle(category.id);
+      openCategory(category);
+      return;
+    }
+    toggle(category.id);
   }
 
   function openFeed(feed: Subscription) {
@@ -456,6 +497,8 @@
       sectionAttr: "data-cat-section",
       sectionNextAttr: "data-cat-next",
       listName: LIST_CATEGORIES,
+      // The title is the handle, the folder is what is carried.
+      blockAttr: "data-drag-block",
     },
   );
 
@@ -500,13 +543,73 @@
    * when there is a second line in it, and stays one line otherwise.
    */
   let feedBox = $state<HTMLTextAreaElement | null>(null);
+  let feedTree = $state<HTMLElement | null>(null);
+  let starredRow = $state<HTMLButtonElement | null>(null);
   const feedLines = $derived(parseFeedUrls(feedUrl).length);
 
+  /** The field at its floor: one line, nothing in it. */
+  const FEED_BOX_FLOOR = 30;
+
+  /* The box's own metrics, so its height and its line limit come from the same
+     arithmetic instead of from a measurement: Chrome reports a textarea's
+     `scrollHeight` with a line to spare, which makes "does this fit" answer no
+     even for a single line. */
+  const FEED_LINE = 16;
+  const FEED_PAD = 14; // 6px top and bottom, plus the border
+
+  /** Lines in the text as typed, blank ones included: they hold their height. */
+  const feedTextLines = $derived(Math.max(1, feedUrl.split("\n").length));
+
+  function feedBoxHeight(lines: number): number {
+    return FEED_PAD + Math.max(1, lines) * FEED_LINE;
+  }
+
+  /** How many lines the cap will show before the box starts scrolling. */
+  function feedLineLimit(cap: number): number {
+    return Math.max(1, Math.floor((cap - FEED_PAD) / FEED_LINE));
+  }
+
+  /**
+   * The tallest the box may get, measured from the Starred row.
+   *
+   * The tree is the only part of the panel that gives height, so every pixel the
+   * box takes comes off the bottom of the tree — the box grows upward over the
+   * feeds. That growth stops at Starred: the row is the landmark the panel is
+   * read from, and a box that swallowed it would leave nothing to say where the
+   * list went. Measured with the box forced back to its floor, because the room
+   * left at any other height is the room already spent.
+   *
+   * A long paste is not growth: past the cap the box scrolls, so two hundred
+   * pasted feeds are a box and a count, not a wall across the panel.
+   */
+  function feedCap(): number {
+    const box = feedBox;
+    const tree = feedTree;
+    if (box === null || tree === null) return 128;
+
+    const was = box.style.height;
+    const scrolled = box.scrollTop;
+    box.style.height = `${FEED_BOX_FLOOR}px`;
+    const list = tree.getBoundingClientRect();
+    const star = starredRow?.getBoundingClientRect() ?? null;
+    box.style.height = was;
+    box.scrollTop = scrolled;
+
+    // The tree clips from the bottom, so the row that survives longest is the
+    // one nearest its top: the limit is measured as the depth the row sits at,
+    // not the space beneath it. Growth stops while the tree still shows every
+    // row down to Starred.
+    const depth = star === null ? list.height * 0.4 : star.bottom - list.top;
+    const room = Math.max(0, Math.min(list.height - depth - 6, list.height * 0.7));
+    return Math.round(Math.min(FEED_BOX_FLOOR + room, 360));
+  }
+
   function fitFeedBox(): void {
-    if (feedBox === null) return;
-    feedBox.style.height = "auto";
-    const needed = Math.min(feedBox.scrollHeight, 128);
-    feedBox.style.height = `${needed}px`;
+    const box = feedBox;
+    if (box === null) return;
+    const cap = Math.max(FEED_BOX_FLOOR, feedCap());
+    box.style.height = `${Math.min(feedBoxHeight(feedTextLines), cap)}px`;
+    box.style.maxHeight = `${cap}px`;
   }
 
   $effect(() => {
@@ -514,16 +617,40 @@
     fitFeedBox();
   });
 
+  // The cap is the tree's spare height, so it has to be taken again when the
+  // box appears and whenever the panel changes height — a window resize is the
+  // same measurement with a different answer.
+  $effect(() => {
+    if (!adding) return;
+    const fit = () => fitFeedBox();
+    const frame = requestAnimationFrame(fit);
+    window.addEventListener("resize", fit);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", fit);
+    };
+  });
+
   /**
-   * Enter adds when there is one feed in the box, and starts a new line when
-   * there are several — so a list can be typed as well as pasted. Shift+Enter
-   * always opens a line, which is the way in for the first extra feed.
+   * Enter is a new line, always, and Ctrl/Cmd+Enter is the add.
+   *
+   * Enter used to add whenever the box held a single feed, so the box closed
+   * itself the moment one URL went in: the second feed of a list had to wait for
+   * the field to be opened again, which is exactly the chore a pasted list is
+   * meant to save. The box now behaves like the list it is for, and the Add
+   * button carries the count — "Add 4" — so it is clear what a click will do.
    */
   function onFeedKey(event: KeyboardEvent): void {
     if (event.key !== "Enter" || event.isComposing) return;
-    if (event.shiftKey || feedUrl.includes("\n")) return;
-    event.preventDefault();
-    void submitFeed();
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      void submitFeed();
+      return;
+    }
+    // A new line is only worth adding while the box can show it: the box stops
+    // at Starred, and a line past that edge cannot be read back. Pasting is
+    // untouched — a pasted list arrives as a block, and it scrolls.
+    if (feedTextLines >= feedLineLimit(Math.max(FEED_BOX_FLOOR, feedCap()))) event.preventDefault();
   }
 
   async function submitFeed(event?: SubmitEvent) {
@@ -740,6 +867,7 @@
        block stay put below. The list is the only thing with a length. -->
   <div
     class="scroll"
+    bind:this={feedTree}
     use:pullDown={{
       label: "Pull down to check for new posts",
       readyLabel: "Release to check for new posts",
@@ -903,6 +1031,7 @@
     <button
       class="row strong"
       class:active={reader.activeStream === STATE_STARRED}
+      bind:this={starredRow}
       onclick={() => open(STATE_STARRED, "Starred")}
     >
       <span class="label">Starred</span>
@@ -916,11 +1045,12 @@
     {@const folded = reader.isCategoryCollapsed(category.id)}
     <div
       class="section"
+      data-drag-block
       data-cat-section={category.id}
       data-cat-next={reader.categories[index + 1]?.id ?? null}
       data-drop-section={category.label}
     >
-      <div class="group">
+      <div class="group" class:pinned>
         <button
           class="row group-title"
           class:active={reader.activeStream === category.id}
@@ -941,12 +1071,7 @@
           data-drop-head={category.label}
           data-drop-head-prev={reader.categories[index - 1]?.label ?? ""}
           data-drop-head-first={category.feeds[0]?.id ?? ""}
-          onclick={() => {
-            // The drag ends with a click on the row it landed on; without this
-            // every reorder would also fold or unfold the group.
-            if (categoryDrag.justDropped()) return;
-            toggle(category.id);
-          }}
+          onclick={() => clickCategory(category, folded)}
           aria-expanded={!folded}
           aria-label={folded ? `Expand ${category.label}` : `Collapse ${category.label}`}
           onpointerenter={() => reader.prefetchStream(category.id)}
@@ -1079,13 +1204,13 @@
   <div class="add">
     {#if adding}
       <form onsubmit={submitFeed}>
-        <label class="visually-hidden" for="feed-url">Feed URL, one per line</label>
+        <label class="visually-hidden" for="feed-url">Feed URLs, one per line</label>
         <textarea
           id="feed-url"
           class="url"
           class:grow={feedLines > 1}
           rows="1"
-          placeholder="https://example.com/feed.xml"
+          placeholder="One feed per line — ⌘/Ctrl+Enter to add"
           bind:value={feedUrl}
           bind:this={feedBox}
           disabled={reader.feedBusy}
@@ -1232,6 +1357,9 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-bottom: 2px;
+    /* Panned by the app's drag module, so a flick throws here the way it does in
+       the post list. See `lib/drag-scroll.ts`. */
+    touch-action: none;
   }
 
   .section + .section {
@@ -1261,10 +1389,26 @@
     background: var(--hover);
   }
 
+  /* Selected: the accent is the highlight and the hairline around the row, and
+     the words keep the ink every other row uses. Accent text on a 16% wash of
+     the same hue is the accent drawn on its own glow — and at 12.5px in light
+     mode the title was the one thing on the selected row that could not be
+     read. The mark is a border and a fill, never the colour of the letters.
+     `outline` rather than `box-shadow` so a pinned row, which already wears a
+     ring, does not lose it by being selected. */
   .row.active {
     background: var(--accent-soft);
-    color: var(--accent-text);
-    box-shadow: inset 2px 0 0 var(--accent);
+    color: var(--text);
+    outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline-offset: -1px;
+    border-radius: 5px;
+  }
+
+  /* Both marks on one row: the pin's own ring is the stronger claim about what
+     this row is, so it keeps the edge, and the selection keeps the fill. */
+  .row.pinned.active,
+  .feed.pinned.active {
+    outline-color: color-mix(in srgb, var(--tone-pinned) 45%, transparent);
   }
 
   .row.strong .label {
@@ -1294,8 +1438,12 @@
 
   /* Pinned: the title takes the logo's blue, the row keeps a blue outline, a
      soft outer glow and an underlight along the bottom edge. Three quiet cues
-     rather than one loud one, so a pinned row is obvious without shouting. */
-  .group-title.pinned,
+     rather than one loud one, so a pinned row is obvious without shouting.
+     A category's outline is drawn on the group, not on its title: the count is
+     the title's neighbour rather than part of it, and an outline that stops
+     before the number is an outline around the wrong thing. */
+  .group.pinned,
+  .search-title.pinned,
   .feed.pinned {
     outline: 1px solid color-mix(in srgb, var(--tone-pinned) 45%, transparent);
     outline-offset: -1px;
@@ -1306,6 +1454,7 @@
   }
 
   .group-title.pinned .label,
+  .search-title.pinned .label,
   .feed.pinned .label {
     color: color-mix(in srgb, var(--tone-pinned) 70%, var(--text));
   }
@@ -1477,8 +1626,10 @@
     color: var(--text-dim);
   }
 
+  /* Selected, a feed keeps the ink of every other row and is marked by the
+     highlight its title wears — never by turning the letters the accent. */
   .feed.active {
-    color: var(--accent-text);
+    color: var(--text);
   }
 
   .feed.unfolded {
@@ -1842,7 +1993,7 @@
   .url {
     display: block;
     width: 100%;
-    min-height: 28px;
+    min-height: 30px;
     padding: 6px 8px;
     border: 1px solid var(--border);
     border-radius: 7px;
@@ -1856,8 +2007,9 @@
   }
 
   .url.grow {
-    /* A list is being built: give the field a floor before it has scrolled. */
-    min-height: 44px;
+    /* A list is being built: two lines, before the height is set from the
+       line count. */
+    min-height: 46px;
   }
 
   .url:focus-visible {

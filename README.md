@@ -25,6 +25,12 @@ Svelte 5, TypeScript, Tauri 2. Linux desktop today; the same code is the browser
 | ![Large type](docs/screenshots/type-large.png) | ![Reading settings](docs/screenshots/settings-reading.png) |
 | **Type and rows scale** independently, to 150% and 140%. | **Reading controls**: measure, leading, alignment, text advance and automatic read marking. |
 
+**Hidden, then locked, then out of the way.** One loop, start to finish: the hidden categories and their feeds, hiding them, locking them, the lock tucking down to a single pin, the passcode that brings the list back, and the loop starting again.
+
+![Hidden categories: reveal, hide, lock, unlock](docs/screenshots/lock-loop.gif)
+
+The same loop as video, if you want it at full size: [lock-loop.webm](docs/screenshots/lock-loop.webm).
+
 ### Reading
 
 - **Manual or automatic read marking.** Automatic marks a post read after it has been open for the delay you choose; manual leaves it alone until you say so.

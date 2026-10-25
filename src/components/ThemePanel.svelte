@@ -9,7 +9,14 @@
    * hidden, pinned, the two lock states.
    */
   import type { ThemeMode } from "../lib/theme";
-  import { THEME_MODES, THEME_MODE_LABELS } from "../lib/theme";
+  import {
+    MAX_BG_BLUR,
+    MAX_BG_DIM,
+    PAGE_COLOURS,
+    THEME_MODES,
+    THEME_MODE_LABELS,
+  } from "../lib/theme";
+  import { backgroundFromFile } from "../lib/background-image";
   import {
     DWELL_SECONDS_DEFAULT,
     DWELL_SECONDS_HARD_MAX,
@@ -32,25 +39,108 @@
   import { reading } from "../state/reading.svelte";
   import { theme } from "../state/theme.svelte";
   import { layout } from "../state/layout.svelte";
-  import { DEFAULT_WIDTHS, MODE_HYSTERESIS, THRESHOLD_LIMITS } from "../lib/panes";
+  import { lan } from "../state/lan.svelte";
+  import { LAN_LABELS, LAN_PORT_MAX, LAN_PORT_MIN, lanNote } from "../lib/lan";
+  import { openExternal } from "../lib/open-external";
+  import { DEFAULT_WIDTHS, MODE_HYSTERESIS, THRESHOLD_LIMITS, thresholdLimits } from "../lib/panes";
+
+  /** The slider minimums for this device: a phone's are narrower than a desktop's. */
+  const limits = $derived(thresholdLimits(layout.device));
 
   let open = $state(false);
 
-  type TabId = "colours" | "layout" | "reading";
+  /** The bar has one panel open at a time, so it is told when this one opens. */
+  let { onopen }: { onopen?: () => void } = $props();
+
+  /** The Web tab's two verbs: open the address, and copy it for a phone. */
+  let copied = $state(false);
+
+  async function openWeb(): Promise<void> {
+    if (lan.url === null) return;
+    await openExternal(lan.url);
+  }
+
+  async function copyWeb(): Promise<void> {
+    if (lan.url === null) return;
+    try {
+      await navigator.clipboard.writeText(lan.url);
+      copied = true;
+      window.setTimeout(() => (copied = false), 1500);
+    } catch {
+      // A webview with no clipboard permission: the address is on screen to be
+      // read out, which is how it would be typed anyway.
+    }
+  }
+
+  type TabId = "colours" | "layout" | "reading" | "web";
 
   /** Colour first: it is what someone opens this panel for most of the time. */
   const TABS: { id: TabId; label: string }[] = [
     { id: "colours", label: "Colours" },
     { id: "layout", label: "Layout" },
     { id: "reading", label: "Reading" },
+    // The reader is a web app in a window; this is the tab that says so, and the
+    // switch that puts it on the network for a phone.
+    { id: "web", label: "Web" },
   ];
 
   let tab = $state<TabId>("colours");
+
+  // After a window reload the Rust side may still be serving; ask once, on open,
+  // rather than polling a server that is almost always off.
+  let asked = false;
+  $effect(() => {
+    if (!open || asked) return;
+    asked = true;
+    void lan.sync();
+  });
 
   /** Opened from the compact menu, where the gear has no room to sit. */
   export function openSettings() {
     tab = "colours";
     open = true;
+    onopen?.();
+  }
+
+  /** Shut from elsewhere: one panel at a time in the bar. */
+  export function closeSettings() {
+    open = false;
+  }
+
+  let panelEl = $state<HTMLElement | null>(null);
+  let gearEl = $state<HTMLElement | null>(null);
+
+  /**
+   * A press anywhere else in the app closes it.
+   *
+   * The panel is a dialog with no scrim, so before this a tap on the article, on
+   * the list, on a feed — anything — left it open over the thing that was just
+   * pressed. The gear itself is exempt: pressing it is how the panel is meant to
+   * be toggled, and closing on the way to the trigger would make it open twice.
+   */
+  $effect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target === null) return;
+      if (panelEl?.contains(target) || gearEl?.contains(target)) return;
+      open = false;
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") open = false;
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  });
+
+  /** The gear itself: open it, and say so, so the Aa panel can stand down. */
+  function toggleSettings(): void {
+    open = !open;
+    if (open) onopen?.();
   }
 
   /**
@@ -73,28 +163,109 @@
     element?.focus();
   }
 
-  const swatches: {
-    key: "accent" | "hidden" | "pinned" | "lockOpen" | "lockClosed" | "unlock" | "sync";
+  type SwatchKey =
+    | "accent"
+    | "trim"
+    | "hidden"
+    | "pinned"
+    | "lockOpen"
+    | "unlock"
+    | "lockClosed"
+    | "sync"
+    | "star"
+    | "link";
+
+  /**
+   * The colours, in the groups they belong to.
+   *
+   * Ten swatches in one block was a wall of chips with no reading order. Four
+   * headings, each with its own rule, say what the tones are for before the eye
+   * has to work it out — and because the heading says "Lock", the colours under
+   * it do not have to say it again.
+   */
+  /** The colour the page is right now: the theme's, or whichever mode is showing. */
+  function pageColour(): string {
+    if (theme.current.bg !== null) return theme.current.bg;
+    const mode = theme.current.mode;
+    const dark =
+      mode === "dark" ||
+      (mode === "system" &&
+        typeof window !== "undefined" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches);
+    return dark ? PAGE_COLOURS.dark : PAGE_COLOURS.light;
+  }
+
+  /**
+   * A picked file, turned into a stored background.
+   *
+   * The input is cleared first: choosing the same file twice in a row fires no
+   * change event otherwise, and "replace it with the one I already had" is a
+   * thing people do.
+   */
+  async function pickBackground(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = "";
+    if (file === null) return;
+    const url = await backgroundFromFile(file);
+    if (url !== null) theme.set("bgImage", url);
+  }
+
+  const swatchGroups: {
+    id: string;
     label: string;
+    items: { key: SwatchKey; label: string }[];
   }[] = [
-    { key: "accent", label: "Accent" },
-    { key: "hidden", label: "Hidden" },
-    { key: "pinned", label: "Pinned" },
-    { key: "lockOpen", label: "Lock open" },
-    { key: "lockClosed", label: "Lock locked" },
-    { key: "unlock", label: "Unlocked" },
-    { key: "sync", label: "Sync" },
+    {
+      id: "palette",
+      label: "Palette",
+      items: [
+        { key: "accent", label: "Accent" },
+        { key: "trim", label: "Trim" },
+      ],
+    },
+    {
+      id: "lists",
+      label: "Feed lists",
+      items: [
+        { key: "hidden", label: "Hidden" },
+        { key: "pinned", label: "Pinned" },
+      ],
+    },
+    {
+      id: "lock",
+      label: "Lock",
+      items: [
+        { key: "lockOpen", label: "Open" },
+        { key: "lockClosed", label: "Locked" },
+        { key: "unlock", label: "Unlocked" },
+      ],
+    },
+    {
+      id: "controls",
+      label: "Controls",
+      items: [{ key: "sync", label: "Sync" }],
+    },
+    {
+      id: "marks",
+      label: "Row marks",
+      items: [
+        { key: "star", label: "Star" },
+        { key: "link", label: "Link" },
+      ],
+    },
   ];
 </script>
 
 <div class="themebar">
   <button
     class="swatch"
+    bind:this={gearEl}
     aria-haspopup="dialog"
     aria-expanded={open}
     aria-label="Settings"
     title="Settings"
-    onclick={() => (open = !open)}
+    onclick={toggleSettings}
   >
     <svg class="gear" viewBox="0 0 24 24" aria-hidden="true">
       <circle cx="12" cy="12" r="3.1" />
@@ -106,7 +277,7 @@
 </div>
 
 {#if open}
-  <div class="panel" role="dialog" aria-label="Settings">
+  <div class="panel" role="dialog" aria-label="Settings" bind:this={panelEl}>
     <!-- Three sections instead of one long column: colour, the pane widths it
          shares a panel with, and how the reader behaves. -->
     <div class="tabs" role="tablist" aria-label="Settings sections">
@@ -146,20 +317,8 @@
             </button>
           {/each}
         </div>
-      </div>      {#each swatches as swatch (swatch.key)}
-        <label class="row">
-          <span class="key">{swatch.label}</span>
-          <span class="pick">
-            <input
-              type="color"
-              value={theme.current[swatch.key]}
-              aria-label={`${swatch.label} colour`}
-              oninput={(event) => theme.set(swatch.key, event.currentTarget.value)}
-            />
-            <code>{theme.current[swatch.key]}</code>
-          </span>
-        </label>
-      {/each}      <!-- The lines between panes are the one place the accent appears without
+      </div>
+      <!-- The lines between panes are the one place the accent appears without
            being asked: on, they take a quarter of it; off, they are the plain
            border this app used to have. -->
       <div class="row">
@@ -179,6 +338,134 @@
             onclick={() => theme.set("accentEdges", false)}>Plain</button>
         </div>
       </div>
+        <!-- The three row actions: a gold star, the trim for read, the link blue.
+             Monotone is what they were before there were colours at all, kept
+             because three coloured glyphs on every row is a lot of signal. -->
+        <div class="row">
+          <span class="key">Buttons</span>
+          <div class="seg" role="group" aria-label="Row button colours">
+            <button
+              class="segbtn"
+              class:on={!theme.current.monotoneActions}
+              aria-pressed={!theme.current.monotoneActions}
+              title="Star gold, read in the trim, link in its own blue"
+              onclick={() => theme.set("monotoneActions", false)}>Colour</button>
+            <button
+              class="segbtn"
+              class:on={theme.current.monotoneActions}
+              aria-pressed={theme.current.monotoneActions}
+              title="One quiet ink for all three, as they were before"
+              onclick={() => theme.set("monotoneActions", true)}>Monotone</button>
+          </div>
+        </div>
+        <!-- Colours, two to a line, paired by what they answer: accent and trim,
+             then what the app hides and what it keeps, then the lock's states,
+             then the row's marks. Every cell is a label and a swatch — the hex
+             would not fit twice over in 268px, so the value is in the tooltip
+             and the picker itself is the colour. -->
+        <div class="swatches">
+          {#each swatchGroups as group (group.id)}
+            <div class="swgroup">
+              <span class="sglabel">{group.label}</span>
+              {#each group.items as swatch (swatch.key)}
+                <label class="sw" title={`${swatch.label} — ${theme.current[swatch.key].toUpperCase()}`}>
+                  <span class="key">{swatch.label}</span>
+                  <input
+                    type="color"
+                    value={theme.current[swatch.key]}
+                    aria-label={`${swatch.label} colour`}
+                    oninput={(event) => theme.set(swatch.key, event.currentTarget.value)}
+                  />
+                  <code>{theme.current[swatch.key]}</code>
+                </label>
+              {/each}
+            </div>
+          {/each}
+        </div>
+        <!-- The page itself. Everything above is ink and signal; this is what
+             they sit on, and it is the one setting with a picture in it.
+
+             "Default" is not a colour, it is the absence of one: cleared, the
+             page follows the mode, so a light window and a dark window each get
+             their own page without the theme carrying two. -->
+        <div class="swgroup bgsection">
+          <span class="sglabel">Background</span>
+          <div class="row bgrow">
+            <span class="key">Page</span>
+            <span class="pick">
+              <input
+                type="color"
+                value={pageColour()}
+                aria-label="Page colour"
+                oninput={(event) => theme.set("bg", event.currentTarget.value)}
+              />
+              <button
+                class="mini"
+                title="Follow the light or dark page"
+                disabled={theme.current.bg === null}
+                onclick={() => theme.set("bg", null)}>Default</button>
+            </span>
+          </div>
+          <div class="row bgrow">
+            <span class="key">Picture</span>
+            <span class="pick">
+              <label class="mini file">
+                {theme.current.bgImage === null ? "Choose" : "Replace"}
+                <input type="file" accept="image/*" onchange={pickBackground} />
+              </label>
+              <button
+                class="mini"
+                title="Remove the picture"
+                disabled={theme.current.bgImage === null}
+                onclick={() => theme.set("bgImage", null)}>Clear</button>
+            </span>
+          </div>
+          <div class="row slider bgslider">
+            <span class="key">Blur</span>
+            <span class="num"><span class="affix">{theme.current.bgBlur}px</span></span>
+            <input
+              class="range wide"
+              type="range"
+              min="0"
+              max={MAX_BG_BLUR}
+              step="1"
+              value={theme.current.bgBlur}
+              aria-label="Background blur"
+              oninput={(event) => theme.set("bgBlur", Number(event.currentTarget.value))}
+            />
+          </div>
+          <div class="row slider bgslider">
+            <span class="key">Dim</span>
+            <span class="num"><span class="affix">{theme.current.bgDim}%</span></span>
+            <input
+              class="range wide"
+              type="range"
+              min="0"
+              max={MAX_BG_DIM}
+              step="5"
+              value={theme.current.bgDim}
+              aria-label="Dim over the background"
+              oninput={(event) => theme.set("bgDim", Number(event.currentTarget.value))}
+            />
+          </div>
+          <div class="row bgrow">
+            <span class="key">Glass</span>
+            <div class="seg" role="group" aria-label="Panels over the background">
+              <button
+                class="segbtn"
+                class:on={!theme.current.bgGlass}
+                aria-pressed={!theme.current.bgGlass}
+                title="Panels stay solid"
+                onclick={() => theme.set("bgGlass", false)}>Solid</button>
+              <button
+                class="segbtn"
+                class:on={theme.current.bgGlass}
+                aria-pressed={theme.current.bgGlass}
+                title="Let the background through the panels"
+                onclick={() => theme.set("bgGlass", true)}>Glass</button>
+            </div>
+          </div>
+        </div>
         <div class="row end">
           <button class="reset" onclick={() => theme.reset()}>Reset colours</button>
           <button class="done" onclick={() => (open = false)}>Done</button>
@@ -211,7 +498,7 @@
           <input
             class="value"
             type="number"
-            min={THRESHOLD_LIMITS.two.min}
+            min={limits.two.min}
             max={layout.rangeFor("two").max}
             step="10"
             value={layout.thresholds.two}
@@ -231,12 +518,13 @@
         <input
           class="range wide"
           type="range"
-          min={THRESHOLD_LIMITS.two.min}
+          min={limits.two.min}
           max={layout.rangeFor("two").max}
           step="10"
           value={layout.thresholds.two}
           aria-label="Window width at which a second pane appears"
           oninput={(event) => layout.setThreshold("two", Number(event.currentTarget.value))}
+          onchange={() => layout.commitThreshold()}
         />
       </div>
 
@@ -246,7 +534,7 @@
           <input
             class="value"
             type="number"
-            min={THRESHOLD_LIMITS.three.min}
+            min={limits.three.min}
             max={layout.rangeFor("three").max}
             step="10"
             value={layout.thresholds.three}
@@ -266,12 +554,13 @@
         <input
           class="range wide"
           type="range"
-          min={THRESHOLD_LIMITS.three.min}
+          min={limits.three.min}
           max={layout.rangeFor("three").max}
           step="10"
           value={layout.thresholds.three}
           aria-label="Window width at which a third pane appears"
           oninput={(event) => layout.setThreshold("three", Number(event.currentTarget.value))}
+          onchange={() => layout.commitThreshold()}
         />
       </div>
 
@@ -284,7 +573,7 @@
           <input
             class="value"
             type="number"
-            min={THRESHOLD_LIMITS.one.min}
+            min={limits.one.min}
             max={layout.rangeFor("one").max}
             step="10"
             value={layout.thresholds.one}
@@ -304,18 +593,36 @@
         <input
           class="range wide"
           type="range"
-          min={THRESHOLD_LIMITS.one.min}
+          min={limits.one.min}
           max={layout.rangeFor("one").max}
           step="10"
           value={layout.thresholds.one}
           aria-label="Width the one-pane button collapses the window to"
           oninput={(event) => layout.setThreshold("one", Number(event.currentTarget.value))}
+          onchange={() => layout.commitThreshold()}
         />
       </div>
 
-      <!-- Two honest answers to what a press does with the width a pane no longer
-           needs: take it away with the pane, or leave the window as it is and let
-           the posts column take it. -->
+      <!-- The feedback is the layout itself: drag a divider and these two numbers
+           move with the panes; drag a number and that mode's columns resize. The
+           line says where you are so the change is not a mystery. -->
+      <p class="hint">
+        These follow your dividers: two panes need {layout.paneWidthFor(2)}px,
+        three need {layout.paneWidthFor(3)}px. Moving a slider resizes that mode's
+        columns instead. This window is {Math.round(layout.available)}px
+        {#if layout.monitor}of a {layout.monitor}px screen{/if} — showing {layout.mode}
+        {layout.mode === 1 ? "pane" : "panes"}. It changes {MODE_HYSTERESIS}px past
+        these numbers, not on them, so a drag does not flicker. The 1/2/3 buttons
+        {layout.keepWidths ? "resize the window to your columns" : "grow the window to fit your columns"},
+        never past the screen.
+      </p>
+      {/if}
+
+      <!-- One control, two shapes. It edits the answer for the shape the device
+           is in when it is pressed — held upright, or turned sideways — and that
+           shape's answer is remembered, so the same row means the right thing
+           when the phone is the other way round. Outside the gate above because
+           this question belongs to the shape with the least room to spare. -->
       <div class="row">
         <span class="key">On a switch</span>
         <div class="seg" role="group" aria-label="What a layout switch does with the width">
@@ -333,21 +640,11 @@
             onclick={() => layout.setKeepWidths(false)}>Keep window</button>
         </div>
       </div>
-
-      <!-- The feedback is the layout itself: drag a divider and these two numbers
-           move with the panes; drag a number and that mode's columns resize. The
-           line says where you are so the change is not a mystery. -->
       <p class="hint">
-        These follow your dividers: two panes need {layout.paneWidthFor(2)}px,
-        three need {layout.paneWidthFor(3)}px. Moving a slider resizes that mode's
-        columns instead. This window is {Math.round(layout.available)}px
-        {#if layout.monitor}of a {layout.monitor}px screen{/if} — showing {layout.mode}
-        {layout.mode === 1 ? "pane" : "panes"}. It changes {MODE_HYSTERESIS}px past
-        these numbers, not on them, so a drag does not flicker. The 1/2/3 buttons
-        {layout.keepWidths ? "resize the window to your columns" : "grow the window to fit your columns"},
-        never past the screen.
+        Remembered for this way up: {layout.keepWidthsInPortrait ? "keep widths" : "keep window"} held
+        upright, {layout.keepWidthsInLandscape ? "keep widths" : "keep window"} turned sideways. Turn the
+        device and this row shows the other answer.
       </p>
-      {/if}
 
       <!-- How the columns move when a press changes the layout. Outside the
            gate above because a phone changes layout too (the walk, and the
@@ -386,29 +683,41 @@
       <!-- How three panes are *arranged*, which is a different question from how
            wide they are — so this row is outside the pixel sliders above, and
            outside their gate on purpose: a phone has no thresholds, no pane
-           switch and no dividers, but it does draw the stack, and a setting the
-           phone cannot reach is a setting that does not exist there. -->
+           switch and no dividers, but it can be widened into three panes, and a
+           setting the narrow window cannot reach is a setting that does not
+           exist there. One column does not draw the stack — the post list comes
+           down over the page there instead — so this is the three-pane row. -->
       <div class="row">
         <span class="key">Three panes</span>
         <div class="seg" role="group" aria-label="How three panes are arranged">
           <button
             class="segbtn"
-            class:on={!layout.stacked}
-            aria-pressed={!layout.stacked}
-            title="Feeds, posts and article side by side, one column each"
+            class:on={!layout.stackChosen}
+            class:forced={layout.stackForced}
+            aria-pressed={!layout.stackChosen}
+            title={layout.stackForced
+              ? "Side by side is chosen, but this window is not wide enough for three columns — press to widen the window"
+              : "Feeds, posts and article side by side, one column each"}
             onclick={() => layout.setStacked(false)}>Side by side</button>
           <button
             class="segbtn"
-            class:on={layout.stacked}
-            aria-pressed={layout.stacked}
+            class:on={layout.stackChosen}
+            aria-pressed={layout.stackChosen}
             title="Feeds on the left; posts above the article in one right column"
             onclick={() => layout.setStacked(true)}>Stacked</button>
         </div>
       </div>
       <p class="hint">
-        Stacked spends the width once instead of twice, so three panes fit a
-        narrow window: drag the seam between the posts and the article to change
-        the split.
+        {#if layout.stackForced}
+          This window is narrower than three columns need, so three panes are drawn
+          as the stacked pair — turn the device or widen the window and they are
+          columns again. Drag the seam between the posts and the article to change
+          the split.
+        {:else}
+          Stacked spends the width once instead of twice, so three panes fit a
+          narrow window: drag the seam between the posts and the article to change
+          the split.
+        {/if}
       </p>
 
       <!-- How a passcode is entered, not what it is. Off by default because a
@@ -436,7 +745,7 @@
       <button class="done" onclick={() => (open = false)}>Done</button>
         </div>
       </div>
-    {:else}
+    {:else if tab === "reading"}
       <div
         class="tabpanel"
         role="tabpanel"
@@ -591,6 +900,80 @@
       <button class="done" onclick={() => (open = false)}>Done</button>
         </div>
       </div>
+    {:else}
+      <div
+        class="tabpanel"
+        role="tabpanel"
+        id="settings-panel-web"
+        aria-labelledby="settings-tab-web"
+      >
+      <!-- The reader is a web app; the desktop build is that app in a window, and
+           the phone build is the same app in a browser. This tab is the bridge:
+           the address, the switch, and nothing that pretends to be a sync
+           service. The phone keeps its own session and its own cached posts. -->
+      {#if !lan.available}
+        <p class="hint">
+          This is the web version. Open it on a phone at the address of the
+          machine serving it, and add it to the home screen — it runs in the
+          browser there, with its own session.
+        </p>
+      {:else}
+        <div class="row">
+          <span class="key">Share on network</span>
+          <div class="seg" role="group" aria-label="Serve the reader to the network">
+            <button
+              class="segbtn"
+              class:on={lan.url === null}
+              aria-pressed={lan.url === null}
+              title="Nothing is served"
+              disabled={lan.busy}
+              onclick={() => void lan.stop()}>Off</button>
+            <button
+              class="segbtn"
+              class:on={lan.url !== null}
+              aria-pressed={lan.url !== null}
+              title="Serve the reader to anything on this network"
+              disabled={lan.busy}
+              onclick={() => void lan.start()}>On</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="key">Port</span>
+          <span class="num">
+            <input
+              class="value"
+              type="number"
+              min={LAN_PORT_MIN}
+              max={LAN_PORT_MAX}
+              step="1"
+              value={lan.port}
+              aria-label="Port to serve on"
+              onchange={(event) => void lan.setPort(Number(event.currentTarget.value))}
+              onblur={(event) => (event.currentTarget.value = String(lan.port))}
+            />
+          </span>
+        </div>
+        {#if lan.url !== null}
+          <div class="row">
+            <span class="key">Address</span>
+            <span class="pick">
+              <button class="mini" title="Open in the browser" onclick={() => void openWeb()}>Open</button>
+              <button class="mini" title="Copy the address" onclick={() => void copyWeb()}>
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </span>
+          </div>
+          <p class="hint"><code class="lanurl">{lan.url}</code></p>
+        {/if}
+        <p class="hint">{LAN_LABELS[lan.state]} — {lanNote(lan.state)}</p>
+        {#if lan.error !== null}
+          <p class="hint error">{lan.error}</p>
+        {/if}
+      {/if}
+        <div class="row end">
+          <button class="done" onclick={() => (open = false)}>Done</button>
+        </div>
+      </div>
     {/if}
   </div>
 {/if}
@@ -645,11 +1028,11 @@
     right: 12px;
     z-index: 60;
     width: 268px;
-    /* A popup, not a page. Without a ceiling the three tabs add up to more than
-       a short window and the panel takes the whole side of it — the content is
-       not that long, only the scrollbar was. Capped, it scrolls its own short
-       side and the window keeps its own bar. */
-    max-height: min(72vh, 460px);
+    /* A popup, not a page: it is capped by the window, not by a fixed number of
+       pixels. 72vh was a guess that scrolled the colours tab on a tall window
+       with room to spare; the room the window actually has is what it gets, so a
+       tab scrolls only when the window itself is too short to hold it. */
+    max-height: calc(100vh - 68px);
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 10px 12px 12px;
@@ -726,6 +1109,118 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  /* Two to a line. The panel is 268px, so a half cell is a label and a swatch
+     and nothing else — the hex would push the label into an ellipsis on the
+     longer names, and the value is one hover away. */
+  /* A rule above the colours, because the three rows above them are switches and
+     these ten are paint: without the line the grid read as more of the same list
+     and the section had no beginning. */
+  .swatches {
+    margin-top: 5px;
+    padding: 7px 0 4px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .swgroup {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px 12px;
+  }
+
+  /* The group's name, and the reason the colours under it are called Open and
+     Locked rather than Lock open and Lock locked. */
+  .sglabel {
+    grid-column: 1 / -1;
+    padding-bottom: 1px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* A group is a section: a short rule and a breath, so accent and trim do not
+     read as the first two of ten. */
+  /* The background's controls are rows, not swatch cells: they are a colour, a
+     file, two sliders and a switch, and only the first of those is square. */
+  .bgsection {
+    display: block;
+    margin-top: 4px;
+    padding-top: 5px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .bgsection .bgrow {
+    padding: 2px 0;
+  }
+
+  .bgslider {
+    padding: 3px 0;
+  }
+
+  .mini {
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .mini:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  .mini:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  /* The file input is the button: a label with an invisible input over it, so it
+     looks like the Clear beside it and the picker is still the browser's. */
+  .file {
+    position: relative;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .file input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .swgroup + .swgroup {
+    margin-top: 4px;
+    padding-top: 5px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .sw {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-width: 0;
+    padding: 2px 0;
+  }
+
+  /* No hex in the cells: at half width the label and the swatch are the whole
+     cell, and the value is in the tooltip. */
+  .sw code {
+    display: none;
+  }
+
+  .sw .key {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .range {
@@ -889,6 +1384,34 @@
     background: color-mix(in srgb, var(--accent) 20%, transparent);
   }
 
+  /* Chosen, and refused by the window: three columns need a width this window
+     does not have, so the pair is drawn instead. The button still says what was
+     chosen — pressing it again retries the resize — but it no longer looks
+     exactly like the "Stacked" button beside it, which is what made the setting
+     read as broken. Dashed, dimmed, and an exclamation in a ring. */
+  .segbtn.forced {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--text) 30%, transparent);
+    background: none;
+    color: var(--text-dim);
+  }
+
+  .segbtn.forced::after {
+    content: "!";
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    margin-left: 5px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--text) 32%, transparent);
+    color: var(--panel, #111);
+    font-size: 8.5px;
+    font-weight: 700;
+    line-height: 11px;
+    text-align: center;
+    vertical-align: 1px;
+  }
+
   .reset,
   .done {
     padding: 4px 9px;
@@ -910,5 +1433,21 @@
   .done {
     border-color: color-mix(in srgb, var(--accent) 60%, transparent);
     color: var(--accent-text);
+  }
+
+  /* The address is long and gets typed into a phone: it is set as code, on its
+     own line, and it wraps rather than being cut. */
+  .lanurl {
+    display: inline-block;
+    padding: 3px 6px;
+    border: 1px solid var(--border-soft);
+    border-radius: 5px;
+    background: var(--bg);
+    font-size: 11px;
+    word-break: break-all;
+  }
+
+  .hint.error {
+    color: var(--tone-hidden);
   }
 </style>

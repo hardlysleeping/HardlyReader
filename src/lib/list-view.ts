@@ -20,18 +20,22 @@ export type ListView = (typeof LIST_VIEWS)[number];
 export const LIST_VIEW_DEFAULT: ListView = "regular";
 
 export const LIST_VIEW_LABELS: Record<ListView, string> = {
-  regular: "Regular",
-  list: "List",
+  regular: "Rows",
+  list: "Tree",
   cards: "Cards",
   grid: "Grid",
 };
 
-/** Longer wording for the tooltip, so the pill stays short. */
+/**
+ * What each of those four words means, in as few words as it takes — this is the
+ * line under the pointer, not a paragraph, and it is the only place the views
+ * are described at all.
+ */
 export const LIST_VIEW_TITLES: Record<ListView, string> = {
-  regular: "Regular rows: preview, byline and the feed's picture",
-  list: "One line per post: headline, feed and time",
-  cards: "Cards: the picture above the headline, one per row",
-  grid: "Grid: tiles side by side, headline only",
+  regular: "Rows: picture, headline and byline, one post per line",
+  list: "Tree: the same posts filed under their month, week and day",
+  cards: "Cards: each picture above its headline, scrolled sideways",
+  grid: "Grid: pictures as tiles, headline only, many at once",
 };
 
 /**
@@ -47,6 +51,74 @@ export function stepIndex(count: number, at: number, delta: -1 | 1): number | nu
   if (at < 0 || at >= count) return delta === 1 ? 0 : count - 1;
   const next = at + delta;
   return next < 0 || next >= count ? null : next;
+}
+
+/**
+ * How a regular row's end is shaped.
+ *
+ * `pill` is the row as it stood: both corners on its right turn, so the row
+ * stops in a half-pill and the accent runs down the edge and round the two
+ * right-hand turns. `half` turns only the bottom — bottom right, and bottom left
+ * to match it — and thickens the foot to the width of the right edge, so the
+ * accent is one piece along the bottom and round both corners instead of a thick
+ * edge beside a hairline.
+ *
+ * A stored choice rather than a replacement: the old shape is one press away,
+ * so this can be dropped again without the look it replaced being lost.
+ */
+export const ROW_ENDS = ["half", "pill"] as const;
+
+export type RowEnd = (typeof ROW_ENDS)[number];
+
+export const ROW_END_DEFAULT: RowEnd = "half";
+
+export function isRowEnd(value: unknown): value is RowEnd {
+  return typeof value === "string" && (ROW_ENDS as readonly string[]).includes(value);
+}
+
+/* ---------------------------------------------------------------------------
+ * The turn's radius
+ * ------------------------------------------------------------------------- */
+
+/**
+ * How far a row's end is rounded, in pixels.
+ *
+ * Zero is a square corner; thirty is the shape the rows had before this was a
+ * setting; the top of the range is where a short row's end becomes a full
+ * semicircle, so one slider runs from squared to round without leaving the
+ * shape. Two numbers, not one: the pill turns the two right-hand corners and the
+ * foot turns the two bottom ones, and liking a soft pill does not mean wanting
+ * a soft foot.
+ */
+export const ROW_CURVE = { min: 0, max: 60, step: 2, initial: 30 } as const;
+
+/** What each shape starts at: the pill barely turns, the foot turns properly. */
+export const CURVE_DEFAULT: Record<RowEnd, number> = { pill: 10, half: 30 };
+
+/**
+ * The pill's radius as it shipped before it was tightened to 10.
+ *
+ * A stored number equal to this is a value nobody chose — it was written back
+ * by the old default — so `load()` lets it follow the new one. Any other saved
+ * radius is a choice and is kept.
+ */
+export const CURVE_PILL_WAS = 24;
+
+/**
+ * Does the picture in a footed row fill the corner, or sit inside it?
+ *
+ * Filled, it is as tall as the row and the row's own turn cuts its lower-left
+ * corner — the picture is part of the shape rather than a tile beside the text.
+ * Inset, it keeps the smaller square and its own margin, level with the title.
+ * Inset is what a fresh install gets: the filled corner is a shape you ask for,
+ * not one you are given, and the toggle is on the bar of the view it changes.
+ */
+export const FLUSH_THUMB_DEFAULT = false;
+
+/** A stored radius, or the default for a value that is not a number. */
+export function clampCurve(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return ROW_CURVE.initial;
+  return Math.min(ROW_CURVE.max, Math.max(ROW_CURVE.min, Math.round(value)));
 }
 
 export function isListView(value: unknown): value is ListView {

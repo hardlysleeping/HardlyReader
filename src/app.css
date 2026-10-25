@@ -31,14 +31,24 @@
  */
 :root {
   --bg: #fdfdfd;
-  --surface: #f4f4f5;
+  /* The surface is written as a solid colour and then thinned by --glass: 100%
+     is the plain panel, 82% lets a background picture through when the theme
+     asks for glass. One derived value instead of two palettes. */
+  --surface-solid: #f4f4f5;
+  --surface: color-mix(in srgb, var(--surface-solid) var(--glass, 100%), transparent);
   --bg-alt: #f4f4f5;
-  --border: #d8d8dc;
-  --border-soft: #ebebee;
-  --hover: #eeeef0;
-  --text: #1c1c1f;
-  --text-dim: #46464e;
-  --muted: #6b6b74;
+  --border: #d2d2d8;
+  --border-soft: #e8e8ec;
+  /* Hover is the accent, not a slightly darker white: #eeeef0 is a difference of
+     two or three steps from #fdfdfd, which is why a hand moving across a light
+     list could not see what it was on.
+     A third of the accent, not a sixth: at 16% the fill is the page with a faint
+     blue in it, and "which feed am I on" still has no answer. At 34% the row is
+     a colour, and the ink on it is #0a0a0b, so nothing is lost to the tint. */
+  --hover: color-mix(in srgb, var(--accent) 34%, var(--bg));
+  --text: #0a0a0b;
+  --text-dim: #2e2e35;
+  --muted: #55555e;
   --star: #d19a00;
 
   /* Chosen by the theme; these defaults match DEFAULT_THEME. */
@@ -66,11 +76,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     --bg: #17171a;
-    --surface: #1f1f23;
+    --surface-solid: #1f1f23;
     --bg-alt: #1f1f23;
     --border: #33333a;
     --border-soft: #26262b;
-    --hover: #25252b;
+    /* The same accent hover, dimmer: on a dark row a 16% tint is a lamp, and the
+       list already has light in it. */
+    --hover: color-mix(in srgb, var(--accent) 12%, var(--bg));
     --text: #e7e7ea;
     --text-dim: #c2c2cb;
     --muted: #9a9aa4;
@@ -84,11 +96,11 @@
      somewhere to be brighter than, and the borders are lighter than the gaps
      between them so a divider is a line rather than a smudge. */
   --bg: #0c0c0e;
-  --surface: #131316;
+  --surface-solid: #131316;
   --bg-alt: #131316;
   --border: #3a3a44;
   --border-soft: #212128;
-  --hover: #1e1e24;
+  --hover: color-mix(in srgb, var(--accent) 12%, var(--bg));
   --text: #f4f4f7;
   --text-dim: #d2d2da;
   --muted: #9b9ba6;
@@ -100,26 +112,74 @@
    a machine whose OS is dark. */
 :root[data-theme="light"] {
   --bg: #fdfdfd;
-  --surface: #f4f4f5;
+  --surface-solid: #f4f4f5;
   --bg-alt: #f4f4f5;
-  --border: #d8d8dc;
-  --border-soft: #ebebee;
-  --hover: #eeeef0;
-  --text: #1c1c1f;
-  --text-dim: #46464e;
-  --muted: #6b6b74;
+  --border: #d2d2d8;
+  --border-soft: #e8e8ec;
+  /* Hover is the accent, not a slightly darker white: #eeeef0 is a difference of
+     two or three steps from #fdfdfd, which is why a hand moving across a light
+     list could not see what it was on.
+     A third of the accent, not a sixth: at 16% the fill is the page with a faint
+     blue in it, and "which feed am I on" still has no answer. At 34% the row is
+     a colour, and the ink on it is #0a0a0b, so nothing is lost to the tint. */
+  --hover: color-mix(in srgb, var(--accent) 34%, var(--bg));
+  --text: #0a0a0b;
+  --text-dim: #2e2e35;
+  --muted: #55555e;
   --star: #d19a00;
   color-scheme: light;
+}
+
+html {
+  background: var(--bg);
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* A background picture, if the theme has one.
+   -----------------------------------------------------------------------------
+
+   Two layers behind everything: the picture, blurred by --bg-blur; then the page
+   colour as a veil at --bg-dim, so a bright photograph in light mode does not
+   turn the ink grey. Both are fixed — the picture is the window's, not the
+   list's — and neither takes the pointer.
+
+   The picture layer is inset by more than the largest blur: a blurred edge
+   smears inward, and the smear would otherwise show as a vignette on the frame. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+}
+
+body::before {
+  inset: calc(-1 * max(var(--bg-blur, 0px), 0px) - 16px);
+  z-index: -2;
+  background: var(--bg-image, none) center / cover no-repeat;
+  filter: blur(var(--bg-blur, 0px));
+}
+
+body::after {
+  inset: 0;
+  z-index: -1;
+  background: var(--bg);
+  opacity: var(--bg-dim, 0);
+}
+
 html,
 body {
   margin: 0;
   height: 100%;
+  /* A double tap must not zoom the app, and the browser must not inflate text
+     on its own: the reading size is a setting, so what it says is what is drawn.
+     `pan-x pan-y` is everything the app does with a finger — pinch is gone,
+     scrolling and the sideways drags are not. */
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 /* Slim, quiet scrollbars: they appear where there is more content, not as a
@@ -178,7 +238,9 @@ body {
      header moves what does not fit into its menu. A horizontal scrollbar here
      would mean a measurement is wrong, so it is not offered. */
   overflow-x: hidden;
-  background: var(--bg);
+  /* The page colour lives on <html>: body is the layer stack a background
+     picture needs, and a background on body itself would paint over it. */
+  background: transparent;
   color: var(--text);
   font-size: 15px;
   line-height: 1.5;
@@ -236,6 +298,23 @@ html.feed-dragging .feed[data-lifted] {
   opacity: 0.35;
 }
 
+/* A picked-up folder dims whole, and its ghost is the whole folder: the title,
+   the feeds in it and their gaps, clipped to something that still leaves the
+   list visible around it. */
+html.feed-dragging [data-drag-block][data-lifted] {
+  opacity: 0.3;
+}
+
+.feed-ghost.block {
+  display: block;
+  padding: 0;
+  white-space: normal;
+  border: 1px solid var(--edge-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
 html.feed-dragging,
 html.feed-dragging * {
   cursor: grabbing !important;
@@ -250,8 +329,32 @@ html.drag-panning * {
   user-select: none !important;
 }
 
+/* The window is not always the whole screen.
+   -----------------------------------------------------------------------------
+   On Android the window is edge-to-edge (targetSdk 35 and up draw behind the
+   system bars whether the app asks or not), so the header bar went under the
+   clock, the wifi and the battery — the app looked like it started in the
+   middle of the status bar. The insets are the system's own answer: padding
+   here moves every pane below the bar and inside a rounded or notched bezel,
+   and it is 0 on a desktop window, where there is no bar to clear.
+
+   Both are declared once: `--safe-*` so a component that needs to know (the
+   PIN pad's bottom edge, a future full-bleed picture) reads the same numbers
+   rather than repeating `env()`.
+
+   `#app`, not `html`: the page colour and a background picture still fill the
+   bar's strip, so the status bar sits over the app's own background rather than
+   over a band of nothing. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
 #app {
   height: 100%;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
 
 button {

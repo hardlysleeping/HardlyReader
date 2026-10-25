@@ -133,6 +133,17 @@
     else layout.reset(which);
   }
 
+  /**
+   * Put the tucked pane back.
+   *
+   * The tucked side is the argument: a tuck is a toggle, and pressing the side
+   * that is away is what brings it back. Named here rather than inline so the
+   * narrowing is in one place instead of in the template.
+   */
+  function showTucked(): void {
+    if (tuck !== null) layout.tuckStack(tuck);
+  }
+
   const label = $derived(
     vertical
       ? `Resize the ${topName} and the ${bottomName}`
@@ -200,6 +211,7 @@
          tuck the top pane, tuck the bottom one. Both tucks are toggles, so the
          way back is the control that hid the pane — which is why the seam stays
          here, over the pane that stayed, when one of them is away. -->
+    {#if tuck === null}
     <div class="ctl-bar" role="group" aria-label="Stacked panes">
       <button
         type="button"
@@ -245,6 +257,7 @@
         </svg>
       </button>
     </div>
+    {/if}
   {/if}
 
   {#if fold}
@@ -266,6 +279,34 @@
     </div>
   {/if}
 </div>
+
+{#if vertical && tuck !== null}
+  <!-- The way back, drawn over the column rather than over its split: a tab on the
+       edge that pane comes back from, the way a drawer is pulled back. It is a
+       sibling of the seam so it can be anchored to the pane it sits on — inside
+       the seam it would hang from the split, which is where the old pill was. -->
+  <div
+    class="restore-bar"
+    class:from-bottom={tuck === "bottom"}
+    role="group"
+    aria-label="Stacked panes"
+  >
+    <button
+      type="button"
+      aria-label={`Show the ${tuckedName}`}
+      title={`Show the ${tuckedName}`}
+      onclick={showTucked}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        {#if tuck === "top"}
+          <path d="M3.6 6.4 8 10.8l4.4-4.4" />
+        {:else}
+          <path d="M3.6 9.6 8 5.2l4.4 4.4" />
+        {/if}
+      </svg>
+    </button>
+  </div>
+{/if}
 
 <style>
   /* The seam is the grid child now, and the whole of it is the drag surface:
@@ -411,6 +452,70 @@
   .ctl-bar button:disabled {
     opacity: 0.3;
     cursor: default;
+  }
+
+  /* The way back when a stacked pane is away: a tab on the edge the pane comes
+     back from, hanging off the frame like a drawer's pull. It sits on the edge
+     rather than in the middle of the column, because the middle is where the
+     reading is — and it is a target of its own, so finding it does not depend on
+     already knowing it is there. The bar passes pointer events through, so the
+     seam it sits on is still a seam and still drags. */
+  .restore-bar {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 4;
+    display: flex;
+    pointer-events: none;
+  }
+
+  .restore-bar.from-bottom {
+    top: auto;
+    bottom: 0;
+  }
+
+  .restore-bar button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--edge-soft));
+    border-top: 0;
+    border-radius: 0 0 10px 10px;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    color: var(--text);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background-color 0.12s ease;
+  }
+
+  .restore-bar.from-bottom button {
+    border-top: 1px solid color-mix(in srgb, var(--accent) 55%, var(--edge-soft));
+    border-bottom: 0;
+    border-radius: 10px 10px 0 0;
+  }
+
+  .restore-bar button:hover {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+
+  .restore-bar button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .restore-bar button svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   /* The fold's chip, at the middle of the feeds seam: a narrow pill with the

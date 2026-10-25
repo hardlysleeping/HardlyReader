@@ -28,6 +28,7 @@ import {
   type StackSide,
   type StackTuck,
   clampThresholds,
+  columnsFit,
   clampWidths,
   defaultModeFor,
   effectiveMode,
@@ -51,7 +52,7 @@ import {
   thresholdsFor,
   widthFor,
 } from "../lib/panes";
-import { fitWindowTo, screenWidth } from "../lib/window-fit";
+import { canFitWindow, fitWindowTo, screenWidth } from "../lib/window-fit";
 
 const STORAGE_KEY = "hardlyreader.layout.v1";
 
@@ -87,6 +88,8 @@ interface SavedLayout {
   collapsed?: boolean;
   /** Whether a mode press keeps pane widths or shares the window. */
   keepWidths?: boolean;
+  /** The upright answer; absent in a save from before the two were split. */
+  keepWidthsPortrait?: boolean;
   /**
    * The frame "Keep window" last had, so the toggle can put it back.
    *
@@ -166,6 +169,8 @@ class LayoutState {
   panes = $state<PaneLayout>({ ...DEFAULT_LAYOUT });
   /** Width of the pane container, in CSS pixels. */
   available = $state(1440);
+  /** Height of the window, in CSS pixels: what makes a frame portrait. */
+  height = $state(900);
   /**
    * The width at which a second and a third pane appear. Device-local, like the
    * pane widths themselves: "wide enough for three" on a 27" screen is not wide
@@ -198,7 +203,54 @@ class LayoutState {
    * posts column takes the difference, which is what two panes sharing a wide
    * window looks like. Both are honest; they are just different answers.
    */
-  keepWidths = $state(true);
+  /**
+   * "Keep widths" for each frame shape, kept apart on purpose.
+   *
+   * A portrait frame and a landscape one are two different questions about the
+   * same window: a phone held upright has no width beside it to give a pane, so
+   * it ships keeping the window and sharing what it has, while the same phone
+   * turned sideways ships keeping its columns. They are separate settings rather
+   * than one rule with an exception, so a reader can have both, either or
+   * neither, and turning the device does not rewrite the other answer.
+   */
+  private keepWidthsUpright = $state(false);
+  private keepWidthsSideways = $state(true);
+
+  /** Whether the frame follows the panes that are left, in the shape it is in. */
+  get keepWidths(): boolean {
+    return this.portrait ? this.keepWidthsUpright : this.keepWidthsSideways;
+  }
+
+  /** The upright answer, for the panel to draw. */
+  get keepWidthsInPortrait(): boolean {
+    return this.keepWidthsUpright;
+  }
+
+  /** The sideways answer, for the panel to draw. */
+  get keepWidthsInLandscape(): boolean {
+    return this.keepWidthsSideways;
+  }
+
+  /**
+   * Whether the device is standing upright.
+   *
+   * Asked of the screen, not of the window: a window is resized by the app
+   * itself, so judging its shape would let "Keep widths" pressing the frame
+   * narrower change which setting is in force — a setting that moves the
+   * goalposts it is measured against. A phone or tablet turned upright reports
+   * a taller screen, a monitor reports a wider one, and rotating the device
+   * swaps the two. The window's own shape is only the fallback where no screen
+   * size is available.
+   */
+  private get portrait(): boolean {
+    const screen = typeof window === "undefined" ? null : (window.screen ?? null);
+    const width = screen?.width;
+    const height = screen?.height;
+    if (typeof width === "number" && typeof height === "number" && width > 0 && height > 0) {
+      return height > width;
+    }
+    return this.height > this.available;
+  }
 
   /**
    * The frame "Keep window" last had, remembered across a toggle.
@@ -232,14 +284,46 @@ class LayoutState {
   pressSeq = $state(0);
 
   /**
-   * Draw three panes as posts above the article instead of beside it.
+   * Whether three panes are drawn as posts above the article instead of beside
+   * it — the *choice*, not the answer.
    *
    * A different arrangement of the same mode, not a fourth one: the mode press,
    * the widths and `keepWidths` keep their meaning, and only the grid and the
    * width three panes need change. Saved with the rest of the layout, so the
    * shape you left is the shape you come back to.
    */
-  stacked = $state(false);
+  private stackChoice = $state(false);
+
+  /**
+   * The arrangement actually drawn.
+   *
+   * The stored choice, or the only honest one: three columns need the three-pane
+   * floor, and below it three panes are a pair. That is what makes pressing 3 in
+   * a portrait window mean something — the arrangement changes, the press is
+   * answered, and no pane is pretending to be a third column 190px wide. The
+   * panel still shows (and edits) the choice, and says when the window is the
+   * thing that decided.
+   */
+  get stacked(): boolean {
+    return this.stackChoice || !columnsFit(this.available, this.device);
+  }
+
+  /** Whether the window is too narrow for three columns, so the pair is forced. */
+  get stackForced(): boolean {
+    return !this.stackChoice && this.stacked;
+  }
+
+  /**
+   * What the setting says, as opposed to what is drawn.
+   *
+   * The panel edits and reports the choice: a window that forces the pair must
+   * not also flip the switch, or the setting would read as "stacked" on a screen
+   * where the user never asked for it — and pressing "Side by side" there would
+   * look like a dead button. The row says the window decided instead.
+   */
+  get stackChosen(): boolean {
+    return this.stackChoice;
+  }
 
   /**
    * How much of the stacked right column is the post list.
@@ -324,6 +408,16 @@ class LayoutState {
   private pressTarget: number | null = null;
 
   /**
+   * Whether a press is still waiting for the window to reach the width it asked
+   * for. While this is true the frame's own reported width is not what the
+   * tracks are made of, so a resize tick is not a reason to draw the columns
+   * flat — see the resize observer in `Main.svelte`.
+   */
+  get pressing(): boolean {
+    return this.pressTarget !== null;
+  }
+
+  /**
    * The width to draw at: the width a press asked for, until the window agrees.
    *
    * `available` is what the frame measures right now — the truth, but a truth
@@ -351,7 +445,9 @@ class LayoutState {
     // only the mode's floor can refuse — testing the tuned sums demoted three
     // panes in a window that has room for three, which is what made the third
     // pane pop out and the window grow instead.
-    const limits = this.keepWidths ? this.thresholds : floorThresholds(this.device);
+    const limits = this.keepWidths
+      ? this.thresholds
+      : floorThresholds(this.device, this.stacked);
     this.mode = effectiveMode(
       this.desired,
       this.drawn,
@@ -359,12 +455,14 @@ class LayoutState {
       limits,
       banded ? this.mode : undefined,
     );
-    // A tuck belongs to a stacked pair that is actually on screen — the
-    // three-pane column, or the one-pane walking surface that draws the same
-    // pair on a phone. Anywhere else (side by side, or the stack switched off)
+    // A tuck belongs to a stacked pair that is actually on screen: the three-pane
+    // column. Anywhere else (side by side, one column, or the stack switched off)
     // it is a hidden pane with nothing left to explain why, so the pane comes
-    // back rather than waiting to surprise the next visit.
-    if (this.stackTuck !== null && (!this.stacked || this.mode === 2)) this.stackTuck = null;
+    // back rather than waiting to surprise the next visit. One column used to
+    // draw the same pair on a phone; it draws a drawer over the page now, and a
+    // tuck left over from three panes would hang a tab over a pane that is not
+    // tucked at all.
+    if (this.stackTuck !== null && (!this.stacked || this.mode !== 3)) this.stackTuck = null;
   }
 
   /**
@@ -476,9 +574,15 @@ class LayoutState {
       limit,
       this.keepWidths,
     );
-    if (target === null) {
+    if (target === null || !canFitWindow()) {
       // Nothing to resize to, so nothing to hold — and a hold left over from an
       // earlier press would otherwise draw a frame this press never asked for.
+      // A shell that cannot resize is the same case as one already the right
+      // size, and it is the common one on a phone or in a browser tab: holding
+      // the asked-for width there drew the slide's first frames at a geometry
+      // the frame never had (a strip of nothing where the extra width was), and
+      // then the refusal re-settled the columns underneath the animation. One
+      // geometry, one slide.
       this.pressTarget = null;
       this.settle(false);
       return false;
@@ -721,17 +825,45 @@ class LayoutState {
    * written down, and `keepWindowWidth` is what the toggle comes back to.
    */
   setKeepWidths(value: boolean): void {
-    if (this.keepWidths === value) return;
+    this.setKeepWidthsFor(this.portrait ? "portrait" : "landscape", value);
+  }
+
+  /**
+   * Sets one frame shape's answer.
+   *
+   * The shape on screen settles at once; the other is only written down, because
+   * a frame that is not on screen has nothing to move — its geometry is applied
+   * the first time the window is that shape again.
+   */
+  setKeepWidthsFor(frame: "portrait" | "landscape", value: boolean): void {
+    const current = frame === (this.portrait ? "portrait" : "landscape");
+    if (frame === "portrait") {
+      if (this.keepWidthsUpright === value) return;
+    } else if (this.keepWidthsSideways === value) {
+      return;
+    }
+
     // Leaving "Keep window": the frame it is in is the one to come back to.
     // Written before the flag flips, because the flag is what decides which
     // width the panes are drawn at from here.
     // A frame that has not been measured yet is not a frame to come back to.
-    if (value && this.available > 0) this.keepWindowWidth = Math.round(this.available);
-    this.keepWidths = value;
+    if (value && current && this.available > 0) {
+      this.keepWindowWidth = Math.round(this.available);
+    }
+    if (frame === "portrait") this.keepWidthsUpright = value;
+    else this.keepWidthsSideways = value;
+
+    if (!current) {
+      this.save();
+      return;
+    }
     // The frame being entered, through the same queue, the same press and the
     // same grace window a mode button uses: this names what it wants, so the
     // band must not hold the mode it is leaving.
-    const target = this.sizingFrame(value);
+    // Same rule as a mode press: a shell that cannot resize never holds a width
+    // it will not reach, or the toggle's own slide would be drawn at a geometry
+    // the frame does not have and then corrected under it.
+    const target = canFitWindow() ? this.sizingFrame(value) : null;
     this.pressTarget = target;
     if (target !== null) {
       this.pressUntil = Date.now() + PRESS_GRACE_MS;
@@ -814,12 +946,63 @@ class LayoutState {
    * that now fits is simply drawn.
    */
   setStacked(on: boolean): void {
-    if (this.stacked === on) return;
-    this.stacked = on;
+    if (this.stackChoice === on) return;
+    this.stackChoice = on;
     this.syncThresholds();
     this.settle(false);
+    // Choosing columns is a request for a window that can hold them. Keeping the
+    // widths, the frame follows the panes, so a window too narrow for three
+    // columns grows to them instead of landing on a pair — or on the stack that
+    // was just turned off, which is what made the button look dead.
+    if (!on) void this.fitWindowForMode(3);
     this.press();
     this.save();
+  }
+
+  /**
+   * A slider was let go.
+   *
+   * Keeping the widths, the frame follows the panes, so a number the window
+   * cannot show yet is a request to widen it — without this the right half of
+   * every slider was a value the window never honoured, and the number sprang
+   * back to what fitted: a slider that looks dead. It only ever grows here.
+   * Dragging fires per pixel and is left alone; a window resized on every tick
+   * is a stutter, not a slide.
+   */
+  commitThreshold(): void {
+    if (!canFitWindow()) return;
+    const target = fitTarget(this.mode, this.available, this.device, this.thresholds, this.monitor, this.keepWidths);
+    if (target === null || target <= this.available) return;
+    void this.fitWindowForMode(this.mode);
+  }
+
+  /**
+   * Asks the window for the width a mode's own panes need.
+   *
+   * Shared by the mode buttons and the arrangement button, so "three columns,
+   * please" means the same thing however it was asked for. A shell that cannot
+   * resize, or a mode that already has its width, settles where it is.
+   */
+  private async fitWindowForMode(mode: PaneMode): Promise<boolean> {
+    void this.loadMonitor();
+    const target = fitTarget(mode, this.available, this.device, this.thresholds, this.monitor, this.keepWidths);
+    if (target === null || !canFitWindow()) {
+      this.pressTarget = null;
+      this.settle(false);
+      return false;
+    }
+    this.pressUntil = Date.now() + PRESS_GRACE_MS;
+    this.pressTarget = target;
+    this.holdFor(target);
+    const ask = this.resizing.then(() => fitWindowTo(target));
+    this.resizing = ask.catch(() => false);
+    void ask.then(
+      (ok) => {
+        if (!ok) this.release(target);
+      },
+      () => this.release(target),
+    );
+    return ask;
   }
 
   /**
@@ -889,6 +1072,7 @@ class LayoutState {
     const size = windowSize();
     this.device = detectDevice();
     this.available = size.width;
+    this.height = size.height;
     this.thresholds = { ...THRESHOLDS[this.device] };
     // Reduced motion picks the starting feel, not the available ones: a press
     // that moves no pixels is the honest default for someone who asked the
@@ -924,7 +1108,13 @@ class LayoutState {
         this.chosen = saved.chosen === true;
       }
       if (typeof saved.collapsed === "boolean") this.sidebarCollapsed = saved.collapsed;
-      if (typeof saved.keepWidths === "boolean") this.keepWidths = saved.keepWidths;
+      // One answer used to serve every frame. It becomes the landscape answer,
+      // which is the shape it was chosen in; upright starts at its own default
+      // unless this build has already stored one.
+      if (typeof saved.keepWidths === "boolean") this.keepWidthsSideways = saved.keepWidths;
+      if (typeof saved.keepWidthsPortrait === "boolean") {
+        this.keepWidthsUpright = saved.keepWidthsPortrait;
+      }
       // The frame the other sizing mode had. Read, clamped, and deliberately not
       // acted on: the window at launch is the OS's to size, so this is only used
       // when the toggle is used — including after a relaunch.
@@ -937,7 +1127,7 @@ class LayoutState {
       if (isPaneMotion(saved.motion)) this.motion = saved.motion;
       // A save from before the stack existed simply loads side by side, which is
       // what it was looking at.
-      this.stacked = saved.stacked === true;
+      this.stackChoice = saved.stacked === true;
       // Saved with the rest of the arrangement: an order the user picked is a
       // preference, so it comes back with the layout. Only an explicit `true`
       // swaps — an older save, or anything malformed, is the shipped order.
@@ -994,6 +1184,10 @@ class LayoutState {
   setMode(mode: PaneMode): void {
     this.desired = mode;
     this.chosen = true;
+    // Mode is where the stack lives, so a tuck made in three panes is asked
+    // about here rather than at the next measurement: a tab offering to bring
+    // back a pane that is not tucked is a control that does nothing.
+    if (mode !== 3 && this.stackTuck !== null) this.stackTuck = null;
     // Asked for, so answered at once: the band is for accidents, not for a
     // press that named the mode it wanted.
     this.settle(false);
@@ -1007,7 +1201,19 @@ class LayoutState {
   /** Called from a ResizeObserver on the pane container, and on rotation. */
   setAvailable(px: number): void {
     if (!Number.isFinite(px) || px <= 0) return;
+    // A measurement that repeats the last one has nothing to answer. This runs
+    // from a ResizeObserver, from `window.resize` and from `visualViewport`,
+    // and on Android those fire in bursts — during a zoom, a keyboard, or the
+    // system hiding its own bars — so the same width arrived dozens of times per
+    // second and each one re-settled the mode and wrote the layout. Skipping the
+    // identical ones is not an optimisation of the arithmetic; it is the
+    // difference between one answer and a main thread that never gets a frame.
+    const sameWidth = px === this.available;
+    const height = windowSize().height;
+    const sameHeight = height === this.height;
     this.available = px;
+    this.height = height;
+    if (sameWidth && sameHeight && this.pressTarget === null) return;
     // The window has arrived, or given up: either way the measurement is the
     // truth again from here, so a resize the user makes is followed at once
     // instead of being held at the width of a press that is over.
@@ -1113,10 +1319,11 @@ class LayoutState {
           thresholds: { one: this.thresholds.one },
           chosen: this.chosen,
           collapsed: this.sidebarCollapsed,
-          keepWidths: this.keepWidths,
+          keepWidths: this.keepWidthsSideways,
+          keepWidthsPortrait: this.keepWidthsUpright,
           keepWindowWidth: this.keepWindowWidth,
           motion: this.motion,
-          stacked: this.stacked,
+          stacked: this.stackChoice,
           stackSwapped: this.stackSwapped,
           stackShare: this.stackShare,
         }),

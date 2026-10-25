@@ -25,7 +25,22 @@
    * the one-column layout, where the band — and its lock — is not on screen
    * while you are reading.
    */
-  let { onClose, onLock }: { onClose?: () => void; onLock?: () => void } = $props();
+  let {
+    onClose,
+    onLock,
+    onRead,
+  }: {
+    onClose?: () => void;
+    onLock?: () => void;
+    /**
+     * Called when this pane marks the post read.
+     *
+     * The posts column draws the article over its own list when reading there,
+     * so marking it read is the end of the visit and the list comes back.
+     * Marking *unread* does not: that is a correction, not a finish.
+     */
+    onRead?: () => void;
+  } = $props();
 
   /** Locking needs something to lock with; without a passcode, say so instead. */
   const canLock = $derived(reader.hiddenAvailable && reader.hiddenHasPasscode && !reader.hiddenLocked);
@@ -135,6 +150,7 @@
     if (!el) return;
     const end = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
     reader.setArticleScroll(el.scrollTop <= 2, end);
+    reader.rememberScroll("article", el.scrollTop);
     // Leaving the bottom gives the pull back: it is a gesture, not a latch.
     if (!end) pull = 0;
   }
@@ -198,14 +214,41 @@
   // A new article opens at the edge you arrived from: its top when moving
   // forwards, its end when scrolling up into it, so the reading direction never
   // reverses underneath you. Neither the scroll flags nor a part-finished pull
-  // carry over.
+  // carry over. A launch resumes the line that was being read instead.
+  //
+  // The open post is remembered here so that clearing the resume hint — which is
+  // itself reactive — does not read as a new post and snap the pane to an edge.
+  let openedPost: string | null = null;
+
   $effect(() => {
     const id = reader.selectedId;
+    const resume = reader.articleScrollRestore;
     if (id === null) return;
-    const edge = reader.landingEdge;
-    resetPull();
     const el = scroller;
     if (!el) return;
+    if (resume !== null) {
+      openedPost = id;
+      reader.clearScrollRestore("article");
+      resetPull();
+      // The body is laid out over the next frames — pictures especially — so the
+      // offset is re-applied until it sticks, and given up if the post changes.
+      // A timer rather than a frame: a window that is not on screen still
+      // resumes, which is the case this is here for.
+      el.scrollTop = resume;
+      const deadline = performance.now() + 2500;
+      const put = (): void => {
+        if (reader.selectedId !== id) return;
+        el.scrollTop = resume;
+        if (Math.abs(el.scrollTop - resume) <= 1) return;
+        if (performance.now() < deadline) setTimeout(put, 60);
+      };
+      setTimeout(put, 60);
+      return;
+    }
+    if (openedPost === id) return;
+    openedPost = id;
+    const edge = reader.landingEdge;
+    resetPull();
     el.scrollTop = edge === "bottom" ? el.scrollHeight : 0;
     reader.setArticleScroll(el.scrollTop <= 2, el.scrollHeight <= el.clientHeight + 2);
   });
@@ -463,7 +506,14 @@
         class="icon"
         aria-label={isRead(item) ? "Mark unread" : "Mark read"}
         title={isRead(item) ? "Mark unread" : "Mark read"}
-        onclick={() => (isRead(item) ? reader.setRead(item, false) : reader.markRead(item))}
+        onclick={() => {
+          if (isRead(item)) {
+            reader.setRead(item, false);
+            return;
+          }
+          reader.markRead(item);
+          onRead?.();
+        }}
       >{isRead(item) ? "◯" : "●"}</button>
       {#if link && canExtract(link)}
         <!-- Experimental: one article, fetched on demand. Sat next to "open
@@ -693,6 +743,9 @@
     --gutter: clamp(16px, 5vw, 48px);
     flex: 1;
     overflow-y: auto;
+    /* The article is panned by the app's drag module like the lists: the browser
+       would take the pointer on the first move and then stop dead on release. */
+    touch-action: none;
     padding-block: 22px 64px;
     max-width: none;
     width: 100%;

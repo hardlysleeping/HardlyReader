@@ -210,6 +210,9 @@ function method(source, name) {
     /\.panes\.two \.slot\.posts,\s*\.panes\.two \.slot\.article \{\s*grid-column: 3 \/ 4;\s*\}/.test(main),
   );
   check(
+    // The seam is its own slot, drawn when the slot map says so — and away while
+    // the posts column is reading in place, because the page it would split from
+    // is over the list rather than beside it.
     "and the seam between them is their own slot",
     /class="slot seam-x gut-posts" class:away=\{!slots\.seamPosts\}/.test(main),
   );
@@ -259,7 +262,9 @@ function method(source, name) {
   check(
     "the stacked pair keeps its own three controls, untouched by the fold",
     (gutter.match(/class="ctl-bar"/g) ?? []).length === 1 &&
-      (gutter.match(/layout\.tuckStack\(/g) ?? []).length === 2 &&
+      // Two tuck buttons while both panes are there, and one more press — the
+      // labelled way back — for when one of them is not.
+      (gutter.match(/layout\.tuckStack\(/g) ?? []).length === 3 &&
       (gutter.match(/layout\.toggleStackSwap\(\)/g) ?? []).length === 1,
   );
   check(

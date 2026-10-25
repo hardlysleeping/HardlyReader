@@ -437,23 +437,50 @@ check(
 );
 
 check(
-  "the card being read is the one in the middle of the pane",
+  "the card being read is the one nearest the middle of the pane",
   /function currentCard\(\): HTMLElement \| null/.test(read("src/components/ArticleList.svelte")) &&
     /const middle = el\.getBoundingClientRect\(\)\.top \+ el\.clientHeight \/ 2;/.test(read("src/components/ArticleList.svelte")) &&
-    /getBoundingClientRect\(\)\.bottom > middle/.test(read("src/components/ArticleList.svelte")),
+    /Math\.abs\(box\.top \+ box\.height \/ 2 - middle\)/.test(read("src/components/ArticleList.svelte")) &&
+    // The first-bottom-past-the-middle rule names the card below when the middle
+    // falls in the gap between two cards, which steps two along instead of one.
+    !/bottom > middle/.test(read("src/components/ArticleList.svelte")),
 );
 
 check(
   "a step centres the card, so its neighbours peek above and below",
   /function centreCard\(card: HTMLElement\): void/.test(read("src/components/ArticleList.svelte")) &&
-    /el\.scrollTop \+= offset - \(el\.clientHeight - box\.height\) \/ 2;/.test(read("src/components/ArticleList.svelte")) &&
-    /centreCard\(target\);/.test(read("src/components/ArticleList.svelte")),
+    /const place = box\.top - port\.top \+ el\.scrollTop;/.test(read("src/components/ArticleList.svelte")) &&
+    /landOn\(target\);/.test(read("src/components/ArticleList.svelte")),
+);
+
+check(
+  "the landing is a position, not a nudge the webview can add to",
+  // `scrollTop +=` inherits any scroll the webview ran on its own account — the
+  // native wheel it may still apply, or a snap it decided on — so the step landed
+  // a card further on, in whichever direction the wheel went. The position is
+  // written as an absolute place in the column instead.
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    return (
+      !/el\.scrollTop \+=/.test(src) &&
+      /const place = box\.top - port\.top \+ el\.scrollTop;/.test(src) &&
+      /place - \(el\.clientHeight - box\.height\) \/ 2;/.test(src) &&
+      /function landOn\(card: HTMLElement\): void \{\s*centreCard\(card\);/.test(src)
+    );
+  })(),
+);
+check(
+  "the column is released from snapping while the thread places a card",
+  /:global\(\.cards\.stepping\) \{\s*scroll-snap-type: none;/.test(
+      read("src/components/ArticleList.svelte"),
+    ) &&
+    /el\.classList\.add\("stepping"\)/.test(read("src/components/ArticleList.svelte")),
 );
 
 check(
   "a step moves the list without opening the post",
   /function stepCard\(direction: 1 \| -1\): void/.test(read("src/components/ArticleList.svelte")) &&
-    /centreCard\(target\);/.test(read("src/components/ArticleList.svelte")) &&
+    /landOn\(target\);/.test(read("src/components/ArticleList.svelte")) &&
     /data-id=\{item\.id\}/.test(read("src/components/ArticleList.svelte")) &&
     !/stepCard[\s\S]{0,600}?reader\.select\(/.test(read("src/components/ArticleList.svelte")),
 );
@@ -563,8 +590,146 @@ check(
     const fn = src.slice(src.indexOf("function onListWheel"));
     const stop = fn.indexOf("event.preventDefault()");
     const settle = fn.indexOf("if (performance.now() < listSettleUntil)");
-    const holds = /if \(performance\.now\(\) < listSettleUntil\) \{[\s\S]{0,240}?listSettleUntil = performance\.now\(\) \+ SETTLE_MS;/.test(fn);
-    return stop > 0 && settle > stop && holds;
+    const branch = fn.slice(settle, fn.indexOf("listPull = accumulate", settle));
+    // The stop comes before the settle check, so the tail of a gesture cannot
+    // scroll the list natively under the step. The window is a fixed interval
+    // though: extending it on every arriving delta meant a hand that keeps
+    // scrolling never goes quiet, and scrolling without moving the mouse did
+    // nothing at all.
+    return stop > 0 && settle > stop && !/listSettleUntil =/.test(branch);
+  })(),
+);
+
+// A mouse drag on the cards is a move, not a scroll that happens to stop
+// somewhere: the hand drags the column, and the release lands on the card the
+// drag crossed. Snapping has to stay off for the length of the pan, or the snap
+// engine pulls the column back to where it started and the drag does nothing —
+// which is what made it feel like it only worked now and then.
+check(
+  "a drag on the cards lands on a card",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const fn = src.slice(src.indexOf("function onPanUp"));
+    return (
+      /const PAN_STEP = 24;/.test(src) &&
+      /if \(view !== "cards" \|\| event\.pointerType !== "mouse"\) return;/.test(src) &&
+      /if \(Math\.abs\(moved\) < PAN_STEP\) \{\s*landOn\(from\);/.test(fn) &&
+      /const crossed = Math\.max\(1, Math\.round\(Math\.abs\(moved\) \/ Math\.max\(1, stride\)\)\);/.test(fn) &&
+      /landOn\(target\);/.test(fn)
+    );
+  })(),
+);
+check(
+  "the cards do not snap while a drag has hold of them",
+  /:global\(\.drag-panning\) \.cards \{\s*scroll-snap-type: none;/.test(read("src/components/ArticleList.svelte")),
+);
+
+
+// Read posts are dimmed at 0.48 in every view. In a comic view of a back
+// catalogue that is every card, so the card the pane is holding keeps its
+// weight and the dimming around it says which card is being read.
+check(
+  "the centred card is not dimmed for being read",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const readRule = src.indexOf(".row.read:hover,\n  .row.read.selected");
+    const heldRule = src.indexOf(".cards .row.held {\n    opacity: 1;");
+    return (
+      /class:held=\{heldId === item\.id\}/.test(src) &&
+      /const next = card\?\.dataset\.id \?\? null;/.test(src) && /heldId = next;/.test(src) &&
+      /let heldId = \$state<string \| null>\(null\);/.test(src) &&
+      readRule > 0 &&
+      heldRule > readRule
+    );
+  })(),
+);
+
+
+// A starred post was marked in the app's accent while the star beside it burned
+// gold. The card's marks all read --accent, so the row points --accent at the
+// star and every mark on that card agrees with its star.
+check(
+  "a starred card is marked in the star's colour",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    return (
+      /class:starred=\{isStarred\(item\)\}/.test(src) &&
+      /\.row\.starred \{\s*\n\s*--accent: var\(--star\);/.test(src) &&
+      // declared after the read/held rules, so a starred card keeps the star's
+      // colour rather than whichever rule happened to come last
+      src.indexOf(".row.starred {") > src.indexOf(".cards .row.held {")
+    );
+  })(),
+);
+
+
+// Fitting the window to the comic is a toggle in the cards view only, and the
+// arithmetic that keeps it honest: the feeds pane's width is subtracted and
+// never asked for, the picture's own pixels are a ceiling, and the monitor's
+// room is the other.
+check(
+  "fit to comic: cards only, own width kept out of it, screen a ceiling",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const fn = src.slice(src.indexOf("async function fitToComic"));
+    return (
+      /\{#if canFitWindow\(\)\}\s*<button\s*class="sizebtn fit"/.test(src) &&
+      /import \{ canFitWindow, fitWindowTo, screenSize \} from "\.\.\/lib\/window-fit";/.test(src) &&
+      /onclick=\{toggleFitComic\}/.test(src) &&
+      /const pane1 = feeds \? Math\.round\(feeds\.getBoundingClientRect\(\)\.width\) : 0;/.test(fn) &&
+      // The room the page needs, capped by its own pixels and the monitor; the
+      // pane only ever grows to it unless the reader is the one resizing.
+      /const room = Math\.min\(availH \* natural, img\.naturalWidth, availW\);/.test(fn) &&
+      /Math\.min\(shrink \? room : Math\.max\(pane2, room\), availW\)/.test(fn) &&
+      /async function fitToComic\(shrink = false\): Promise<void>/.test(fn) &&
+      /await fitWindowTo\(pane1 \+ rest \+ paneNext, height\);/.test(fn) &&
+      /if \(!fitComic \|\| fitting \|\| view !== "cards"\) return;/.test(fn)
+    );
+  })(),
+);
+
+// A resize is the one thing that moves every card at once and tells the column
+// nothing: a card is as wide as the pane and as tall as its shape, so the whole
+// stream changes height while the scroll position stays in pixels. The port is
+// watched, the card being read is put back where it was, the snap state is asked
+// again, and a lit fit follows the window the reader made.
+check(
+  "a resize puts the card being read back where it was, and asks the snap again",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const settle = src.slice(src.indexOf("function settleResize"), src.indexOf("function cardResize"));
+    const watch = src.slice(src.indexOf("function cardResize"), src.indexOf("$effect(() => {", src.indexOf("function cardResize")));
+    return (
+      /use:cardResize/.test(src) &&
+      /new ResizeObserver\(\(\) => \{/.test(watch) &&
+      /observer\.observe\(el\);/.test(watch) &&
+      /seen = \{ w, h \};\s*settleResize\(\);/.test(watch) &&
+      // the reading place inside a page taller than the pane is a fraction of
+      // it, not a number of pixels down the column
+      /let heldFrac = 0;/.test(src) &&
+      /heldFrac = Math\.min\(Math\.max\(\(port\.top - box\.top\) \/ Math\.max\(box\.height, 1\), 0\), 1\)/.test(
+        src,
+      ) &&
+      /el\.scrollTop = box\.top - port\.top \+ el\.scrollTop \+ heldFrac \* box\.height;/.test(settle) &&
+      /if \(cardFits\(card\)\) \{\s*landOn\(card\);/.test(settle) &&
+      /\}\s*syncSnap\(\);\s*\}\);/.test(settle)
+    );
+  })(),
+);
+check(
+  "and a lit fit follows the reader's own resize, without arguing down the splitter",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const watch = src.slice(src.indexOf("function cardResize"), src.indexOf("$effect(() => {", src.indexOf("function cardResize")));
+    const settle = src.slice(src.indexOf("function settleResize"), src.indexOf("function cardResize"));
+    return (
+      /if \(view === "cards" && fitComic\) void fitToComic\(true\);/.test(watch) &&
+      /window\.addEventListener\("resize", onWindowResize\);/.test(watch) &&
+      /window\.removeEventListener\("resize", onWindowResize\);/.test(watch) &&
+      // the splitter changes the port but never the window, so it re-places the
+      // card and leaves the fit alone
+      !/fitToComic/.test(settle)
+    );
   })(),
 );
 

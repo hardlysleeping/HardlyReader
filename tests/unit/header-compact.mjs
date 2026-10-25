@@ -43,7 +43,19 @@ check("five menu actions in total", (menu.match(/role="menuitem"/g) ?? []).lengt
 // Two ways to sign out is clutter; none is worse. One media query decides, so
 // there is no second copy of the breakpoint to drift away from it.
 check("the breakpoint exists once, in CSS", !/matchMedia\(/.test(header) && /@media \(max-width: 560px\)/.test(header));
-check("wide bars do not repeat the menu's sign out", /@media \(min-width: 561px\)\s*\{[\s\S]{0,120}narrow-only/.test(header));
+check("wide bars do not repeat the menu's sign out", /@media \(min-width: 661px\)\s*\{[\s\S]{0,120}narrow-only/.test(header));
+// The account block — name and server address — is ellipsised, so a bar too
+// narrow for it did not break: it showed `hardlyrea…`. It leaves at 660, which
+// is where both strings fit whole (measured: nothing is cut from ~650 up), and
+// the menu's sign-out row follows it out, so no width has two sign outs and no
+// width has none.
+check("the account leaves the bar where it stops fitting", /@media \(max-width: 660px\)\s*\{\s*\.account\s*\{\s*display: none;/.test(header));
+check("and the switch stays in the bar there", !/@media \(max-width: 660px\)[\s\S]{0,200}\.switch/.test(header));
+check("the sign-out row returns at the same width the account leaves", (() => {
+  const away = Number((header.match(/@media \(max-width: (\d+)px\)\s*\{\s*\.account/) ?? [])[1]);
+  const back = Number((header.match(/@media \(min-width: (\d+)px\)\s*\{\s*\.sheet-server/) ?? [])[1]);
+  return away === back - 1;
+})());
 
 // Sign out hangs off the name at full width, and the name is not a permanent
 // button of its own: nothing in the bar signs out until it is pressed.
@@ -58,16 +70,40 @@ check("sync is not part of the group that hides", !/class="sync"/.test(tools));
 check("the menu opens by the hamburger", /class="icon menu"/.test(header) && /aria-haspopup="menu"/.test(header));
 
 // Opening a panel from a menu row needs the panels to take orders.
+// Two panels hang from one bar. Each covers the other when both are up, so
+// opening either shuts the other on the way open — the header only relays the
+// news, since each panel owns its own open state.
+check(
+  "the Aa panel shuts the settings panel as it opens, from the button and from the menu",
+  /onopen\?: \(\) => void/.test(readingControls) &&
+    /function toggle\(\): void \{\s*open = !open;\s*if \(open\) onopen\?\.\(\);/.test(readingControls) &&
+    /export function openPanel\(\) \{\s*open = true;\s*onopen\?\.\(\);/.test(readingControls) &&
+    /export function closePanel\(\)/.test(readingControls),
+);
+check(
+  "the settings panel shuts the Aa panel as it opens, likewise",
+  /onopen\?: \(\) => void/.test(themePanel) &&
+    /function toggleSettings\(\): void \{\s*open = !open;\s*if \(open\) onopen\?\.\(\);/.test(themePanel) &&
+    /export function openSettings\(\) \{[^}]*onopen\?\.\(\);/.test(themePanel) &&
+    /export function closeSettings\(\)/.test(themePanel),
+);
+check(
+  "and the header wires each to the other",
+  /onopen=\{\(\) => themePanel\?\.closeSettings\(\)\}/.test(header) &&
+    /onopen=\{\(\) => readingControls\?\.closePanel\(\)\}/.test(header),
+);
 check("settings can be opened from outside", /export function openSettings\(\)/.test(themePanel));
 check("reading can be opened from outside", /export function openPanel\(\)/.test(readingControls));
 
 // Compact rules: exactly the controls that do not fit are the ones that go —
 // the triggers, never the panels they open.
 const compact = header.slice(header.indexOf("@media (max-width: 560px)"));
-check("the name goes when compact", /\.account,/.test(compact));
+check("the name goes long before compact does", /@media \(max-width: 660px\)\s*\{\s*\.account\s*\{/.test(header));
 check("the bar-sized controls go when compact", /\.tools > :global\(\.reading\)/.test(compact) && /\.tools > :global\(\.themebar\)/.test(compact));
 check("but the group holding the panels is not hidden", !/\.tools\s*{[^}]*display:\s*none/.test(compact), compact.slice(0, 400));
-check("so a menu row can still open settings on a phone", /role="dialog"/.test(themePanel) && /max-height:\s*min\(72vh, 460px\)/.test(themePanel));
+// The cap is the room the window has, less the bar it hangs under — so a tall
+// window shows the whole tab and a phone still gets a panel that fits on screen.
+check("so a menu row can still open settings on a phone", /role="dialog"/.test(themePanel) && /max-height:\s*calc\(100vh - 68px\)/.test(themePanel));
 check("the settings popup keeps its tabs in reach", /position:\s*sticky/.test(themePanel));
 check("the menu button survives the compact rules", !/\.menu\s*{[^}]*display:\s*none/.test(compact));
 
@@ -76,6 +112,37 @@ check("the page cannot scroll sideways", /overflow-x:\s*hidden/.test(app));
 check("scrollbars are slim everywhere", /scrollbar-width:\s*thin/.test(app));
 check("the reading popup is capped, not window-height", /max-height:\s*min\(72vh, 460px\)/.test(read("src/components/ReadingControls.svelte")));
 check("the pane container clips instead of scrolling", /overflow-x:\s*clip/.test(main));
+
+
+// The bar carries the app's own tools and nothing else. The window's minimize and
+// maximize were drawn here once, on the theory that a title bar owns them; a bar
+// that is not the real title bar drew two buttons that looked like furniture and
+// did what the window manager already does, so they are gone — the GNOME title
+// bar above is the one that moves, minimizes and closes this window.
+check(
+  "the bar carries no window buttons of its own",
+  !/winbtn|wincontrols/.test(header) &&
+    !/minimizeWindow|toggleMaximizeWindow|watchMaximized/.test(header) &&
+    !/aria-label="Minimize"/.test(header),
+);
+
+// A popover takes the press that lands outside it. Both panels are dialogs with
+// no scrim, so without this a tap on the article behind them left them open over
+// whatever had just been pressed — and their own trigger must still toggle.
+for (const [name, source] of [["settings", themePanel], ["reading", readingControls]]) {
+  check(
+    `${name} closes on a press elsewhere`,
+    /window\.addEventListener\("pointerdown", onDown, true\)/.test(source) &&
+      /contains\(target\)/.test(source) &&
+      /removeEventListener\("pointerdown", onDown, true\)/.test(source),
+  );
+  check(
+    `${name}'s own trigger is exempt, so it still toggles`,
+    /if \(panelEl\?\.contains\(target\) \|\| (gearEl|moreEl)\?\.contains\(target\)\) return;/.test(source),
+  );
+  check(`${name} has its panel bound for the containment test`, /class="panel"[^>]*bind:this=\{panelEl\}/.test(source));
+}
+check("settings also closes on Escape", /event\.key === "Escape"\) open = false/.test(themePanel));
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

@@ -23,6 +23,10 @@ export interface Place {
   articleId: string | null;
   /** The feed unfolded in place, in the one-column layout. */
   expandedFeedId: string | null;
+  /** Pixels scrolled into the open post, so it reopens on the same line. */
+  articleScroll: number;
+  /** Pixels scrolled into the list, so the rows are where they were. */
+  listScroll: number;
 }
 
 export const EMPTY_PLACE: Place = {
@@ -30,6 +34,8 @@ export const EMPTY_PLACE: Place = {
   streamTitle: "",
   articleId: null,
   expandedFeedId: null,
+  articleScroll: 0,
+  listScroll: 0,
 };
 
 /** Per account, like the sidebar's own preferences. */
@@ -39,6 +45,11 @@ export function placeKey(serverUrl: string, email: string): string {
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+/** A scroll offset: a finite number of pixels, never negative. */
+function pixels(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 /**
@@ -59,5 +70,7 @@ export function parsePlace(value: unknown): Place {
     streamTitle: text(raw.streamTitle) ?? "Feed",
     articleId: text(raw.articleId),
     expandedFeedId: text(raw.expandedFeedId),
+    articleScroll: pixels(raw.articleScroll),
+    listScroll: pixels(raw.listScroll),
   };
 }

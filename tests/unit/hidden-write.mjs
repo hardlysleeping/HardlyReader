@@ -616,6 +616,62 @@ try {
     reader.stop();
     check("stop() closes the menu and clears the busy flag", reader.menu === null && reader.hiddenBusy === false);
   }
+
+  // The eye must not change on its own. A state read that lands while a write is
+  // still out is a picture of the state *before* the press, so drawing it flips
+  // the control a moment after the click and looks like the app acting alone.
+  {
+    const reader = fresh();
+    const before = {
+      available: true,
+      mode: "strict",
+      view: "hidden",
+      effectiveView: "hidden",
+      hiddenIds: [12],
+      locked: false,
+      hasPasscode: false,
+      categories: [
+        { id: 12, name: "Technology", hidden: true },
+        { id: 7, name: "Art", hidden: false },
+      ],
+    };
+    reply = () => {
+      const url = calls[calls.length - 1].url;
+      if (url.includes("/v1/state")) {
+        return { status: 200, body: { apiVersion: 1, hiddenCategories: before, favorites: { available: false }, sidebarIndent: { available: false } } };
+      }
+      return { status: 200, body: { changed: true, hiddenCategories: { ...before, view: "revealed", effectiveView: "revealed" } } };
+    };
+
+    const write = reader.setHiddenView("revealed");
+    check("the press is drawn at once", reader.hiddenView === "revealed", reader.hiddenView);
+    await reader.loadApiState();
+    check(
+      "a state read that lands beside the write does not undo the press",
+      reader.hiddenView === "revealed",
+      reader.hiddenView,
+    );
+    await write;
+    check("and the write's own reply keeps it", reader.hiddenView === "revealed", reader.hiddenView);
+  }
+
+  // A read that fails while a write is out is not news about the state either:
+  // blanking the block there would make the eye jump to its first word.
+  {
+    const reader = fresh();
+    reply = () => {
+      const url = calls[calls.length - 1].url;
+      if (url.includes("/v1/state")) return { status: 500, body: { error: { code: "convergence_failed", message: "sweep failed" } } };
+      return { status: 200, body: { changed: true, hiddenCategories: { ...state(), view: "only", effectiveView: "only" } } };
+    };
+
+    const write = reader.setHiddenView("only");
+    await reader.loadApiState();
+    check("a failed read beside a write leaves the drawn view alone", reader.hiddenView === "only", reader.hiddenView);
+    check("...and the extension still counts as available", reader.hiddenAvailable === true);
+    await write;
+    check("the write settles the view", reader.hiddenView === "only", reader.hiddenView);
+  }
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });
 }

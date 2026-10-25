@@ -124,12 +124,17 @@ check(
     }),
     moving.map((feel) => PANE_MOTION[feel].ease).join(" / "),
   );
+  // ...and they leave from rest. A first control point high up the travel means
+  // the curve is doing 40% of the run in the first tenth of the time, which is
+  // the press opening with a jolt whose size depends on where the frame boundary
+  // fell — the same button sliding one time and snapping the next.
   check(
-    "and both leave at once and settle, rather than easing in and out",
+    "and both leave from rest, so the first frame is not a jump",
     moving.every((feel) => {
       const [x1, y1] = points(PANE_MOTION[feel].ease);
-      return x1 > 0 && y1 > 0 && y1 / x1 > 1.5;
+      return x1 > 0 && y1 <= 0.25 && y1 / x1 < 1;
     }),
+    moving.map((feel) => PANE_MOTION[feel].ease).join(" / "),
   );
   check(
     "the longer of the two settles instead of bouncing",
@@ -190,20 +195,25 @@ check(
 );
 check(
   "so is an arrangement press and the fold",
-  /setStacked\(on: boolean\): void \{[\s\S]{0,320}this\.press\(\);/.test(layout) &&
+  /setStacked\(on: boolean\): void \{[\s\S]{0,900}this\.press\(\);/.test(layout) &&
     /toggleSidebar\(\): void \{\s*this\.sidebarCollapsed = !this\.sidebarCollapsed;\s*this\.press\(\);/.test(layout),
 );
 // The sizing toggle is a press too, and for the same reason: switching between
 // keeping the pane widths and sharing the window changes the frame, so the tracks
 // must move rather than snap — once, not once per resize tick.
+// The toggle now answers once per frame shape — `setKeepWidths` names the shape
+// it is in and hands it to `setKeepWidthsFor` — so the press, the fit and the
+// queue are pinned on the half that draws them, and the delegate is pinned too
+// or a call could stop reaching it.
 check(
   "and the sizing toggle, which names the frame it is entering",
-  /setKeepWidths\(value: boolean\): void \{[\s\S]{0,1100}this\.press\(\);/.test(layout) &&
-    /setKeepWidths\(value: boolean\): void \{[\s\S]{0,2200}fitWindowTo\(target\)/.test(layout),
+  /setKeepWidths\(value: boolean\): void \{\s*this\.setKeepWidthsFor\(/.test(layout) &&
+    /setKeepWidthsFor\(frame:[\s\S]{0,2600}this\.press\(\);/.test(layout) &&
+    /setKeepWidthsFor\(frame:[\s\S]{0,3600}fitWindowTo\(target\)/.test(layout),
 );
 check(
   "it asks for that frame through the same queue a mode press uses",
-  /setKeepWidths\(value: boolean\): void \{[\s\S]{0,1200}const ask = this\.resizing\.then\(\(\) => fitWindowTo\(target\)\);/.test(layout),
+  /setKeepWidthsFor\(frame:[\s\S]{0,3000}const ask = this\.resizing\.then\(\(\) => fitWindowTo\(target\)\);/.test(layout),
 );
 check(
   "and nothing else — not a resize, not a drag, not a slider",
@@ -274,7 +284,18 @@ check(
 );
 check(
   "and it comes off a little after the columns land",
-  /const timer = setTimeout\(\(\) => \(sliding = false\), ms \+ 70\);/.test(main),
+  /slideTimer = setTimeout\(\(\) => \{\s*sliding = false;/.test(main) && /\}, ms \+ 70\);/.test(main),
+);
+// The class is what draws the move, so a class that never comes off is a layout
+// that never lands: this effect re-runs whenever the slots it read change, and a
+// cleanup that cancelled the timer turned the first re-run into a stuck
+// transition — the panes drawn in the arrangement they were leaving, which is a
+// side-by-side press that looks stacked.
+check(
+  "the timer is not cancelled by the effect re-running",
+  /let slideTimer: ReturnType<typeof setTimeout> \| null = null;/.test(main) &&
+    !/return \(\) => clearTimeout\(timer\)/.test(main) &&
+    /onDestroy\(\(\) => \{\s*if \(slideTimer !== null\) clearTimeout\(slideTimer\);/.test(main),
 );
 check(
   "the class is the transition, on both the columns and the rows",
@@ -418,6 +439,31 @@ check(
     /aria-label="How the panes move when the layout changes"/.test(panel) && !/Pane slide[\s\S]{0,600}type="checkbox"/.test(panel),
   );
 }
+
+
+// A window resize is not a press. The columns are the frame's edge, so they land
+// where the frame is — every tick, with no transition in between — and the frame
+// is measured by the window as well as by the observer, because the observer is
+// not always the first to know.
+check(
+  "the frame being resized is drawn without a slide",
+  /class:resizing/.test(main) &&
+    /\.panes\.resizing \{\s*transition: none;/.test(main) &&
+    // later in the sheet than `sliding`, which is what makes it win
+    main.indexOf(".panes.resizing {") > main.indexOf(".panes.sliding {"),
+);
+check(
+  "and the window itself reports the width, not only the observer",
+  /window\.addEventListener\("resize", measure\)/.test(main) &&
+    /layout\.setAvailable\(panes\.clientWidth\)/.test(main) &&
+    /window\.removeEventListener\("resize", measure\)/.test(main),
+);
+check(
+  "measured once more after layout, because the event arrives before it",
+  /requestAnimationFrame\(\(\) => \{\s*if \(panes !== null\) layout\.setAvailable\(panes\.clientWidth\);\s*\}\);/.test(
+    main,
+  ),
+);
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

@@ -9,11 +9,18 @@
 import { isArticleFilter, type ArticleFilter } from "../lib/article-filter";
 import {
   CARD_SIZE_DEFAULT,
+  CURVE_DEFAULT,
+  CURVE_PILL_WAS,
+  FLUSH_THUMB_DEFAULT,
+  clampCurve,
   GRID_COLUMNS_DEFAULT,
   isCardSize,
   isGridColumns,
   isListView,
+  isRowEnd,
   LIST_VIEW_DEFAULT,
+  ROW_END_DEFAULT,
+  type RowEnd,
   type CardSize,
   type GridColumns,
   type ListView,
@@ -74,6 +81,36 @@ class ReadingState {
    * looks the way it always did until it is told otherwise.
    */
   listView = $state<ListView>(LIST_VIEW_DEFAULT);
+
+  /**
+   * Whether a tapped row is read in the posts column itself.
+   *
+   * Off by default: the column is a list, and a tap that swaps it for a page is
+   * not what a list is for unless you ask. On, the article takes the column
+   * (and the article column beside it) and the toolbar's back button returns
+   * the list — reading without leaving the list's place in the frame.
+   */
+  readInPane = $state(false);
+
+  /**
+   * How a regular row's end is shaped: `half` turns the bottom corners and runs
+   * the accent along the foot, `pill` is both right-hand corners as they were.
+   * Device-local like every other reading setting, and reversible so the look
+   * that shipped before this existed is never lost.
+   */
+  rowsEnd = $state<RowEnd>(ROW_END_DEFAULT);
+
+  /**
+   * How far each shape's end turns, in pixels — the pill's right-hand corners and
+   * the foot's bottom ones. Kept apart because they are two shapes, not one
+   * setting with two names, and stored with the rest of the reading preferences
+   * so a chosen curve is there next time.
+   */
+  curvePill = $state(CURVE_DEFAULT.pill);
+  curveHalf = $state(CURVE_DEFAULT.half);
+
+  /** The picture fills the row's corner in the footed shape, or sits inside it. */
+  flushThumb = $state(FLUSH_THUMB_DEFAULT);
 
   /** Tiles per row in the grid; `auto` is the grid's own judgement. */
   gridColumns = $state<GridColumns>(GRID_COLUMNS_DEFAULT);
@@ -184,6 +221,11 @@ class ReadingState {
         advanceOnScroll?: unknown;
         articleFilter?: unknown;
         listView?: unknown;
+        readInPane?: unknown;
+        rowsEnd?: unknown;
+        curvePill?: unknown;
+        curveHalf?: unknown;
+        flushThumb?: unknown;
         gridColumns?: unknown;
         cardSize?: unknown;
         markReadMode?: unknown;
@@ -205,6 +247,16 @@ class ReadingState {
       if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
       if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
       if (isListView(saved.listView)) this.listView = saved.listView;
+      if (typeof saved.readInPane === "boolean") this.readInPane = saved.readInPane;
+      if (isRowEnd(saved.rowsEnd)) this.rowsEnd = saved.rowsEnd;
+      // The pill's shipped radius came down from 24 to 10; a stored 24 is that
+      // old default, not a choice, so it moves with the new one.
+      if (saved.curvePill !== undefined) {
+        const pill = clampCurve(saved.curvePill);
+        this.curvePill = pill === CURVE_PILL_WAS ? CURVE_DEFAULT.pill : pill;
+      }
+      if (saved.curveHalf !== undefined) this.curveHalf = clampCurve(saved.curveHalf);
+      if (typeof saved.flushThumb === "boolean") this.flushThumb = saved.flushThumb;
       if (isGridColumns(saved.gridColumns)) this.gridColumns = saved.gridColumns;
       if (isCardSize(saved.cardSize)) this.cardSize = saved.cardSize;
       // An explicit choice of mode is honoured; the old bare `autoMarkRead`
@@ -277,6 +329,59 @@ class ReadingState {
   setListView(view: ListView): void {
     if (!isListView(view) || this.listView === view) return;
     this.listView = view;
+    this.save();
+  }
+
+  /**
+   * Read in the posts column, or in the article column beside it.
+   *
+   * Only Rows offers this: the other three views answer "scan many
+   * posts", and a page inside one of them would be a second kind of card.
+   */
+  toggleReadInPane(): void {
+    this.readInPane = !this.readInPane;
+    this.save();
+  }
+
+  /**
+   * The other end of a row: half a turn, or the full pill it used to be.
+   *
+   * One press, two looks, and the choice is saved — "drop the option" later
+   * means going back to `pill`, not hunting for the CSS that made it.
+   */
+  setRowsEnd(next: RowEnd): void {
+    if (!isRowEnd(next) || this.rowsEnd === next) return;
+    this.rowsEnd = next;
+    this.save();
+  }
+
+  toggleRowsEnd(): void {
+    this.setRowsEnd(this.rowsEnd === "half" ? "pill" : "half");
+  }
+
+  /** The turn of one shape, in pixels. Clamped, and saved as it is dragged. */
+  setCurve(which: RowEnd, px: number): void {
+    const value = clampCurve(px);
+    if (which === "pill") {
+      if (this.curvePill === value) return;
+      this.curvePill = value;
+    } else {
+      if (this.curveHalf === value) return;
+      this.curveHalf = value;
+    }
+    this.save();
+  }
+
+  /** The picture fills the corner, or sits inside it. */
+  toggleFlushThumb(): void {
+    this.flushThumb = !this.flushThumb;
+    this.save();
+  }
+
+  /** Both back to what each shape came with. */
+  resetCurves(): void {
+    this.curvePill = CURVE_DEFAULT.pill;
+    this.curveHalf = CURVE_DEFAULT.half;
     this.save();
   }
 
@@ -402,6 +507,11 @@ class ReadingState {
           advanceOnScroll: this.advanceOnScroll,
           articleFilter: this.articleFilter,
           listView: this.listView,
+          readInPane: this.readInPane,
+          rowsEnd: this.rowsEnd,
+          curvePill: this.curvePill,
+          curveHalf: this.curveHalf,
+          flushThumb: this.flushThumb,
           gridColumns: this.gridColumns,
           cardSize: this.cardSize,
           markReadMode: this.autoMarkRead ? "auto" : "manual",
