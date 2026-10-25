@@ -3,16 +3,23 @@
    * How far a row turns, in one popup on the list's own bar.
    *
    * The shape has two ends and the shapes are two: the pill turns its two
-   * right-hand corners, the foot turns its two bottom ones. Each gets a slider
-   * that says the radius in pixels, and each changes the list as it is dragged —
-   * no apply, no preview mode, because the list is the preview. Zero squares the
-   * corner; the top of the range is a full semicircle at a row's height.
+   * right-hand corners, the foot turns its two bottom ones. Only one of them is
+   * on screen at a time, so only one is offered — a slider for the shape that is
+   * not drawn is a slider that moves nothing and says nothing about why. It
+   * changes the list as it is dragged: no apply, no preview mode, because the
+   * list is the preview. Zero squares the corner; the top of the range is a full
+   * semicircle at a row's height.
    *
    * It lives here rather than in the reading panel because it is a thing you
    * change while looking at rows, and the panel is a thing you open once.
    */
   import { ROW_CURVE } from "../lib/list-view";
   import { reading } from "../state/reading.svelte";
+
+  /** The shape the rows are drawn in, which is the one whose corner this is. */
+  const footed = $derived(reading.rowsEnd === "half");
+  const which = $derived(footed ? "Foot corners" : "Pill ends");
+  const value = $derived(footed ? reading.curveHalf : reading.curvePill);
 
   let open = $state(false);
   let wrap = $state<HTMLElement | undefined>(undefined);
@@ -43,7 +50,7 @@
     aria-haspopup="dialog"
     aria-expanded={open}
     aria-label="Row corners"
-    title="How far the rows turn — the pill's ends and the foot's corners"
+    title={`How far the ${footed ? "foot" : "pill"}'s corners turn`}
     onclick={() => (open = !open)}
   >
     <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -53,33 +60,22 @@
   </button>
 
   {#if open}
-    <div class="panel" role="dialog" aria-label="Row corners">
+    <div class="panel" role="dialog" aria-label={which}>
+      <!-- One shape is drawn, so one corner is offered. The other keeps its
+           number, unshown, and is there when that shape is. -->
       <div class="line">
-        <span class="key">Pill ends</span>
+        <span class="key">{which}</span>
         <input
           type="range"
           min={ROW_CURVE.min}
           max={ROW_CURVE.max}
           step={ROW_CURVE.step}
-          value={reading.curvePill}
-          aria-label={`Pill corner radius, ${reading.curvePill} pixels`}
-          oninput={(event) => reading.setCurve("pill", Number(event.currentTarget.value))}
+          {value}
+          aria-label={`${which} radius, ${value} pixels`}
+          oninput={(event) =>
+            reading.setCurve(footed ? "half" : "pill", Number(event.currentTarget.value))}
         />
-        <span class="value">{reading.curvePill}</span>
-      </div>
-
-      <div class="line">
-        <span class="key">Foot corners</span>
-        <input
-          type="range"
-          min={ROW_CURVE.min}
-          max={ROW_CURVE.max}
-          step={ROW_CURVE.step}
-          value={reading.curveHalf}
-          aria-label={`Foot corner radius, ${reading.curveHalf} pixels`}
-          oninput={(event) => reading.setCurve("half", Number(event.currentTarget.value))}
-        />
-        <span class="value">{reading.curveHalf}</span>
+        <span class="value">{value}</span>
       </div>
 
       <div class="foot">

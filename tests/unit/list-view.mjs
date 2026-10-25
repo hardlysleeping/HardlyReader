@@ -790,15 +790,24 @@ check(
   "the corners have their own button and popup on the list's bar, for the rows view only",
   /\{#if view === "regular"\}[\s\S]{0,3600}?<RowCurve \/>/.test(listSource) &&
     /class="corner"/.test(curveComponent) &&
-    /role="dialog" aria-label="Row corners"/.test(curveComponent) &&
-    // Live, not on release: the list is the preview.
-    /oninput=\{\(event\) => reading\.setCurve\("pill", Number\(event\.currentTarget\.value\)\)\}/.test(
-      curveComponent,
-    ) &&
-    /oninput=\{\(event\) => reading\.setCurve\("half", Number\(event\.currentTarget\.value\)\)\}/.test(
-      curveComponent,
-    ) &&
+    /role="dialog" aria-label=\{which\}/.test(curveComponent) &&
     /reading\.resetCurves\(\)/.test(curveComponent),
+);
+/* One shape is on screen at a time, so one corner is offered. Two sliders meant
+   the one for the shape that was not drawn did nothing at all when dragged — the
+   pill's ends while the rows were turning at the bottom — with nothing on the
+   panel to say why. */
+check(
+  "the corner offered is the drawn shape's own, and only that one",
+  /const footed = \$derived\(reading\.rowsEnd === "half"\);/.test(curveComponent) &&
+    /const which = \$derived\(footed \? "Foot corners" : "Pill ends"\);/.test(curveComponent) &&
+    /const value = \$derived\(footed \? reading\.curveHalf : reading\.curvePill\);/.test(curveComponent) &&
+    // one range, driven by the shape — never the pair it used to draw
+    (curveComponent.match(/<input[\s\S]{0,120}?type="range"/g) ?? []).length === 1 &&
+    /oninput=\{\(event\) =>\s*reading\.setCurve\(footed \? "half" : "pill", Number\(event\.currentTarget\.value\)\)\}/.test(
+      curveComponent,
+    ) &&
+    /role="dialog" aria-label=\{which\}/.test(curveComponent),
 );
 check(
   "both radii are saved with the rest of the reading preferences",
