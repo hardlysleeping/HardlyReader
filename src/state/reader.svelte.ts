@@ -1278,7 +1278,18 @@ export class ReaderState {
    * here: GReader cannot tell "hidden" from "deleted", so the extension state
    * is the only way to know, and `categories` applies it.
    */
+  /** The last build, with the state it was built from, so a read is not a rebuild. */
+  private allCategoriesMemo: {
+    subscriptions: Subscription[];
+    feedOrder: string[];
+    value: CategoryGroup[];
+  } | null = null;
+
   get allCategories(): CategoryGroup[] {
+    const memo = this.allCategoriesMemo;
+    if (memo !== null && memo.subscriptions === this.subscriptions && memo.feedOrder === this.feedOrder) {
+      return memo.value;
+    }
     const groups = new Map<string, CategoryGroup>();
     for (const feed of this.subscriptions) {
       const cats = feed.categories?.length
@@ -1296,7 +1307,7 @@ export class ReaderState {
         groups.set(category.id, group);
       }
     }
-    return [...groups.values()]
+    const value = [...groups.values()]
       .map((group) => ({
         ...group,
         // Name order is the base — FreshRSS returns feeds in its own order and
@@ -1308,18 +1319,64 @@ export class ReaderState {
         ),
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
+    this.allCategoriesMemo = { subscriptions: this.subscriptions, feedOrder: this.feedOrder, value };
+    return value;
   }
 
-  /** The sidebar's categories, with the hidden-categories view applied. */
+  /** The last arranged sidebar, and the state it was arranged from. */
+  private categoriesMemo: {
+    base: CategoryGroup[];
+    hidden: HiddenCategoriesState;
+    view: PinView;
+    pins: LocalPins;
+    favorites: FavoritesState;
+    feedOrder: string[];
+    categoryOrder: string[];
+    value: CategoryGroup[];
+  } | null = null;
+
+  /**
+   * The sidebar's categories, with the hidden-categories view applied.
+   *
+   * Memoised on purpose: a getter is read once per row while the sidebar draws,
+   * and rebuilding here is a full sort of every feed in every category. At a
+   * real account's size that turned one paint into minutes of blocked main
+   * thread — the window looked frozen because it was, inside this function.
+   */
   get categories(): CategoryGroup[] {
-    return arrangeByPins(
-      visibleGroups(this.allCategories, this.hiddenCategories),
+    const base = this.allCategories;
+    const memo = this.categoriesMemo;
+    if (
+      memo !== null &&
+      memo.base === base &&
+      memo.hidden === this.hiddenCategories &&
+      memo.view === this.pinView &&
+      memo.pins === this.localPins &&
+      memo.favorites === this.favorites &&
+      memo.feedOrder === this.feedOrder &&
+      memo.categoryOrder === this.categoryOrder
+    ) {
+      return memo.value;
+    }
+    const value = arrangeByPins(
+      visibleGroups(base, this.hiddenCategories),
       this.pinView,
       (label) => this.isCategoryPinned(label),
       (id) => this.isFeedPinned(id),
       this.feedOrder,
       this.categoryOrder,
     );
+    this.categoriesMemo = {
+      base,
+      hidden: this.hiddenCategories,
+      view: this.pinView,
+      pins: this.localPins,
+      favorites: this.favorites,
+      feedOrder: this.feedOrder,
+      categoryOrder: this.categoryOrder,
+      value,
+    };
+    return value;
   }
 
   countFor(id: string): number {
