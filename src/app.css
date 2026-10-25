@@ -173,6 +173,13 @@ html,
 body {
   margin: 0;
   height: 100%;
+  /* A double tap must not zoom the app, and the browser must not inflate text
+     on its own: the reading size is a setting, so what it says is what is drawn.
+     `pan-x pan-y` is everything the app does with a finger — pinch is gone,
+     scrolling and the sideways drags are not. */
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 /* Slim, quiet scrollbars: they appear where there is more content, not as a

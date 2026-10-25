@@ -1144,8 +1144,19 @@ class LayoutState {
   /** Called from a ResizeObserver on the pane container, and on rotation. */
   setAvailable(px: number): void {
     if (!Number.isFinite(px) || px <= 0) return;
+    // A measurement that repeats the last one has nothing to answer. This runs
+    // from a ResizeObserver, from `window.resize` and from `visualViewport`,
+    // and on Android those fire in bursts — during a zoom, a keyboard, or the
+    // system hiding its own bars — so the same width arrived dozens of times per
+    // second and each one re-settled the mode and wrote the layout. Skipping the
+    // identical ones is not an optimisation of the arithmetic; it is the
+    // difference between one answer and a main thread that never gets a frame.
+    const sameWidth = px === this.available;
+    const height = windowSize().height;
+    const sameHeight = height === this.height;
     this.available = px;
-    this.height = windowSize().height;
+    this.height = height;
+    if (sameWidth && sameHeight && this.pressTarget === null) return;
     // The window has arrived, or given up: either way the measurement is the
     // truth again from here, so a resize the user makes is followed at once
     // instead of being held at the width of a press that is over.
