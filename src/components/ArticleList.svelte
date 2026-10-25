@@ -1812,6 +1812,10 @@ import { plainPreview, relativeTime } from "../lib/format";
      is square and unmarked, which is what makes the column read as a list of
      feet rather than a stack of capsules. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .row {
+    /* One thickness for the whole foot. Every accent line of this shape reads
+       it — edge, foot and the bands that give them depth — so the three sides
+       cannot drift apart, and making the shape thinner is one number. */
+    --foot: 2px;
     border-radius: 0 0 30px 30px;
     /* Both ends of the foot match, so the row steps in from the pane's edge on
        both sides by the 9px it already kept on its right. The right side and its
@@ -1829,18 +1833,29 @@ import { plainPreview, relativeTime } from "../lib/format";
     /* The foot lives inside the row: the border is not drawn a pixel past it,
        and the corner is the row's own corner. */
     inset: 0;
-    border-bottom-width: 5px;
-    border-left: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
+    border-bottom-width: var(--foot);
+    border-right-width: var(--foot);
+    border-left: var(--foot) solid color-mix(in srgb, var(--accent) 92%, transparent);
     background:
-      linear-gradient(to left, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
-      linear-gradient(to right, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(to left, transparent calc(100% - var(--foot)), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(to right, transparent calc(100% - var(--foot)), rgba(0, 0, 0, 0.45) 100%),
       linear-gradient(
         to left,
-        color-mix(in srgb, var(--accent) 18%, transparent) 0,
-        color-mix(in srgb, var(--accent) 8%, transparent) 36px,
-        color-mix(in srgb, var(--accent) 3%, transparent) 50%,
-        transparent 64%
+        color-mix(in srgb, var(--accent) 14%, transparent) 0,
+        color-mix(in srgb, var(--accent) 6%, transparent) 30px,
+        color-mix(in srgb, var(--accent) 2%, transparent) 44px,
+        transparent 56%
       );
+  }
+
+  /* The accent the foot is drawn in is the whole of it: the row's own hairline
+     would sit 1px above a 2px border and read as a second, muddier line, so the
+     foot takes that job over and the glow above it is tightened to a shadow
+     rather than a band. The drop shadow to the right is kept as it was. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .row:not(.read) {
+    box-shadow:
+      3px 2px 7px -4px rgba(0, 0, 0, 0.55),
+      inset 0 -5px 9px -8px color-mix(in srgb, var(--accent) 40%, transparent);
   }
 
   /* The row's own content clears that new left edge by the 11px the actions
@@ -1851,12 +1866,13 @@ import { plainPreview, relativeTime } from "../lib/format";
     padding-left: 11px;
   }
 
-  /* The pill steps in from the end it sits against. A 5px foot and a 5px edge
-     are a corner with substance, and a target that hugs it has its own corner
-     taken off — so it moves left, and up off the foot by the extra the foot now
-     takes. */
+  /* The pill steps in from the end it sits against, and follows the foot's
+     thickness: it moves left away from the accent, and up off the foot by
+     exactly what the foot takes. Its radius is the row's own turn less that
+     thickness, so the two curves run parallel rather than crossing. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .acts {
-    margin: 5px 11px 7px 0;
+    margin: 2px 11px 4px 0;
+    border-radius: 28px;
   }
 
   .row.read {

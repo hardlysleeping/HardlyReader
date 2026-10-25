@@ -641,16 +641,16 @@ check(
 );
 check(
   "half a turn is only the bottom, and the foot is as thick as the edge",
-  /\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{\s*border-radius: 0 0 30px 30px;/.test(
+  /\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,400}?--foot: 2px;[\s\S]{0,200}?border-radius: 0 0 30px 30px;/.test(
     listSource,
   ) &&
-    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-radius: 0 0 30px 30px;[^}]*border-bottom-width: 5px;/.test(
+    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-radius: 0 0 30px 30px;[^}]*border-bottom-width: var\(--foot\);[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
       listSource,
     ),
 );
 check(
-  "the pill steps in from the foot it would otherwise sit on",
-  /\.items\.half-end[^{]*\.acts \{\s*margin: 5px 11px 7px 0;/.test(listSource),
+  "the pill steps in from the foot it would otherwise sit on, by the foot's own thickness",
+  /\.items\.half-end[^{]*\.acts \{\s*margin: 2px 11px 4px 0;\s*border-radius: 28px;/.test(listSource),
 );
 check(
   "the old shape is untouched: both right-hand corners, one-pixel foot",
@@ -663,7 +663,7 @@ check(
 );
 check(
   "the new shape only ever applies to a row, never to cards, the grid or the compact list",
-  (listSource.match(/\.items\.half-end/g) ?? []).length === 4 &&
+  (listSource.match(/\.items\.half-end/g) ?? []).length === 5 &&
     (listSource.match(/\.items\.half-end[^,{]*\{/g) ?? []).every((rule) =>
       rule.includes(":not(.compact):not(.cards):not(.grid)"),
     ) &&
@@ -675,9 +675,9 @@ check(
    content clears the new left edge by the 11px the actions clear the right.
    The right-hand numbers are asserted above and are not restated here. */
 check(
-  "both ends of the foot are the same: 5px left edge, 9px in from the pane, 11px of clearance",
+  "both ends of the foot are the same: one thickness on three sides, 9px in from the pane, 11px of clearance",
   /\.items\.half-end[^{]*\.row \{[^}]*margin-left: 9px;/.test(listSource) &&
-    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-left: 5px solid/.test(
+    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
       listSource,
     ) &&
     /\.items\.half-end[^{]*\.item \{\s*padding-left: 11px;/.test(listSource) &&
