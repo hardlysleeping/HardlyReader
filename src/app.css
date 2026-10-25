@@ -60,6 +60,9 @@
   --tone-unlock: #3fbf6f;
 
   --tone-sync: #28a06b;
+  /* The trim's shipped value, so the counts are trimmed on the first paint too,
+     before the theme has written its own. */
+  --tone-trim: #7c8492;
 
   /* Overridden by the theme when the accent is allowed to tint the pane lines. */
   --edge: var(--border);
@@ -72,21 +75,23 @@
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-/* Auto: no explicit choice, so the OS decides. */
+/* Auto: no explicit choice, so the OS decides — and it decides *between the two
+   palettes*, not on a third one of its own. These are the dark values
+   `[data-theme="dark"]` sets, to the hex: auto used to carry a lighter charcoal
+   (#17171a on #1f1f23) that read as grey next to the real dark and as nothing
+   like the light, so "auto" looked like a middle mode nobody asked for. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #17171a;
-    --surface-solid: #1f1f23;
-    --bg-alt: #1f1f23;
-    --border: #33333a;
-    --border-soft: #26262b;
-    /* The same accent hover, dimmer: on a dark row a 16% tint is a lamp, and the
-       list already has light in it. */
+    --bg: #0c0c0e;
+    --surface-solid: #131316;
+    --bg-alt: #131316;
+    --border: #3a3a44;
+    --border-soft: #212128;
     --hover: color-mix(in srgb, var(--accent) 12%, var(--bg));
-    --text: #e7e7ea;
-    --text-dim: #c2c2cb;
-    --muted: #9a9aa4;
-    --star: #e8b93c;
+    --text: #f4f4f7;
+    --text-dim: #d2d2da;
+    --muted: #9b9ba6;
+    --star: #f2bf3c;
     color-scheme: dark;
   }
 }

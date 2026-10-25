@@ -645,7 +645,7 @@ check(
 check(
   "releasing a slider asks the window to grow to it",
   /commitThreshold\(\): void \{\s*if \(!canFitWindow\(\)\) return;/.test(layout) &&
-    /const target = fitTarget\(this\.mode, this\.available, this\.device, this\.thresholds, this\.monitor, this\.keepWidths\);\s*if \(target === null \|\| target <= this\.available\) return;/.test(
+    /const target = fitTarget\(this\.mode, this\.drawn, this\.device, this\.fitThresholds, this\.monitor, this\.keepWidths\);\s*if \(target === null \|\| target <= this\.available\) return;/.test(
       layout,
     ) &&
     /void this\.fitWindowForMode\(this\.mode\);/.test(layout),

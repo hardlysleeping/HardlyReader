@@ -108,7 +108,7 @@ export const THUMB_SIDE_LABELS: Record<ThumbSide, string> = {
   off: "Off",
 };
 
-export const THUMB_SIDE_INITIAL: ThumbSide = "right";
+export const THUMB_SIDE_INITIAL: ThumbSide = "left";
 
 /**
  * A lead picture at the top of the article.

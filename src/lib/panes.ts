@@ -286,7 +286,15 @@ export const MIN: Record<"sidebar" | "list" | "article", number> = {
   article: 320,
 };
 
-export const DEFAULT_WIDTHS: PaneWidths = { sidebar: 280, list: 380 };
+/**
+ * The widths a fresh install opens with: the owner's own.
+ *
+ * His drawer sits at its own minimum and the posts column stays narrow enough
+ * that three columns of an ordinary laptop window are all readable without
+ * dragging anything — 240 + 6 + 260 + 6 + article. These were 280/380, which is
+ * a comfortable two-pane pair and a cramped three-pane row.
+ */
+export const DEFAULT_WIDTHS: PaneWidths = { sidebar: MIN.sidebar, list: MIN.list };
 
 /**
  * The narrowest the window itself may be, which is not the narrowest a pane may
@@ -354,20 +362,6 @@ export function needed(mode: PaneMode, device: Device = "desktop"): number {
 }
 
 /**
- * Whether three panes can be three columns in this window.
- *
- * Below the three-pane floor three columns are not three panes, they are three
- * slivers, so the arrangement becomes the pair instead. This is the question
- * the layout asks rather than refusing the press: pressing 3 in a portrait
- * tablet used to record the choice and then draw two panes, which reads as a
- * button that does nothing — and, on a shell that cannot resize, as a button
- * that briefly draws a frame the window never had.
- */
-export function columnsFit(available: number, device: Device = "desktop"): boolean {
-  return available >= NEEDED[device][3];
-}
-
-/**
  * The two widths the user can tune: where a second pane appears and where a
  * third does.
  *
@@ -402,11 +396,33 @@ export const THRESHOLDS: Record<Device, PaneThresholds> = {
 export function floorThresholds(device: Device = "desktop", stacked = false): PaneThresholds {
   const base = THRESHOLDS[device];
   if (!stacked) return base;
-  // Three panes drawn as a pair spend one content column, not two, so the price
-  // of a third *column* is not the question — and a narrow window that is not
-  // buying one should not be refused. `stackFloor` is what the pair actually
-  // needs; the two-pane floor stays as a ceiling on how permissive this can get.
-  return { ...base, three: Math.min(base.two, stackFloor(device)) };
+  // Three panes drawn as a stack are a two-pane *window*: one content column,
+  // not two. So the floor they are judged by is the two-pane floor, exactly —
+  // not the third column's price, and not some cheaper number of its own. The
+  // owner's words: stacked, "it should follow 2 panes minimum layout setting not
+  // 3 panes". A stack in a 700px window is honest; refusing it there is what
+  // made the third pane jump out instead of stacking.
+  //
+  // `two` is the pair's own arithmetic floor rather than the tuned number, so
+  // the two modes do not share an edge: with both at 700 a window narrowed from
+  // a stack fell straight to one pane at 699, because two panes were refused at
+  // the same pixel the third was. One at a time, in order — three columns, the
+  // stack, two panes, one pane — is what the owner asked for, and each step
+  // needs its own width to happen at.
+  return { ...base, two: pairFloor(device), three: base.two };
+}
+
+/**
+ * The narrowest honest window with the feeds pane and one content column.
+ *
+ * The geometric sum, not the tuned `two`: that number is where a second pane
+ * *appears* when a window grows, which is a preference. This is where two panes
+ * stop being drawable at all, and it is what a window shrinking through the
+ * modes is judged by.
+ */
+export function pairFloor(device: Device = "desktop"): number {
+  const mins = MINIMUMS[device];
+  return mins.sidebar + GUTTER + mins.list;
 }
 
 /**
@@ -481,9 +497,13 @@ export function widthFor(
   device: Device = "desktop",
   thresholds: PaneThresholds = THRESHOLDS[device],
 ): number {
-  if (mode === 3) return thresholds.three;
-  if (mode === 2) return thresholds.two;
-  return thresholds.one ?? NEEDED[device][1];
+  const want = mode === 3 ? thresholds.three : mode === 2 ? thresholds.two : thresholds.one ?? NEEDED[device][1];
+  // One pane is the sidebar's own width, and a dragged sidebar may sit under the
+  // window's floor — a width no window can be. The answer here is the width the
+  // layout switch asks the window for, so it carries the same floor `fitTarget`
+  // applies; otherwise the press drew 280 while `widthFor` said 240 and the two
+  // numbers disagreed about the frame that was on screen.
+  return device === "desktop" ? Math.max(WINDOW_FLOOR, want) : want;
 }
 
 /**
@@ -628,7 +648,14 @@ export function effectiveMode(
   // The boundary each mode is entered through, and the band either side of it.
   const edge = (mode: PaneMode): number =>
     mode === 3 ? thresholds.three : mode === 2 ? thresholds.two : 0;
-  if (next > current) return available >= edge(next) + MODE_HYSTERESIS ? next : current;
+  // A mode is entered at its edge — the width the window needs to draw it — and
+  // left once the window is a band below it. The band is for a window being
+  // dragged across a boundary, so it must not flicker between two layouts; it is
+  // not a price of admission. Charging it on the way in as well meant a window
+  // with exactly the width three panes need still drew two, and the press that
+  // sized the window to that number landed on a layout that refused to draw
+  // itself — so "resize until it fits" never arrived.
+  if (next > current) return next;
   return available <= edge(current) - MODE_HYSTERESIS ? next : current;
 }
 
@@ -756,10 +783,19 @@ export interface PaneLayout {
   article: number;
 }
 
+/**
+ * The three-pane posts column ships wider than the two-pane one, which is the
+ * owner's own pair of numbers: in three panes the list is showing titles and a
+ * page thumbnail next to a 780px measure, and 260 there truncates every headline
+ * to two words. Two panes keep 260, because there the list shares the frame
+ * with the article alone.
+ */
+export const DEFAULT_LIST3 = 366;
+
 export const DEFAULT_LAYOUT: PaneLayout = {
   sidebar: DEFAULT_WIDTHS.sidebar,
   list2: DEFAULT_WIDTHS.list,
-  list3: DEFAULT_WIDTHS.list,
+  list3: DEFAULT_LIST3,
   article: MIN.article,
 };
 

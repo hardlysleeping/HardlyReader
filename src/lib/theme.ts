@@ -84,7 +84,10 @@ export interface Theme {
 
 export const DEFAULT_THEME: Theme = {
   mode: "system",
-  accent: "#0078e0",
+  // The look the app ships with is the owner's: an Adwaita purple accent over a
+  // neutral page. A new install should open as his does, not as a blank canvas
+  // with a default blue — every other tone was already his.
+  accent: "#613583",
   accentEdges: true,
   hidden: "#e5484d",
   pinned: "#0078e0",

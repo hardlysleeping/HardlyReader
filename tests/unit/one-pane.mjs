@@ -142,11 +142,14 @@ check(
 );
 check("with no post open they still step the feed", /case "stream":[\s\S]{0,1000}reader\.stepStream\(intent\.delta\)/.test(main));
 
-// Pressing 3 from two panes extends the columns on screen; it does not divide
-// the window they were already sharing.
+// Pressing 3 from two panes extends the columns on screen — but only when the
+// window cannot grow to the three columns it already has. Otherwise the press
+// grows the window and restores the columns, which is what makes 3 → 2 → 3 come
+// back at the width it left with instead of adopting the two-pane posts width.
 check(
-  "pressing 3 from two panes extends instead of re-dividing",
-  /chooseMode\(mode: PaneMode\)[\s\S]{0,1400}extendToThree\(this\.panes, this\.available/.test(layout),
+  "pressing 3 extends only when the window cannot buy the column",
+  /chooseMode\(mode: PaneMode\)[\s\S]{0,2000}extendToThree\(this\.panes, this\.available/.test(layout) &&
+    /const growable = canFitWindow\(\)[\s\S]{0,200}!growable/.test(layout),
 );
 // Only when it has to: a window already wide enough for its three columns keeps
 // them, so 2 ↔ 3 does not grow the window a little on every press.

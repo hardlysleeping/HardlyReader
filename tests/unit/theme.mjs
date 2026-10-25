@@ -39,7 +39,12 @@ function check(name, ok, detail = "") {
 
 check("key is namespaced and versioned", THEME_KEY === "hardlyreader.theme.v1", THEME_KEY);
 
-check("default keeps today's look", DEFAULT_THEME.accent === "#0078e0" && DEFAULT_THEME.hidden === "#e5484d");
+check(
+  "default keeps today's look",
+  // A new install opens with the owner's accent, not the blank-canvas blue.
+  DEFAULT_THEME.accent === "#613583" && DEFAULT_THEME.hidden === "#e5484d",
+  DEFAULT_THEME.accent,
+);
 check("default follows the OS", DEFAULT_THEME.mode === "system");
 check("the pin has one colour", DEFAULT_THEME.pinned === "#0078e0");
 check("there is no second way to draw it", !("marker" in DEFAULT_THEME) && !("vocabulary" in DEFAULT_THEME));

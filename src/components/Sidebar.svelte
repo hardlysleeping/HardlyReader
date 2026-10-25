@@ -1954,7 +1954,11 @@
   .count {
     font-size: 11px;
     font-variant-numeric: tabular-nums;
-    color: var(--muted);
+    /* The trim's own job: the quiet mark at the end of a row. It was a setting
+       nothing but the read toggle ever read, so the tone the theme exposes for
+       exactly this sat unused while every number on the panel was the same grey
+       as the label it followed. */
+    color: var(--tone-trim);
   }
 
   .empty {

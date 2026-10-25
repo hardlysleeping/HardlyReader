@@ -110,6 +110,10 @@ async function start(out, saved) {
 const generated = buildLayoutModule();
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** The feeds column as this layout draws it, which is the store's number, not a
+ * constant: the shipped sidebar is 240 now and the suites used to bake in 280. */
+let bar = 240;
+
 try {
   // --- a Keep-widths press draws the frame it asked for ---------------------
   {
@@ -117,6 +121,7 @@ try {
     const layout = await start(generated, { mode: 2, keepWidths: true, chosen: true });
     layout.setAvailable(1200);
     const twoWidth = layout.widthFor(2);
+    bar = layout.panes.sidebar;
     check("two panes in a wide window", layout.mode === 2, `mode ${layout.mode} at ${layout.available}`);
 
     // Press one: it asks the window for 320, and nothing has reported it yet.
@@ -152,7 +157,7 @@ try {
     const drawnOnce = layout.columns();
     check(
       "two panes, drawn at the width the press asked for",
-      drawnOnce === `280px 6px ${target - 286}px 0px 0px`,
+      drawnOnce === `${bar}px 6px ${target - bar - 6}px 0px 0px`,
       drawnOnce,
     );
     // The window takes the trip in five steps, as a window manager does.
@@ -176,7 +181,7 @@ try {
     layout.setAvailable(1000);
     check(
       "a resize after the press is followed at once",
-      layout.columns() === `280px 6px ${1000 - 286}px 0px 0px`,
+      layout.columns() === `${bar}px 6px ${1000 - bar - 6}px 0px 0px`,
       layout.columns(),
     );
   }
@@ -207,7 +212,9 @@ try {
     void layout.chooseMode(2);
     check(
       "and pressing back into two panes does the same",
-      layout.pressing === false && layout.drawn === 834 && layout.columns() === "280px 6px 548px 0px 0px",
+      layout.pressing === false &&
+        layout.drawn === 834 &&
+        layout.columns() === `${bar}px 6px ${834 - bar - 6}px 0px 0px`,
       `drawn ${layout.drawn}, ${layout.columns()}`,
     );
     globalThis.window.__TAURI_INTERNALS__ = marker;
@@ -220,13 +227,13 @@ try {
     void layout.chooseMode(2);
     check(
       "sharing the window, a press asks for no frame at all",
-      layout.drawn === 1400 && layout.columns() === `280px 6px ${1400 - 286}px 0px 0px`,
+      layout.drawn === 1400 && layout.columns() === `${bar}px 6px ${1400 - bar - 6}px 0px 0px`,
       `drawn ${layout.drawn}, ${layout.columns()}`,
     );
     layout.setAvailable(1000);
     check(
       "and a resize is drawn at once, with no width held over it",
-      layout.drawn === 1000 && layout.columns() === `280px 6px ${1000 - 286}px 0px 0px`,
+      layout.drawn === 1000 && layout.columns() === `${bar}px 6px ${1000 - bar - 6}px 0px 0px`,
       `drawn ${layout.drawn}, ${layout.columns()}`,
     );
   }

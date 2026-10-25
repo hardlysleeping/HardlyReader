@@ -11,6 +11,7 @@
 import { capabilitiesFor, detectShape, isTauri, type Capabilities } from "../lib/platform";
 import {
   DEFAULT_LAYOUT,
+  DEFAULT_LIST3,
   DEFAULT_MOTION,
   DEFAULT_WIDTHS,
   FLAT_ROWS,
@@ -28,7 +29,6 @@ import {
   type StackSide,
   type StackTuck,
   clampThresholds,
-  columnsFit,
   clampWidths,
   defaultModeFor,
   effectiveMode,
@@ -43,6 +43,7 @@ import {
   neededWidth,
   nextTuck,
   nudge,
+  pairFloor,
   resetPane,
   scaleLayout,
   settleRequirement,
@@ -133,6 +134,11 @@ function defaultWidths(device: Device): PaneWidths {
   return device === "phone" ? { sidebar: 168, list: 240 } : { ...DEFAULT_WIDTHS };
 }
 
+/** The third column's own default: a phone keeps the narrow one. */
+function defaultList3(device: Device): number {
+  return device === "phone" ? defaultWidths(device).list : DEFAULT_LIST3;
+}
+
 function isMode(value: unknown): value is PaneMode {
   return value === 1 || value === 2 || value === 3;
 }
@@ -214,7 +220,10 @@ class LayoutState {
    * neither, and turning the device does not rewrite the other answer.
    */
   private keepWidthsUpright = $state(false);
-  private keepWidthsSideways = $state(true);
+  // Ships off, matching the owner's own setting: a new install keeps its window
+  // and divides the frame between the panes, which is what "three columns of the
+  // window you already have" means. Turning it on is a press away.
+  private keepWidthsSideways = $state(false);
 
   /** Whether the frame follows the panes that are left, in the shape it is in. */
   get keepWidths(): boolean {
@@ -295,22 +304,67 @@ class LayoutState {
   private stackChoice = $state(false);
 
   /**
+   * The width three columns need, from the widths this layout would draw them
+   * with.
+   *
+   * Not `this.thresholds`, which is itself derived from `stacked`: asking it here
+   * would make the two answers chase each other, so a stacked pair would keep
+   * claiming the columns fit and the stack would flicker. The panes are the
+   * ground truth, and the stacked discount is deliberately left out — this is the
+   * price of *columns*.
+   */
+  get stackNeed(): number {
+    return this.keepWidths
+      ? thresholdsFor(this.panes, this.device, this.panes.sidebar, false).three
+      : floorThresholds(this.device, false).three;
+  }
+
+  /**
+   * The numbers a window should be fitted to.
+   *
+   * `thresholds` is the pair the *drawing* is judged by, and it discounts the
+   * third column while the pair is stacked — correct for deciding what to draw,
+   * and wrong for sizing the frame: fitted to it, a press asked for the stack's
+   * cheap width and shrank the window to a size that guaranteed the stack. Every
+   * ask is made at the price of columns instead.
+   */
+  get fitThresholds(): PaneThresholds {
+    return { ...this.thresholds, three: this.stackNeed };
+  }
+
+  /**
    * The arrangement actually drawn.
    *
-   * The stored choice, or the only honest one: three columns need the three-pane
-   * floor, and below it three panes are a pair. That is what makes pressing 3 in
-   * a portrait window mean something — the arrangement changes, the press is
-   * answered, and no pane is pretending to be a third column 190px wide. The
-   * panel still shows (and edits) the choice, and says when the window is the
-   * thing that decided.
+   * The stored choice, or the only honest one: three columns need `stackNeed`, and
+   * below it three panes are a pair. That is what makes pressing 3 in a portrait
+   * window mean something — the arrangement changes, the press is answered, and no
+   * pane is pretending to be a third column 190px wide. The panel still shows (and
+   * edits) the choice, and says when the window is the thing that decided.
+   *
+   * It reads `drawn` rather than `available`, so while a press is still waiting
+   * for the window the arrangement and the mode are made of the same width. They
+   * disagreed before: the mode was decided from the width being asked for and the
+   * stack from the width still on screen, so a press that grows the window drew
+   * `mode 3` as a stack until the frame arrived — and left it stacked if the
+   * window manager refused.
+   *
+   * The number is shared with the mode, deliberately (see `stackNeed` above): a
+   * fixed 1000 said "three columns fit" about windows that had nothing to do with
+   * the panes the reader had shaped, so a pair was drawn where three fitted, and
+   * the note in the panel claimed the window was too narrow while the layout's own
+   * arithmetic said otherwise.
    */
   get stacked(): boolean {
-    return this.stackChoice || !columnsFit(this.available, this.device);
+    return this.stackChoice || this.drawn < this.stackNeed;
   }
 
   /** Whether the window is too narrow for three columns, so the pair is forced. */
   get stackForced(): boolean {
-    return !this.stackChoice && this.stacked;
+    // Only while three panes are the arrangement being drawn: with the third
+    // pane already tucked away the window is not forcing a stack, it is showing
+    // two panes, and a note saying otherwise would read as the choice having
+    // been overridden.
+    return this.mode === 3 && !this.stackChoice && this.stacked;
   }
 
   /**
@@ -439,6 +493,13 @@ class LayoutState {
    */
   private settle(banded = true): void {
     const before = this.mode;
+    // The tuned numbers are derived from the panes *and* from the arrangement (a
+    // stacked three is cheaper than three columns), so a resize that changes which
+    // of the two is drawn has to re-derive them before the mode is judged.
+    // Without this the mode read a number that belonged to the arrangement that
+    // had just gone away: leaving the stack, three panes were still refused at the
+    // stack's price; entering it, they were still charged the columns'.
+    if (this.keepWidths) this.syncThresholds();
     // Which widths decide whether a mode fits depends on which is following
     // which. Keeping the panes, the window is fitted to them, so the tuned
     // thresholds are the honest test. Sharing the window, the panes squeeze and
@@ -446,7 +507,20 @@ class LayoutState {
     // panes in a window that has room for three, which is what made the third
     // pane pop out and the window grow instead.
     const limits = this.keepWidths
-      ? this.thresholds
+      ? this.stacked
+        ? // A stack is a two-pane window, so the width that keeps three panes on
+          // screen is the width that keeps two: the tuned `two`, not the tuned
+          // `three` (which is the price of a third column that is not being
+          // drawn) and not the stack's own derived price either. Without this a
+          // stacked three in a 900px window was demoted to two the moment it
+          // passed below the pair's column arithmetic, and the article vanished
+          // instead of staying stacked.
+          //
+          // Below that, the pair keeps its own geometric floor, so the window
+          // passes *through* two panes on its way to one instead of jumping
+          // from the stack straight to a single column.
+          { ...this.thresholds, two: pairFloor(this.device), three: this.thresholds.two }
+        : this.thresholds
       : floorThresholds(this.device, this.stacked);
     this.mode = effectiveMode(
       this.desired,
@@ -478,7 +552,18 @@ class LayoutState {
     // layout cannot disagree about how wide the first column is.
     // `stacked` is part of the question: how wide three panes have to be
     // depends on whether they are three columns or a column and a stack.
-    this.thresholds = thresholdsFor(this.panes, this.device, this.panes.sidebar, this.stacked);
+    const next = thresholdsFor(this.panes, this.device, this.panes.sidebar, this.stacked);
+    // Written only when it moved: this is a rune, and a settle runs on every
+    // resize tick. Assigning the same numbers would wake every reader of them for
+    // a difference that is not there.
+    if (
+      next.one === this.thresholds.one &&
+      next.two === this.thresholds.two &&
+      next.three === this.thresholds.three
+    ) {
+      return;
+    }
+    this.thresholds = next;
   }
 
   /**
@@ -552,25 +637,51 @@ class LayoutState {
     // growing by exactly that much. Without this the posts column jumped to its
     // remembered three-pane width and the article took the remainder, so a
     // layout you had shaped by hand came back rearranged.
-    // Only when the window is too narrow for the three columns it already has:
-    // a window that is wide enough keeps its panes and the slack goes to the
-    // article, which is what makes 2 ↔ 3 repeatable instead of marching the
-    // window rightwards on every press.
+    //
+    // But extending is the *fallback*, for when the window genuinely cannot buy
+    // the third column: no resize capability at all, or a screen that ends before
+    // the columns do. Pressing 3 has to bring the article back where it was, and
+    // adopting the two-pane posts width instead is how a return trip came back
+    // rearranged — 3 → 2 → 3 handed you a posts column 394 wide where you left
+    // one 567. So: grow to the columns and restore them, and only fold the new
+    // column out of what is already on screen when growing is not an option.
+    const growable = canFitWindow() && (limit === null || this.fitThresholds.three <= limit);
     if (
       mode === 3 &&
       this.mode === 2 &&
       this.keepWidths &&
-      this.available < this.thresholds.three
+      this.available < this.thresholds.three &&
+      !growable
     ) {
       this.panes = extendToThree(this.panes, this.available, this.device, limit, this.stacked);
       this.syncThresholds();
     }
+    // And the same rule on the way back: pressing 2 does not reshuffle the
+    // posts column, it takes the article away and the window shrinks by exactly
+    // that. The posts column was being re-drawn at the two-pane width instead
+    // (260 against the 366 it was showing), so the thing you were reading got
+    // narrower at the same moment the article left — a reflow dressed up as a
+    // slide. The width on screen is the width it keeps; the two-pane shape is
+    // what a two-pane *window* looks like, not a second opinion about the
+    // column you were just in.
+    // Keep widths only: there the frame follows the panes, so the window can
+    // shrink by the article's width and the column you were reading stays put.
+    // Sharing the window it is the other way round — the frame is fixed and the
+    // panes take its proportions — so carrying a wide three-pane column into two
+    // panes there just drew columns wider than the window they live in.
+    if (mode === 2 && this.mode === 3 && this.keepWidths) {
+      const posts = this.shown.list;
+      if (posts !== this.panes.list2) {
+        this.panes = { ...this.panes, list2: posts };
+        this.syncThresholds();
+      }
+    }
     this.setMode(mode);
     const target = fitTarget(
       mode,
-      this.available,
+      this.drawn,
       this.device,
-      this.thresholds,
+      this.fitThresholds,
       limit,
       this.keepWidths,
     );
@@ -683,7 +794,7 @@ class LayoutState {
     const defaults = defaultWidths(this.device);
     const next: PaneLayout =
       mode === 3
-        ? { ...this.panes, list3: defaults.list, article: DEFAULT_LAYOUT.article }
+        ? { ...this.panes, list3: defaultList3(this.device), article: DEFAULT_LAYOUT.article }
         : { ...this.panes, list2: defaults.list };
     this.panes = settleRequirement(intentLayout(next, this.device), mode, this.available, this.device, this.stacked);
     this.syncThresholds();
@@ -695,7 +806,7 @@ class LayoutState {
   paneEdited(mode: 2 | 3): boolean {
     const defaults = defaultWidths(this.device);
     return mode === 3
-      ? this.panes.list3 !== defaults.list || this.panes.article !== DEFAULT_LAYOUT.article
+      ? this.panes.list3 !== defaultList3(this.device) || this.panes.article !== DEFAULT_LAYOUT.article
       : this.panes.list2 !== defaults.list;
   }
 
@@ -703,7 +814,7 @@ class LayoutState {
   resetThresholds(): void {
     const defaults = defaultWidths(this.device);
     this.panes = intentLayout(
-      { ...DEFAULT_LAYOUT, sidebar: defaults.sidebar, list2: defaults.list, list3: defaults.list },
+      { ...DEFAULT_LAYOUT, sidebar: defaults.sidebar, list2: defaults.list, list3: defaultList3(this.device) },
       this.device,
     );
     this.thresholds = { ...THRESHOLDS[this.device] };
@@ -898,9 +1009,9 @@ class LayoutState {
     if (value) {
       return fitTarget(
         this.desired,
-        this.available,
+        this.drawn,
         this.device,
-        this.thresholds,
+        this.fitThresholds,
         this.monitor,
         true,
       );
@@ -971,7 +1082,7 @@ class LayoutState {
    */
   commitThreshold(): void {
     if (!canFitWindow()) return;
-    const target = fitTarget(this.mode, this.available, this.device, this.thresholds, this.monitor, this.keepWidths);
+    const target = fitTarget(this.mode, this.drawn, this.device, this.fitThresholds, this.monitor, this.keepWidths);
     if (target === null || target <= this.available) return;
     void this.fitWindowForMode(this.mode);
   }
@@ -985,7 +1096,7 @@ class LayoutState {
    */
   private async fitWindowForMode(mode: PaneMode): Promise<boolean> {
     void this.loadMonitor();
-    const target = fitTarget(mode, this.available, this.device, this.thresholds, this.monitor, this.keepWidths);
+    const target = fitTarget(mode, this.drawn, this.device, this.fitThresholds, this.monitor, this.keepWidths);
     if (target === null || !canFitWindow()) {
       this.pressTarget = null;
       this.settle(false);
@@ -1085,7 +1196,7 @@ class LayoutState {
     });
     const defaults = defaultWidths(this.device);
     this.panes = intentLayout(
-      { ...DEFAULT_LAYOUT, sidebar: defaults.sidebar, list2: defaults.list, list3: defaults.list },
+      { ...DEFAULT_LAYOUT, sidebar: defaults.sidebar, list2: defaults.list, list3: defaultList3(this.device) },
       this.device,
     );
     this.syncThresholds();

@@ -110,13 +110,17 @@ check("1 requested stays 1", effectiveMode(1, 1440) === 1);
 // flips between one and two panes, and a threshold slider rearranges the panes
 // while the pointer is still on the track.
 check("no current mode means no dead zone", effectiveMode(2, 701) === 2 && effectiveMode(2, 699) === 1);
+// The band is charged on the way out of a mode, not on the way in: growth arrives
+// at the boundary itself, so a window with exactly the width a mode needs draws
+// it. Charging it both ways made "resize until it fits" land 120px late.
 check(
-  "growing needs the window past the width by the whole band",
-  effectiveMode(2, 700 + MODE_HYSTERESIS - 1, "desktop", THRESHOLDS.desktop, 1) === 1,
+  "growing arrives at the boundary itself",
+  effectiveMode(2, 700 - 1, "desktop", THRESHOLDS.desktop, 1) === 1 &&
+    effectiveMode(2, 700, "desktop", THRESHOLDS.desktop, 1) === 2,
 );
 check(
-  "and then it grows",
-  effectiveMode(2, 700 + MODE_HYSTERESIS, "desktop", THRESHOLDS.desktop, 1) === 2,
+  "and leaving still waits out the band",
+  effectiveMode(2, 700 - MODE_HYSTERESIS + 1, "desktop", THRESHOLDS.desktop, 2) === 2,
 );
 check(
   "shrinking needs it past the boundary by the whole band too",
@@ -131,9 +135,9 @@ check(
   [701, 720, 760, 790].every((w) => effectiveMode(3, w, "desktop", THRESHOLDS.desktop, 2) === 2),
 );
 check(
-  "three panes get the same treatment on both edges",
-  effectiveMode(3, 1000 + MODE_HYSTERESIS - 1, "desktop", THRESHOLDS.desktop, 2) === 2 &&
-    effectiveMode(3, 1000 + MODE_HYSTERESIS, "desktop", THRESHOLDS.desktop, 2) === 3 &&
+  "three panes arrive on their boundary and leave a band under it",
+  effectiveMode(3, 1000 - 1, "desktop", THRESHOLDS.desktop, 2) === 2 &&
+    effectiveMode(3, 1000, "desktop", THRESHOLDS.desktop, 2) === 3 &&
     effectiveMode(3, 1000 - MODE_HYSTERESIS + 1, "desktop", THRESHOLDS.desktop, 3) === 3 &&
     effectiveMode(3, 1000 - MODE_HYSTERESIS, "desktop", THRESHOLDS.desktop, 3) === 2,
 );
@@ -169,7 +173,13 @@ const dragged = dragPane("sidebar", { sidebar: 280, list: 380 }, 40, 3, 1440);
 check("dragging the sidebar moves it by the delta", dragged.sidebar === 320, JSON.stringify(dragged));
 const overDragged = dragPane("sidebar", { sidebar: 280, list: 380 }, -400, 3, 1440);
 check("dragging past the minimum stops at it", overDragged.sidebar === MIN.sidebar, JSON.stringify(overDragged));
-check("double-click reset", resetPane("sidebar") === 280 && resetPane("list") === 380);
+check(
+  "double-click reset",
+  // The shipped widths, which are the owner's: a drawer at its own minimum and a
+  // posts column narrow enough that three columns fit an ordinary laptop.
+  resetPane("sidebar") === 240 && resetPane("list") === 260,
+  `sidebar ${resetPane("sidebar")}, list ${resetPane("list")}`,
+);
 check("keyboard nudge", nudge({ sidebar: 280, list: 380 }, "sidebar", 1).sidebar === 296);
 check("shift nudge", nudge({ sidebar: 280, list: 380 }, "sidebar", -1, true).sidebar === 216);
 

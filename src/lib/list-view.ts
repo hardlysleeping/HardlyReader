@@ -70,7 +70,7 @@ export const ROW_ENDS = ["half", "pill"] as const;
 
 export type RowEnd = (typeof ROW_ENDS)[number];
 
-export const ROW_END_DEFAULT: RowEnd = "half";
+export const ROW_END_DEFAULT: RowEnd = "pill";
 
 export function isRowEnd(value: unknown): value is RowEnd {
   return typeof value === "string" && (ROW_ENDS as readonly string[]).includes(value);

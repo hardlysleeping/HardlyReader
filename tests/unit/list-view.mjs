@@ -661,8 +661,8 @@ check(
     !isRowEnd("full") && !isRowEnd(null) && !isRowEnd(undefined) && !isRowEnd(1),
 );
 check(
-  "the half turn is the shape that is drawn, and the pill is still one press away",
-  ROW_END_DEFAULT === "half" &&
+  "the pill is the shape that is drawn, and the half turn is still one press away",
+  ROW_END_DEFAULT === "pill" &&
     /rowsEnd = \$state<RowEnd>\(ROW_END_DEFAULT\)/.test(readingSource) &&
     /setRowsEnd\(next: RowEnd\)/.test(readingSource) &&
     /toggleRowsEnd\(\): void \{\s*this\.setRowsEnd\(this\.rowsEnd === "half" \? "pill" : "half"\);/.test(

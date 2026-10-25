@@ -186,7 +186,12 @@ check("every side is a known side, and junk falls back", () => {
   assert.equal(isThumbSide("left"), true);
   assert.equal(isThumbSide("sideways"), false);
   assert.equal(isThumbSide(undefined), false);
-  assert.equal(THUMB_SIDE_LABELS[THUMB_SIDE_INITIAL], "Right", "the shipped position is unchanged");
+  // A fresh install now opens with the picture on the left (THUMB_SIDE_INITIAL
+  // in src/lib/reading-layout.ts). This is the default only: ReadingState.load()
+  // still applies isThumbSide(saved.thumbSide) over it, so a reader who saved
+  // Right keeps Right.
+  assert.equal(THUMB_SIDE_LABELS[THUMB_SIDE_INITIAL], "Left", "a new install puts the picture on the left");
+  assert.equal(THUMB_SIDE_LABELS.right, "Right", "Right is still one of the sides offered");
 });
 
 check("the article picture is on by default and is a setting", () => {
@@ -195,10 +200,13 @@ check("the article picture is on by default and is a setting", () => {
 });
 
 check("Reset restores the picture size but leaves its side alone", () => {
-  const dirty = { ...LAYOUT_INITIAL, thumbScale: 1.8, thumbSide: "left" };
+  // "right" is a side the reader chose, not the fresh-install default (left),
+  // so this still proves the side is outside isDefaultLayout.
+  const dirty = { ...LAYOUT_INITIAL, thumbScale: 1.8, thumbSide: "right" };
   assert.equal(isDefaultLayout(dirty), false, "a moved picture is not defaults");
   const reset = { ...dirty, thumbScale: THUMB_SCALE.initial };
   assert.equal(isDefaultLayout(reset), true, "size is a quantity; the side is a position he chose");
+  assert.equal(reset.thumbSide, "right", "Reset must not move the picture back to the default side");
 });
 
 check("one step size governs every scale, and 5% is the default", () => {

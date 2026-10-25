@@ -4,6 +4,39 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-10-25
+
+The window decides how many panes it can hold, and the panes give way one at a
+time instead of all at once.
+
+### Added
+
+- **A stacked three is priced as a two-pane window.** Three panes drawn as a pair
+  spend one content column, so the width they need is the width two panes need —
+  the layout's own two-pane minimum — rather than the price of a third column
+  that is not being drawn.
+- **Panes tuck away in order.** Shrinking a window with three panes chosen goes
+  three columns, then the stacked pair, then two panes, then one, each at its own
+  width. It used to jump from the stack straight to a single column.
+
+### Fixed
+
+- **A press slides instead of snapping.** Every press that asks the window to
+  resize was cutting its own slide short: the frame's arrival switched the
+  transitions off in the frame the slide was due to travel. Only visible with
+  Keep widths on, because that is the mode where a press resizes the window.
+- **Pressing 3 while the pair was forced stacked** asked for the stack's cheap
+  width instead of the columns', so the frame never grew and the button looked
+  dead.
+
+### Changed
+
+- **Auto is the real dark or the real light theme**, not a third charcoal palette
+  in between.
+- **Sidebar counts follow Trim**, so the counts and the trim colour agree.
+- **Fresh installs open with the thumbnail on the left**, rows in the Pill shape,
+  and narrower columns, matching the layout this app is developed against.
+
 ## [0.4.0] — 2026-10-25
 
 One column that actually works as one column, rows that carry a picture and an

@@ -167,7 +167,14 @@
       // lands the columns at the end value in one frame. That is the press that
       // snapped instead of sliding, and it only happened when the window
       // happened to report its new size while the slide was still running.
-      if (!layout.pressing) {
+      //
+      // `sliding` is the other half of it, and the half that made every press
+      // with Keep widths on snap: the resize call lands in the middle of the
+      // slide, `setAvailable` clears `pressing` as it lands, and this guard then
+      // read false and armed `resizing` at the exact frame the transition was
+      // due to finish its travel. Sharing the window, no press resizes anything,
+      // so the slide was never interrupted — which is why only Keep widths broke.
+      if (!layout.pressing && !sliding) {
         resizing = true;
         if (resizeTimer !== null) clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => (resizing = false), RESIZE_SETTLE_MS);
