@@ -20,18 +20,22 @@ export type ListView = (typeof LIST_VIEWS)[number];
 export const LIST_VIEW_DEFAULT: ListView = "regular";
 
 export const LIST_VIEW_LABELS: Record<ListView, string> = {
-  regular: "Regular",
+  regular: "Rows",
   list: "Tree",
   cards: "Cards",
   grid: "Grid",
 };
 
-/** Longer wording for the tooltip, so the pill stays short. */
+/**
+ * What each of those four words means, in as few words as it takes — this is the
+ * line under the pointer, not a paragraph, and it is the only place the views
+ * are described at all.
+ */
 export const LIST_VIEW_TITLES: Record<ListView, string> = {
-  regular: "Regular rows: preview, byline and the feed's picture",
-  list: "Tree: posts filed under their month, week and day",
-  cards: "Cards: the picture above the headline, one per row",
-  grid: "Grid: tiles side by side, headline only",
+  regular: "Rows: picture, headline and byline, one post per line",
+  list: "Tree: the same posts filed under their month, week and day",
+  cards: "Cards: each picture above its headline, scrolled sideways",
+  grid: "Grid: pictures as tiles, headline only, many at once",
 };
 
 /**

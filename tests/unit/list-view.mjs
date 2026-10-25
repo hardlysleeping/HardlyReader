@@ -724,7 +724,26 @@ check(
 check(
   "the one-line view is the tree, and says so",
   LIST_VIEW_LABELS.list === "Tree" &&
-    /^Tree: posts filed under their month, week and day$/.test(LIST_VIEW_TITLES.list),
+    /^Tree: the same posts filed under their month, week and day$/.test(LIST_VIEW_TITLES.list),
+);
+
+/* Four views, four words. The row view used to be "Regular", which described it
+   against nothing and sat in front of "rows" as though rows were a kind of
+   regular; it is Rows, beside Tree, Cards and Grid, and the sentence under the
+   pointer is what says what each one is. */
+check(
+  "the four views are one word each, in the same voice",
+  LIST_VIEWS.map((view) => LIST_VIEW_LABELS[view]).join(" ") === "Rows Tree Cards Grid" &&
+    LIST_VIEWS.every((view) => /^[A-Z][a-z]+$/.test(LIST_VIEW_LABELS[view])),
+);
+check(
+  "and each is described in one short line under the pointer, beginning with its name",
+  LIST_VIEWS.every(
+    (view) =>
+      LIST_VIEW_TITLES[view].startsWith(`${LIST_VIEW_LABELS[view]}: `) &&
+      LIST_VIEW_TITLES[view].length <= 64 &&
+      !/[.!]\s*$/.test(LIST_VIEW_TITLES[view]),
+  ),
 );
 check(
   "the tree indents by one step per level, and the posts a step past the deepest tab",

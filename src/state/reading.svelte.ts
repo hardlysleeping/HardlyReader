@@ -329,7 +329,7 @@ class ReadingState {
   /**
    * Read in the posts column, or in the article column beside it.
    *
-   * Only Regular rows offer this: the other three views answer "scan many
+   * Only Rows offers this: the other three views answer "scan many
    * posts", and a page inside one of them would be a second kind of card.
    */
   toggleReadInPane(): void {

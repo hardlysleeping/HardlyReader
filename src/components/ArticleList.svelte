@@ -1192,7 +1192,7 @@
           {/if}
           <span class="body">
             <span class="line">
-              <!-- Only the one-line view carries the marker: in Regular rows and
+              <!-- Only the one-line view carries the marker: in Rows and
                    on a card it took a dot's width off the headline's left edge,
                    which is the edge of the pane. Those say whether a post is
                    read with the row itself. -->
