@@ -348,5 +348,36 @@ check(
   String((main.match(/style:grid-template-rows=/g) ?? []).length),
 );
 
+// The cards read their wheel against a port, and nested there is no port here.
+// In one column the posts hang under the feed row with `overflow: visible`, so
+// the sidebar's feed box is what scrolls. Measuring `itemsEl` there measured the
+// whole column as a pane as tall as its content: every card "fit", the wheel
+// claimed the delta for a step, and the step was written to an element that
+// cannot scroll — the wheel did nothing at all while the drag, which moves the
+// sidebar itself, still worked.
+const listSrc = readFileSync(join(root, "src/components/ArticleList.svelte"), "utf8");
+check(
+  "the nested list looks for the box that really scrolls",
+  /function scrollPort\(\): HTMLElement \| null \{[\s\S]{0,900}?if \(el === null \|\| !nested\) return el;/.test(listSrc) &&
+    /for \(let p = el\.parentElement; p !== null; p = p\.parentElement\)/.test(listSrc) &&
+    /overflowY !== "auto" && overflowY !== "scroll"/.test(listSrc),
+);
+check(
+  "and every card measurement and the wheel use it",
+  ["currentCard", "cardFits", "centreCard", "onListWheel"].every((fn) =>
+    new RegExp(`function ${fn}\\([^)]*\\)[^{]*\\{[\\s\\S]{0,160}?const el = scrollPort\\(\\)`).test(listSrc),
+  ),
+);
+check(
+  "and the drag stays the sidebar's, not a card step",
+  /function onPanDown\(event: PointerEvent\): void \{\s*\/\/[\s\S]{0,220}?if \(nested\) return;/.test(listSrc) &&
+    /if \(nested \|\| view !== "cards"/.test(listSrc),
+);
+check(
+  "and the middle card is read from the box that moved",
+  /if \(outer !== null\) outer\.addEventListener\("scroll", onPortScroll/.test(listSrc) &&
+    /if \(outer !== null\) outer\.removeEventListener\("scroll", onPortScroll\);/.test(listSrc),
+);
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

@@ -416,6 +416,33 @@
   }
 
   /**
+   * The box the cards are actually scrolled in.
+   *
+   * As a pane of its own this list is its own port, and `itemsEl` is it. Nested
+   * under a feed row — the one-pane layout, where the list hangs under the feed
+   * it belongs to — the list is only a block: it has `overflow: visible`, no
+   * height of its own and no scrollbar, and the sidebar's feed box is what
+   * moves. Measuring and scrolling `itemsEl` there measured the whole column as
+   * if it were a pane the height of its content, so every card "fit" and the
+   * wheel took the delta for a step and then wrote the scroll to an element that
+   * cannot scroll — which is why the wheel did nothing at all in one-pane cards
+   * while the drag, which moves the sidebar itself, still worked. The nearest
+   * scrollable ancestor is the port in that case.
+   */
+  function scrollPort(): HTMLElement | null {
+    const el = itemsEl;
+    if (el === null || !nested) return el;
+    let loose: HTMLElement | null = null;
+    for (let p = el.parentElement; p !== null; p = p.parentElement) {
+      const overflowY = getComputedStyle(p).overflowY;
+      if (overflowY !== "auto" && overflowY !== "scroll") continue;
+      if (p.scrollHeight > p.clientHeight + 1) return p;
+      loose ??= p;
+    }
+    return loose ?? el;
+  }
+
+  /**
    * The card in the middle of the pane: the one being read.
    *
    * The nearest card to the middle, by the distance from the pane's middle to
@@ -429,7 +456,7 @@
    * the thread has already been centred.
    */
   function currentCard(): HTMLElement | null {
-    const el = itemsEl;
+    const el = scrollPort();
     if (!el) return null;
     const middle = el.getBoundingClientRect().top + el.clientHeight / 2;
     let best: HTMLElement | null = null;
@@ -447,7 +474,7 @@
 
   /** A card that fits the pane, so the whole of it is on screen at once. */
   function cardFits(row: HTMLElement): boolean {
-    const el = itemsEl;
+    const el = scrollPort();
     if (!el) return false;
     return row.getBoundingClientRect().height <= el.clientHeight + 1;
   }
@@ -562,7 +589,7 @@
   function syncSnap(): void {
     const card = view === "cards" ? currentCard() : null;
     tallCard = !!card && !cardFits(card);
-    const el = itemsEl;
+    const el = scrollPort();
     if (card && tallCard && el) {
       const port = el.getBoundingClientRect();
       const box = card.getBoundingClientRect();
@@ -738,7 +765,7 @@
    * to the top instead and read by scrolling it.
    */
   function centreCard(card: HTMLElement): void {
-    const el = itemsEl;
+    const el = scrollPort();
     if (!el) return;
     const port = el.getBoundingClientRect();
     const box = card.getBoundingClientRect();
@@ -786,16 +813,33 @@
    * that needs a non-passive listener.
    */
   function cardWheel(el: HTMLElement) {
+    const port = scrollPort();
+    let snapFrameNested = 0;
+    const onPortScroll = (): void => {
+      if (view !== "cards" || snapFrameNested) return;
+      snapFrameNested = requestAnimationFrame(() => {
+        snapFrameNested = 0;
+        syncSnap();
+      });
+    };
     el.addEventListener("wheel", onListWheel, { passive: false });
     el.addEventListener("pointerdown", onPanDown);
     window.addEventListener("pointerup", onPanUp);
     window.addEventListener("pointercancel", onPanUp);
+    // Nested, the rows travel with the sidebar, and this block never fires a
+    // scroll of its own — so the card in the middle has to be read from the
+    // box that actually moved, or the one that was middle when the feed opened
+    // stays the one drawn at full weight.
+    const outer: HTMLElement | null = port !== null && port !== el ? port : null;
+    if (outer !== null) outer.addEventListener("scroll", onPortScroll, { passive: true });
     return {
       destroy() {
         el.removeEventListener("wheel", onListWheel);
         el.removeEventListener("pointerdown", onPanDown);
         window.removeEventListener("pointerup", onPanUp);
         window.removeEventListener("pointercancel", onPanUp);
+        if (outer !== null) outer.removeEventListener("scroll", onPortScroll);
+        cancelAnimationFrame(snapFrameNested);
         resetListPull();
       },
     };
@@ -818,6 +862,9 @@
   let panTop = 0;
 
   function onPanDown(event: PointerEvent): void {
+    // A nested list has no port of its own: its drag is the sidebar's, which
+    // pans the rows 1:1 and does not step a card on release.
+    if (nested) return;
     if (view !== "cards" || event.pointerType !== "mouse") return;
     const el = itemsEl;
     if (!el) return;
@@ -828,7 +875,7 @@
   function onPanUp(event: PointerEvent): void {
     const from = panFrom;
     panFrom = null;
-    if (view !== "cards" || !from || event.pointerType !== "mouse") return;
+    if (nested || view !== "cards" || !from || event.pointerType !== "mouse") return;
     const el = itemsEl;
     if (!el) return;
     const moved = el.scrollTop - panTop;
@@ -853,7 +900,7 @@
   }
 
   function onListWheel(event: WheelEvent): void {
-    const el = itemsEl;
+    const el = scrollPort();
     if (view !== "cards" || !reading.advanceOnScroll || !el || event.deltaY === 0) {
       resetListPull();
       return;
