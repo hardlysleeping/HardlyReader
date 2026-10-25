@@ -117,6 +117,7 @@
     controls,
     onsignout,
     ontogglesidebar,
+    textTarget = "article",
   }: {
     /** Layout controls, owned by the view rather than by the header. */
     controls?: Snippet;
@@ -126,6 +127,12 @@
     server?: string;
     onsignout?: () => void;
     ontogglesidebar?: () => void;
+    /**
+     * What the bar's A− and A+ resize. They belong to whichever column is open:
+     * with no article on screen the only text there is the list's, so pressing
+     * them there must not resize a page nobody can see.
+     */
+    textTarget?: "article" | "list";
   } = $props();
 
   /**
@@ -262,7 +269,7 @@
   <!-- Hidden as a group when the bar is compact; their panels open from the
        menu, and a fixed panel does not care that its trigger is not drawn. -->
   <span class="tools">
-    <ReadingControls bind:this={readingControls} />
+    <ReadingControls bind:this={readingControls} target={textTarget} />
     <ThemePanel bind:this={themePanel} />
   </span>
 

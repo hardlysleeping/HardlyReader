@@ -51,6 +51,8 @@ const read = (path) => readFileSync(join(root, path), "utf8");
 const layout = read("src/state/layout.svelte.ts");
 const gutter = read("src/components/PaneGutter.svelte");
 const main = read("src/views/Main.svelte");
+const header = read("src/components/Header.svelte");
+const readingControls = read("src/components/ReadingControls.svelte");
 
 /**
  * The column as the app draws it, from the same values the seam writes.
@@ -524,7 +526,7 @@ check(
   );
   check(
     "and its slot is the slot the tuck keeps, at every tuck",
-    /class="slot seam-y gut-stack" class:away=\{!slots\.seamStack\}/.test(main) &&
+    /class="slot seam-y gut-stack" class:away=\{!slots\.seamStack \|\| inPane\}/.test(main) &&
       paneSlots({ mode: 3, level: "article", stacked: true, collapsed: false, tuck: null, swapped: false }).seamStack ===
         paneSlots({ mode: 3, level: "article", stacked: true, collapsed: false, tuck: "top", swapped: false }).seamStack,
   );
@@ -570,6 +572,34 @@ check(
   /\.restore-bar button \{[\s\S]{0,300}height: 24px;/.test(gutter) &&
     /\.restore-bar \{[\s\S]{0,400}pointer-events: none;/.test(gutter) &&
     /\.restore-bar button \{[\s\S]{0,400}pointer-events: auto;/.test(gutter),
+);
+
+/* Reading a post inside the posts column, where the article is stacked below it.
+   The pair is two rows of one column, so the page takes both of them; a page that
+   only took the list's row would sit above the article it meant to replace. */
+check(
+  "a page read in the list takes both rows of the stacked pair",
+  /\.panes\.stacked \.slot\.posts\.reading \{\s*grid-row: 2 \/ 5;/.test(main) &&
+    // Nothing about the stack's shape can switch the option off any more.
+    /\.slot\.posts\.reading/.test(main) &&
+    !/readInPane[\s\S]{0,400}!stackDrawn/.test(main),
+);
+
+/* The bar's A− and A+ belong to whichever column is open. With no article drawn
+   they are the list's buttons; the panel still names both sizes on their own. */
+check(
+  "the bar's size buttons follow the column that is open",
+  /textTarget=\{articleShown \? "article" : "list"\}/.test(main) &&
+    /const articleShown = \$derived\(Boolean\(slots\.article\) \|\| inPane \|\| level === "article"\);/.test(
+      main,
+    ) &&
+    /<ReadingControls bind:this=\{readingControls\} target=\{textTarget\} \/>/.test(header) &&
+    /let \{ target = "article" \}: \{ target\?: "article" \| "list" \} = \$props\(\);/.test(
+      readingControls,
+    ) &&
+    /if \(onList\) reading\.stepRowScale\(direction\);\s*else reading\.stepTextScale\(direction\);/.test(
+      readingControls,
+    ),
 );
 
 console.log(`${checks - failures}/${checks} checks passed`);

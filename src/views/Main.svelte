@@ -336,17 +336,18 @@
   /**
    * Reading in the posts column rather than in the article column beside it.
    *
-   * The option belongs to the Rows view, and to the arrangements where there is
-   * an article column to borrow room from. In the stacked pair and in two panes
-   * the article already has its own half of the frame, so the flag changes
-   * nothing there.
+   * The option belongs to the Rows view, and to the arrangements that draw an
+   * article beside the list: three panes, the folded pair, and the stacked pair
+   * — where the article has a pane of its own below the list, and reading here
+   * means the post opens above instead of below. In two unfolded panes the
+   * article already has the other half of the frame, so the flag changes nothing
+   * there.
    */
   const inPane = $derived(
     reading.readInPane &&
       reading.listView === "regular" &&
       reader.selectedId !== null &&
-      (mode === 3 || (mode === 2 && folded)) &&
-      !stackDrawn,
+      (mode === 3 || (mode === 2 && folded)),
   );
 
   const slots = $derived(
@@ -359,6 +360,14 @@
       swapped: layout.stackSwapped,
     }),
   );
+
+  /**
+   * Is there article text on screen for the bar's A− and A+ to resize? An article
+   * column, a page drawn over the list, or the one-pane view showing a post —
+   * anywhere the page is what the reader is looking at. Where it is not — the
+   * list alone, or the folded pair — the buttons resize the list instead.
+   */
+  const articleShown = $derived(Boolean(slots.article) || inPane || level === "article");
 
   /**
    * The frame's five column tracks, for the fold this mode draws.
@@ -622,6 +631,7 @@
     controls={layoutSwitch}
     {onsignout}
     ontogglesidebar={showFeeds}
+    textTarget={articleShown ? "article" : "list"}
   />
 
   <!-- The seam under the bar doubles as the activity light. -->
@@ -755,7 +765,7 @@
     <!-- The seam between the posts and the article when they are stacked: the
          swap and tuck controls live on it, and it stays where the share is even
          while one of the two panes is away. -->
-    <div class="slot seam-y gut-stack" class:away={!slots.seamStack}>
+    <div class="slot seam-y gut-stack" class:away={!slots.seamStack || inPane}>
       <PaneGutter axis="y" />
     </div>
   </div>
@@ -1127,6 +1137,13 @@
   .panes.three .slot.posts.reading,
   .panes.two.folded .slot.posts.reading {
     grid-column: 3 / -1;
+  }
+
+  /* Reading here in the stacked pair: the list's column is the whole column, so
+     the page takes both of its rows — the list's and the article's — rather than
+     the list's alone. */
+  .panes.stacked .slot.posts.reading {
+    grid-row: 2 / 5;
   }
 
   /* The stack on the phone is the same pair in the only column there is. */

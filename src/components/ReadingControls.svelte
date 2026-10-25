@@ -32,6 +32,27 @@
   import { reading } from "../state/reading.svelte";
   import { FLIP_EDGE } from "../lib/reading-layout";
 
+  /**
+   * What the two bar buttons resize: the article's text, or — when no article is
+   * on screen — the list's. One pair of buttons, pointing at the column the
+   * reader is actually looking at. The panel below keeps both sizes named
+   * explicitly, so each can still be set on its own.
+   */
+  let { target = "article" }: { target?: "article" | "list" } = $props();
+
+  const onList = $derived(target === "list");
+  const stepScaleSpec = $derived(onList ? ROW_SCALE : TEXT_SCALE);
+  const stepValue = $derived(onList ? reading.rowScale : reading.textScale);
+  const stepPercentReadout = $derived(scalePercent(stepValue, stepScaleSpec));
+  const stepSmaller = $derived(atScaleLimit(stepValue, -1, stepScaleSpec));
+  const stepBigger = $derived(atScaleLimit(stepValue, 1, stepScaleSpec));
+  const stepWhat = $derived(onList ? "list text" : "text");
+
+  function step(direction: 1 | -1): void {
+    if (onList) reading.stepRowScale(direction);
+    else reading.stepTextScale(direction);
+  }
+
   let open = $state(false);
 
   /** Opened from the compact menu, where the Aa has no room to sit. */
@@ -87,19 +108,19 @@
   <!-- The two that are pressed repeatedly live on the bar itself. -->
   <button
     class="step small"
-    onclick={() => reading.stepTextScale(-1)}
-    disabled={smallerTextAtLimit}
-    aria-label="Smaller text"
-    title={`Smaller text (${textPercent})`}
+    onclick={() => step(-1)}
+    disabled={stepSmaller}
+    aria-label={`Smaller ${stepWhat}`}
+    title={`Smaller ${stepWhat} (${stepPercentReadout})`}
   >
     <span aria-hidden="true">A<span class="sign">−</span></span>
   </button>
   <button
     class="step big"
-    onclick={() => reading.stepTextScale(1)}
-    disabled={biggerTextAtLimit}
-    aria-label="Bigger text"
-    title={`Bigger text (${textPercent})`}
+    onclick={() => step(1)}
+    disabled={stepBigger}
+    aria-label={`Bigger ${stepWhat}`}
+    title={`Bigger ${stepWhat} (${stepPercentReadout})`}
   >
     <span aria-hidden="true">A<span class="sign">+</span></span>
   </button>

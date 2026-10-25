@@ -1858,12 +1858,32 @@ import { plainPreview, relativeTime } from "../lib/format";
       inset 0 -5px 9px -8px color-mix(in srgb, var(--accent) 40%, transparent);
   }
 
+  /* The picture in a footed row sits level with the title rather than centred on
+     the row — a centred picture on a tall row hangs low, into the turn — and the
+     square is a little smaller than it is in the pill's shape, with a margin
+     under it of its own, so even the shortest row keeps the foot's 30px clear of
+     it. Its height is fixed, so a picture can never stretch a row. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .thumb {
+    width: calc(44px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    height: calc(44px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    align-self: flex-start;
+    margin-top: 3px;
+    margin-bottom: 10px;
+  }
+
+  /* Off the accent a little further than the text sits: a coloured block against
+     a coloured edge reads as touching long before it actually does. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .thumb.left {
+    margin-left: 2px;
+    margin-right: 10px;
+  }
+
   /* The row's own content clears that new left edge by the 11px the actions
      clear the right one with, so a picture on the leading side is inset like the
      marks on the trailing side instead of sitting on the accent — which is what
      clipped it against the turn. Nothing on the right moves. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .item {
-    padding-left: 11px;
+    padding-left: 14px;
   }
 
   /* The pill steps in from the end it sits against, and follows the foot's

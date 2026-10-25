@@ -663,7 +663,7 @@ check(
 );
 check(
   "the new shape only ever applies to a row, never to cards, the grid or the compact list",
-  (listSource.match(/\.items\.half-end/g) ?? []).length === 5 &&
+  (listSource.match(/\.items\.half-end/g) ?? []).length === 7 &&
     (listSource.match(/\.items\.half-end[^,{]*\{/g) ?? []).every((rule) =>
       rule.includes(":not(.compact):not(.cards):not(.grid)"),
     ) &&
@@ -675,12 +675,12 @@ check(
    content clears the new left edge by the 11px the actions clear the right.
    The right-hand numbers are asserted above and are not restated here. */
 check(
-  "both ends of the foot are the same: one thickness on three sides, 9px in from the pane, 11px of clearance",
+  "both ends of the foot are the same: one thickness on three sides, 9px in from the pane, 14px of clearance",
   /\.items\.half-end[^{]*\.row \{[^}]*margin-left: 9px;/.test(listSource) &&
     /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
       listSource,
     ) &&
-    /\.items\.half-end[^{]*\.item \{\s*padding-left: 11px;/.test(listSource) &&
+    /\.items\.half-end[^{]*\.item \{\s*padding-left: 14px;/.test(listSource) &&
     // The right side keeps its own 9px: the left is a copy, not a replacement.
     /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,1600}?margin-right: 9px;/.test(
       listSource,
