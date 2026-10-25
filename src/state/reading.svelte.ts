@@ -10,6 +10,7 @@ import { isArticleFilter, type ArticleFilter } from "../lib/article-filter";
 import {
   CARD_SIZE_DEFAULT,
   CURVE_DEFAULT,
+  FLUSH_THUMB_DEFAULT,
   clampCurve,
   GRID_COLUMNS_DEFAULT,
   isCardSize,
@@ -106,6 +107,9 @@ class ReadingState {
    */
   curvePill = $state(CURVE_DEFAULT.pill);
   curveHalf = $state(CURVE_DEFAULT.half);
+
+  /** The picture fills the row's corner in the footed shape, or sits inside it. */
+  flushThumb = $state(FLUSH_THUMB_DEFAULT);
 
   /** Tiles per row in the grid; `auto` is the grid's own judgement. */
   gridColumns = $state<GridColumns>(GRID_COLUMNS_DEFAULT);
@@ -220,6 +224,7 @@ class ReadingState {
         rowsEnd?: unknown;
         curvePill?: unknown;
         curveHalf?: unknown;
+        flushThumb?: unknown;
         gridColumns?: unknown;
         cardSize?: unknown;
         markReadMode?: unknown;
@@ -245,6 +250,7 @@ class ReadingState {
       if (isRowEnd(saved.rowsEnd)) this.rowsEnd = saved.rowsEnd;
       if (saved.curvePill !== undefined) this.curvePill = clampCurve(saved.curvePill);
       if (saved.curveHalf !== undefined) this.curveHalf = clampCurve(saved.curveHalf);
+      if (typeof saved.flushThumb === "boolean") this.flushThumb = saved.flushThumb;
       if (isGridColumns(saved.gridColumns)) this.gridColumns = saved.gridColumns;
       if (isCardSize(saved.cardSize)) this.cardSize = saved.cardSize;
       // An explicit choice of mode is honoured; the old bare `autoMarkRead`
@@ -357,6 +363,12 @@ class ReadingState {
       if (this.curveHalf === value) return;
       this.curveHalf = value;
     }
+    this.save();
+  }
+
+  /** The picture fills the corner, or sits inside it. */
+  toggleFlushThumb(): void {
+    this.flushThumb = !this.flushThumb;
     this.save();
   }
 
@@ -493,6 +505,7 @@ class ReadingState {
           rowsEnd: this.rowsEnd,
           curvePill: this.curvePill,
           curveHalf: this.curveHalf,
+          flushThumb: this.flushThumb,
           gridColumns: this.gridColumns,
           cardSize: this.cardSize,
           markReadMode: this.autoMarkRead ? "auto" : "manual",

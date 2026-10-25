@@ -91,6 +91,17 @@ export const ROW_CURVE = { min: 0, max: 60, step: 2, initial: 30 } as const;
 /** What each shape starts at. The pill came down with the slider. */
 export const CURVE_DEFAULT: Record<RowEnd, number> = { pill: 24, half: 30 };
 
+/**
+ * Does the picture in a footed row fill the corner, or sit inside it?
+ *
+ * Filled, it is as tall as the row and the row's own turn cuts its lower-left
+ * corner — the picture is part of the shape rather than a tile beside the text.
+ * Inset, it keeps the smaller square and its own margin, level with the title.
+ * Inset is what a fresh install gets: the filled corner is a shape you ask for,
+ * not one you are given, and the toggle is on the bar of the view it changes.
+ */
+export const FLUSH_THUMB_DEFAULT = false;
+
 /** A stored radius, or the default for a value that is not a number. */
 export function clampCurve(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return ROW_CURVE.initial;

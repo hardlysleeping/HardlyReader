@@ -21,6 +21,7 @@ import {
   ROW_ENDS,
   ROW_END_DEFAULT,
   isRowEnd,
+  FLUSH_THUMB_DEFAULT,
   ROW_CURVE,
   CURVE_DEFAULT,
   clampCurve,
@@ -666,7 +667,7 @@ check(
 );
 check(
   "the new shape only ever applies to a row, never to cards, the grid or the compact list",
-  (listSource.match(/\.items\.half-end/g) ?? []).length === 7 &&
+  (listSource.match(/\.items\.half-end/g) ?? []).length === 13 &&
     (listSource.match(/\.items\.half-end[^,{]*\{/g) ?? []).every((rule) =>
       rule.includes(":not(.compact):not(.cards):not(.grid)"),
     ) &&
@@ -678,16 +679,33 @@ check(
    content clears the new left edge by the 11px the actions clear the right.
    The right-hand numbers are asserted above and are not restated here. */
 check(
-  "both ends of the foot are the same: one thickness on three sides, 9px in from the pane, 14px of clearance",
+  "both ends of the foot are the same: one thickness on three sides, 9px in from the pane, 12px of clearance",
   /\.items\.half-end[^{]*\.row \{[^}]*margin-left: 9px;/.test(listSource) &&
     /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
       listSource,
     ) &&
-    /\.items\.half-end[^{]*\.item \{\s*padding-left: 14px;/.test(listSource) &&
+    /\.items\.half-end[^{]*\.item \{[^}]*padding: calc\(4px \* var\(--row-scale, 1\)\) 6px calc\(4px \* var\(--row-scale, 1\)\) 12px;/.test(
+      listSource,
+    ) &&
     // The right side keeps its own 9px: the left is a copy, not a replacement.
     /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,1600}?margin-right: 9px;/.test(
       listSource,
     ),
+);
+
+/* Tighter than the pill's row: the foot makes a slab, and a slab with the pill's
+   air reads as a loose row. The picture grew and everything around it shrank,
+   and its size stays fixed — a picture that stretches sets the row's height. */
+check(
+  "the footed row is tighter than the pill's, with a bigger picture",
+  /\.items\.half-end[^{]*\.thumb \{[^}]*width: calc\(50px \* var\(--row-scale, 1\) \* var\(--thumb-scale, 1\)\);[^}]*height: calc\(50px \* var\(--row-scale, 1\) \* var\(--thumb-scale, 1\)\);[^}]*align-self: flex-start;/.test(
+    listSource,
+  ) &&
+    !/\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.thumb \{[^}]*align-self: stretch;/.test(
+      listSource,
+    ) &&
+    /\.items\.half-end[^{]*\.body \{\s*gap: 2px;/.test(listSource) &&
+    /\.items\.half-end[^{]*\.thumb\.left \{[^}]*margin-right: 4px;/.test(listSource),
 );
 
 /* The turn's radius: one slider per shape, from square to a full semicircle,
@@ -736,6 +754,46 @@ check(
     /this\.curvePill = clampCurve\(saved\.curvePill\)/.test(readingSource) &&
     /this\.curveHalf = clampCurve\(saved\.curveHalf\)/.test(readingSource) &&
     /if \(which === "pill"\) \{[\s\S]{0,200}?this\.curvePill = value;/.test(readingSource),
+);
+
+/* The picture that fills the corner instead of sitting in it. The row clips, the
+   box is the row's height and square, and nothing is inset — so a picture can
+   take the whole left end and the turn is what cuts it. */
+check("the inset picture is the default, and filling the corner is asked for", FLUSH_THUMB_DEFAULT === false);
+check(
+  "the filled picture is the row's corner: flush, square, and clipped by the row",
+  /class:flush-thumb=\{view === "regular" && reading\.rowsEnd === "half" && reading\.flushThumb\}/.test(
+    listSource,
+  ) &&
+    /\.items\.half-end\.flush-thumb:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{\s*overflow: hidden;/.test(
+      listSource,
+    ) &&
+    /\.items\.half-end\.flush-thumb[^{]*\.item \{\s*padding: 0;/.test(listSource) &&
+    /\.items\.half-end\.flush-thumb[^{]*\.thumb \{[^}]*aspect-ratio: 1;[^}]*align-self: stretch;[^}]*margin: 0;[^}]*border-radius: 0;/.test(
+      listSource,
+    ) &&
+    // Out of the box's measurements, or the picture's own width would decide the corner.
+    /\.items\.half-end\.flush-thumb[^{]*\.thumb img \{\s*position: absolute;\s*inset: 0;/.test(
+      listSource,
+    ),
+);
+check(
+  "the text keeps the inset the picture no longer takes",
+  /\.items\.half-end\.flush-thumb[^{]*\.body \{\s*padding: calc\(4px \* var\(--row-scale, 1\)\) 6px calc\(4px \* var\(--row-scale, 1\)\) 12px;/.test(
+    listSource,
+  ),
+);
+check(
+  "the toggle is only drawn in the one shape that has a corner to fill",
+  /\{#if reading\.rowsEnd === "half"\}[\s\S]{0,700}?aria-label="Picture fills the row's corner"[\s\S]{0,400}?onclick=\{\(\) => reading\.toggleFlushThumb\(\)\}/.test(
+    listSource,
+  ),
+);
+check(
+  "and it is saved with the shape it belongs to",
+  /flushThumb: this\.flushThumb,/.test(readingSource) &&
+    /if \(typeof saved\.flushThumb === "boolean"\) this\.flushThumb = saved\.flushThumb;/.test(readingSource) &&
+    /toggleFlushThumb\(\): void \{\s*this\.flushThumb = !this\.flushThumb;\s*this\.save\(\);/.test(readingSource),
 );
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

@@ -951,6 +951,24 @@ import { plainPreview, relativeTime } from "../lib/format";
           </button>
           <!-- How far those corners turn, on the bar of the view they turn on. -->
           <RowCurve />
+          {#if reading.rowsEnd === "half"}
+            <!-- Only the footed shape has a corner for a picture to fill. -->
+            <button
+              class="viewicon flush"
+              class:on={reading.flushThumb}
+              aria-pressed={reading.flushThumb}
+              aria-label="Picture fills the row's corner"
+              title={reading.flushThumb
+                ? "The picture fills the row's corner, and the turn cuts it — press to sit it inside the row again"
+                : "The picture sits inside the row — press to have it fill the corner"}
+              onclick={() => reading.toggleFlushThumb()}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3 2.5h10v11H3z" />
+                <path d="M3 13.5h5.2A5.2 5.2 0 0 0 3 8.3z" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
+          {/if}
         {/if}
       </div>
 
@@ -1075,6 +1093,7 @@ import { plainPreview, relativeTime } from "../lib/format";
     class:grid={view === "grid"}
     class:square={view === "grid" && gridIsSquare(reading.gridColumns)}
     class:half-end={view === "regular" && reading.rowsEnd === "half"}
+    class:flush-thumb={view === "regular" && reading.rowsEnd === "half" && reading.flushThumb}
     style:--row-turn={`${rowTurn}px`}
     style:--grid-template={gridTemplate(reading.gridColumns)}
     style:--card-window={`${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
@@ -1880,18 +1899,61 @@ import { plainPreview, relativeTime } from "../lib/format";
      under it of its own, so even the shortest row keeps the foot's 30px clear of
      it. Its height is fixed, so a picture can never stretch a row. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .thumb {
-    width: calc(44px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    height: calc(44px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    width: calc(50px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    height: calc(50px * var(--row-scale, 1) * var(--thumb-scale, 1));
     align-self: flex-start;
-    margin-top: 3px;
-    margin-bottom: 10px;
+    margin-top: 2px;
+    margin-bottom: 6px;
   }
 
   /* Off the accent a little further than the text sits: a coloured block against
      a coloured edge reads as touching long before it actually does. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .thumb.left {
-    margin-left: 2px;
-    margin-right: 10px;
+    margin-left: 0;
+    margin-right: 4px;
+  }
+
+  /* Filled rather than inset: the picture is the row's corner. It is as tall as
+     the row and square, flush to the row's own edges, and the turn does the
+     shaping — the row clips it, so the bottom-left curve cuts the picture itself
+     instead of the picture sitting in a smaller rounded box beside it. Nothing
+     is inset from anything, so the row's own padding goes and the text takes it
+     back where it needs it. */
+  .items.half-end.flush-thumb:not(.compact):not(.cards):not(.grid) .row {
+    overflow: hidden;
+  }
+
+  .items.half-end.flush-thumb:not(.compact):not(.cards):not(.grid) .item {
+    padding: 0;
+  }
+
+  .items.half-end.flush-thumb:not(.compact):not(.cards):not(.grid) .body {
+    padding: calc(4px * var(--row-scale, 1)) 6px calc(4px * var(--row-scale, 1)) 12px;
+  }
+
+  .items.half-end.flush-thumb:not(.compact):not(.cards):not(.grid) .thumb {
+    /* The row's height, and as wide as it is tall: the user's picture size sets
+       the inset square, and this shape does not use it. The height is stated
+       rather than left to the flex line, because a stretched box plus a ratio is
+       the one combination engines disagree about, and disagreeing means nothing
+       is drawn. */
+    position: relative;
+    width: auto;
+    height: 100%;
+    aspect-ratio: 1;
+    min-width: calc(40px * var(--row-scale, 1));
+    align-self: stretch;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  /* The picture is taken out of the box's measurements, or its own pixel width
+     would decide how wide the corner is before the height ever got a say. */
+  .items.half-end.flush-thumb:not(.compact):not(.cards):not(.grid) .thumb img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
   }
 
   /* The row's own content clears that new left edge by the 11px the actions
@@ -1899,7 +1961,15 @@ import { plainPreview, relativeTime } from "../lib/format";
      marks on the trailing side instead of sitting on the accent — which is what
      clipped it against the turn. Nothing on the right moves. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .item {
-    padding-left: 14px;
+    /* Tighter than the pill's row: the foot makes the row read as a slab, and a
+       slab with the pill's air reads as a loose one. The picture is bigger and
+       everything around it smaller, which is the difference between a row with a
+       margin and a row with a picture in it. */
+    padding: calc(4px * var(--row-scale, 1)) 6px calc(4px * var(--row-scale, 1)) 12px;
+  }
+
+  .items.half-end:not(.compact):not(.cards):not(.grid) .body {
+    gap: 2px;
   }
 
   /* The pill steps in from the end it sits against, and follows the foot's
