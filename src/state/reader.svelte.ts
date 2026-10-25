@@ -233,6 +233,14 @@ export class ReaderState {
   private hiddenChain: Promise<unknown> = Promise.resolve();
   /** Bumped on every intent, so a pending catch-up can tell it is stale. */
   private hiddenWriteGen = 0;
+  /**
+   * Hidden writes asked for but not answered yet.
+   *
+   * A read that runs beside them is a snapshot of the state *before* them, so
+   * drawing it makes the control jump a moment after the press. Nothing is read
+   * over a write: the reply, and the catch-up after it drains, are the truth.
+   */
+  private hiddenPending = 0;
   private hiddenCatchUp: ReturnType<typeof setTimeout> | null = null;
 
   /** Last lock/unlock message, so a wrong passcode is visible rather than silent. */
@@ -1109,11 +1117,13 @@ export class ReaderState {
 
   /** Runs hidden writes one at a time, in the order they were asked for. */
   private enqueueHidden<T>(task: () => Promise<T>): Promise<T> {
+    this.hiddenPending += 1;
+    const settled = (): void => {
+      this.hiddenPending = Math.max(0, this.hiddenPending - 1);
+      this.scheduleHiddenCatchUp();
+    };
     const run = this.hiddenChain.then(task, task);
-    this.hiddenChain = run.then(
-      () => this.scheduleHiddenCatchUp(),
-      () => this.scheduleHiddenCatchUp(),
-    );
+    this.hiddenChain = run.then(settled, settled);
     return run;
   }
 
@@ -1592,22 +1602,39 @@ export class ReaderState {
    */
   async loadApiState(report?: SyncReport): Promise<void> {
     if (!this.session) return;
+    const generation = this.hiddenWriteGen;
     report?.start("extension");
     try {
       const state = await getApiStateFromServer(transport, this.session);
-      this.hiddenCategories = state.hiddenCategories;
+      // The hidden block is only drawn from a read that no write overtook: a
+      // snapshot taken beside a queued one is the state before it, and drawing
+      // it is what makes the control change on its own a moment after a press.
+      if (this.hiddenWritesSettled(generation)) this.hiddenCategories = state.hiddenCategories;
       this.favorites = state.favorites;
       this.sidebarIndent = this.withLocalIndent(state.sidebarIndent);
       this.hiddenError = null;
       this.retryUnsentIndent(state.sidebarIndent.px);
       report?.land("extension");
     } catch (error) {
-      this.hiddenCategories = unavailableState();
-      this.favorites = unavailableFavorites();
-      this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
+      // A failed read is not news about the state: when a write is still out,
+      // what is drawn stays drawn, and only a read with nothing in flight may
+      // report the extension gone.
+      if (this.hiddenWritesSettled(generation)) {
+        this.hiddenCategories = unavailableState();
+        this.favorites = unavailableFavorites();
+        this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
+      }
       this.hiddenError = message(error);
       report?.fail("extension");
     }
+  }
+
+  /**
+   * Whether a read may draw the hidden block: no write queued or in flight, and
+   * none asked for since the read started.
+   */
+  private hiddenWritesSettled(generation: number): boolean {
+    return this.hiddenPending === 0 && !this.hiddenBusy && generation === this.hiddenWriteGen;
   }
 
   /**
@@ -1618,11 +1645,13 @@ export class ReaderState {
    */
   async loadHiddenState(): Promise<void> {
     if (!this.session) return;
+    const generation = this.hiddenWriteGen;
     try {
-      this.hiddenCategories = await getHiddenState(transport, this.session);
+      const state = await getHiddenState(transport, this.session);
+      if (this.hiddenWritesSettled(generation)) this.hiddenCategories = state;
       this.hiddenError = null;
     } catch (error) {
-      this.hiddenCategories = unavailableState();
+      if (this.hiddenWritesSettled(generation)) this.hiddenCategories = unavailableState();
       this.hiddenError = message(error);
     }
   }
