@@ -1057,9 +1057,12 @@ export function paneSlots(input: SlotsInput): PaneSlots {
   const { mode, level, collapsed, tuck, swapped } = input;
   const stacked = input.stacked === true;
   if (mode === 1) {
+    // One column does not stack: a stack is two panes sharing a column, and there
+    // is no second pane to share it with. A post opened here is the whole pane,
+    // and the list comes down over it as the view's drawer — so the article is
+    // the only slot, and `stacked` is a three-pane question.
     if (level === "feeds") return { ...NO_SLOTS, sidebar: true };
-    if (!stacked) return { ...NO_SLOTS, article: true };
-    return { ...NO_SLOTS, ...stackedSlots(tuck, swapped) };
+    return { ...NO_SLOTS, article: true };
   }
   if (mode === 2) {
     if (collapsed) {

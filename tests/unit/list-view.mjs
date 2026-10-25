@@ -618,9 +618,12 @@ check(
     /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row\.open \{\s*flex-wrap: wrap;/.test(
       listViewSource,
     ) &&
-    // And nothing is drawn on top of the column any more.
+    // And nothing is drawn on top of the column any more. The one inert box in
+    // the view is the one-column drawer's sheet while it is up, which is not
+    // this: a post read in its row is the list, not over it.
     !/\.over\b/.test(mainSource) &&
-    !/inert=/.test(mainSource),
+    (mainSource.match(/inert=/g) ?? []).length === 1 &&
+    /inert=\{drawer && !pulled\}/.test(mainSource),
 );
 check(
   "the column the selection draws is the list, so the list keeps its place",

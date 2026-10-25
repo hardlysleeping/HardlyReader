@@ -455,12 +455,14 @@ class LayoutState {
       limits,
       banded ? this.mode : undefined,
     );
-    // A tuck belongs to a stacked pair that is actually on screen — the
-    // three-pane column, or the one-pane walking surface that draws the same
-    // pair on a phone. Anywhere else (side by side, or the stack switched off)
+    // A tuck belongs to a stacked pair that is actually on screen: the three-pane
+    // column. Anywhere else (side by side, one column, or the stack switched off)
     // it is a hidden pane with nothing left to explain why, so the pane comes
-    // back rather than waiting to surprise the next visit.
-    if (this.stackTuck !== null && (!this.stacked || this.mode === 2)) this.stackTuck = null;
+    // back rather than waiting to surprise the next visit. One column used to
+    // draw the same pair on a phone; it draws a drawer over the page now, and a
+    // tuck left over from three panes would hang a tab over a pane that is not
+    // tucked at all.
+    if (this.stackTuck !== null && (!this.stacked || this.mode !== 3)) this.stackTuck = null;
   }
 
   /**
@@ -1131,6 +1133,10 @@ class LayoutState {
   setMode(mode: PaneMode): void {
     this.desired = mode;
     this.chosen = true;
+    // Mode is where the stack lives, so a tuck made in three panes is asked
+    // about here rather than at the next measurement: a tab offering to bring
+    // back a pane that is not tucked is a control that does nothing.
+    if (mode !== 3 && this.stackTuck !== null) this.stackTuck = null;
     // Asked for, so answered at once: the band is for accidents, not for a
     // press that named the mode it wanted.
     this.settle(false);

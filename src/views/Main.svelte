@@ -252,6 +252,12 @@
         return;
       case "back":
         event.preventDefault();
+        // A drawer is the nearest thing in front of the reader, so it goes first:
+        // one press closes the list, the next leaves the article.
+        if (pulled) {
+          pulled = false;
+          return;
+        }
         // Out of the article. In one column that is the feed list again, with
         // the feed you were reading still open where you left it.
         if (reader.back()) return;
@@ -262,6 +268,11 @@
         layout.collapseOne();
         return;
       case "escape":
+        if (pulled) {
+          event.preventDefault();
+          pulled = false;
+          return;
+        }
         if (reader.menu !== null) {
           event.preventDefault();
           reader.closeCategoryMenu();
@@ -304,9 +315,7 @@
    * and the slot classes say where, and the ones that are not drawn are hidden
    * rather than removed.
    */
-  const stackDrawn = $derived(
-    layout.stacked && (mode === 3 || (mode === 1 && level === "article")),
-  );
+  const stackDrawn = $derived(layout.stacked && mode === 3);
 
   /**
    * Whether the feeds pane is folded away in the mode being drawn.
@@ -336,6 +345,32 @@
     reading.readInPane && reading.listView === "regular" && mode === 2 && !folded,
   );
 
+  /**
+   * The post list as a sheet over a post opened in one column.
+   *
+   * One column is the phone, and there the list and the article are two jobs, not
+   * two halves of a screen: the list is for browsing and the article for reading,
+   * and a split gives each of them too little to do either. So in one column the
+   * list is not a pane at all — it is a drawer pulled down over the article from
+   * the top edge, and put back up when a post is chosen, because choosing is the
+   * end of browsing. It used to stack instead, which put a permanent split where
+   * a phone wanted a page.
+   */
+  const drawer = $derived(mode === 1 && level === "article");
+
+  /**
+   * Whether that drawer is down.
+   *
+   * Deliberately not a preference: it is open for the length of one browse, and
+   * a list left hanging over a page the reader has walked away from would be
+   * covering the feed list the next time they arrive.
+   */
+  let pulled = $state(false);
+
+  $effect(() => {
+    if (!drawer) pulled = false;
+  });
+
   const slots = $derived.by(() => {
     const drawn = paneSlots({
       mode,
@@ -351,6 +386,9 @@
     if (readInline && drawn.article && !drawn.posts) {
       return { ...drawn, posts: true, article: false };
     }
+    // The drawer needs both: the page underneath at its full size, so pulling the
+    // list down covers what is being read instead of reflowing it.
+    if (drawer) return { ...drawn, posts: true, article: true };
     return drawn;
   });
 
@@ -734,8 +772,15 @@
 
     <!-- The posts column. A post opened here grows out of its own row, so the
          list is never covered and never inert: there is nothing on top of it. -->
-    <div class="slot posts" class:away={!slots.posts} bind:this={postsSlot}>
-      <ArticleList />
+    <div
+      class="slot posts"
+      class:away={!slots.posts}
+      class:drawer
+      class:pulled={drawer && pulled}
+      inert={drawer && !pulled}
+      bind:this={postsSlot}
+    >
+      <ArticleList onOpen={() => (pulled = false)} />
     </div>
 
     <div class="slot seam-x gut-posts" class:away={!slots.seamPosts}>
@@ -752,6 +797,33 @@
     <div class="slot seam-y gut-stack" class:away={!slots.seamStack}>
       <PaneGutter axis="y" />
     </div>
+
+    {#if drawer}
+      <!-- The pull hangs from the drawer's bottom edge — the top of the pane
+           while it is up — and is the only thing on the page that is not the
+           page. A press or a swipe on the sheet's edge does the same job as the
+           arrow; the scrim below it means a press anywhere else puts it back. -->
+      <button
+        type="button"
+        class="grab"
+        class:down={pulled}
+        aria-label={pulled ? "Put the post list back up" : "Pull the post list down"}
+        title={pulled ? "Put the post list back up" : "Pull the post list down"}
+        aria-expanded={pulled}
+        onclick={() => (pulled = !pulled)}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          {#if pulled}
+            <path d="M3.6 9.6 8 5.2l4.4 4.4" />
+          {:else}
+            <path d="M3.6 6.4 8 10.8l4.4-4.4" />
+          {/if}
+        </svg>
+      </button>
+      {#if pulled}
+        <div class="scrim" role="presentation" onclick={() => (pulled = false)}></div>
+      {/if}
+    {/if}
   </div>
 
   {#if menu}
@@ -927,9 +999,7 @@
     width: max(var(--t3), 100%);
   }
 
-  .panes.sliding.one .slot.article:not(.away) > :global(*),
-  .panes.sliding.stacked.one .slot.article:not(.away) > :global(*),
-  .panes.sliding.stacked.one .slot.posts:not(.away) > :global(*) {
+  .panes.sliding.one .slot.article:not(.away) > :global(*) {
     width: max(var(--t1), 100%);
   }
 
@@ -984,6 +1054,104 @@
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
+  }
+
+  /* One column with a post open: the list is a sheet over the page, pulled down
+     from the top edge and pushed back up. It is not a split — the article keeps
+     its size, its scroll and its place underneath, so browsing the list and
+     reading are one press apart instead of one reflow apart. The slide is the
+     panes' own motion, so reduced motion cuts instead of sliding. */
+  .panes.one .slot.posts.drawer {
+    position: absolute;
+    inset: 0 0 auto 0;
+    /* Its own grid area would place it in the posts' track, which in one column
+       has no width at all: an absolutely positioned grid child is placed in its
+       area, not in the frame. So the area is the whole frame. */
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    z-index: 6;
+    height: 0;
+    overflow: hidden;
+    background: var(--bg);
+    pointer-events: none;
+    visibility: hidden;
+    transition:
+      height var(--slide-ms, 0ms) var(--slide-ease, ease),
+      visibility 0s linear var(--slide-ms, 0ms);
+  }
+
+  .panes.one .slot.posts.drawer.pulled {
+    height: var(--sheet-h);
+    visibility: visible;
+    pointer-events: auto;
+    border-bottom-left-radius: 14px;
+    border-bottom-right-radius: 14px;
+    box-shadow: 0 14px 30px rgb(0 0 0 / 0.42);
+    transition:
+      height var(--slide-ms, 0ms) var(--slide-ease, ease),
+      visibility 0s;
+  }
+
+  /* The pull: a tab on the drawer's edge, the same language as the tab left by a
+     tucked pane, and the one control that is on the page but not of it. */
+  .panes.one .grab {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 9;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 24px;
+    padding: 0;
+    transform: translateX(-50%);
+    border: 1px solid var(--border);
+    border-top: 0;
+    border-radius: 0 0 10px 10px;
+    background: var(--bg-alt);
+    color: var(--muted);
+    box-shadow: 0 4px 10px rgb(0 0 0 / 0.26);
+    cursor: pointer;
+    transition: top var(--slide-ms, 0ms) var(--slide-ease, ease);
+  }
+
+  /* A thumb, not a hairline: the tab is 24px tall because that is what the shape
+     wants, so the target around it is the size a finger actually is. */
+  .panes.one .grab::before {
+    content: "";
+    position: absolute;
+    /* Sideways and down, never up: above the tab is the crumb bar, and a tab that
+       eats presses meant for the trail is a tab in the way. */
+    inset: 0 -10px -12px;
+  }
+
+  .panes.one .grab.down {
+    top: var(--sheet-h);
+    border-bottom: 0;
+  }
+
+  .panes.one .grab:hover,
+  .panes.one .grab:focus-visible {
+    color: var(--text);
+  }
+
+  .panes.one .grab svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* Below the sheet only: the page is visible, dimmed, and a press on it is the
+     press that puts the list back. */
+  .panes.one .scrim {
+    position: absolute;
+    inset: var(--sheet-h) 0 0;
+    z-index: 7;
+    background: rgb(0 0 0 / 0.4);
   }
 
   /* A seam is not a pane: the chip that carries the stack's controls straddles
@@ -1041,6 +1209,13 @@
     grid-row: 1 / -1;
   }
 
+  /* How much of the pane the drawer covers. A share of the pane rather than a
+     fixed height, so a phone and a desktop window both get the same proportion
+     of list, capped so a tall window does not hand the list two thirds of it. */
+  .panes.one {
+    --sheet-h: min(62%, 560px);
+  }
+
   /* One column: the surface is the first track, and only the first. With
      "Keep window" it keeps its own width and the rest of the frame is empty —
      pressing 1 changes what is drawn inside the frame, not the frame. */
@@ -1090,19 +1265,9 @@
     grid-row: 2 / 3;
   }
 
-  /* The stack on the phone is the same pair in the only column there is. */
-  .panes.stacked.one .slot.posts,
-  .panes.stacked.one .slot.article {
-    grid-column: 1 / -1;
-  }
-
   .panes.stacked .slot.gut-stack {
     grid-column: 3 / -1;
     grid-row: 3 / 4;
-  }
-
-  .panes.stacked.one .slot.gut-stack {
-    grid-column: 1 / -1;
   }
 
   /* A tucked half leaves one pane filling the column, and the seam is drawn over

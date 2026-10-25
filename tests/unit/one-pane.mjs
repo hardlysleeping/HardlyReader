@@ -118,7 +118,7 @@ check(
   "the one-pane threshold comes from the sidebar",
   /thresholdsFor\(this\.panes, this\.device, this\.panes\.sidebar,/.test(layout),
 );
-check("a choice is not", /setMode[\s\S]{0,300}this\.settle\(false\);/.test(layout));
+check("a choice is not", /setMode[\s\S]{0,600}this\.settle\(false\);/.test(layout));
 
 // Arrow keys are shaped like the panes: Right goes in a column, Left comes back
 // out one, and Up/Down belong to whichever pane is in hand.
@@ -198,10 +198,10 @@ check(
 // value and back still leaves everything it brought. The surface is one grid, so
 // "one surface" is now `paneSlots` saying both panes are drawn at once.
 check(
-  "stacked, the phone's posts and article arrive as one surface",
+  "one column never stacks: a post opened there is the whole pane",
   (() => {
     const pair = paneSlots({ mode: 1, level: "article", stacked: true, collapsed: false, tuck: null, swapped: false });
-    return pair.posts && pair.article && pair.seamStack && !pair.sidebar;
+    return pair.article && !pair.posts && !pair.seamStack && !pair.sidebar;
   })(),
 );
 check(
@@ -213,7 +213,7 @@ check(
 );
 check(
   "and back from it leaves the whole surface, one level",
-  /const stackDrawn = \$derived\(\s*layout\.stacked && \(mode === 3 \|\| \(mode === 1 && level === "article"\)\),\s*\)/.test(
+  /const stackDrawn = \$derived\(layout\.stacked && mode === 3\)/.test(
     main,
   ) &&
     /<ReaderPane onClose=\{closeArticle\} onLock=\{mode === 1 \? lockFromArticle : undefined\} \/>/.test(main) &&
@@ -232,10 +232,55 @@ check(
     return flat.article && !flat.posts && !flat.seamStack && !flat.sidebar;
   })(),
 );
+// The list, in one column, with a post open: a drawer over the page rather than a
+// second pane. Pulled down from the top edge, pushed back up, one press each.
 check(
-  "the stacked phone surface is a grid, because the rows are the point",
-  /\.panes\.stacked\.one \.slot\.posts,\s*\.panes\.stacked\.one \.slot\.article \{\s*grid-column: 1 \/ -1;/.test(main) &&
-    /\.panes\.stacked\.one \.slot\.gut-stack \{\s*grid-column: 1 \/ -1;/.test(main),
+  "and the list is a drawer over the open post, not a pane beside it",
+  /const drawer = \$derived\(mode === 1 && level === "article"\);/.test(main) &&
+    /if \(drawer\) return \{ \.\.\.drawn, posts: true, article: true \};/.test(main) &&
+    /class:drawer\s*\n?\s*class:pulled=\{drawer && pulled\}/.test(main),
+);
+check(
+  "the drawer is the list's own box: it animates its height, and the page keeps its size",
+  /\.panes\.one \.slot\.posts\.drawer \{[\s\S]{0,400}?height: 0;[\s\S]{0,400}?background: var\(--bg\);[\s\S]{0,400}?transition:\s*height var\(--slide-ms/.test(main) &&
+    /\.panes\.one \.slot\.posts\.drawer\.pulled \{[\s\S]{0,200}?height: var\(--sheet-h\);/.test(main) &&
+    /\.panes\.one \{\s*--sheet-h: min\(62%, 560px\);/.test(main) &&
+    /grid-column: 1 \/ -1;\s*\n\s*grid-row: 1 \/ -1;/.test(main),
+);
+check(
+  "the pull is one tab on the drawer's edge, in the same language as the tuck's tab",
+  /class="grab"/.test(main) &&
+    /aria-label=\{pulled \? "Put the post list back up" : "Pull the post list down"\}/.test(main) &&
+    /aria-expanded=\{pulled\}/.test(main) &&
+    /\.panes\.one \.grab \{[\s\S]{0,300}?width: 44px;[\s\S]{0,80}?height: 24px;/.test(main) &&
+    /\.panes\.one \.grab\.down \{\s*top: var\(--sheet-h\);/.test(main),
+);
+check(
+  "it hangs off the frame, not off a slot, so a slide cannot restretch it",
+  /<\/div>\n\n    \{#if drawer\}/.test(main) &&
+    !/\.slot\.article \.grab/.test(main),
+);
+check(
+  "choosing a post puts it back up: choosing is the end of browsing",
+  /<ArticleList onOpen=\{\(\) => \(pulled = false\)\} \/>/.test(main),
+);
+check(
+  "and back, and escape, put it up before they leave the article",
+  (main.match(/if \(pulled\) \{\n\s*pulled = false;\n\s*return;\n\s*\}/g) ?? []).length === 1 &&
+    /case "escape":\s*\n\s*if \(pulled\) \{/.test(main),
+);
+check(
+  "the page underneath dims rather than disappears, and a press on it is the press back",
+  /\.panes\.one \.scrim \{[\s\S]{0,120}?inset: var\(--sheet-h\) 0 0;/.test(main) &&
+    /<div class="scrim" role="presentation" onclick=\{\(\) => \(pulled = false\)\}><\/div>/.test(main),
+);
+check(
+  "while it is up the list is out of the tab order and out of reach",
+  /inert=\{drawer && !pulled\}/.test(main),
+);
+check(
+  "and a tuck left over from three panes is dropped with the mode that owned it",
+  /if \(mode !== 3 && this\.stackTuck !== null\) this\.stackTuck = null;/.test(layout),
 );
 // The fold is a two- and three-pane thing. One column has nothing behind it to
 // fold into, so the stored preference is ignored here: no rail, no pair, and the

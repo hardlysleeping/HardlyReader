@@ -290,7 +290,7 @@ check(
 // Drawn: one grid holds the whole arrangement, and a stack is a placement in it.
 check(
   "three panes draw the stack when it is on",
-  /const stackDrawn = \$derived\(\s*layout\.stacked && \(mode === 3 \|\| \(mode === 1 && level === "article"\)\),\s*\)/.test(
+  /const stackDrawn = \$derived\(layout\.stacked && mode === 3\)/.test(
     main,
   ) && /class:stacked=\{stackDrawn\}/.test(main),
 );

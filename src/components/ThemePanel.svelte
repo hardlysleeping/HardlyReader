@@ -646,8 +646,10 @@
       <!-- How three panes are *arranged*, which is a different question from how
            wide they are — so this row is outside the pixel sliders above, and
            outside their gate on purpose: a phone has no thresholds, no pane
-           switch and no dividers, but it does draw the stack, and a setting the
-           phone cannot reach is a setting that does not exist there. -->
+           switch and no dividers, but it can be widened into three panes, and a
+           setting the narrow window cannot reach is a setting that does not
+           exist there. One column does not draw the stack — the post list comes
+           down over the page there instead — so this is the three-pane row. -->
       <div class="row">
         <span class="key">Three panes</span>
         <div class="seg" role="group" aria-label="How three panes are arranged">

@@ -317,10 +317,10 @@ check("and the seam is the same 6px it always was", tracksOf(split.rows)[2] === 
     [...seen].every((tuck) => drawn({ share: 0.42, tuck }).share === 0.42 && shareOf(drawn({ share: 0.42, tuck }).rows) === 0.42),
   );
   check(
-    "and it is the same pair on the phone's one surface",
+    "and one column has no pair to tuck: the drawers are the view's, not the layout's",
     [...seen].every((tuck) => {
       const phone = drawn({ tuck, mode: 1 });
-      return JSON.stringify(phone.panes) === JSON.stringify(drawn({ tuck }).panes) && phone.rows === drawn({ tuck }).rows;
+      return phone.slots.article === true && phone.slots.posts !== true;
     }),
   );
 }
@@ -400,12 +400,12 @@ check(
 );
 check(
   "a tuck that cannot be seen is dropped, not stored for later",
-  /this\.stackTuck !== null && \(!this\.stacked \|\| this\.mode === 2\)\) this\.stackTuck = null;/.test(layout),
+  /this\.stackTuck !== null && \(!this\.stacked \|\| this\.mode !== 3\)\) this\.stackTuck = null;/.test(layout) &&
+    /if \(mode !== 3 && this\.stackTuck !== null\) this\.stackTuck = null;/.test(layout),
 );
 check(
-  "and it survives on the one-pane surface, which draws the same pair",
-  !/this\.mode !== 3[\)\s]*this\.stackTuck = null/.test(layout) &&
-    /if \(this\.stackTuck !== null && \(!this\.stacked \|\| this\.mode === 2\)\)/.test(layout),
+  "and it is dropped by the mode change itself, not at the next measurement",
+  /setMode\(mode: PaneMode\): void \{[\s\S]{0,300}?if \(mode !== 3 && this\.stackTuck !== null\) this\.stackTuck = null;/.test(layout),
 );
 
 // ---------------------------------------------------------------------------
@@ -490,7 +490,7 @@ check(
 {
   check(
     "one derived flag says when the pair is on screen, in either mode",
-    /const stackDrawn = \$derived\(\s*layout\.stacked && \(mode === 3 \|\| \(mode === 1 && level === "article"\)\),\s*\)/.test(
+    /const stackDrawn = \$derived\(layout\.stacked && mode === 3\)/.test(
       main,
     ),
   );
@@ -509,9 +509,9 @@ check(
     // One ReaderPane, one ArticleList, each in its own slot: a post read in the
     // list grows inside the list, so there is no second article drawn anywhere.
     "each pane is mounted once, in its own slot, whatever the mode",
-    (main.match(/<ArticleList \/>/g) ?? []).length === 1 &&
+    (main.match(/<ArticleList[ \/]/g) ?? []).length === 1 &&
       (main.match(/<ReaderPane /g) ?? []).length === 1 &&
-      /class="slot posts" class:away=\{!slots\.posts\}/.test(main) &&
+      /class="slot posts"[\s\S]{0,120}?class:away=\{!slots\.posts\}/.test(main) &&
       /class="slot article" class:away=\{!slots\.article\}/.test(main),
   );
   check(
