@@ -257,28 +257,6 @@
         </svg>
       </button>
     </div>
-    {:else}
-    <!-- One pane is away, so there is exactly one thing to do about it, and the
-         three glyphs that were here are not it. A labelled pill, in the accent,
-         where the seam already is: press it and the pane comes back to the
-         split it left from. -->
-    <div class="restore-bar" role="group" aria-label="Stacked panes">
-      <button
-        type="button"
-        aria-label={`Show the ${tuckedName}`}
-        title={`Show the ${tuckedName}`}
-        onclick={showTucked}
-      >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          {#if tuck === "top"}
-            <path d="M3.6 9.6 8 5.2l4.4 4.4" />
-          {:else}
-            <path d="M3.6 6.4 8 10.8l4.4-4.4" />
-          {/if}
-        </svg>
-        <span>Show the {tuckedName}</span>
-      </button>
-    </div>
     {/if}
   {/if}
 
@@ -301,6 +279,34 @@
     </div>
   {/if}
 </div>
+
+{#if vertical && tuck !== null}
+  <!-- The way back, drawn over the column rather than over its split: a tab on the
+       edge that pane comes back from, the way a drawer is pulled back. It is a
+       sibling of the seam so it can be anchored to the pane it sits on — inside
+       the seam it would hang from the split, which is where the old pill was. -->
+  <div
+    class="restore-bar"
+    class:from-bottom={tuck === "bottom"}
+    role="group"
+    aria-label="Stacked panes"
+  >
+    <button
+      type="button"
+      aria-label={`Show the ${tuckedName}`}
+      title={`Show the ${tuckedName}`}
+      onclick={showTucked}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        {#if tuck === "top"}
+          <path d="M3.6 6.4 8 10.8l4.4-4.4" />
+        {:else}
+          <path d="M3.6 9.6 8 5.2l4.4 4.4" />
+        {/if}
+      </svg>
+    </button>
+  </div>
+{/if}
 
 <style>
   /* The seam is the grid child now, and the whole of it is the drag surface:
@@ -448,41 +454,49 @@
     cursor: default;
   }
 
-  /* The way back when a stacked pane is away. Bigger than the chip it replaces
-     and carrying words: a control you can only find if you already know it is
-     there is not a way back. The bar passes pointer events through, so the seam
-     it sits on is still a seam and still drags. */
+  /* The way back when a stacked pane is away: a tab on the edge the pane comes
+     back from, hanging off the frame like a drawer's pull. It sits on the edge
+     rather than in the middle of the column, because the middle is where the
+     reading is — and it is a target of its own, so finding it does not depend on
+     already knowing it is there. The bar passes pointer events through, so the
+     seam it sits on is still a seam and still drags. */
   .restore-bar {
     position: absolute;
-    top: 50%;
+    top: 0;
     left: 50%;
-    transform: translate(-50%, -50%);
+    transform: translateX(-50%);
+    z-index: 4;
     display: flex;
-    padding: 2px;
-    border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--edge-soft));
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--surface) 92%, transparent);
-    box-shadow: 0 2px 10px rgb(0 0 0 / 0.32);
     pointer-events: none;
+  }
+
+  .restore-bar.from-bottom {
+    top: auto;
+    bottom: 0;
   }
 
   .restore-bar button {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    height: 24px;
-    padding: 0 11px 0 8px;
-    border: 0;
-    border-radius: 999px;
-    background: none;
+    justify-content: center;
+    width: 36px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--edge-soft));
+    border-top: 0;
+    border-radius: 0 0 10px 10px;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
     color: var(--text);
-    font: inherit;
-    font-size: 11.5px;
-    letter-spacing: 0.01em;
-    white-space: nowrap;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
     cursor: pointer;
     pointer-events: auto;
     transition: background-color 0.12s ease;
+  }
+
+  .restore-bar.from-bottom button {
+    border-top: 1px solid color-mix(in srgb, var(--accent) 55%, var(--edge-soft));
+    border-bottom: 0;
+    border-radius: 10px 10px 0 0;
   }
 
   .restore-bar button:hover {
@@ -495,8 +509,8 @@
   }
 
   .restore-bar button svg {
-    width: 11px;
-    height: 11px;
+    width: 12px;
+    height: 12px;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.8;

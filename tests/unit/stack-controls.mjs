@@ -542,17 +542,28 @@ check(
 // A tucked pane must be findable. The three-glyph chip is fine while both panes
 // are there — the controls live where the seam is and the seam is between two
 // things — but the moment one is away the only job left is putting it back, and
-// that has to say so in words rather than in an arrow nobody has learned.
+// the way back belongs on the edge that pane left, as a tab: the middle of the
+// column belongs to the page being read.
 check(
   "the chip's three glyphs are only drawn while both panes are there",
   /\{#if tuck === null\}\s*<div class="ctl-bar"/.test(gutter),
 );
 check(
-  "a tucked pane is offered back as a labelled control",
-  /class="restore-bar"/.test(gutter) &&
-    /<span>Show the \{tuckedName\}<\/span>/.test(gutter) &&
+  "a tucked pane is offered back by a tab on the edge it left",
+  /class="restore-bar"\s*class:from-bottom=\{tuck === "bottom"\}/.test(gutter) &&
     /aria-label=\{`Show the \$\{tuckedName\}`\}/.test(gutter) &&
-    /onclick=\{showTucked\}/.test(gutter),
+    /title=\{`Show the \$\{tuckedName\}`\}/.test(gutter) &&
+    /onclick=\{showTucked\}/.test(gutter) &&
+    // The name is in the label and the tooltip, not in the tab: a chevron with a
+    // sentence beside it is the pill this replaced.
+    !/<span>Show the \{tuckedName\}<\/span>/.test(gutter),
+);
+check(
+  "the tab hangs off the top edge, and off the bottom when that is the pane away",
+  /\.restore-bar \{[\s\S]{0,200}?top: 0;/.test(gutter) &&
+    /\.restore-bar\.from-bottom \{[\s\S]{0,120}?bottom: 0;/.test(gutter) &&
+    /\.restore-bar button \{[\s\S]{0,400}?border-radius: 0 0 10px 10px;/.test(gutter) &&
+    /\.restore-bar\.from-bottom button \{[\s\S]{0,200}?border-radius: 10px 10px 0 0;/.test(gutter),
 );
 check(
   "and the press is the tuck's own toggle, on the side that is away",
@@ -562,15 +573,17 @@ check(
     nextTuck(null, "top") === "top",
 );
 check(
-  "the way back points at the edge the pane will come from",
-  /\{#if tuck === "top"\}\s*<path d="M3\.6 9\.6 8 5\.2l4\.4 4\.4"/.test(gutter) &&
-    /\{:else\}\s*<path d="M3\.6 6\.4 8 10\.8l4\.4-4\.4"/.test(gutter),
+  // The chevron points the way the pane will move: down from the top tab, up
+  // from the bottom one, like the drawer it is pulling open.
+  "the chevron points into the space the pane will fill",
+  /\{#if tuck === "top"\}\s*<path d="M3\.6 6\.4 8 10\.8l4\.4-4\.4"/.test(gutter) &&
+    /\{:else\}\s*<path d="M3\.6 9\.6 8 5\.2l4\.4 4\.4"/.test(gutter),
 );
 check(
-  "it is a bigger target than the glyph it replaces, and the seam still drags",
-  /\.restore-bar button \{[\s\S]{0,300}height: 24px;/.test(gutter) &&
+  "the tab is a target of its own, and the seam it sits on still drags",
+  /\.restore-bar button \{[\s\S]{0,300}?width: 36px;\s*height: 22px;/.test(gutter) &&
     /\.restore-bar \{[\s\S]{0,400}pointer-events: none;/.test(gutter) &&
-    /\.restore-bar button \{[\s\S]{0,400}pointer-events: auto;/.test(gutter),
+    /\.restore-bar button \{[\s\S]{0,700}pointer-events: auto;/.test(gutter),
 );
 
 /* Reading a post inside the posts column does not rearrange the frame: the row
