@@ -336,12 +336,13 @@
   /**
    * Reading in the posts column rather than in the article column beside it.
    *
-   * The option belongs to the Rows view, and to the arrangements that draw an
-   * article beside the list: three panes, the folded pair, and the stacked pair
-   * — where the article has a pane of its own below the list, and reading here
-   * means the post opens above instead of below. In two unfolded panes the
-   * article already has the other half of the frame, so the flag changes nothing
-   * there.
+   * The option belongs to the Rows view, and it is about borrowing a column: with
+   * three panes drawn, a post opens here and the list takes the article's room.
+   * Two plain panes have nothing to borrow — the article already owns its half of
+   * the frame and a post opened there is the default way to read, not an option —
+   * so the flag is not consulted there, and the button is not offered there
+   * either. The folded pair and the stacked pair are the three-pane frame with a
+   * column put away, so they keep it.
    */
   const inPane = $derived(
     reading.readInPane &&
@@ -741,7 +742,12 @@
          the article drawn over it. The list stays mounted underneath so it
          keeps its scroll and its place, and it is inert while covered: a
          list you cannot see must not be a list you can tab into. -->
-    <div class="slot posts" class:away={!slots.posts} class:reading={inPane} bind:this={postsSlot}>
+    <div
+      class="slot posts"
+      class:away={!slots.posts && !inPane}
+      class:reading={inPane}
+      bind:this={postsSlot}
+    >
       <div class="under" inert={inPane}>
         <ArticleList />
       </div>

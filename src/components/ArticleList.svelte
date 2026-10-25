@@ -2,7 +2,8 @@
   import type { StreamItem } from "../api/freshrss";
   import { isRead, isStarred } from "../api/freshrss";
   import { authorOf, bylineOf, bylineTitle, feedNameOf } from "../lib/byline";
-import { plainPreview, relativeTime } from "../lib/format";
+  import { plainPreview, relativeTime } from "../lib/format";
+  import { layout } from "../state/layout.svelte";
   import { cropVariant, imagesOf, panelsOf, thumbnailOf, type ThumbSource } from "../lib/thumb";
   import RowCurve from "./RowCurve.svelte";
   import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
@@ -918,6 +919,7 @@ import { plainPreview, relativeTime } from "../lib/format";
              scanning, and a page inside one of them would be a second kind of
              card. -->
         {#if view === "regular"}
+          {#if layout.mode === 3}
           <span class="viewsplit" aria-hidden="true"></span>
           <button
             class="viewicon pane"
@@ -934,6 +936,7 @@ import { plainPreview, relativeTime } from "../lib/format";
               <path d="M9.2 2.5v3.3h3.3" />
             </svg>
           </button>
+          {/if}
           <!-- How the row ends: half a turn, or the pill. Both kept. -->
           <button
             class="viewicon end"

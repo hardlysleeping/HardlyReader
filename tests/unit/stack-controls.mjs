@@ -511,7 +511,9 @@ check(
     "each pane is mounted once, in its own slot, whatever the mode",
     (main.match(/<ArticleList \/>/g) ?? []).length === 1 &&
       (main.match(/<ReaderPane /g) ?? []).length === 2 &&
-      /class="slot posts" class:away=\{!slots\.posts\} class:reading=\{inPane\}/.test(main) &&
+      /class="slot posts"[\s\S]{0,120}?class:away=\{!slots\.posts && !inPane\}[\s\S]{0,120}?class:reading=\{inPane\}/.test(
+        main,
+      ) &&
       /class="slot article" class:away=\{!slots\.article \|\| inPane\}/.test(main) &&
       /\{#if inPane\}\s*<div class="over">\s*<ReaderPane onClose=\{closeInPane\} onRead=\{closeInPane\} \/>/.test(main),
   );
@@ -583,6 +585,24 @@ check(
     // Nothing about the stack's shape can switch the option off any more.
     /\.slot\.posts\.reading/.test(main) &&
     !/readInPane[\s\S]{0,400}!stackDrawn/.test(main),
+);
+
+/* The option is about borrowing a column, so it is offered where there is one to
+   borrow and nowhere else. Two plain panes already read a post in the article's
+   half of the frame — that is the way that frame works, not a setting — so the
+   button is not drawn there and the flag is not consulted there. */
+check(
+  "the read-here option is offered only with a third column to borrow",
+  /\{#if layout\.mode === 3\}[\s\S]{0,320}?aria-label="Read posts in this column"/.test(
+    read("src/components/ArticleList.svelte"),
+  ) &&
+    /const inPane = \$derived\(\s*reading\.readInPane &&\s*reading\.listView === "regular" &&\s*reader\.selectedId !== null &&\s*\(mode === 3 \|\| \(mode === 2 && folded\)\),/.test(
+      main,
+    ) &&
+    // The folded and stacked pairs are the three-pane frame with a column put
+    // away, so they keep it — and the list stays drawn while it is read in.
+    /\.panes\.two\.folded \.slot\.posts\.reading \{[^}]*grid-column: 3 \/ -1;/.test(main) &&
+    /class:away=\{!slots\.posts && !inPane\}/.test(main),
 );
 
 /* The bar's A− and A+ belong to whichever column is open. With no article drawn

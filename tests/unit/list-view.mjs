@@ -583,8 +583,9 @@ check(
     const views = listSource.slice(listSource.indexOf('class="views"'));
     const group = views.slice(0, views.indexOf("<!-- Sizing lives"));
     return (
-      /\{#if view === "regular"\}/.test(group) &&
-      /aria-label="Read posts in this column"/.test(group) &&
+      // Offered only with a third column to borrow: two plain panes already
+      // read a post in the article's half, and that is the frame, not a switch.
+      /\{#if layout\.mode === 3\}[\s\S]{0,320}?aria-label="Read posts in this column"/.test(group) &&
       /onclick=\{\(\) => reading\.toggleReadInPane\(\)\}/.test(group) &&
       /class:on=\{reading\.readInPane\}/.test(group)
     );
@@ -604,6 +605,8 @@ check(
 );
 check(
   "the list keeps its place: the cover borrows the article column's room",
+  // Every arrangement with a column beside the list: three panes, two plain
+  // ones, and the folded pair — which is a two-pane frame like any other.
   /\.panes\.three \.slot\.posts\.reading,\s*\.panes\.two\.folded \.slot\.posts\.reading \{\s*grid-column: 3 \/ -1;/.test(
     mainSource,
   ),
