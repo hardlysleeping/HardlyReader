@@ -1419,7 +1419,14 @@ export class ReaderState {
     // The post is only reopened from what the first page holds; an older one is
     // not worth a request of its own, and the feed is open either way.
     const open = place.articleId === null ? undefined : this.items.find((item) => item.id === place.articleId);
-    if (open !== undefined) this.select(open);
+    if (open !== undefined) {
+      this.select(open);
+      // Resume on the line that was being read, not at the top of the post.
+      this.liveScroll.article = place.articleScroll;
+      this.articleScrollRestore = place.articleScroll > 0 ? place.articleScroll : null;
+    }
+    this.liveScroll.list = place.listScroll;
+    this.listScrollRestore = place.listScroll > 0 ? place.listScroll : null;
     this.savePlace();
   }
 
@@ -1454,6 +1461,8 @@ export class ReaderState {
           streamTitle: this.activeTitle,
           articleId: this.selectedId,
           expandedFeedId: this.expandedFeedId,
+          articleScroll: this.liveScroll.article,
+          listScroll: this.liveScroll.list,
         }),
       );
     } catch {
@@ -1989,6 +1998,8 @@ export class ReaderState {
     this.activeStream = streamId;
     this.activeTitle = title;
     this.selectedId = null;
+    this.liveScroll.list = 0;
+    this.listScrollRestore = null;
     this.savePlace();
     await this.reloadStream();
   }
@@ -2269,6 +2280,37 @@ export class ReaderState {
    * opens at its end rather than its title. */
   landingEdge = $state<"top" | "bottom">("top");
 
+  /** Offsets to put back on the next paint: the open post's and the list's. */
+  articleScrollRestore = $state<number | null>(null);
+  listScrollRestore = $state<number | null>(null);
+
+  /** Where the reader is scrolled to now, written to the place on a pause. */
+  private liveScroll = { article: 0, list: 0 };
+  private scrollSave: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Remembers how far the post or the list is scrolled.
+   *
+   * A scroll fires per frame, and the place is a small object in local storage,
+   * so the write waits for half a second of quiet: closing the window in the
+   * middle of a scroll still saves, because the timer is not cleared by the
+   * unload.
+   */
+  rememberScroll(part: "article" | "list", top: number): void {
+    this.liveScroll[part] = Math.max(0, Math.round(top));
+    if (this.scrollSave !== null) clearTimeout(this.scrollSave);
+    this.scrollSave = setTimeout(() => {
+      this.scrollSave = null;
+      this.savePlace();
+    }, 500);
+  }
+
+  /** A component that has put its offset back says so, so it is not put twice. */
+  clearScrollRestore(part: "article" | "list"): void {
+    if (part === "article") this.articleScrollRestore = null;
+    else this.listScrollRestore = null;
+  }
+
   /**
    * True when continuous reading ran out: every stream was tried and none had a
    * post left in the current view. Only reachable in the unread view, because
@@ -2367,6 +2409,9 @@ export class ReaderState {
 
   select(item: StreamItem, edge: "top" | "bottom" = "top"): void {
     this.selectedId = item.id;
+    // A post opened by hand starts at its edge; only a launch resumes a line.
+    this.liveScroll.article = 0;
+    this.articleScrollRestore = null;
     this.savePlace();
     this.landingEdge = edge;
     this.traversalEnded = false;

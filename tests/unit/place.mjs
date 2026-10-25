@@ -38,16 +38,30 @@ const full = parsePlace({
   streamTitle: "MoMA",
   articleId: "tag:google.com,2005:reader/item/abc",
   expandedFeedId: "feed/9",
+  articleScroll: 640,
+  listScroll: 210,
 });
 check(
-  "a complete place round-trips",
+  "a complete place round-trips, down to the line being read",
   same(full, {
     streamId: "feed/7",
     streamTitle: "MoMA",
     articleId: "tag:google.com,2005:reader/item/abc",
     expandedFeedId: "feed/9",
+    articleScroll: 640,
+    listScroll: 210,
   }),
   JSON.stringify(full),
+);
+
+check("no offsets read as the top", parsePlace({ streamId: "feed/7" }).articleScroll === 0);
+check(
+  "a negative offset is the top",
+  parsePlace({ streamId: "feed/7", articleScroll: -40 }).articleScroll === 0,
+);
+check(
+  "a nonsense offset is the top",
+  parsePlace({ streamId: "feed/7", listScroll: "far" }).listScroll === 0,
 );
 
 check(
@@ -102,12 +116,16 @@ const { ReaderState } = await import(pathToFileURL(generated).href);
 
 const session = { serverUrl: "https://a.example", email: "one@example" };
 
-function openFeed(reader, streamId, title, articleId = null, expandedFeedId = null) {
+function openFeed(reader, streamId, title, articleId = null, expandedFeedId = null, scroll = null) {
   reader.session = session;
   reader.activeStream = streamId;
   reader.activeTitle = title;
   reader.selectedId = articleId;
   reader.expandedFeedId = expandedFeedId;
+  if (scroll !== null) {
+    reader.rememberScroll("article", scroll.article);
+    reader.rememberScroll("list", scroll.list);
+  }
   reader.savePlace();
 }
 
@@ -141,6 +159,25 @@ const afterClose = new ReaderState();
 afterClose.session = session;
 check("closing the post is remembered too", afterClose.readPlace().articleId === null);
 check("...without losing the feed", afterClose.readPlace().streamId === "feed/7");
+
+// Exactly where you were: how far into the post, and how far down the list.
+const scrolled = new ReaderState();
+openFeed(scrolled, "feed/7", "MoMA", "item-abc", null, { article: 1234, list: 900 });
+const afterScroll = new ReaderState();
+afterScroll.session = session;
+check("the line being read comes back", afterScroll.readPlace().articleScroll === 1234, String(afterScroll.readPlace().articleScroll));
+check("and so does the row the list was scrolled to", afterScroll.readPlace().listScroll === 900, String(afterScroll.readPlace().listScroll));
+
+// A post opened by hand starts at its edge, so the remembered line is dropped.
+const opened = new ReaderState();
+openFeed(opened, "feed/7", "MoMA", "item-abc", null, { article: 1234, list: 900 });
+opened.select({ id: "item-xyz" });
+check("opening another post forgets the old line", opened.readPlace().articleScroll === 0);
+check("...but keeps the list where it is", opened.readPlace().listScroll === 900);
+
+// A feed opened by hand starts at the top of the list.
+opened.openStream("feed/8", "Other").catch(() => {});
+check("opening another feed puts the list back at the top", opened.readPlace().listScroll === 0);
 
 // The one-column layout unfolds a feed in place; that is a place as well.
 const unfolded = new ReaderState();
@@ -195,6 +232,22 @@ check(
 check(
   "a post is reopened through select(), so the read rule still applies",
   body("async start").includes("this.select(open)"),
+);
+check(
+  "sign-in hands the remembered line to the panes",
+  body("async start").includes("this.articleScrollRestore = place.articleScroll > 0"),
+);
+check(
+  "and the remembered list offset with it",
+  body("async start").includes("this.listScrollRestore = place.listScroll > 0"),
+);
+check(
+  "the post pane reports its scroll as it is read",
+  readFileSync(join(ROOT, "src/components/ReaderPane.svelte"), "utf8").includes('rememberScroll("article"'),
+);
+check(
+  "the list reports its scroll the same way",
+  readFileSync(join(ROOT, "src/components/ArticleList.svelte"), "utf8").includes('rememberScroll("list"'),
 );
 check(
   "the folded categories are already persisted preferences",

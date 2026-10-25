@@ -577,11 +577,41 @@
   }
 
   function onCardsScroll(): void {
+    if (itemsEl !== null) reader.rememberScroll("list", itemsEl.scrollTop);
     if (view !== "cards" || snapFrame) return;
     snapFrame = requestAnimationFrame(() => {
       snapFrame = 0;
       syncSnap();
     });
+  }
+
+  /** The list offset being put back, until the rows are tall enough to reach it. */
+  let resumeAt = $state<number | null>(null);
+
+  // A launch reopens the stream where it was left, so the rows under the port
+  // are the ones that were being looked at.
+  $effect(() => {
+    const top = reader.listScrollRestore;
+    if (top === null) return;
+    reader.clearScrollRestore("list");
+    resumeAt = top;
+  });
+
+  // The port can only be scrolled as far as its rows are tall, and the first
+  // page arrives after the paint, so the offset is re-applied as rows land. It
+  // stays pending until it sticks: a scroll by hand gives it up instead, because
+  // then the reader is somewhere of their choosing.
+  $effect(() => {
+    void reader.items.length;
+    const want = resumeAt;
+    const el = itemsEl;
+    if (el === null || want === null) return;
+    el.scrollTop = want;
+    if (Math.abs(el.scrollTop - want) <= 1) resumeAt = null;
+  });
+
+  function dropResume(): void {
+    resumeAt = null;
   }
 
   /**
@@ -1234,6 +1264,8 @@
     class:masonry={view === "cards" && cardLayout.masonry}
     data-tallcard={tallCard ? "true" : undefined}
     onscroll={onCardsScroll}
+    onwheel={dropResume}
+    ontouchstart={dropResume}
     class:grid={view === "grid"}
     class:square={view === "grid" && gridIsSquare(reading.gridColumns)}
     class:half-end={view === "regular" && reading.rowsEnd === "half"}

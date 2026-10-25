@@ -150,6 +150,7 @@
     if (!el) return;
     const end = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
     reader.setArticleScroll(el.scrollTop <= 2, end);
+    reader.rememberScroll("article", el.scrollTop);
     // Leaving the bottom gives the pull back: it is a gesture, not a latch.
     if (!end) pull = 0;
   }
@@ -213,14 +214,41 @@
   // A new article opens at the edge you arrived from: its top when moving
   // forwards, its end when scrolling up into it, so the reading direction never
   // reverses underneath you. Neither the scroll flags nor a part-finished pull
-  // carry over.
+  // carry over. A launch resumes the line that was being read instead.
+  //
+  // The open post is remembered here so that clearing the resume hint — which is
+  // itself reactive — does not read as a new post and snap the pane to an edge.
+  let openedPost: string | null = null;
+
   $effect(() => {
     const id = reader.selectedId;
+    const resume = reader.articleScrollRestore;
     if (id === null) return;
-    const edge = reader.landingEdge;
-    resetPull();
     const el = scroller;
     if (!el) return;
+    if (resume !== null) {
+      openedPost = id;
+      reader.clearScrollRestore("article");
+      resetPull();
+      // The body is laid out over the next frames — pictures especially — so the
+      // offset is re-applied until it sticks, and given up if the post changes.
+      // A timer rather than a frame: a window that is not on screen still
+      // resumes, which is the case this is here for.
+      el.scrollTop = resume;
+      const deadline = performance.now() + 2500;
+      const put = (): void => {
+        if (reader.selectedId !== id) return;
+        el.scrollTop = resume;
+        if (Math.abs(el.scrollTop - resume) <= 1) return;
+        if (performance.now() < deadline) setTimeout(put, 60);
+      };
+      setTimeout(put, 60);
+      return;
+    }
+    if (openedPost === id) return;
+    openedPost = id;
+    const edge = reader.landingEdge;
+    resetPull();
     el.scrollTop = edge === "bottom" ? el.scrollHeight : 0;
     reader.setArticleScroll(el.scrollTop <= 2, el.scrollHeight <= el.clientHeight + 2);
   });
