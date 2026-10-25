@@ -458,6 +458,16 @@ check(
     /layout\.setAvailable\(panes\.clientWidth\)/.test(main) &&
     /window\.removeEventListener\("resize", measure\)/.test(main),
 );
+// The frame moving is not a reason to cut a press's slide, and the press that
+// resizes the window lands *in the middle* of its own slide: `setAvailable`
+// clears `pressing` as the resize arrives, so a guard on `pressing` alone read
+// false at exactly that frame and arming `resizing` there snapped the columns to
+// their end value. Sharing the window no press resizes anything, so only Keep
+// widths ever showed it.
+check(
+  "a press's slide survives the resize it asks for",
+  /if \(!layout\.pressing && !sliding\) \{/.test(main) && /resizing = false;/.test(main),
+);
 check(
   "measured once more after layout, because the event arrives before it",
   /requestAnimationFrame\(\(\) => \{\s*if \(panes !== null\) layout\.setAvailable\(panes\.clientWidth\);\s*\}\);/.test(

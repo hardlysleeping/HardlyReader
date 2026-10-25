@@ -106,16 +106,23 @@ async function start(out, saved) {
 
 const generated = buildLayoutModule();
 
+/** The feeds column as the layout draws it — 240 shipped, not the old 280. */
+let bar = 240;
+
 try {
   // --- switching Keep widths on asks for the tuned sum ----------------------
   {
     const layout = await start(generated, { mode: 2, keepWidths: false, chosen: true });
     layout.setAvailable(1200);
     check("opening in a shared window", layout.mode === 2 && layout.keepWidths === false, `mode ${layout.mode}`);
+    // The feeds column is the store's number, not the 280 the suite was written
+    // against: the shipped sidebar is 240, and every expected track list here is
+    // that number plus the gutter plus what is left.
+    bar = layout.panes.sidebar;
     // The panes fitted into that window, which is what the frame shows.
     check(
       "the panes fill the shared frame",
-      layout.columns() === "280px 6px 914px 0px 0px",
+      layout.columns() === `${bar}px 6px ${1200 - bar - 6}px 0px 0px`,
       layout.columns(),
     );
 
@@ -135,7 +142,7 @@ try {
     );
     check(
       "so the panes are the tuned widths, not the shared frame's proportions",
-      layout.columns() === `280px 6px ${tuned - 286}px 0px 0px`,
+      layout.columns() === `${bar}px 6px ${tuned - bar - 6}px 0px 0px`,
       layout.columns(),
     );
     check("one toggle, one slide", layout.pressSeq === pressed + 1, `${pressed} → ${layout.pressSeq}`);
@@ -180,14 +187,14 @@ try {
     );
     check(
       "the panes fit that frame, so pane one is as wide as it was",
-      layout.columns() === "280px 6px 914px 0px 0px",
+      layout.columns() === `${bar}px 6px ${1200 - bar - 6}px 0px 0px`,
       layout.columns(),
     );
     check("one toggle, one slide", layout.pressSeq === pressed + 2, `${pressed} → ${layout.pressSeq}`);
     for (const width of [800, 900, 1000, 1100, 1200]) layout.setAvailable(width);
     check(
       "a resize after it is followed at once",
-      layout.available === 1200 && layout.columns() === "280px 6px 914px 0px 0px",
+      layout.available === 1200 && layout.columns() === `${bar}px 6px ${1200 - bar - 6}px 0px 0px`,
       `${layout.available}: ${layout.columns()}`,
     );
     // And it is stable: the frame does not creep on the next measurement.
@@ -211,7 +218,7 @@ try {
     );
     check(
       "and the panes fit the frame they are already in",
-      layout.columns() === "280px 6px 914px 0px 0px",
+      layout.columns() === `${bar}px 6px ${1200 - bar - 6}px 0px 0px`,
       layout.columns(),
     );
   }

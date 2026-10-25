@@ -147,19 +147,170 @@ try {
     );
   }
 
-  // --- the band still protects a resize nobody asked for --------------------
+  // --- 3 → 2 → 3, and 3 before 2 has landed ----------------------------------
+  {
+    const layout = await start(generated);
+    layout.load();
+    layout.setAvailable(1600);
+    await layout.chooseMode(3);
+    layout.setAvailable(layout.widthFor(3));
+    check(
+      "three columns at the width they need",
+      layout.mode === 3 && layout.stacked === false,
+      `mode ${layout.mode}, stacked ${layout.stacked} at ${layout.available}`,
+    );
+
+    await layout.chooseMode(2);
+    layout.setAvailable(layout.widthFor(2));
+    check("two panes, and the window keeps two panes' width", layout.mode === 2, `mode ${layout.mode}`);
+
+    await layout.chooseMode(3);
+    const want = layout.widthFor(3);
+    check(
+      "the press back to three asks for the columns' width",
+      want === layout.stackNeed,
+      `wanted ${want}, columns need ${layout.stackNeed}`,
+    );
+    layout.setAvailable(want);
+    check(
+      "and 3 after 2 is three columns, not a stack",
+      layout.mode === 3 && layout.stacked === false,
+      `mode ${layout.mode}, stacked ${layout.stacked} at ${layout.available} (need ${layout.stackNeed})`,
+    );
+
+    // The same press without waiting for the shrinking window to report: the ask
+    // is made from where the window is heading, not from where it still is.
+    await layout.chooseMode(2);
+    await layout.chooseMode(3);
+    layout.setAvailable(layout.stackNeed);
+    check(
+      "and pressing 3 before 2 has landed still lands on three",
+      layout.mode === 3 && layout.stacked === false,
+      `mode ${layout.mode}, stacked ${layout.stacked} at ${layout.available}`,
+    );
+  }
+
+  // --- the band protects a resize nobody asked for, on the way out ----------
   {
     const layout = await start(generated);
     layout.load();
     layout.setAvailable(layout.widthFor(1));
     check("a narrow window shows one pane", layout.mode === 1, `mode ${layout.mode}`);
-    // No press behind this: a window dragged to exactly three panes' width.
+    // No press behind this: a window dragged to exactly three panes' width. The
+    // band is charged on the way out of a mode, never on the way in — otherwise
+    // "resize until it fits" lands 120px late and reads as a window that never
+    // gives you the layout you made room for.
     layout.setAvailable(layout.widthFor(3));
     check(
-      "a dragged-to-fit window keeps the band",
-      layout.mode === 1,
-      `mode ${layout.mode} after an unasked-for measurement`,
+      "a dragged-to-fit window is fitted",
+      layout.mode === 3,
+      `mode ${layout.mode} at ${layout.available}, wanted ${layout.widthFor(3)}`,
     );
+    // Coming back in is the jiggle the band exists for.
+    const three = layout.widthFor(3);
+    layout.setAvailable(three - 40);
+    check("a jiggle inside the band keeps three", layout.mode === 3, `mode ${layout.mode} at ${three - 40}`);
+    layout.setAvailable(three - 200);
+    check(
+      "past it, the third column becomes the stack",
+      layout.mode === 3 && layout.stacked === true,
+      `mode ${layout.mode}, stacked ${layout.stacked} at ${three - 200}`,
+    );
+  }
+
+  // --- a stack may be as narrow as two panes, and no narrower ----------------
+  {
+    // Keeping widths, a stacked three is a two-pane window: feeds beside one
+    // content column. It used to be demoted to two the moment the window passed
+    // the pair's own column arithmetic (813 in the owner's layout), which read as
+    // a third pane that would not stay stacked. The floor it must hold is the
+    // two-pane one, because that is the layout it is imitating.
+    // Keep widths and shaped columns are saved, and every later block loads
+    // what the one before it wrote — so this one puts the store back as it
+    // found it rather than leaving its own layout behind for them.
+    stored.clear();
+    const layout = await start(generated);
+    layout.load();
+    layout.setKeepWidths(true);
+    layout.setAvailable(1600);
+    await layout.chooseMode(3);
+    layout.setAvailable(1314);
+    layout.setThreshold("three", 1314);
+    layout.setAvailable(1314);
+    const two = layout.thresholds.two;
+    layout.setAvailable(1314);
+    check(
+      "a wide window with Keep widths draws three columns",
+      layout.mode === 3 && layout.stacked === false,
+      `mode ${layout.mode}, stacked ${layout.stacked} at ${layout.available}`,
+    );
+    layout.setAvailable(two + 100);
+    check(
+      "narrowed into the stack, the third pane stays",
+      layout.mode === 3 && layout.stacked === true,
+      `mode ${layout.mode}, stacked ${layout.stacked} at ${layout.available}`,
+    );
+    layout.setAvailable(two);
+    check(
+      "and it holds down to the two-pane minimum itself",
+      layout.mode === 3 && layout.stacked === true,
+      `mode ${layout.mode}, stacked ${layout.stacked} at ${layout.available} (two ${two})`,
+    );
+    layout.setAvailable(two - 120);
+    check(
+      "below two panes' worth, the stack gives way",
+      layout.mode !== 3,
+      `mode ${layout.mode} at ${layout.available}`,
+    );
+    stored.clear();
+  }
+
+  // --- shrinking a chosen three goes through every arrangement, in order -----
+  {
+    // Side by side, three panes, and the window narrowing: the columns fold to
+    // the stacked pair, then the pair folds to two panes, then to one. It used to
+    // jump from the stack straight to a single column, because the stack and the
+    // pair were refused at the same pixel — the owner saw "pane 1 only long
+    // before I get to 240px". The choice itself must never be switched off: the
+    // window rearranges what is drawn, it does not undo the setting.
+    for (const keep of [true, false]) {
+      stored.clear();
+      const layout = await start(generated);
+      layout.load();
+      layout.setKeepWidths(keep);
+      layout.setAvailable(1600);
+      await layout.chooseMode(3);
+      layout.setAvailable(1314);
+      if (keep) {
+        layout.setThreshold("three", 1314);
+        layout.setAvailable(1314);
+      }
+      check(
+        `Side by side is the choice before shrinking (keep ${keep})`,
+        layout.stackChosen === false,
+        `chosen ${layout.stackChosen}`,
+      );
+
+      const seen = [];
+      for (const width of [1314, 1100, 900, 800, 700, 620, 560, 520, 470, 400, 300]) {
+        layout.setAvailable(width);
+        // Only three panes have an arrangement to report: two and one are drawn
+        // the same however the pair would have stacked.
+        const step = layout.mode === 3 ? (layout.stacked ? "3s" : "3") : String(layout.mode);
+        if (seen[seen.length - 1] !== step) seen.push(step);
+        check(
+          `the choice survives ${width}px (keep ${keep})`,
+          layout.stackChosen === false,
+          `chosen ${layout.stackChosen} at ${width}`,
+        );
+      }
+      check(
+        `the panes tuck away one at a time (keep ${keep})`,
+        seen.join(" ") === "3 3s 2 1",
+        `saw ${seen.join(" ")}`,
+      );
+      stored.clear();
+    }
   }
 
   // --- two presses in flight resolve to the last one ------------------------
@@ -238,8 +389,12 @@ try {
 
   // --- 3 → 2: the article leaves and takes its width with it ---------------
   {
+    // Keeping widths: the frame follows the panes, so the press can shrink the
+    // window by the article's width and leave the posts column where it is.
+    stored.clear();
     const layout = await start(generated);
     layout.load();
+    layout.setKeepWidths(true);
     layout.setAvailable(1600);
     await layout.chooseMode(3);
     layout.dragTo("sidebar", 300);

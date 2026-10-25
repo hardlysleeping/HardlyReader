@@ -29,7 +29,6 @@ import {
   STACK_GUTTER,
   STACK_SHARE,
   clampShare,
-  columnsFit,
   floorThresholds,
   paneSlots,
   stackFloor,
@@ -103,11 +102,25 @@ function ruleBody(css, selector) {
 // still loads — as side by side, which is what that payload was looking at.
 check(
   "the drawn arrangement is the choice, or the only one a narrow window can draw",
-  /get stacked\(\): boolean \{\s*return this\.stackChoice \|\| !columnsFit\(this\.available, this\.device\);/.test(
+  /get stacked\(\): boolean \{\s*return this\.stackChoice \|\| this\.drawn < this\.stackNeed;/.test(layout) &&
+    // The note about the window forcing the pair belongs to three panes only:
+    // once the third has been tucked away the window is not overriding the
+    // choice, it is drawing the two panes the choice reduced to.
+    /get stackForced\(\): boolean \{[\s\S]{0,300}return this\.mode === 3 && !this\.stackChoice && this\.stacked;/.test(
+      layout,
+    ) &&
+    /get stackChosen\(\): boolean \{\s*return this\s*\.stackChoice;/.test(layout),
+);
+check(
+  "the stack and the mode are decided by one width, not two",
+  /get stackNeed\(\): number \{[\s\S]{0,500}thresholdsFor\(this\.panes, this\.device, this\.panes\.sidebar, false\)\.three/.test(
     layout,
   ) &&
-    /get stackForced\(\): boolean \{\s*return !this\.stackChoice && this\.stacked;/.test(layout) &&
-    /get stackChosen\(\): boolean \{\s*return this\s*\.stackChoice;/.test(layout),
+    /get stackNeed\(\): number \{[\s\S]{0,500}floorThresholds\(this\.device, false\)\.three/.test(layout) &&
+    !/columnsFit/.test(layout) &&
+    // The band is charged on the way out of a mode, never on the way in: a window
+    // with exactly the width three panes need must draw three.
+    /if \(next > current\) return next;/.test(read("src/lib/panes.ts")),
 );
 check(
   "so the panel reports and edits the choice, and says when the window decided",
@@ -116,11 +129,10 @@ check(
     /\{#if layout\.stackForced\}[\s\S]{0,400}narrower than three columns need/.test(panel),
 );
 check(
-  "three columns need the three-pane floor, and a stacked three does not",
-  columnsFit(NEEDED.desktop[3], "desktop") &&
-    !columnsFit(NEEDED.desktop[3] - 1, "desktop") &&
-    columnsFit(NEEDED.phone[3], "phone") &&
-    !columnsFit(NEEDED.phone[3] - 1, "phone"),
+  "the shared width is the three-column floor, and a stacked three is not asked to pay it",
+  floorThresholds("desktop", false).three === NEEDED.desktop[3] &&
+    floorThresholds("phone", false).three === NEEDED.phone[3] &&
+    floorThresholds("desktop", true).three < NEEDED.desktop[3],
 );
 check(
   "the stacked floor is the pair's own arithmetic, not the two-pane number",
@@ -129,9 +141,14 @@ check(
     stackFloor("desktop") < NEEDED.desktop[2],
 );
 check(
-  "and it is the floor a stacked three is judged by",
-  floorThresholds("desktop", true).three === stackFloor("desktop") &&
-    floorThresholds("desktop", true).two === floorThresholds("desktop").two &&
+  "and it is the two-pane floor a stacked three is judged by",
+  // A stack is a two-pane window: feeds beside a column that is posts over
+  // article. So the width three panes need, drawn stacked, is the width two
+  // panes need — not the third column's price, and not the pair's own
+  // arithmetic, which came out cheaper still and let the window be dragged
+  // narrower than the two-pane layout the stack is imitating.
+  floorThresholds("desktop", true).three === floorThresholds("desktop").two &&
+    floorThresholds("phone", true).three === floorThresholds("phone").two &&
     floorThresholds("desktop", true).three < floorThresholds("desktop").three &&
     floorThresholds("desktop").three === NEEDED.desktop[3],
 );
