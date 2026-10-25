@@ -735,11 +735,18 @@ check(
 /* Tighter than the pill's row: the foot makes a slab, and a slab with the pill's
    air reads as a loose row. The picture grew and everything around it shrank,
    and its size stays fixed — a picture that stretches sets the row's height. */
+// One picture size in every row, and the footed row differs in where it sits,
+// not in how big it is: a shape with its own size was the only row in the pane
+// that disagreed with the rest. The base is 64 rather than 48 because at the
+// default scale a row is tall enough for the picture to read as the post's face
+// rather than a stamp, with no band of empty row around it.
 check(
-  "the footed row is tighter than the pill's, with a bigger picture",
-  /\.items\.half-end[^{]*\.thumb \{[^}]*width: calc\(50px \* var\(--row-scale, 1\) \* var\(--thumb-scale, 1\)\);[^}]*height: calc\(50px \* var\(--row-scale, 1\) \* var\(--thumb-scale, 1\)\);[^}]*align-self: flex-start;/.test(
+  "every row draws the same picture, and the footed row only places it",
+  /\.thumb \{[^}]*width: calc\(64px \* var\(--row-scale, 1\) \* var\(--thumb-scale, 1\)\);[^}]*height: calc\(64px \* var\(--row-scale, 1\) \* var\(--thumb-scale, 1\)\);[^}]*margin-left: 6px;/.test(
     listSource,
   ) &&
+    /\.items\.half-end[^{]*\.thumb \{[^}]*align-self: flex-start;/.test(listSource) &&
+    !/\.items\.half-end[^{]*\.thumb \{[^}]*width:/.test(listSource) &&
     !/\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.thumb \{[^}]*align-self: stretch;/.test(
       listSource,
     ) &&

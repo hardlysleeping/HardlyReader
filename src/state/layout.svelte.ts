@@ -950,8 +950,59 @@ class LayoutState {
     this.stackChoice = on;
     this.syncThresholds();
     this.settle(false);
+    // Choosing columns is a request for a window that can hold them. Keeping the
+    // widths, the frame follows the panes, so a window too narrow for three
+    // columns grows to them instead of landing on a pair — or on the stack that
+    // was just turned off, which is what made the button look dead.
+    if (!on) void this.fitWindowForMode(3);
     this.press();
     this.save();
+  }
+
+  /**
+   * A slider was let go.
+   *
+   * Keeping the widths, the frame follows the panes, so a number the window
+   * cannot show yet is a request to widen it — without this the right half of
+   * every slider was a value the window never honoured, and the number sprang
+   * back to what fitted: a slider that looks dead. It only ever grows here.
+   * Dragging fires per pixel and is left alone; a window resized on every tick
+   * is a stutter, not a slide.
+   */
+  commitThreshold(): void {
+    if (!canFitWindow()) return;
+    const target = fitTarget(this.mode, this.available, this.device, this.thresholds, this.monitor, this.keepWidths);
+    if (target === null || target <= this.available) return;
+    void this.fitWindowForMode(this.mode);
+  }
+
+  /**
+   * Asks the window for the width a mode's own panes need.
+   *
+   * Shared by the mode buttons and the arrangement button, so "three columns,
+   * please" means the same thing however it was asked for. A shell that cannot
+   * resize, or a mode that already has its width, settles where it is.
+   */
+  private async fitWindowForMode(mode: PaneMode): Promise<boolean> {
+    void this.loadMonitor();
+    const target = fitTarget(mode, this.available, this.device, this.thresholds, this.monitor, this.keepWidths);
+    if (target === null || !canFitWindow()) {
+      this.pressTarget = null;
+      this.settle(false);
+      return false;
+    }
+    this.pressUntil = Date.now() + PRESS_GRACE_MS;
+    this.pressTarget = target;
+    this.holdFor(target);
+    const ask = this.resizing.then(() => fitWindowTo(target));
+    this.resizing = ask.catch(() => false);
+    void ask.then(
+      (ok) => {
+        if (!ok) this.release(target);
+      },
+      () => this.release(target),
+    );
+    return ask;
   }
 
   /**

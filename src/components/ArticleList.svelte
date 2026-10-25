@@ -2089,11 +2089,14 @@
      under it of its own, so even the shortest row keeps the foot's 30px clear of
      it. Its height is fixed, so a picture can never stretch a row. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .thumb {
-    width: calc(50px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    height: calc(50px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    /* The size is the row's, not this shape's: one picture size in every row, and
+       this is only where it sits. The footed row is the one most rows take, so at
+       a size of its own it was the only row in the pane that disagreed — and at
+       50 the picture sat in a band of empty row, a stamp with a third of the row's
+       height left over around it. */
     align-self: flex-start;
-    margin-top: 2px;
-    margin-bottom: 6px;
+    margin-top: 1px;
+    margin-bottom: 3px;
   }
 
   /* Off the accent a little further than the text sits: a coloured block against
@@ -2315,9 +2318,14 @@
     display: block;
     flex: none;
     align-self: center;
-    width: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    height: calc(48px * var(--row-scale, 1) * var(--thumb-scale, 1));
-    margin-left: 10px;
+    /* 64, not 48: at the default scale a row is tall enough for the picture to
+       read as the post's face rather than a stamp beside it, and the box no
+       longer leaves a band of empty row above and below it. */
+    width: calc(64px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    height: calc(64px * var(--row-scale, 1) * var(--thumb-scale, 1));
+    /* Close to the row's edge, so the width the pane has is spent on the
+       picture instead of on the gap around it. */
+    margin-left: 6px;
     border-radius: 6px;
     overflow: hidden;
     background: var(--hover);
@@ -2329,7 +2337,7 @@
   .thumb.left {
     order: -1;
     margin-left: 0;
-    margin-right: 10px;
+    margin-right: 6px;
   }
 
   .thumb img,

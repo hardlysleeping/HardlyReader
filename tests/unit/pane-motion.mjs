@@ -195,7 +195,7 @@ check(
 );
 check(
   "so is an arrangement press and the fold",
-  /setStacked\(on: boolean\): void \{[\s\S]{0,320}this\.press\(\);/.test(layout) &&
+  /setStacked\(on: boolean\): void \{[\s\S]{0,900}this\.press\(\);/.test(layout) &&
     /toggleSidebar\(\): void \{\s*this\.sidebarCollapsed = !this\.sidebarCollapsed;\s*this\.press\(\);/.test(layout),
 );
 // The sizing toggle is a press too, and for the same reason: switching between
@@ -284,7 +284,18 @@ check(
 );
 check(
   "and it comes off a little after the columns land",
-  /const timer = setTimeout\(\(\) => \(sliding = false\), ms \+ 70\);/.test(main),
+  /slideTimer = setTimeout\(\(\) => \{\s*sliding = false;/.test(main) && /\}, ms \+ 70\);/.test(main),
+);
+// The class is what draws the move, so a class that never comes off is a layout
+// that never lands: this effect re-runs whenever the slots it read change, and a
+// cleanup that cancelled the timer turned the first re-run into a stuck
+// transition — the panes drawn in the arrangement they were leaving, which is a
+// side-by-side press that looks stacked.
+check(
+  "the timer is not cancelled by the effect re-running",
+  /let slideTimer: ReturnType<typeof setTimeout> \| null = null;/.test(main) &&
+    !/return \(\) => clearTimeout\(timer\)/.test(main) &&
+    /onDestroy\(\(\) => \{\s*if \(slideTimer !== null\) clearTimeout\(slideTimer\);/.test(main),
 );
 check(
   "the class is the transition, on both the columns and the rows",

@@ -53,6 +53,7 @@ const gutter = read("src/components/PaneGutter.svelte");
 const main = read("src/views/Main.svelte");
 const header = read("src/components/Header.svelte");
 const readingControls = read("src/components/ReadingControls.svelte");
+const panel = read("src/components/ThemePanel.svelte");
 
 /**
  * The column as the app draws it, from the same values the seam writes.
@@ -624,6 +625,35 @@ check(
     /if \(onList\) reading\.stepRowScale\(direction\);\s*else reading\.stepTextScale\(direction\);/.test(
       readingControls,
     ),
+);
+
+/* Choosing columns is a request for a window that can hold them. Keeping the
+   widths, a press of Side by side in a window too narrow for three columns used
+   to land on a pair — or stay in the stack it had just turned off — and read as
+   a button that does nothing. */
+check(
+  "side by side asks the window for three columns",
+  /if \(!on\) void this\.fitWindowForMode\(3\);/.test(layout) &&
+    /private async fitWindowForMode\(mode: PaneMode\): Promise<boolean>/.test(layout),
+);
+
+// A slider's value is the width that mode needs, so the right half of the track
+// was a number the frame never honoured: it sprang back to what fitted, twice a
+// second, and looked dead. Releasing the thumb asks for that width — growing
+// only, because shrinking the window on release is a surprise, and only on
+// release, because a resize per tick is a stutter rather than a slide.
+check(
+  "releasing a slider asks the window to grow to it",
+  /commitThreshold\(\): void \{\s*if \(!canFitWindow\(\)\) return;/.test(layout) &&
+    /const target = fitTarget\(this\.mode, this\.available, this\.device, this\.thresholds, this\.monitor, this\.keepWidths\);\s*if \(target === null \|\| target <= this\.available\) return;/.test(
+      layout,
+    ) &&
+    /void this\.fitWindowForMode\(this\.mode\);/.test(layout),
+);
+check(
+  "and every slider commits its release, without resizing per pixel",
+  (panel.match(/onchange=\{\(\) => layout\.commitThreshold\(\)\}/g) ?? []).length === 3 &&
+    !/oninput=\{\(\) => layout\.commitThreshold\(\)\}/.test(panel),
 );
 
 console.log(`${checks - failures}/${checks} checks passed`);

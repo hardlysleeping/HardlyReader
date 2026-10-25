@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
 
   import type { Session, UserInfo } from "../api/freshrss";
   import ArticleList from "../components/ArticleList.svelte";
@@ -547,6 +547,18 @@
   let sliding = $state(false);
 
   /**
+   * The one timer that turns the slide off.
+   *
+   * Held here rather than returned as this effect's cleanup: the effect re-runs
+   * whenever the slots it reads change, which outlives the press that armed it.
+   * Clearing the timer on that rerun left `sliding` on for good — the tracks
+   * were re-targeted under a live transition and the panes stayed drawn in the
+   * arrangement they were leaving, which is a side-by-side press that looks
+   * stacked.
+   */
+  let slideTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
    * The panes themselves, so an arriving one can be given its own small bounce.
    * The bounce is a transform on the slot, never a wider track: see `ARRIVE`.
    */
@@ -607,8 +619,16 @@
       }));
       element.animate(frames, { duration: ms, easing: "linear", fill: "none" });
     }
-    const timer = setTimeout(() => (sliding = false), ms + 70);
-    return () => clearTimeout(timer);
+    if (slideTimer !== null) clearTimeout(slideTimer);
+    slideTimer = setTimeout(() => {
+      sliding = false;
+      slideTimer = null;
+    }, ms + 70);
+  });
+
+  onDestroy(() => {
+    if (slideTimer !== null) clearTimeout(slideTimer);
+    slideTimer = null;
   });
 
   /**

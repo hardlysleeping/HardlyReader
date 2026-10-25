@@ -490,6 +490,7 @@
           value={layout.thresholds.two}
           aria-label="Window width at which a second pane appears"
           oninput={(event) => layout.setThreshold("two", Number(event.currentTarget.value))}
+          onchange={() => layout.commitThreshold()}
         />
       </div>
 
@@ -525,6 +526,7 @@
           value={layout.thresholds.three}
           aria-label="Window width at which a third pane appears"
           oninput={(event) => layout.setThreshold("three", Number(event.currentTarget.value))}
+          onchange={() => layout.commitThreshold()}
         />
       </div>
 
@@ -563,6 +565,7 @@
           value={layout.thresholds.one}
           aria-label="Width the one-pane button collapses the window to"
           oninput={(event) => layout.setThreshold("one", Number(event.currentTarget.value))}
+          onchange={() => layout.commitThreshold()}
         />
       </div>
 
