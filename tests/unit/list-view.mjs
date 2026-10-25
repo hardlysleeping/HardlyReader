@@ -663,12 +663,28 @@ check(
 );
 check(
   "the new shape only ever applies to a row, never to cards, the grid or the compact list",
-  (listSource.match(/\.items\.half-end/g) ?? []).length === 3 &&
-    (listSource.match(/\.items\.half-end/g) ?? []).every(() => true) &&
+  (listSource.match(/\.items\.half-end/g) ?? []).length === 4 &&
     (listSource.match(/\.items\.half-end[^,{]*\{/g) ?? []).every((rule) =>
-      rule.includes(":not(.cards):not(.grid)"),
+      rule.includes(":not(.compact):not(.cards):not(.grid)"),
     ) &&
     /class:half-end=\{view === "regular" && reading\.rowsEnd === "half"\}/.test(listSource),
+);
+
+/* The foot matches itself: the left edge is the right edge's weight, the row
+   steps in from the pane's edge on both sides by the same 9px, and the row's
+   content clears the new left edge by the 11px the actions clear the right.
+   The right-hand numbers are asserted above and are not restated here. */
+check(
+  "both ends of the foot are the same: 5px left edge, 9px in from the pane, 11px of clearance",
+  /\.items\.half-end[^{]*\.row \{[^}]*margin-left: 9px;/.test(listSource) &&
+    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-left: 5px solid/.test(
+      listSource,
+    ) &&
+    /\.items\.half-end[^{]*\.item \{\s*padding-left: 11px;/.test(listSource) &&
+    // The right side keeps its own 9px: the left is a copy, not a replacement.
+    /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,1600}?margin-right: 9px;/.test(
+      listSource,
+    ),
 );
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

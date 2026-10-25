@@ -1813,14 +1813,42 @@ import { plainPreview, relativeTime } from "../lib/format";
      feet rather than a stack of capsules. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .row {
     border-radius: 0 0 30px 30px;
+    /* Both ends of the foot match, so the row steps in from the pane's edge on
+       both sides by the 9px it already kept on its right. The right side and its
+       shadow are untouched; this is the same measurement, mirrored. */
+    margin-left: 9px;
   }
 
+  /* The left edge of the foot is as thick as the right one: 5px of accent, the
+     same border of the same rounded box, so the two corners are one shape seen
+     from either end rather than a thick end and a cut corner. The dark band that
+     gives the right edge its depth is mirrored for the same reason — an accent
+     5px wide that is lit flat reads thinner than the one that is not. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
     border-radius: 0 0 30px 30px;
     /* The foot lives inside the row: the border is not drawn a pixel past it,
        and the corner is the row's own corner. */
     inset: 0;
     border-bottom-width: 5px;
+    border-left: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
+    background:
+      linear-gradient(to left, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(to right, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(
+        to left,
+        color-mix(in srgb, var(--accent) 18%, transparent) 0,
+        color-mix(in srgb, var(--accent) 8%, transparent) 36px,
+        color-mix(in srgb, var(--accent) 3%, transparent) 50%,
+        transparent 64%
+      );
+  }
+
+  /* The row's own content clears that new left edge by the 11px the actions
+     clear the right one with, so a picture on the leading side is inset like the
+     marks on the trailing side instead of sitting on the accent — which is what
+     clipped it against the turn. Nothing on the right moves. */
+  .items.half-end:not(.compact):not(.cards):not(.grid) .item {
+    padding-left: 11px;
   }
 
   /* The pill steps in from the end it sits against. A 5px foot and a 5px edge
