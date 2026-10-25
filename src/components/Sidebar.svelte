@@ -1321,6 +1321,9 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-bottom: 2px;
+    /* Panned by the app's drag module, so a flick throws here the way it does in
+       the post list. See `lib/drag-scroll.ts`. */
+    touch-action: none;
   }
 
   .section + .section {

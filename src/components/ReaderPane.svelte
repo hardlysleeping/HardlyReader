@@ -743,6 +743,9 @@
     --gutter: clamp(16px, 5vw, 48px);
     flex: 1;
     overflow-y: auto;
+    /* The article is panned by the app's drag module like the lists: the browser
+       would take the pointer on the first move and then stop dead on release. */
+    touch-action: none;
     padding-block: 22px 64px;
     max-width: none;
     width: 100%;

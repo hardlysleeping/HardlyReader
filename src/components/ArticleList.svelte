@@ -1932,6 +1932,11 @@
     flex: 1;
     overflow-y: auto;
     padding-bottom: 12px;
+    /* The list is panned by the app, not by the browser: the drag module scrolls
+       this box and throws it, so a flick and a mouse drag feel the same. The
+       browser's own panning would take the gesture away mid-drag (a pointercancel
+       a few px in) and it has no throw to offer in its place. */
+    touch-action: none;
     /* The scroll port is the measure of "how much you can see", so a picture
        can be capped against it rather than against the window: in a three-pane
        desktop window the list is most of the height, on a phone it is all of
