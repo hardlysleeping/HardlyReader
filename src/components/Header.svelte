@@ -3,6 +3,7 @@
 
   import { serverLabel } from "../lib/server-label";
   import { syncDescription, syncReadout } from "../lib/sync-progress";
+  import { layout } from "../state/layout.svelte";
   import { reader } from "../state/reader.svelte";
   import AccountsPanel from "./AccountsPanel.svelte";
   import ReadingControls from "./ReadingControls.svelte";
@@ -192,6 +193,7 @@
   <div class="drawer" bind:this={sheet}>
     <button
       class="icon menu"
+      class:tap44={layout.device === "phone"}
       aria-haspopup="menu"
       aria-expanded={menuOpen}
       aria-label={menuOpen ? "Close menu" : "Menu"}
@@ -278,6 +280,7 @@
 
   <button
     class="sync"
+    class:tap44={layout.device === "phone"}
     class:busy={refreshing}
     class:done={justFinished}
     onclick={refresh}
@@ -413,6 +416,20 @@
       color 120ms ease,
       background 120ms ease,
       border-color 120ms ease;
+  }
+
+  /* The bar is 42px tall and Sync is the last thing in it: the hit box stops at
+     the bar's own edges rather than hanging a pixel over the seam below, where
+     the panes begin. Nothing above the bar is a control. */
+  :global(html[data-device="phone"]) .sync.tap44 {
+    --tap44-h: 42px;
+  }
+
+  /* The menu is the phone's way into Feeds, Reading and Settings, and its glyph
+     is 28px: the smallest thing in the bar that opens a whole sheet. Same cap as
+     Sync, for the same reason — the bar is the seam. */
+  :global(html[data-device="phone"]) .icon.menu.tap44 {
+    --tap44-h: 42px;
   }
 
   /* Sync keeps its own colour, chosen in Options, because it is the one control

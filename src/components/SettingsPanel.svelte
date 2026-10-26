@@ -23,7 +23,10 @@
   import AccountsBody from "./AccountsBody.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
   import ThemePanel from "./ThemePanel.svelte";
+  import { exportFeedsOpml, importFeedsFile } from "../lib/feeds-io";
   import { APP_VERSION } from "../lib/version";
+  import { layout } from "../state/layout.svelte";
+  import { reader } from "../state/reader.svelte";
 
   let {
     open = $bindable(false),
@@ -43,16 +46,24 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "appearance" | "reading" | "layout" | "sync" | "about";
+  type SectionId = "accounts" | "feeds" | "appearance" | "reading" | "layout" | "sync" | "about";
 
   /**
-   * The sections, in the order someone looks for them: who I am, what it looks
-   * like, how it reads, how it is laid out, where it fetches from, and what
-   * version this is. Accounts first because it is the one that has to be found
-   * when something is wrong.
+   * The sections, in the order someone looks for them: who I am, what is in the
+   * list, what it looks like, how it reads, how it is laid out, where it fetches
+   * from, and what version this is. Accounts first because it is the one that
+   * has to be found when something is wrong.
+   *
+   * `phone` marks a section only a phone draws. There is one: Feeds, which holds
+   * Import and Export for the sidebar's footer on a phone held upright, where
+   * that footer has no room for them (see `compressedFooter` in `Sidebar`). A
+   * desktop keeps those two controls in the sidebar, where they have always
+   * been, so the section is filtered out of the desktop's sheet entirely rather
+   * than drawn as a second home for a control that already has one.
    */
-  const SECTIONS: { id: SectionId; label: string; note: string }[] = [
+  const SECTIONS: { id: SectionId; label: string; note: string; phone?: boolean }[] = [
     { id: "accounts", label: "Accounts", note: "This account, this server" },
+    { id: "feeds", label: "Feeds", note: "Import and export OPML", phone: true },
     { id: "appearance", label: "Appearance", note: "Colours, page, background" },
     { id: "reading", label: "Reading", note: "Text, pictures, read state" },
     { id: "layout", label: "Layout", note: "Pane widths and arrangement" },
@@ -60,9 +71,15 @@
     { id: "about", label: "About", note: "Version" },
   ];
 
+  /** The sections this device draws: all of them but the phone-only ones. */
+  const sections = $derived(
+    SECTIONS.filter((section) => section.phone !== true || layout.device === "phone"),
+  );
+
   /** Which sections are open. Accounts starts open: it is the shortest one. */
   let opened = $state<Record<SectionId, boolean>>({
     accounts: true,
+    feeds: false,
     appearance: false,
     reading: false,
     layout: false,
@@ -144,6 +161,44 @@
     returnTo = null;
     if (back !== null && back.isConnected) back.focus();
   });
+
+  /* -------------------------------------------------------------------------
+   * Feeds: the two file actions a phone's sidebar leaves here
+   *
+   * The reading, the subscribing, the download and the wording are
+   * `lib/feeds-io.ts` — the sidebar's footer draws the same two actions and the
+   * two must not disagree about what happened. This is only the sheet's own
+   * state: the file in play and the sentence under it.
+   *
+   * There is no "No file chosen" row and no empty label: a line appears when
+   * there is a file to name or something to report, and until then the two
+   * controls are the whole section. A label that says nothing is a row of a
+   * sheet spent on nothing.
+   * ---------------------------------------------------------------------- */
+  let feedsName = $state<string | null>(null);
+  let feedsNote = $state<string | null>(null);
+
+  async function pickFeedsFile(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file === undefined) return;
+    feedsNote = null;
+    feedsName = file.name;
+    try {
+      const done = await importFeedsFile(file, (feeds) => reader.importOpml(feeds));
+      feedsName = done.name;
+      feedsNote = done.note;
+    } finally {
+      // So choosing the same file twice runs again instead of doing nothing.
+      input.value = "";
+    }
+  }
+
+  async function exportFeeds(): Promise<void> {
+    const done = await exportFeedsOpml(reader.categories);
+    feedsName = done.name;
+    feedsNote = done.note;
+  }
 </script>
 
 {#if open}
@@ -171,7 +226,7 @@
     </header>
 
     <div class="body">
-      {#each SECTIONS as section (section.id)}
+      {#each sections as section (section.id)}
         <details
           class="sec"
           open={opened[section.id]}
@@ -192,6 +247,38 @@
               <!-- The colours are the theme panel's rows, mounted — not a second
                    set written here. -->
               <ThemePanel part="colours" />
+            {:else if section.id === "feeds"}
+              <!-- The two file actions the phone's footer gives up, drawn in the
+                   panel's own idiom: one row of two controls, then whatever the
+                   last file was. No new setting, and nothing that is not already
+                   in the sidebar on a desktop. -->
+              <div class="feeds">
+                <label
+                  class="feeds-do"
+                  class:busy={reader.feedBusy}
+                  title="Import feeds from an OPML file — folders come too"
+                >
+                  <input
+                    type="file"
+                    accept=".opml,.xml,text/xml,application/xml,application/octet-stream"
+                    disabled={reader.feedBusy}
+                    onchange={pickFeedsFile}
+                  />
+                  <span>{reader.feedBusy ? "Importing…" : "Import feeds"}</span>
+                </label>
+                <button
+                  class="feeds-do"
+                  onclick={exportFeeds}
+                  disabled={reader.feedBusy || reader.categories.length === 0}
+                  title="Save every feed and folder as an OPML file"
+                >Export feeds</button>
+              </div>
+              {#if feedsName !== null}
+                <p class="feeds-file" title={feedsName}>{feedsName}</p>
+              {/if}
+              {#if feedsNote}
+                <p class="hint" role="status">{feedsNote}</p>
+              {/if}
             {:else if section.id === "reading"}
               <ReadingPanel />
             {:else if section.id === "layout"}
@@ -411,6 +498,64 @@
     color: var(--muted);
     font-size: 11px;
     line-height: 1.4;
+  }
+
+  /* The two file actions, as one row of two buttons: the sheet has the width a
+     phone's footer does not, so neither is squeezed and both are a thumb tall. */
+  .feeds {
+    display: flex;
+    gap: 8px;
+    padding: 4px 0 2px;
+  }
+
+  .feeds-do {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 0;
+    min-height: 38px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .feeds-do:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--hover);
+    border-color: var(--border-soft);
+  }
+
+  .feeds-do.busy,
+  .feeds-do:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  /* The file input is the label's business: the visible control is the label,
+     and the browser's own chrome would break the row. */
+  .feeds-do input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* The name of the file in play, and only once there is one. */
+  .feeds-file {
+    margin: 2px 0 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   @keyframes scrim-in {

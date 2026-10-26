@@ -450,3 +450,44 @@ a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* A thumb is not a pointer with a 1px hotspot.
+   -----------------------------------------------------------------------------
+   The controls that are quiet by design — Sync, a back step, the star, the read
+   mark, the link out, a category's arrow — are 13 to 34 pixels on a phone, and
+   every one of them sits where a thumb lands while the other hand is scrolling.
+   Growing the control itself would move the bars and the rows apart, so the hit
+   box grows instead: an `::after` laid over the control, centred on it, with the
+   glyph and the layout left exactly where they are. A pseudo belongs to its
+   element for hit testing, so a tap anywhere in the box presses that control and
+   nothing else changes.
+
+   The box is not always 44 square. Where two controls are closer to each other
+   than 44px, two 44px boxes would lie on top of one another and the later one
+   would swallow taps meant for its neighbour — a star that marks the post beside
+   it. So a control whose neighbour is nearer than 44px is narrowed on that axis
+   by the component that owns the geometry (`--tap44-w`, `--tap44-h`), to the
+   free space it actually has: the boxes may touch, they may not overlap. Both
+   variables are declared next to the gap, the bar or the row they come from.
+
+   `touch-action: manipulation` is on the same controls. The pan is the app's —
+   every list is `touch-action: none` and `lib/drag-scroll.ts` owns the gesture —
+   so the only thing a double tap could still do here is zoom the page, and on a
+   bar button that is nobody's gesture.
+
+   Nothing here is desktop: the whole block hangs off the root phone switch, so
+   the class is inert in a desktop window and in the browser. */
+html[data-device="phone"] .tap44 {
+  position: relative;
+  touch-action: manipulation;
+}
+
+html[data-device="phone"] .tap44::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--tap44-w, 44px);
+  height: var(--tap44-h, 44px);
+  translate: -50% -50%;
+}

@@ -251,6 +251,7 @@
       <button
         type="button"
         class="step"
+        class:tap44={layout.device === "phone"}
         onclick={() => nav.closeOverlay()}
         aria-label={`Back to the ${backTo.toLowerCase()}`}
         title={`Back to the ${backTo.toLowerCase()}`}
@@ -398,6 +399,13 @@
     stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  /* The strip is 42px tall and the control is the first thing in it: the hit box
+     stops at the strip's edges and grows sideways into the label's gap, which is
+     text, not a control. */
+  :global(html[data-device="phone"]) .step.tap44 {
+    --tap44-h: 42px;
   }
 
   .step:hover,
