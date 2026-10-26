@@ -22,6 +22,8 @@ const USER = "itest";
 const API_PASSWORD = "hardlyread-test-password";
 const API = `${BASE}/api/misc.php/Hardly%20Read/v1`;
 const STORE_DUMP = process.env.HARDLYREAD_STORE_DUMP ?? "";
+/** Seeds a pin through the extension's own store, so it predates any API call. */
+const SEED_PIN = process.env.HARDLYREAD_SEED_PIN ?? "";
 
 /** Fixture ids seeded by provision.php `config`. */
 const CATEGORIES = [
@@ -85,6 +87,27 @@ async function login() {
     throw new Error("ClientLogin response carried no Auth token");
   }
   return match[1].trim();
+}
+
+/**
+ * Runs the seed-pin command, if the harness supplied one.
+ *
+ * The pin-order checks below are about a pin the app did not create: the
+ * position is seeded in the extension's store from outside, so a passing check
+ * cannot be the adapter reading back a list it wrote itself. Nothing here goes
+ * through the app's API.
+ */
+function seedPin() {
+  if (SEED_PIN === "") {
+    throw new Error("HARDLYREAD_SEED_PIN is not set — the pin-order checks need a seeded pin");
+  }
+  const output = execFileSync("bash", ["-lc", SEED_PIN], { encoding: "utf8" });
+  const start = output.indexOf("{");
+  const end = output.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    throw new Error(`seed-pin printed no JSON: ${output.slice(0, 400)}`);
+  }
+  return JSON.parse(output.slice(start, end + 1));
 }
 
 /** Runs the store dump command, if the harness supplied one. */
@@ -279,6 +302,8 @@ async function main() {
   // --- the pin order, against core's own category positions ----------------
   // Pins are the category's `position` attribute, so this is a real round trip
   // to the database column the website sorts by — not a list this API keeps.
+  const seeded = seedPin();
+  console.log(`seeded pin: ${JSON.stringify(seeded.ids)}`);
   const pinsStart = (await api("/state", { token })).json?.pins;
   check("GET /v1/state reports a pin order", pinsStart?.available === true, JSON.stringify(pinsStart ?? null));
   check(
