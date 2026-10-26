@@ -68,6 +68,7 @@ function build(sourcePath, outName, rewrites = []) {
 const mobileNavPath = build("src/state/mobile-nav.svelte.ts", "mobile-nav");
 const layoutPath = build("src/state/layout.svelte.ts", "layout", [
   ["./mobile-nav.svelte", mobileNavPath],
+  ["../lib/account-key", absolute("src/lib/account-key.ts")],
   ["../lib/platform", absolute("src/lib/platform.ts")],
   ["../lib/panes", absolute("src/lib/panes.ts")],
   ["../lib/window-fit", absolute("src/lib/window-fit.ts")],
