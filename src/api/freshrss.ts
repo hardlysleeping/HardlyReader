@@ -332,18 +332,34 @@ export async function probeGreaderSession(
   throw new GreaderProbeError(target.serverUrl, attempts);
 }
 
+/**
+ * How a request spent its time.
+ *
+ * Two numbers because they answer different questions: `fetch` is the wait for
+ * the server (the part the network owns), `parse` is reading the body and
+ * turning it into JSON (the part this client owns). On a fast local server the
+ * second can be the larger of the two, which is exactly why they are measured
+ * apart.
+ */
+export interface RequestTiming {
+  fetch: number;
+  parse: number;
+}
+
 /** Authenticated GET against the GReader API. */
 export async function authorizedGet<T>(
   transport: Transport,
   session: Session,
   path: string,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; timing?: (timing: RequestTiming) => void } = {},
 ): Promise<T> {
+  const started = performance.now();
   const response = await transport(greaderUrl(session.serverUrl, path, session.apiPath), {
     method: "GET",
     signal: options.signal,
     headers: { Authorization: authHeader(session.token) },
   });
+  const arrived = performance.now();
 
   if (response.status === 401) {
     throw new AuthError("Token rejected by server", 401);
@@ -352,7 +368,9 @@ export async function authorizedGet<T>(
     throw new HttpError(response.status, `Request failed (HTTP ${response.status})`);
   }
 
-  return (await response.json()) as T;
+  const body = (await response.json()) as T;
+  options.timing?.({ fetch: arrived - started, parse: performance.now() - arrived });
+  return body;
 }
 
 /** Confirms a stored token is still valid and returns the account it belongs to. */
@@ -482,6 +500,8 @@ export interface StreamOptions {
   excludeRead?: boolean;
   /** Lets the caller drop a response that is no longer wanted. */
   signal?: AbortSignal;
+  /** Reports how the request spent its time, for the switch timings. */
+  timing?: (timing: RequestTiming) => void;
 }
 
 export async function getStreamContents(
@@ -496,7 +516,10 @@ export async function getStreamContents(
     c: options.continuation,
     xt: options.excludeRead ? STATE_READ : undefined,
   });
-  return authorizedGet<StreamContents>(transport, session, path, { signal: options.signal });
+  return authorizedGet<StreamContents>(transport, session, path, {
+    signal: options.signal,
+    timing: options.timing,
+  });
 }
 
 /** Read/write actions need a separate short-lived token from `/token`. */
