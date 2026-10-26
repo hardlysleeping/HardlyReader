@@ -251,9 +251,10 @@
       height: 19px;
     }
 
-    /* Home-bar room on an iPhone, and the same measure on anything else. */
+    /* Home-bar room on an iPhone, and the same measure on anything else. The
+       number comes from `app.css` with every other inset. */
     .pad {
-      padding-bottom: env(safe-area-inset-bottom, 0px);
+      padding-bottom: var(--safe-bottom);
     }
 
     .dot {

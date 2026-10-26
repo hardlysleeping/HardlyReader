@@ -63,5 +63,25 @@ check(
   /touch-action: pan-x pan-y;/.test(css) && /-webkit-text-size-adjust: 100%;/.test(css),
 );
 
+// The shape is the app's one platform switch, and every phone-only rule in the
+// stylesheet hangs off it, so CSS has to be able to see the answer. `App.svelte`
+// copies `layout.device` onto `<html>` as `data-device`; a refactor that drops
+// that effect would leave every `html[data-device="phone"]` rule dead, and
+// nothing would look broken until the app was opened on a phone.
+const app = readFileSync(join(root, "src/App.svelte"), "utf8");
+check(
+  "the device shape is published on <html>",
+  /document\.documentElement\.dataset\.device\s*=\s*device/.test(app),
+);
+check(
+  "read from the layout store inside one effect, so a recompute re-publishes it",
+  /\$effect\(\(\) => \{\s*const device = layout\.device;[\s\S]{0,200}?document\.documentElement\.dataset\.device = device;/
+    .test(app),
+);
+check(
+  "and the phone rules are keyed on that attribute",
+  /html\[data-device="phone"\] \.phone-header \{/.test(css),
+);
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

@@ -10,7 +10,7 @@
     isMenuKey,
   } from "../lib/contextmenu";
   import { parseFeedUrls } from "../lib/add-feeds";
-  import { buildOpml, opmlFileName, parseOpml } from "../lib/opml";
+  import { exportFeedsOpml, importFeedsFile } from "../lib/feeds-io";
   import {
     DEFAULT_ICON_PROVIDER,
     feedIcon,
@@ -31,6 +31,7 @@
   import { people } from "../state/people.svelte";
   import { theme } from "../state/theme.svelte";
   import { chrome } from "../state/chrome.svelte";
+  import { layout } from "../state/layout.svelte";
 
   let wasLocked = false;
 
@@ -56,6 +57,19 @@
 
   /** Something typed: the sidebar shows results instead of the tree. */
   const searching = $derived(search.query.trim() !== "");
+
+  /**
+   * A phone held upright, where the bottom of the pane is compressed.
+   *
+   * A feed list is imported and exported a handful of times in a year, and the
+   * footer these two buttons sit in is the last strip above the home indicator —
+   * every pixel of it comes straight out of the tree. So upright on a phone the
+   * footer keeps the one control that is used (`+ Add feed`) and the two file
+   * actions move into `Settings → Feeds`, which the phone header's `•••` opens.
+   * Sideways, and on every other device, nothing moves: a landscape phone has
+   * the height for the full block and a desktop has always had it, file-name
+   * line included. */
+  const compressedFooter = $derived(layout.device === "phone" && layout.upright);
 
   /**
    * The field itself.
@@ -664,12 +678,12 @@
   /**
    * OPML, both ways, under the add field.
    *
-   * Import reads the file in the browser and subscribes through the same queue
-   * the pasted list uses, folder names included, so a move from another reader
-   * does not arrive as one undifferentiated pile. Export writes what this
-   * account actually has, folders and all, and says so on the same line — the
-   * name of the file in play is always on screen, so it is clear whether the
-   * last file came in or went out.
+   * The reading, the subscribing, the download and the sentence about what
+   * happened live in `lib/feeds-io.ts`, because a phone's `Settings → Feeds`
+   * draws the same two actions (see `compressedFooter` below). What the sidebar
+   * keeps for itself is the one line that makes them clear at a glance: the name
+   * of the file in play, on screen, so it is obvious whether the last file came
+   * in or went out.
    */
   let opmlName = $state<string | null>(null);
   let opmlNote = $state<string | null>(null);
@@ -681,72 +695,20 @@
     opmlName = file.name;
     opmlNote = null;
     try {
-      const feeds = parseOpml(await file.text());
-      const result = await reader.importOpml(feeds);
-      const folders = new Set(feeds.map((feed) => feed.category).filter((name) => name !== undefined));
-      if (result.failed.length === 0) {
-        opmlNote = `Imported ${result.added.length} feed${result.added.length === 1 ? "" : "s"}${
-          folders.size > 0 ? ` into ${folders.size} folder${folders.size === 1 ? "" : "s"}` : ""
-        }.`;
-      } else {
-        opmlNote = `Imported ${result.added.length}, ${result.failed.length} failed — ${result.failed[0]?.error ?? ""}`;
-      }
-    } catch (error) {
-      opmlNote = error instanceof Error ? error.message : String(error);
+      const done = await importFeedsFile(file, (feeds) => reader.importOpml(feeds));
+      opmlName = done.name;
+      opmlNote = done.note;
     } finally {
       // So choosing the same file twice runs again instead of doing nothing.
       input.value = "";
     }
   }
 
-  /**
-   * Writes the feed list out as OPML.
-   *
-   * The download is the anchor-and-blob kind every browser understands. The
-   * native Linux window is the exception: WebKitGTK only saves a download if
-   * the shell handles it, and this shell does not, so there the file also goes
-   * to the clipboard and the line underneath says so rather than claiming a
-   * file that never appeared.
-   */
+  /** Writes the feed list out as OPML; the note says where it went. */
   async function exportOpml(): Promise<void> {
-    const folders = reader.categories.map((category) => ({
-      label: category.label,
-      feeds: category.feeds.map((feed) => ({ title: feed.title, url: feed.url })),
-    }));
-    const total = folders.reduce((count, folder) => count + folder.feeds.length, 0);
-    if (total === 0) {
-      opmlNote = "There are no feeds to export yet.";
-      return;
-    }
-    const name = opmlFileName(new Date());
-    const xml = buildOpml(folders);
-    const blob = new Blob([xml], { type: "text/x-opml" });
-    const href = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = href;
-    link.download = name;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(href), 1000);
-    opmlName = name;
-
-    const feeds = `${total} feed${total === 1 ? "" : "s"}`;
-    const native = typeof (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
-    if (!native) {
-      opmlNote = `Exported ${feeds} to ${name}.`;
-      return;
-    }
-    let copied = false;
-    try {
-      await navigator.clipboard.writeText(xml);
-      copied = true;
-    } catch {
-      copied = false;
-    }
-    opmlNote = copied
-      ? `Exported ${feeds}. If no file appeared, the OPML is on your clipboard.`
-      : `Exported ${feeds} to ${name} — if no file appeared, the window could not save it.`;
+    const done = await exportFeedsOpml(reader.categories);
+    opmlName = done.name;
+    opmlNote = done.note;
   }
 </script>
 
@@ -1087,10 +1049,18 @@
         >
           <!-- The same caret the sidebar's own control strip uses: one glyph,
                one meaning. Pointing down it will unfold, pointing up it will
-               fold — the arrow always describes the click. -->
-          <svg class="fold" class:up={!folded} viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 9l6 6 6-6" />
-          </svg>
+               fold — the arrow always describes the click.
+
+               The wrapper is the arrow's hit box and nothing else: it is the
+               same 13px wide as the glyph inside it, so the row's spacing does
+               not move, and on a phone it carries `.tap44` (see `app.css`),
+               which lays a thumb-sized box over the caret. The press is still
+               the row's press — the box is inside the button. -->
+          <span class="fold-hit" class:tap44={layout.device === "phone"}>
+            <svg class="fold" class:up={!folded} viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </span>
           {#if pinned}
             <svg class="pin" viewBox="0 0 24 24" role="img" aria-label={words.count}>
               <path d={MARKER_PATH} />
@@ -1246,41 +1216,49 @@
 
     <!-- Below the add field, because both are ways in for a feed list. The
          file name keeps its own line so it has room to be read: a name squeezed
-         between two buttons would only ever show its first few letters. -->
-    <div class="opml">
-      <div class="opml-row">
-        <label
-          class="opml-import"
-          class:busy={reader.feedBusy}
-          title="Import feeds from an OPML file — folders come too"
-        >
-          <input
-            type="file"
-            accept=".opml,.xml,text/xml,application/xml,application/octet-stream"
-            disabled={reader.feedBusy}
-            onchange={pickOpml}
-          />
-          <svg class="up" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M8 10.6V2.4" />
-            <path d="M4.7 5.7 8 2.4l3.3 3.3" />
-            <path d="M2.6 10.9v2.1c0 .4.3.7.7.7h9.4c.4 0 .7-.3.7-.7v-2.1" />
-          </svg>
-          <span>{reader.feedBusy ? "Importing…" : "Import"}</span>
-        </label>
-        <button
-          class="opml-export"
-          onclick={exportOpml}
-          disabled={reader.feedBusy || reader.categories.length === 0}
-          title="Save every feed and folder as an OPML file"
-        >Export</button>
+         between two buttons would only ever show its first few letters.
+
+         A phone held upright does not draw this block at all (see
+         `compressedFooter`): the two file actions are in Settings → Feeds, and
+         the name of the file in play is reported there, next to the control that
+         chose it. What stays here is `+ Add feed` above — the one that is used.
+         Every other shape of window draws exactly what it always drew. -->
+    {#if !compressedFooter}
+      <div class="opml">
+        <div class="opml-row">
+          <label
+            class="opml-import"
+            class:busy={reader.feedBusy}
+            title="Import feeds from an OPML file — folders come too"
+          >
+            <input
+              type="file"
+              accept=".opml,.xml,text/xml,application/xml,application/octet-stream"
+              disabled={reader.feedBusy}
+              onchange={pickOpml}
+            />
+            <svg class="up" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 10.6V2.4" />
+              <path d="M4.7 5.7 8 2.4l3.3 3.3" />
+              <path d="M2.6 10.9v2.1c0 .4.3.7.7.7h9.4c.4 0 .7-.3.7-.7v-2.1" />
+            </svg>
+            <span>{reader.feedBusy ? "Importing…" : "Import"}</span>
+          </label>
+          <button
+            class="opml-export"
+            onclick={exportOpml}
+            disabled={reader.feedBusy || reader.categories.length === 0}
+            title="Save every feed and folder as an OPML file"
+          >Export</button>
+        </div>
+        <p class="opml-file" class:none={opmlName === null} title={opmlName ?? "No file chosen"}>
+          {opmlName ?? "No file chosen"}
+        </p>
+        {#if opmlNote}
+          <p class="opml-note" role="status">{opmlNote}</p>
+        {/if}
       </div>
-      <p class="opml-file" class:none={opmlName === null} title={opmlName ?? "No file chosen"}>
-        {opmlName ?? "No file chosen"}
-      </p>
-      {#if opmlNote}
-        <p class="opml-note" role="status">{opmlNote}</p>
-      {/if}
-    </div>
+    {/if}
   </div>
 </nav>
 
@@ -1503,6 +1481,20 @@
 
   .fold.up {
     transform: rotate(180deg);
+  }
+
+  /* The caret's hit box, and only that: a flex item the size of the glyph, so
+     the row's gap and its own height are exactly what they were. On a phone the
+     box inside it grows to 44px wide, and vertically only as far as the row —
+     7px of padding, a 16px line and 7px again. The next row up is a different
+     category, so a box that crossed that seam would fold the wrong one. */
+  .fold-hit {
+    display: inline-flex;
+    flex: none;
+  }
+
+  :global(html[data-device="phone"]) .fold-hit.tap44 {
+    --tap44-h: 30px;
   }
 
   @media (prefers-reduced-motion: reduce) {

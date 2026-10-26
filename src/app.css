@@ -351,17 +351,28 @@ html.drag-panning :is(button, a, [role="button"]):active:not(.on):not([aria-pres
    On Android the window is edge-to-edge (targetSdk 35 and up draw behind the
    system bars whether the app asks or not), so the header bar went under the
    clock, the wifi and the battery — the app looked like it started in the
-   middle of the status bar. The insets are the system's own answer: padding
-   here moves every pane below the bar and inside a rounded or notched bezel,
-   and it is 0 on a desktop window, where there is no bar to clear.
+   middle of the status bar. The insets are the system's own answer, and they
+   are 0 on a desktop window, where there is no bar to clear.
 
-   Both are declared once: `--safe-*` so a component that needs to know (the
-   PIN pad's bottom edge, a future full-bleed picture) reads the same numbers
-   rather than repeating `env()`.
+   They are declared once, here: `--safe-*` so every surface that has to clear a
+   system bar reads the same numbers rather than repeating `env()`. Nothing else
+   in this file or in a component calls `env(safe-area-inset-*)` — one source of
+   numbers, or two surfaces disagree about where the screen ends.
+
+   A phone does *not* inset the app as one rectangle. Padding on `#app` moved
+   every edge inward at once, so the strip above the header and the strip below
+   the list were painted by `<html>` (the page colour and the wallpaper layers)
+   rather than by the header and the pane: the status region read as a block
+   sitting on the app instead of as the header's own surface, and the same for
+   the home-indicator strip under the stack. So `#app` is edge to edge and the
+   interactive edges carry the padding themselves — the header its top and its
+   sides, the pane its bottom, the outermost columns their sides in landscape.
+   Those rules are in the phone block at the end of this file, under
+   `html[data-device="phone"]`.
 
    `#app`, not `html`: the page colour and a background picture still fill the
-   bar's strip, so the status bar sits over the app's own background rather than
-   over a band of nothing. */
+   whole screen, so what shows through a surface that does not reach an edge is
+   the app's own background rather than a band of nothing. */
 :root {
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
@@ -371,7 +382,63 @@ html.drag-panning :is(button, a, [role="button"]):active:not(.on):not([aria-pres
 
 #app {
   height: 100%;
-  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+}
+
+/* Phone surfaces, edge to edge.
+   -----------------------------------------------------------------------------
+   One root switch, `html[data-device="phone"]`, published from `layout.device`
+   in `App.svelte`. Nothing below applies to a desktop window or a browser tab:
+   every selector is qualified by the attribute, so a 1440x900 or a 1024x768
+   desktop frame keeps the pixels it has always had.
+
+   The order is the point. The rectangle is gone above (no padding on `#app`),
+   and only then do these edges get their padding — do it the other way round
+   and every inset is paid twice, which is a new band and not a fix.
+
+   `100dvh` rather than `100%`: the viewport a phone reports changes as its
+   browser chrome comes and goes, and `100%` cannot see the difference, which
+   leaves dead space at the bottom when the chrome hides. */
+html[data-device="phone"] #app {
+  height: 100dvh;
+  padding: 0;
+}
+
+/* The header paints through the status bar and insets only its own controls:
+   the bar itself is the surface, so the result is one continuous header rather
+   than a header with a strip of page colour above it. */
+html[data-device="phone"] .phone-header {
+  padding-top: var(--safe-top);
+  padding-left: max(10px, var(--safe-left));
+  padding-right: max(10px, var(--safe-right));
+  background: var(--surface);
+}
+
+/* The stack's panes paint through the home indicator and their content clears
+   it: the padding is on the moving layer, whose background is what reaches the
+   bottom edge, and the pane inside it ends above the indicator. */
+html[data-device="phone"] .stack-scroller {
+  padding-bottom: calc(var(--safe-bottom) + 8px);
+}
+
+/* The grid — the one-pane walk and a landscape phone — clears the same two
+   edges the same way: the bottom of every pane, and (sideways only, where the
+   notch is on a side) the outer edge of the outermost column. Per pane, never
+   on the container: `layout.setAvailable()` reads the container's `clientWidth`,
+   so padding there would be counted as width the columns then overflow. */
+html[data-device="phone"] .panes > .slot.feeds,
+html[data-device="phone"] .panes > .slot.posts,
+html[data-device="phone"] .panes > .slot.article {
+  padding-bottom: calc(var(--safe-bottom) + 8px);
+}
+
+@media (orientation: landscape) {
+  html[data-device="phone"] .panes > .slot.feeds {
+    padding-left: var(--safe-left);
+  }
+
+  html[data-device="phone"] .panes > .slot.article {
+    padding-right: var(--safe-right);
+  }
 }
 
 button {
@@ -382,4 +449,86 @@ button:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* A thumb is not a pointer with a 1px hotspot.
+   -----------------------------------------------------------------------------
+   The controls that are quiet by design — Sync, a back step, the star, the read
+   mark, the link out, a category's arrow — are 13 to 34 pixels on a phone, and
+   every one of them sits where a thumb lands while the other hand is scrolling.
+   Growing the control itself would move the bars and the rows apart, so the hit
+   box grows instead: an `::after` laid over the control, centred on it, with the
+   glyph and the layout left exactly where they are. A pseudo belongs to its
+   element for hit testing, so a tap anywhere in the box presses that control and
+   nothing else changes.
+
+   The box is not always 44 square. Where two controls are closer to each other
+   than 44px, two 44px boxes would lie on top of one another and the later one
+   would swallow taps meant for its neighbour — a star that marks the post beside
+   it. So a control whose neighbour is nearer than 44px is narrowed on that axis
+   by the component that owns the geometry (`--tap44-w`, `--tap44-h`), to the
+   free space it actually has: the boxes may touch, they may not overlap. Both
+   variables are declared next to the gap, the bar or the row they come from.
+
+   `touch-action: manipulation` is on the same controls. The pan is the app's —
+   every list is `touch-action: none` and `lib/drag-scroll.ts` owns the gesture —
+   so the only thing a double tap could still do here is zoom the page, and on a
+   bar button that is nobody's gesture.
+
+   Nothing here is desktop: the whole block hangs off the root phone switch, so
+   the class is inert in a desktop window and in the browser. */
+html[data-device="phone"] .tap44 {
+  position: relative;
+  touch-action: manipulation;
+}
+
+/* The phone bar's own controls need no class of their own: the bar has exactly
+   three, and naming them here keeps the markup of a component that is already
+   phone-only free of a rule about phones. Their boxes stop at the bar's 42px so
+   none of them hangs over the seam into the panes, where nothing is a control. */
+html[data-device="phone"] .phone-header :is(.step, .more, .sync) {
+  position: relative;
+  touch-action: manipulation;
+  --tap44-w: 44px;
+  --tap44-h: 42px;
+}
+
+/* The stack's own bar, the strip a slid pane carries while an overlay is open:
+   one 34px step in a 42px bar, so the same cap and no reach past the seam. */
+html[data-device="phone"] .stack .bar .step {
+  position: relative;
+  touch-action: manipulation;
+  --tap44-w: 44px;
+  --tap44-h: 42px;
+}
+
+html[data-device="phone"] .stack .bar .step::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--tap44-w, 44px);
+  height: var(--tap44-h, 44px);
+  translate: -50% -50%;
+}
+
+html[data-device="phone"] .tap44::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--tap44-w, 44px);
+  height: var(--tap44-h, 44px);
+  translate: -50% -50%;
+}
+
+
+html[data-device="phone"] .phone-header :is(.step, .more, .sync)::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--tap44-w, 44px);
+  height: var(--tap44-h, 44px);
+  translate: -50% -50%;
 }
