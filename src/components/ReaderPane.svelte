@@ -712,6 +712,15 @@
     color: var(--text);
   }
 
+  /* The star is the one mark in this row drawn smaller than its own box: ★ at
+     the row's 13px reads as a speck next to ● and ⇣, which sit on the baseline
+     at their full size. It gets a larger glyph and a little more room without
+     growing the row — the toolbar's height is the bar's, not this button's. */
+  .star {
+    min-width: 32px;
+    font-size: 18px;
+  }
+
   .star.on {
     color: var(--star);
   }
