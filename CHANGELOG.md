@@ -4,7 +4,7 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] — 2026-10-25
 
 The device holds more than one account, the phone gets one settings sheet, and
 the claim about what a key may contain is now true.
@@ -19,6 +19,13 @@ the claim about what a key may contain is now true.
 - **One settings sheet.** On a phone the hamburger opens six sections —
   Accounts, Appearance, Reading, Layout, Sync, About — each mounting the control
   the desktop already had rather than a copy of it.
+
+### Fixed
+
+- **The integration suite runs in CI.** It used to be wired to paths and
+  variable names that nothing read, so the job reported success while the
+  FreshRSS checks never executed. It now checks out both extensions, drives a
+  real FreshRSS, and fails if anything is missing. 86 checks.
 
 ### Changed
 
