@@ -567,6 +567,124 @@ check(
     /function syncSnap\(\): void \{[\s\S]{0,200}cardFits\(card\)/.test(read("src/components/ArticleList.svelte")),
 );
 
+/* ---------------------------------------------------------------------------
+ * The snap, read off the sheet it is written in.
+ *
+ * On a finger the CSS *is* the mechanism: `.cards .row` hands the vertical axis
+ * back to the browser (`touch-action: pan-y`, against `touch-action: none` on
+ * the list), so a hand pans the port natively and the browser's own snap engine
+ * decides where the pan stops. Everything that makes it stop on a centred card
+ * is therefore a declaration, and these read those declarations rather than a
+ * screenshot: the snapport, the alignment, the exemption for a card too tall to
+ * centre, and the one class that switches the whole thing on.
+ * ------------------------------------------------------------------------- */
+
+const LIST = "src/components/ArticleList.svelte";
+
+/**
+ * Every declaration block in the sheet with exactly this selector, joined.
+ *
+ * A selector can be written more than once — `.cards .row` carries the snap
+ * alignment in one place and the pan axis in another — and the cascade reads
+ * them as one rule, so these do too.
+ */
+function cssBlocks(source, selector) {
+  // Comments can hold braces and colons; the rules cannot be read through them.
+  const bare = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  const pattern = new RegExp(
+    `(?:^|\\n)\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{`,
+    "g",
+  );
+  const found = [];
+  let match;
+  while ((match = pattern.exec(bare)) !== null) {
+    const open = bare.indexOf("{", match.index);
+    const close = bare.indexOf("}", open);
+    if (close < 0) break;
+    found.push(bare.slice(open + 1, close));
+    pattern.lastIndex = close;
+  }
+  return found.join("\n");
+}
+
+/** A length the sheet states, in px, or NaN when it is something else. */
+function px(value) {
+  const match = /^(-?[\d.]+)(px)?$/.exec((value ?? "").trim());
+  return match === null ? Number.NaN : Number(match[1]);
+}
+
+const sheetText = read(LIST);
+const cardsBlock = cssBlocks(sheetText, ".cards");
+const cardRowBlock = cssBlocks(sheetText, ".cards .row");
+
+check(
+  "the snapport is the port: the scroll padding is the column's own block padding",
+  (() => {
+    const pad = /scroll-padding-block:\s*([^;]+);/.exec(cardsBlock ?? "");
+    const own = /(?:^|[\s;])padding:\s*([^;]+);/.exec(cardsBlock ?? "");
+    if (pad === null || own === null) return false;
+    // Same number both sides, and it is a number: the snap point is then the
+    // port's middle, which is where `centreCard` puts the card a wheel steps to.
+    const scroll = px(pad[1]);
+    const column = px(own[1]);
+    return Number.isFinite(scroll) && Number.isFinite(column) && scroll === column;
+  })(),
+  `scroll-padding-block ${/scroll-padding-block:\s*([^;]+);/.exec(cardsBlock ?? "")?.[1] ?? "missing"} vs padding ${/(?:^|[\s;])padding:\s*([^;]+);/.exec(cardsBlock ?? "")?.[1] ?? "missing"}`,
+);
+
+check(
+  "the cards list itself is the snap container, and only it",
+  /(?:^|[\s;])scroll-snap-type:\s*y proximity;/.test(cardsBlock ?? "") &&
+    // Not on the shared list: Rows, Grid and the one-pane list keep the plain
+    // scroll they were signed off with.
+    !/(?:^|[\s;])scroll-snap-type:(?!\s*none)/.test(cssBlocks(sheetText, ".items")) &&
+    !/(?:^|[\s;])scroll-snap-type:(?!\s*none)/.test(cssBlocks(sheetText, ".row")),
+);
+
+check(
+  "the card row is the snap area, centred",
+  /(?:^|[\s;])scroll-snap-align:\s*center;/.test(cardRowBlock ?? "") &&
+    // The plain row — every other view — is not a snap area.
+    !/(?:^|[\s;])scroll-snap-align:/.test(cssBlocks(sheetText, ".row")),
+);
+
+check(
+  "a finger may pan the card itself, so the snap has a scroll to act on",
+  /(?:^|[\s;])touch-action:\s*pan-y;/.test(cardRowBlock ?? "") &&
+    /(?:^|[\s;])touch-action:\s*none;/.test(cssBlocks(sheetText, ".items")),
+);
+
+check(
+  "a card taller than the pane is exempt by measurement, not by a magic number",
+  /function cardFits\(row: HTMLElement\): boolean \{[\s\S]{0,240}?row\.getBoundingClientRect\(\)\.height\s*<=\s*el\.clientHeight/.test(
+    sheetText,
+  ) && /tallCard = !!card && !cardFits\(card\);/.test(sheetText),
+);
+
+check(
+  "the one class the markup puts on the list is what turns it all on",
+  (() => {
+    // The tag spans some sixty lines and `=>` inside its handlers would stop a
+    // naive `>` match, so it is read to the line that closes it.
+    const tag = /<div\s+class="items"[\s\S]*?\n\s*>/.exec(sheetText);
+    if (tag === null) return false;
+    const attrs = tag[0];
+    return (
+      /class:cards=\{view === "cards"\}/.test(attrs) &&
+      /class:masonry=\{view === "cards" && cardLayout\.masonry\}/.test(attrs) &&
+      /data-tallcard=\{tallCard \? "true" : undefined\}/.test(attrs)
+    );
+  })(),
+);
+
+check(
+  "a mouse pan is not fought by the snap, and the class is dropped a frame late",
+  /:global\(\.drag-panning\) \.cards \{\s*scroll-snap-type: none;/.test(sheetText) &&
+    /requestAnimationFrame\(\(\) => \{\s*if \(seq === panSeq\) document\.documentElement\.classList\.remove\(PANNING_CLASS\)/.test(
+      read("src/lib/drag-scroll.ts"),
+    ),
+);
+
 // Unread and read are marks on the row, and a card is a row: the same treatment
 // reaches the comics view instead of stopping at the text views.
 check(
