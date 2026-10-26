@@ -623,6 +623,27 @@ html[data-device="phone"] .tap44::after {
 }
 
 
+/* The search field's own controls, which are 36px marks in a 44px field on a
+   phone. Two of them sit 4px apart, so their boxes take that gap and stop: a box
+   that grew to a full 44 would sit over its neighbour and a thumb aiming at the
+   paragraph mark would toggle people. */
+html[data-device="phone"] .find :is(.find-clear, .find-deep) {
+  position: relative;
+  touch-action: manipulation;
+  --tap44-w: 40px;
+  --tap44-h: 44px;
+}
+
+html[data-device="phone"] .find :is(.find-clear, .find-deep)::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--tap44-w, 44px);
+  height: var(--tap44-h, 44px);
+  translate: -50% -50%;
+}
+
 html[data-device="phone"] .phone-header :is(.step, .more, .sync)::after {
   content: "";
   position: absolute;

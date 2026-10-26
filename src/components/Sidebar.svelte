@@ -1755,6 +1755,51 @@
     background: var(--accent-soft);
   }
 
+  /* A phone's search field is the size of a thumb, not of a mouse pointer.
+     28px with three 18px marks inside it is a field you hit by luck: the field
+     grows to 44 and its marks to 36, which leaves the two mode marks 4px apart
+     so their 44px hit boxes (see app.css) touch rather than overlap. The glyphs
+     are drawn bigger with the boxes, since a 13px magnifier in a 44px field
+     reads as a mistake rather than as restraint. Desktop keeps 28 and 18. */
+  :global(html[data-device="phone"]) .find {
+    height: 44px;
+    gap: 4px;
+    margin: 8px 10px 4px;
+    padding: 0 4px 0 10px;
+    border-radius: 11px;
+  }
+
+  :global(html[data-device="phone"]) .find-input {
+    font-size: 15px;
+  }
+
+  :global(html[data-device="phone"]) .glass {
+    width: 15px;
+    height: 15px;
+  }
+
+  :global(html[data-device="phone"]) .find-clear,
+  :global(html[data-device="phone"]) .find-deep {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    font-size: 15px;
+  }
+
+  :global(html[data-device="phone"]) .find-deep {
+    opacity: 0.75;
+  }
+
+  :global(html[data-device="phone"]) .find-deep svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
   /* The portrait mark is the same quiet control as the paragraph mark, with a
      glyph instead of a character: it inherits the size, the dimming and the
      "on" state, and only the drawing belongs to it. */

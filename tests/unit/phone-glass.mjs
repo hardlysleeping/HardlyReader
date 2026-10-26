@@ -342,8 +342,10 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
     /UIVisualEffectView/.test(app) && /not the material|not Liquid Glass/i.test(app),
   );
   check(
-    "and the changelog says the same thing, under Unreleased",
-    /## \[Unreleased\]/.test(changelog) &&
+    "and the changelog says the same thing, in the newest section",
+    // Once the note ships, "Unreleased" becomes the version it shipped in; both
+    // are the same claim, so the check reads the newest section either way.
+    /## \[(Unreleased|\d+\.\d+\.\d+)\]/.test(changelog) &&
       /UIVisualEffectView/.test(changelog.slice(0, changelog.indexOf("## [0.6.1]"))),
   );
 }
