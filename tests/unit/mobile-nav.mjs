@@ -225,6 +225,7 @@ check("the walk is one press away again", layout.mobilePortraitMode === "single"
 // ---------------------------------------------------------------------------
 const main = readFileSync(join(ROOT, "src/views/Main.svelte"), "utf8");
 const stackSrc = readFileSync(join(ROOT, "src/components/MobilePaneStack.svelte"), "utf8");
+const phoneHeaderSrc = readFileSync(join(ROOT, "src/components/PhoneHeader.svelte"), "utf8");
 const layoutSrc = readFileSync(join(ROOT, "src/state/layout.svelte.ts"), "utf8");
 const navSrc = readFileSync(join(ROOT, "src/state/mobile-nav.svelte.ts"), "utf8");
 const panel = readFileSync(join(ROOT, "src/components/ThemePanel.svelte"), "utf8");
@@ -263,9 +264,26 @@ check("a swipe is only claimed near the left edge", /const touch = event\.touche
 check("and only when it travels sideways", /Math\.abs\(dx\) < Math\.abs\(dy\) \* 1\.6/.test(stackSrc));
 check("a vertical drag is not touched at all", !/\.preventDefault\(\)/.test(stackSrc));
 check("no touch-action jail on the pane surface", !/touch-action: none/.test(stackSrc));
-check("in from the left opens the pane behind", /if \(dx > 0\) nav\.openPrevious\(\);/.test(stackSrc));
-check("and back out closes it", /else nav\.closeOverlay\(\);/.test(stackSrc));
-check("an overlay can be left without a gesture", /aria-label=\{`Back to the \$\{backTo\.toLowerCase\(\)\}`\}/.test(stackSrc));
+
+// The gesture is the back direction: the same step the bar's `‹` takes. At the
+// root `stepOut()` says `app`, and the pane behind comes forward — which is what
+// the bar does there too.
+check(
+  "in from the left is the one back step, not its own",
+  /if \(dx > 0\) \{\s*if \(!stepOut\(\)\) nav\.openPrevious\(\);/.test(stackSrc),
+);
+check("and back out closes an overlay", /nav\.closeOverlay\(\);/.test(stackSrc));
+
+// One strip: the stack used to draw a 42px bar of its own over a slid pane.
+// That state is a depth the phone bar can name, so the strip is gone.
+check(
+  "the stack draws no bar of its own",
+  !/class="bar"/.test(stackSrc) && !/aria-label="Location"/.test(stackSrc),
+);
+check(
+  "the way out of a slid pane is the phone bar's step",
+  /aria-label=\{`Back to the \$\{backTo\.toLowerCase\(\)\}`\}/.test(phoneHeaderSrc),
+);
 
 // Android's back button, and the browser's own history behind it.
 check("the system back button is taken over", /onBackButtonPress/.test(stackSrc));
@@ -284,6 +302,166 @@ check("and it is only drawn where a portrait frame exists", /\{#if layout\.devic
 // arrive here and start rearranging things.
 check("the state module reads no orientation", !/matchMedia|innerWidth|orientationchange|screen\.width/.test(navSrc));
 check("and holds exactly the two numbers", /basePane = \$state<BasePane>\(2\)/.test(navSrc) && /overlayPane = \$state<OverlayPane \| null>\(null\)/.test(navSrc));
+
+// ---------------------------------------------------------------------------
+// One navigation authority: five ways back, one decision, one layer a press.
+// ---------------------------------------------------------------------------
+
+// Where the five entrances meet. `.back()` is the decision; what a caller does
+// when it says `app` is the caller's own business (a button cannot leave the
+// app, a key can), and that is the only thing that may differ.
+const noComments = (text) =>
+  text.replace(/<!--[\s\S]*?-->/g, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+check(
+  "the bar's step is the shared mobileNav.back()",
+  /function back\(\): void \{[\s\S]{0,900}?const step = mobileNav\.back\(\);/.test(noComments(phoneHeaderSrc)),
+);
+check(
+  "the stack has one consumer, and it is nav.back()",
+  /function stepOut\(\): boolean \{\s*const step = nav\.back\(\);/.test(noComments(stackSrc)),
+);
+check(
+  "the keyboard's back (Left and Escape) is the stack's own stackBack()",
+  /function stackBack\(\): boolean \{[\s\S]{0,200}?const step = mobileNav\.back\(\);/.test(noComments(main)),
+);
+check(
+  "Escape takes the stack's layer before it closes the article",
+  /if \(stackBack\(\)\) \{\s*event\.preventDefault\(\);\s*return;\s*\}/.test(noComments(main)),
+);
+check(
+  "the system gesture arrives as the popstate the stack arms",
+  /window\.addEventListener\("popstate", onPopState\)/.test(stackSrc) &&
+    /function onPopState\(\): void \{[\s\S]{0,120}?stepOut\(\);/.test(noComments(stackSrc)),
+);
+// One call site per module. Two would be two decisions, and they would drift.
+check(
+  "no module makes the decision twice",
+  (noComments(phoneHeaderSrc).match(/mobileNav\.back\(\)/g) ?? []).length === 1 &&
+    (noComments(stackSrc).match(/nav\.back\(\)/g) ?? []).length === 1 &&
+    (noComments(main).match(/mobileNav\.back\(\)/g) ?? []).length === 1,
+  [
+    (noComments(phoneHeaderSrc).match(/mobileNav\.back\(\)/g) ?? []).length,
+    (noComments(stackSrc).match(/nav\.back\(\)/g) ?? []).length,
+    (noComments(main).match(/mobileNav\.back\(\)/g) ?? []).length,
+  ].join("/"),
+);
+
+/**
+ * A state, put where a test needs it.
+ *
+ * `MobileNavState` is the real class, compiled from the real module above, so
+ * the transitions below are the ones the component presses — not a second
+ * description of them.
+ */
+function stateOf({ base, overlay } = {}) {
+  const nav = new MobileNavState();
+  if (base !== undefined) nav.basePane = base;
+  if (overlay !== undefined) nav.overlayPane = overlay;
+  return nav;
+}
+
+/**
+ * One press of one entrance, as the components spell it.
+ *
+ * The first move is the same for all five — `nav.back()` — and then each
+ * entrance answers a step it cannot take. `article` means the reader closes it,
+ * and the base follows through `syncReading` (the stack's own effect does
+ * exactly this when `reader.selectedId` goes null). `app` is where they may
+ * differ: the bar and the gesture bring the pane behind forward, a system back
+ * press leaves the app.
+ */
+function press(nav, entrance) {
+  const step = nav.back();
+  if (step === "article") nav.syncReading(false);
+  if (step === "app" && (entrance === "bar" || entrance === "swipe")) nav.openPrevious();
+  return step;
+}
+
+const ENTRANCES = ["bar", "swipe", "history", "escape", "ios"];
+const STATES = [
+  ["the root", 2, null],
+  ["the feeds over the posts", 2, 1],
+  ["the article", 3, null],
+  ["the posts over the article", 3, 2],
+];
+
+for (const [label, base, overlay] of STATES) {
+  const results = ENTRANCES.map((entrance) => {
+    const nav = stateOf({ base, overlay });
+    const before = nav.depth;
+    const step = press(nav, entrance);
+    return { entrance, step, before, after: nav.depth, base: nav.basePane, overlay: nav.overlayPane };
+  });
+  const first = results[0];
+  const atRoot = base === 2 && overlay === null;
+  check(
+    `from ${label}: the five entrances make the same decision`,
+    results.every((r) => r.step === first.step),
+    results.map((r) => `${r.entrance}:${r.step}`).join(" "),
+  );
+  // Every state but the root has a layer the decision itself consumes, so the
+  // result is the same whichever door the press came through. At the root the
+  // decision is "app" for all five and only the caller's policy may differ:
+  // a bar can open the pane behind, a system press leaves.
+  if (!atRoot) {
+    check(
+      `from ${label}: and land in the same place`,
+      results.every((r) => r.base === first.base && r.overlay === first.overlay),
+      results.map((r) => `${r.entrance}:${r.base}/${r.overlay}`).join(" "),
+    );
+  }
+  check(
+    `from ${label}: and no press moves more than one layer`,
+    results.every((r) => Math.abs(r.after - r.before) <= 1),
+    results.map((r) => `${r.entrance} ${r.before}→${r.after}`).join(" "),
+  );
+  if (!atRoot) {
+    check(
+      `from ${label}: each press unwinds exactly one`,
+      results.every((r) => r.after === r.before - 1),
+      results.map((r) => `${r.entrance} ${r.before}→${r.after}`).join(" "),
+    );
+  }
+}
+
+// The root, where a press can only open the pane behind — one level outward,
+// never a jump to the feeds-and-article at once.
+{
+  const root = stateOf();
+  check(
+    "at the root the bar's step opens the pane behind, one level",
+    press(root, "bar") === "app" && root.depth === 1 && root.showing === 1,
+  );
+  const system = stateOf();
+  check(
+    "and a system back press there is the app's, which moves nothing",
+    press(system, "history") === "app" && system.depth === 0 && system.showing === 2,
+  );
+  check(
+    "both entrances agree about the decision even where their policy differs",
+    press(stateOf(), "swipe") === press(stateOf(), "ios"),
+  );
+}
+
+// A pane slid over another goes first, and the pane under it survives: the
+// article you were reading is not closed by dismissing the list you peeked at.
+{
+  const peeked = stateOf({ base: 3, overlay: 2 });
+  check(
+    "a pane slid over the article goes before the article does",
+    press(peeked, "bar") === "overlay" && peeked.basePane === 3 && peeked.depth === 1,
+  );
+  check("and the article is still there to leave on the next press", peeked.back() === "article");
+}
+
+// From depth 2 to depth 1, never to 0: the layer in the middle is a screen the
+// reader was just looking at.
+{
+  const two = stateOf({ base: 3, overlay: 2 });
+  press(two, "escape");
+  check("a press never skips the layer in front of it", two.depth === 1 && two.showing === 3);
+}
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

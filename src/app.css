@@ -410,7 +410,114 @@ html[data-device="phone"] .phone-header {
   padding-top: var(--safe-top);
   padding-left: max(10px, var(--safe-left));
   padding-right: max(10px, var(--safe-right));
-  background: var(--surface);
+}
+
+/* The material: navigation only.
+   -----------------------------------------------------------------------------
+   Three surfaces are drawn as translucent material: the phone's bar, the one
+   control on it that carries a surface of its own (•••), and the settings
+   sheet. Nothing else. A feed row, a card, a category, a paragraph of an
+   article are content, and content is drawn, not layered — the material is for
+   the things that move *over* the content, which is navigation.
+
+   One recipe, in variables, so the three surfaces cannot drift apart:
+
+     fill   color-mix(in srgb, var(--surface) 72%, transparent)
+     blur   blur(20px) saturate(180%)
+     edge   one hairline — --edge at 58%
+
+   and `--glass-radius` is the inner radius: a 34px control inside a 42px bar
+   is 10px, which is the radius Sync has always had. The bar itself is
+   full-bleed, so its own radius is 0 — a curve there would cut the surface away
+   from the edge it is meant to reach — and the sheet is the window on a phone,
+   so it is 0 too, and keeps its 12px corner where a phone has the width for the
+   panel instead.
+
+   **This is an imitation, not Liquid Glass.** On iOS the real thing is a
+   `UIVisualEffectView` composed by the system, and a WKWebView has no way to ask
+   for one: there is no bridge to `UIVisualEffectView`, no `-apple-visual-effect`
+   that survives a Tauri webview, and no API that returns the system's material.
+   `backdrop-filter` is the web's approximation of the same idea — sample what is
+   behind, blur it, tint it — with none of the system's adaptivity, none of its
+   lit edge, and none of its GPU budget. It is the closest equivalent a
+   stylesheet can reach, and it is not the material.
+
+   The old hard divider under the bar is gone: one hairline at 58% and a shadow
+   that falls onto the top of the content is what makes the bar read as a layer
+   floating over the panes rather than a wall with a line under it. The 3px
+   activity seam below it loses its own line for the same reason (see `.aura`
+   further down). */
+html[data-device="phone"] {
+  --glass-fill: color-mix(in srgb, var(--surface) 72%, transparent);
+  --glass-blur: blur(20px) saturate(180%);
+  --glass-edge: color-mix(in srgb, var(--edge) 58%, transparent);
+  --glass-radius: 10px;
+  --glass-shadow: 0 10px 22px -18px rgb(0 0 0 / 0.6);
+}
+
+html[data-device="phone"] .phone-header {
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+
+/* The one control on the bar that is a surface rather than a glyph. Its radius
+   is the bar's inner radius and its hairline the bar's hairline, so it reads as
+   cut from the bar instead of laid on top of it. */
+html[data-device="phone"] .phone-header .more {
+  border-color: var(--glass-edge);
+  border-radius: var(--glass-radius);
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+/* The sheets — on a phone, the settings sheet the ••• opens. It is the window
+   here, full-bleed, so the hairline is the whole of its border. */
+html[data-device="phone"] .sheet[role="dialog"] {
+  border: 1px solid var(--glass-edge);
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+/* Both fallbacks, because both are real phones.
+
+   The fill is 72% surface *with the backdrop doing the rest*. Where the
+   backdrop cannot be blurred — WebKit before `backdrop-filter`, a GPU that
+   refuses it, a system told to reduce transparency — 28% of whatever is behind
+   the bar showing through unblurred is not a material, it is a bar with the
+   text sitting on the list. So the fill goes solid, and the hairline and the
+   shadow stay: the surface is the same shape, only opaque.
+
+   Keep both blocks. A transparent bar with no blur is the failure this exists
+   to prevent, and it is invisible in a screenshot taken on a new phone. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-device="phone"] .phone-header,
+  html[data-device="phone"] .phone-header .more,
+  html[data-device="phone"] .sheet[role="dialog"] {
+    background: var(--surface);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-device="phone"] .phone-header,
+  html[data-device="phone"] .phone-header .more,
+  html[data-device="phone"] .sheet[role="dialog"] {
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* The 3px activity seam under the bar was the second hard line on a phone: the
+   bar's border above it, then a `--border` strip, then the panes. The bar owns
+   the line now, so the slot keeps its height and its activity bloom and loses
+   only the paint. */
+html[data-device="phone"] .aura {
+  background: transparent;
 }
 
 /* The stack's panes paint through the home indicator and their content clears
@@ -501,24 +608,9 @@ html[data-device="phone"] .phone-header :is(.step, .more, .sync) {
   --tap44-h: 42px;
 }
 
-/* The stack's own bar, the strip a slid pane carries while an overlay is open:
-   one 34px step in a 42px bar, so the same cap and no reach past the seam. */
-html[data-device="phone"] .stack .bar .step {
-  position: relative;
-  touch-action: manipulation;
-  --tap44-w: 44px;
-  --tap44-h: 42px;
-}
-
-html[data-device="phone"] .stack .bar .step::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: var(--tap44-w, 44px);
-  height: var(--tap44-h, 44px);
-  translate: -50% -50%;
-}
+/* The stack's own bar is gone: the phone's bar is the one strip, and its three
+   controls carry the boxes above. The stack's step had the same 42px cap while
+   it existed, and the rule that sized it went with the markup. */
 
 html[data-device="phone"] .tap44::after {
   content: "";

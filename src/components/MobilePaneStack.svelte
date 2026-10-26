@@ -63,11 +63,10 @@
     };
   });
 
-  /** The pane in front. Read through a getter so the effect below is plain. */
+  /**
+   * The pane in front. Read through a getter so the effect below is plain.
+   */
   const showing = $derived(nav.showing);
-
-  /** Where the pane in front came from, for the way back to name it. */
-  const backTo = $derived(nav.overlayPane === 1 ? "Feeds" : "Posts");
 
   /**
    * The reader's level, followed.
@@ -113,6 +112,10 @@
    * `app`, and whatever pressed back decides what that means. The article is
    * closed through the reader, because closing it is the reader's business and
    * the base follows on its own (`syncReading`).
+   *
+   * This is the only place the stack consumes a back press, and it is the same
+   * `nav.back()` the bar's step and the system key call: one decision, so the
+   * gesture and the button cannot disagree about which layer is next.
    */
   function stepOut(): boolean {
     const step = nav.back();
@@ -228,8 +231,22 @@
     if (Math.abs(dx) < 64) return;
     if (Math.abs(dx) < Math.abs(dy) * 1.6) return;
     if (Date.now() - start.at > 800) return;
-    if (dx > 0) nav.openPrevious();
-    else nav.closeOverlay();
+    // Rightwards is the back direction — the one the system's own gesture and
+    // the bar's step take — so it is the same step: one layer out, and at the
+    // root the pane behind comes forward, which is what `stepOut` leaves to the
+    // caller when it says `app`.
+    //
+    // From an article this closes the article, exactly as the bar's `‹` does.
+    // It used to slide the posts over it instead — a peek that kept the article
+    // open behind the list — which was a second answer to the same press, and
+    // the one thing this layer must not have. Back is the article's own close
+    // everywhere else in the app; the gesture is no longer the exception.
+    if (dx > 0) {
+      if (!stepOut()) nav.openPrevious();
+      return;
+    }
+    // Leftwards pushes an open pane back out and leaves the article alone.
+    nav.closeOverlay();
   }
 
   /** The panes, in the order the layout numbers them. */
@@ -241,27 +258,12 @@
   style:--slide-ms={`${motionMs(layout.motion)}ms`}
   style:--slide-ease={motionEase(layout.motion)}
 >
-  <!-- The way out of an overlay without a gesture. It is a bar rather than a
-       floating button because the pane underneath is the feed list, whose own
-       top row is the search field: a button laid over that is a button in the
-       way, and one that covers a list of posts is worse. It only exists while
-       an overlay is open, so the base alone loses no height to it. -->
-  {#if nav.overlayPane !== null}
-    <nav class="bar" aria-label="Location">
-      <button
-        type="button"
-        class="step"
-        class:tap44={layout.device === "phone"}
-        onclick={() => nav.closeOverlay()}
-        aria-label={`Back to the ${backTo.toLowerCase()}`}
-        title={`Back to the ${backTo.toLowerCase()}`}
-      >
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" /></svg>
-      </button>
-      <span class="where">{backTo}</span>
-    </nav>
-  {/if}
-
+  <!-- No second bar, and no floating button either. The one step out of a slid
+       pane is the phone bar's own left control (`PhoneHeader`), which reads the
+       same `mobileNav` and therefore names the same destination. The strike
+       that used to live here took 42px off the pane whenever a layer opened and
+       gave the screen two back controls in the same column; the bar can already
+       describe this state (`atRoot` is false whenever `depth` is 1 or more). -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="frame" bind:this={frameEl} {ontouchstart} {ontouchend}>
     {#each panes as pane (pane)}
@@ -359,76 +361,6 @@
      behind it while the slide is still running. */
   .layer:not(.front) {
     pointer-events: none;
-  }
-
-  .bar {
-    display: flex;
-    flex: none;
-    align-items: center;
-    gap: 4px;
-    height: 34px;
-    padding: 0 8px;
-    border-bottom: 1px solid var(--edge);
-    background: var(--surface);
-    color: var(--muted);
-    font-size: 12px;
-    overflow: hidden;
-    white-space: nowrap;
-  }
-
-  .step {
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    border: 0;
-    border-radius: 7px;
-    background: none;
-    color: var(--text-dim);
-    cursor: pointer;
-  }
-
-  .step svg {
-    width: 13px;
-    height: 13px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.7;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  /* The strip is 42px tall and the control is the first thing in it: the hit box
-     stops at the strip's edges and grows sideways into the label's gap, which is
-     text, not a control. */
-
-
-  .step:hover,
-  .step:focus-visible {
-    color: var(--text);
-    background: var(--hover);
-  }
-
-  .where {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--text-dim);
-  }
-
-  /* Thumbs need bigger targets than pointers do. */
-  @media (pointer: coarse) {
-    .step {
-      width: 34px;
-      height: 34px;
-    }
-
-    .bar {
-      height: 42px;
-    }
   }
 
   /* Asked for no motion: the layer changes in one frame, which is a cut, not a

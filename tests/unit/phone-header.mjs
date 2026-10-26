@@ -68,7 +68,7 @@ check(
 );
 check(
   "the bar keeps no navigation state of its own",
-  !/\$state<(1|2|3|BasePane|OverlayPane)/.test(header) && !/basePane\s*=/.test(header),
+  !/\$state<(1|2|3|BasePane|OverlayPane)/.test(header) && !/basePane\s*=(?!=)/.test(header),
 );
 // One instance, one module: the header and the stack are looking at the same
 // object, so "identity-equal handlers" is a property of the imports rather than
@@ -85,7 +85,7 @@ check(
  * The three depths
  * ---------------------------------------------------------------- */
 
-const feedDepth = between(header, "{#if depth === 1}", "{:else}");
+const feedDepth = between(header, "{#if atRoot}", "{:else}");
 check("the feeds depth draws the wordmark", /class="wordmark">HardlyReader</.test(feedDepth));
 check("and no control to its left", !/class="step"/.test(feedDepth) && !/onclick=\{back\}/.test(feedDepth));
 
@@ -97,21 +97,38 @@ check(
   /aria-label=\{`Back to the \$\{backTo\.toLowerCase\(\)\}`\}/.test(deeper),
 );
 
-// Posts → Feeds, Article → Posts. The walk's one step is the feeds, because in
-// one column there is no posts pane to have come from.
-check("the posts depth goes back to the feeds", /return mobileNav\.overlayPane === 2 \? "Article" : "Feeds";/.test(header));
-check("the article depth goes back to the posts", /if \(depth === 3\) return "Posts";/.test(header));
-check("the walk goes back to the feeds", /if \(!slideStack\) return "Feeds";/.test(header));
+// The root is "nothing behind this pane", which is a different question from
+// "how many layers does the stack have": the feeds slid over the posts are
+// depth 1 and still have somewhere to go back to. Asking the depth alone made
+// that state draw the wordmark with no way out.
+check("the root is asked of the nav, not of the depth", /const atRoot = \$derived\(slideStack \? mobileNav\.depth === 0 : depth === 1\)/.test(header));
+check("the wordmark is drawn only there", /#if atRoot/.test(header));
 
-// The title names the pane you are in: the stream (category or filter) at the
-// posts depth, the post at the article depth.
+// Posts → Feeds, Article → Posts, and a pane slid over another → the pane it was
+// slid over. The walk's one step is the feeds, because in one column there is no
+// posts pane to have come from.
+check("the walk goes back to the feeds", /if \(!slideStack\) return "Feeds";/.test(header));
+check(
+  "an overlay goes back to the pane underneath it",
+  /overlayPane !== null\) return mobileNav\.basePane === 3 \? "Article" : "Posts"/.test(header),
+);
+check("and with nothing over it, the article's step is the posts", /Nothing over the base[\s\S]{0,120}?return "Posts";/.test(header));
+
+// The title names the pane you are in: the feeds when they are slid over the
+// list, the stream (category or filter) at the posts depth, the post at the
+// article depth.
+check("the feeds slid over the list are titled Feeds", /if \(slideStack && mobileNav\.overlayPane === 1\) return "Feeds";/.test(header));
 check(
   "the title is where you are, not where you came from",
-  /const title = \$derived\(\s*depth === 3 \? \(reader\.selected\?\.title \?\? reader\.activeTitle\) : reader\.activeTitle,?\s*\)/.test(
-    header,
-  ),
+  /return depth === 3 \? \(reader\.selected\?\.title \?\? reader\.activeTitle\) : reader\.activeTitle;/.test(header),
 );
 check("and it is drawn once, clipped rather than wrapped", /<span class="where" title=\{title\}>\{title\}<\/span>/.test(deeper) && /\.where \{[^}]*text-overflow: ellipsis/.test(header));
+// The title is a name, not a transition: it changes with the pane in one frame.
+// The slide belongs to the layers (`MobilePaneStack`, on `layout.motion`).
+check(
+  "the title changes without animating",
+  !/\.where \{[^}]*transition/.test(header) && !/\.where \{[^}]*animation/.test(header),
+);
 
 // 42px of visible bar, plus the status bar's own height — which `app.css` pays
 // as padding, so the surface behind the clock is still the header's.
