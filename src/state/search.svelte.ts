@@ -108,7 +108,7 @@ class SearchState {
   }
 
   private keyFor(session: Session, feedId: string): string {
-    return scopeKey(session.serverUrl, session.email, `feedtext:${feedId}`);
+    return scopeKey(session, `feedtext:${feedId}`);
   }
 
   /**

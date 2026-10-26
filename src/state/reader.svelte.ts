@@ -8,7 +8,7 @@ import { isNoopDrop, moveInOrder, sortByOrder } from "../lib/feed-order";
 import { attemptOrder } from "../lib/stream-cycle";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
 import { SYNC_IDLE, createSyncTracker, type SyncReport, type SyncState } from "../lib/sync-progress";
-import { EMPTY_PLACE, parsePlace, placeKey, type Place } from "../lib/place";
+import { EMPTY_PLACE, readPlace as readStoredPlace, writePlace as writeStoredPlace, type Place } from "../lib/place";
 import { floods } from "./floods.svelte";
 import { theme } from "./theme.svelte";
 
@@ -1455,19 +1455,10 @@ export class ReaderState {
     this.savePlace();
   }
 
-  private placeKey(): string | null {
-    const session = this.session;
-    return session === null ? null : placeKey(session.serverUrl, session.email);
-  }
-
+  /** Where this account was last time, or nowhere. */
   private readPlace(): Place {
-    const key = this.placeKey();
-    if (key === null || typeof localStorage === "undefined") return { ...EMPTY_PLACE };
-    try {
-      return parsePlace(JSON.parse(localStorage.getItem(key) ?? "null"));
-    } catch {
-      return { ...EMPTY_PLACE };
-    }
+    if (typeof localStorage === "undefined") return { ...EMPTY_PLACE };
+    return readStoredPlace(localStorage, this.session);
   }
 
   /**
@@ -1476,28 +1467,20 @@ export class ReaderState {
    * are silent by design.
    */
   private savePlace(): void {
-    const key = this.placeKey();
-    if (key === null || typeof localStorage === "undefined") return;
-    try {
-      localStorage.setItem(
-        key,
-        JSON.stringify({
-          streamId: this.activeStream,
-          streamTitle: this.activeTitle,
-          articleId: this.selectedId,
-          expandedFeedId: this.expandedFeedId,
-          articleScroll: this.liveScroll.article,
-          listScroll: this.liveScroll.list,
-        }),
-      );
-    } catch {
-      /* preferences just do not persist */
-    }
+    if (typeof localStorage === "undefined") return;
+    writeStoredPlace(localStorage, this.session, {
+      streamId: this.activeStream,
+      streamTitle: this.activeTitle,
+      articleId: this.selectedId,
+      expandedFeedId: this.expandedFeedId,
+      articleScroll: this.liveScroll.article,
+      listScroll: this.liveScroll.list,
+    });
   }
 
   private diskKey(name: string): string | null {
     const session = this.session;
-    return session === null ? null : scopeKey(session.serverUrl, session.email, name);
+    return session === null ? null : scopeKey(session, name);
   }
 
   private async hydrateSidebar(): Promise<void> {
