@@ -23,50 +23,47 @@ jobs:
           docker version
           docker compose version
 
-      # The end-to-end harness installs a real Hidden Categories build beside the
-      # adapter, and that extension is not published. Without it the suite cannot
-      # run at all, so say so once, out loud, instead of failing red on every push
-      # and implying the adapter is broken. When the directory is there — a
-      # checkout, a vendored copy, a future public release — it runs unchanged.
-      - name: Locate the extension sources
-        id: hidden
-        env:
-          # Relative to the checkout, so a vendored copy is found: the absolute
-          # /home/runner paths this used to carry only exist on a self-hosted box.
-          HIDDEN_DIR: ${{ github.workspace }}/../freshrss/extensions-src/xExtension-HiddenCategories
-          PINNED_DIR: ${{ github.workspace }}/../freshrss/extensions-src/xExtension-FavoriteCategories
+      # The harness installs real Hidden Categories and Pinned Categories builds
+      # beside the adapter and drives a live FreshRSS container, so CI has to hold
+      # the same extensions the app is developed against. Both are public, so they
+      # are checked out rather than hoped for. A missing extension fails the job:
+      # a suite that skips itself on every push reads as green while covering
+      # nothing.
+      - name: Checkout Hidden Categories
+        uses: actions/checkout@v7
+        with:
+          repository: hardlysleeping/xExtension-HiddenCategories
+          path: .ci-extensions/xExtension-HiddenCategories
+
+      - name: Checkout Pinned Categories
+        uses: actions/checkout@v7
+        with:
+          repository: hardlysleeping/xExtension-FavoriteCategories
+          path: .ci-extensions/xExtension-FavoriteCategories
+
+      - name: Verify the extension checkouts
         run: |
-          missing=""
-          [ -f "$HIDDEN_DIR/extension.php" ] || missing="$missing HiddenCategories"
-          [ -f "$PINNED_DIR/extension.php" ] || missing="$missing FavoriteCategories"
-          if [ -z "$missing" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            echo "both extension sources present"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "missing:$missing"
-          fi
+          for dir in \
+            .ci-extensions/xExtension-HiddenCategories \
+            .ci-extensions/xExtension-FavoriteCategories; do
+            if [ ! -f "$dir/extension.php" ]; then
+              echo "::error::$dir has no extension.php — the harness cannot run"
+              exit 1
+            fi
+          done
+          ls -la .ci-extensions
 
       - name: Run FreshRSS integration tests
-        if: steps.hidden.outputs.available == 'true'
         env:
           KEEP_CONTAINERS_ON_FAILURE: "1"
+          # run.sh reads these; the old HIDDEN_DIR/PINNED_DIR names it was given
+          # here matched nothing, so the harness could not have found an extension
+          # even with the files in place.
+          HARDLYREAD_HIDDEN_CATEGORIES_DIR: ${{ github.workspace }}/.ci-extensions/xExtension-HiddenCategories
+          HARDLYREAD_FAVORITE_CATEGORIES_DIR: ${{ github.workspace }}/.ci-extensions/xExtension-FavoriteCategories
         run: |
           chmod +x tests/integration/run.sh
           tests/integration/run.sh
-
-      - name: Note the skipped integration run
-        if: steps.hidden.outputs.available != 'true'
-        run: |
-          echo "::warning title=FreshRSS integration skipped::The end-to-end harness installs real Hidden Categories and Pinned Categories builds beside the adapter, and neither extension is published, so only the unit suites and PHPUnit ran. Point HARDLYREAD_HIDDEN_CATEGORIES_DIR and HARDLYREAD_FAVORITE_CATEGORIES_DIR at checkouts and run tests/integration/run.sh locally to cover the adapter end to end."
-          {
-            echo "### FreshRSS integration: skipped"
-            echo
-            echo "The harness installs real Hidden Categories and Pinned Categories builds, neither of which is published."
-            echo "Unit suites and PHPUnit (8.2/8.3/8.4) ran; the adapter's end-to-end path did not."
-            echo
-            echo "Run it locally: HARDLYREAD_HIDDEN_CATEGORIES_DIR=... HARDLYREAD_FAVORITE_CATEGORIES_DIR=... tests/integration/run.sh"
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Collect FreshRSS diagnostics
         if: failure()
