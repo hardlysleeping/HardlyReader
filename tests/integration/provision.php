@@ -42,8 +42,8 @@ const API_EXTENSION = 'Hardly Read';
 
 $mode = $argv[1] ?? '';
 
-if (!in_array($mode, ['config', 'reset', 'dump'], true)) {
-	fwrite(STDERR, "usage: provision.php config|reset|dump\n");
+if (!in_array($mode, ['config', 'reset', 'dump', 'seed-pin'], true)) {
+	fwrite(STDERR, "usage: provision.php config|reset|dump|seed-pin\n");
 	exit(2);
 }
 
@@ -193,6 +193,8 @@ if ($mode === 'reset') {
 				$favPdo->exec('DELETE FROM ' . $table);
 			}
 			$favStore->setView('all');
+
+
 			$favorites = [
 				'available' => true,
 				'store' => $favStore->path(),
@@ -211,6 +213,37 @@ if ($mode === 'reset') {
 		'hiddenIds' => $store->hiddenIds(),
 		'categories' => storeState($extension),
 		'favorites' => $favorites,
+	], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;
+	exit(0);
+}
+
+if ($mode === 'seed-pin') {
+	// Seeds the pin the app must find, from outside the app: a favourite with the
+	// position core's own sort reads. A core position alone is NOT a pin any more
+	// — the extension releases the position of a category that is not a favourite
+	// — so the favourite is made here, through the extension's own store, and the
+	// extension pins it to the top itself, with the snapshot it would have written
+	// on a real click. The scenario calls this between its favourites checks and
+	// its pin-order checks, so the pin genuinely predates any pin API call.
+	bootExtensionManager();
+	$pinned = Minz_ExtensionManager::findExtension(PINNED_EXTENSION);
+	if ($pinned === null || !method_exists($pinned, 'store')) {
+		fwrite(STDERR, PINNED_EXTENSION . " is not installed in the container\n");
+		exit(5);
+	}
+	$store = $pinned->store();
+	if (!$store->assertSchema() || !$store->available()) {
+		fwrite(STDERR, 'pinned store unavailable: ' . $store->error() . PHP_EOL);
+		exit(6);
+	}
+
+	$favorite = $store->favCategory(103, 'E2E Gamma');
+	$reconciled = $store->reconcilePositions();
+
+	echo json_encode([
+		'favorite' => $favorite,
+		'reconciled' => $reconciled,
+		'ids' => array_map('intval', (array) $store->favIds()),
 	], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), PHP_EOL;
 	exit(0);
 }

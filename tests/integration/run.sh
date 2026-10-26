@@ -242,6 +242,7 @@ in_container_as www-data php "$PROVISION_PATH" reset | tee "$ARTIFACTS_DIR/provi
 
 log "running the E2E scenario"
 HARDLYREAD_STORE_DUMP="docker compose -f $(printf '%q' "$COMPOSE_FILE") -p $PROJECT exec -T freshrss php $PROVISION_PATH dump" \
+HARDLYREAD_SEED_PIN="docker compose -f $(printf '%q' "$COMPOSE_FILE") -p $PROJECT exec -T freshrss php $PROVISION_PATH seed-pin" \
   node "$INTEGRATION_DIR/e2e.mjs" 2>&1 | tee "$ARTIFACTS_DIR/e2e.log"
 
 log "E2E passed — tearing down"
