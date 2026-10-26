@@ -13,6 +13,7 @@
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
   import { startAutoSync } from "../lib/auto-sync";
+  import { refreshDueOnLaunch, refreshDueOnReturn } from "../lib/refresh-on-return";
   import { startChangeWatch } from "../lib/watch-changes";
   import { transport } from "../api/transport";
   import { getRevision } from "../api/hardlyread";
@@ -39,9 +40,6 @@
     /** Sign a second account in without touching the one in use. */
     onaddaccount?: () => void;
   } = $props();
-
-  /** A launch load newer than this counts as the launch sync. */
-  const AUTO_SYNC_LAUNCH_GRACE_MS = 30_000;
 
   /**
    * Automatic sync: starts when the setting says so and stops when it stops.
@@ -100,10 +98,51 @@
         hours: () => hours,
         sync: () => reader.refresh(),
         busy: () => reader.sync.active,
-        launch: Date.now() - reader.lastSyncAt > AUTO_SYNC_LAUNCH_GRACE_MS,
+        launch: refreshDueOnLaunch(reader.lastSyncAt),
       }),
     );
     return () => run.stop();
+  });
+
+  /**
+   * Being current on open is not the interval setting.
+   *
+   * `autoSync` is for a window that stays open for hours, and it is off by
+   * default — which must not mean the app opens on last week's posts. So opening
+   * it syncs once on its own: the launch load counts when it landed inside the
+   * grace, and when it did not (a disk paint whose fetch failed, a resume after
+   * days) one full sync runs without being asked.
+   *
+   * Coming back to the window is the same question with a threshold the reader
+   * set — `chrome.refreshOnReturn`, five minutes unless it says otherwise. Its
+   * `never` answers for this path alone: the launch check above is not gated on
+   * it, and the interval timer keeps its own answer.
+   */
+  $effect(() => {
+    const started = launched;
+    if (!started) return;
+    // Nothing here is read as a dependency: a sync moves `lastSyncAt` and the
+    // readout, and taking those as dependencies would tear the listener down and
+    // rebuild it on every answer. The preference is read at each return instead,
+    // which is also why changing it needs no restart.
+    const run = untrack(() => {
+      // A sync already running is the answer to this question, and so is the
+      // interval timer when the reader turned it on: that one fires at its own
+      // `launch` check, and five requests twice is not more current than five
+      // requests once. Exactly one of the two owns the launch sync.
+      if (!chrome.autoSync && !reader.sync.active && refreshDueOnLaunch(reader.lastSyncAt)) {
+        void reader.refresh();
+      }
+      const onReturn = (): void => {
+        if (document.visibilityState !== "visible") return;
+        if (reader.sync.active) return;
+        if (!refreshDueOnReturn(chrome.refreshOnReturn, reader.lastSyncAt)) return;
+        void reader.refresh();
+      };
+      document.addEventListener("visibilitychange", onReturn);
+      return () => document.removeEventListener("visibilitychange", onReturn);
+    });
+    return run;
   });
 
   /**

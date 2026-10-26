@@ -15,6 +15,11 @@
 
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "./account-key";
 import { AUTO_SYNC_DEFAULT_HOURS, parseAutoSyncHours, type AutoSyncHours } from "./auto-sync";
+import {
+  REFRESH_ON_RETURN_DEFAULT,
+  parseRefreshOnReturn,
+  type RefreshOnReturn,
+} from "./refresh-on-return";
 
 export const CHROME_KEY = "hardlyreader.chrome.v1";
 
@@ -45,6 +50,14 @@ export interface ChromePrefs {
   autoSync: boolean;
   /** Hours between automatic syncs, from `AUTO_SYNC_HOURS`. */
   autoSyncHours: AutoSyncHours;
+  /**
+   * What coming back to the window is worth: a threshold, always, or never.
+   *
+   * Five minutes by default. It sits beside the interval because both are about
+   * this window's fetching, but it is not a second way to turn fetching off:
+   * `never` silences the return check alone, and opening the app still syncs.
+   */
+  refreshOnReturn: RefreshOnReturn;
 }
 
 const DEFAULT_PREFS: ChromePrefs = {
@@ -53,6 +66,7 @@ const DEFAULT_PREFS: ChromePrefs = {
   pinPad: false,
   autoSync: false,
   autoSyncHours: AUTO_SYNC_DEFAULT_HOURS,
+  refreshOnReturn: REFRESH_ON_RETURN_DEFAULT,
 };
 
 /**
@@ -72,6 +86,7 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
       pinPad?: unknown;
       autoSync?: unknown;
       autoSyncHours?: unknown;
+      refreshOnReturn?: unknown;
     };
     return {
       bandCollapsed: saved.bandCollapsed === true,
@@ -79,6 +94,7 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
       pinPad: saved.pinPad === true,
       autoSync: saved.autoSync === true,
       autoSyncHours: parseAutoSyncHours(saved.autoSyncHours),
+      refreshOnReturn: parseRefreshOnReturn(saved.refreshOnReturn),
     };
   } catch {
     // Corrupt JSON, or storage throwing: both quiet defaults are safe.
@@ -182,6 +198,22 @@ export function writeAutoSyncHours(
   account: AccountIdentity | null = null,
 ): void {
   patchPrefs(storage, account, { autoSyncHours: parseAutoSyncHours(hours) });
+}
+
+/** Five minutes unless it was changed: a return is worth a fetch, a glance is not. */
+export function readRefreshOnReturn(
+  storage: StorageLike | undefined,
+  account: AccountIdentity | null = null,
+): RefreshOnReturn {
+  return readPrefs(storage, account).refreshOnReturn;
+}
+
+export function writeRefreshOnReturn(
+  storage: StorageLike | undefined,
+  value: RefreshOnReturn,
+  account: AccountIdentity | null = null,
+): void {
+  patchPrefs(storage, account, { refreshOnReturn: parseRefreshOnReturn(value) });
 }
 
 /** localStorage in a browser, undefined anywhere it does not exist. */

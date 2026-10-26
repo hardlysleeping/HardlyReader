@@ -19,17 +19,25 @@
 import { storedAccount, type AccountIdentity } from "../lib/account-key";
 import type { AutoSyncHours } from "../lib/auto-sync";
 import {
+  REFRESH_ON_RETURN_DEFAULT,
+  parseRefreshOnReturn,
+  sameRefreshOnReturn,
+  type RefreshOnReturn,
+} from "../lib/refresh-on-return";
+import {
   browserStorage,
   readAutoSync,
   readAutoSyncHours,
   readBandCollapsed,
   readIndentOpen,
   readPinPad,
+  readRefreshOnReturn,
   writeAutoSync,
   writeAutoSyncHours,
   writeBandCollapsed,
   writeIndentOpen,
   writePinPad,
+  writeRefreshOnReturn,
 } from "../lib/chrome-prefs";
 
 class ChromeState {
@@ -62,6 +70,15 @@ class ChromeState {
   /** Hours between automatic syncs. Hourly unless another interval was picked. */
   autoSyncHours = $state<AutoSyncHours>(1);
 
+  /**
+   * What coming back to the window is worth. Five minutes unless it was changed.
+   *
+   * Not a second off switch: `never` silences the return check alone, and the
+   * app still syncs when it opens. Device-local like the rest of chrome — it
+   * describes this window, not the account.
+   */
+  refreshOnReturn = $state<RefreshOnReturn>(REFRESH_ON_RETURN_DEFAULT);
+
   load(): void {
     const account = this.account();
     this.bandCollapsed = readBandCollapsed(browserStorage(), account);
@@ -69,6 +86,7 @@ class ChromeState {
     this.pinPad = readPinPad(browserStorage(), account);
     this.autoSync = readAutoSync(browserStorage(), account);
     this.autoSyncHours = readAutoSyncHours(browserStorage(), account);
+    this.refreshOnReturn = readRefreshOnReturn(browserStorage(), account);
   }
 
   /** The account this chrome belongs to, or null before sign-in. */
@@ -117,6 +135,13 @@ class ChromeState {
     if (this.autoSyncHours === hours) return;
     this.autoSyncHours = hours;
     writeAutoSyncHours(browserStorage(), hours, this.account());
+  }
+
+  setRefreshOnReturn(value: RefreshOnReturn): void {
+    const next = parseRefreshOnReturn(value);
+    if (sameRefreshOnReturn(this.refreshOnReturn, next)) return;
+    this.refreshOnReturn = next;
+    writeRefreshOnReturn(browserStorage(), next, this.account());
   }
 
   toggleBand(): void {
