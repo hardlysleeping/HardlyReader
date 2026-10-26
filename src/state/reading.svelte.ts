@@ -221,7 +221,44 @@ class ReadingState {
    */
   stepPercent = $state<StepPercent>(STEP_INITIAL);
 
+  /**
+   * Every reading choice back to what a fresh install has.
+   *
+   * This store outlives a session. Switching accounts re-reads the blob for the
+   * new account, and a field the new account never saved has to come back as the
+   * default rather than as whatever the account before it had chosen — otherwise
+   * the second login opens at the first one's text scale and list shape and there
+   * is no control that says why.
+   */
+  private defaults(): void {
+    this.advanceOnScroll = true;
+    this.articleFilter = "all";
+    this.listView = LIST_VIEW_DEFAULT;
+    this.readInPane = false;
+    this.rowsEnd = ROW_END_DEFAULT;
+    this.curvePill = CURVE_DEFAULT.pill;
+    this.curveHalf = CURVE_DEFAULT.half;
+    this.flushThumb = FLUSH_THUMB_DEFAULT;
+    this.gridColumns = GRID_COLUMNS_DEFAULT;
+    this.cardSize = CARD_SIZE_DEFAULT;
+    this.autoMarkRead = false;
+    this.autoMarkSeconds = DWELL_SECONDS_DEFAULT;
+    this.scrollEffort = EFFORT_DEFAULT;
+    this.textScale = TEXT_SCALE.initial;
+    this.rowScale = ROW_SCALE.initial;
+    this.leading = LEADING_INITIAL;
+    this.textAlign = ALIGN_INITIAL;
+    this.thumbScale = THUMB_SCALE.initial;
+    this.imageScale = IMAGE_SCALE.initial;
+    this.thumbSide = THUMB_SIDE_INITIAL;
+    this.flipEdge = FLIP_EDGE.initial;
+    this.articleImage = ARTICLE_IMAGE_INITIAL;
+    this.stepPercent = STEP_INITIAL;
+    this.extract = EXTRACT_DEFAULT;
+  }
+
   load(): void {
+    this.defaults();
     if (typeof localStorage === "undefined") return;
     try {
       const raw = readAccountValue(localStorage, STORAGE_KEY, storedAccount(localStorage));

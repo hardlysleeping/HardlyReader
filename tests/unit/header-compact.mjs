@@ -21,48 +21,67 @@ function check(name, ok, detail = "") {
 const header = read("src/components/Header.svelte");
 const themePanel = read("src/components/ThemePanel.svelte");
 const readingControls = read("src/components/ReadingControls.svelte");
+const accountsPanel = read("src/components/AccountsPanel.svelte");
+// The rows themselves live in `AccountsBody`, the frame the settings sheet mounts too.
+const accountsBody = read("src/components/AccountsBody.svelte");
 const app = read("src/app.css");
 const main = read("src/views/Main.svelte");
 
-// The menu carries what the bar gives up, plus the two things it always did.
-// Checked by what each row *does*, because the visible labels are written inside
-// the markup (and one of them is a conditional), not as plain text.
-const menu = header.slice(header.indexOf('class="sheet"'), header.indexOf("</div>\n  </div>"));
+// The menu carries what the bar gives up. Accounts is a row here because the
+// name it hangs off is gone below 660px — and the panel it opens is the only
+// place switching, adding and signing out live, at every width. Checked by what
+// each row *does*, because the visible labels are written inside the markup.
+const menuStart = header.indexOf('class="sheet"');
+const menu = header.slice(menuStart, header.indexOf("</div>", menuStart));
 check("the menu opens the feeds", /ontogglesidebar\?\.\(\)/.test(menu));
 check("the menu opens reading", /readingControls\?\.openPanel\(\)/.test(menu));
-check("the menu opens settings", /themePanel\?\.openSettings\(\)/.test(menu));
-// The row is always in the markup and hidden by the media query when the bar has
-// the name to press; only the no-name case is gated in JS, because then the menu
-// is the only way out.
-check("the menu can sign out when the name is not there to press", /class:narrow-only=\{!!subtitle\}[\s\S]{0,120}onsignout\?\.\(\)/.test(menu));
-check("the menu's sign out is not gated twice", !/\{#if narrow/.test(menu));
+// Settings from the menu is the settings panel — the sheet a phone can use —
+// rather than the 268px popover the gear draws on a desktop.
+check(
+  "the menu opens the settings panel",
+  /pick\(openSettings\)/.test(menu) &&
+    /function openSettings\(\): void \{[\s\S]{0,160}?settingsOpen = true;/.test(header),
+);
+check("and settings can be opened from the popover's own door", /onallsettings=\{openSettings\}/.test(header));
+check("the menu opens the account panel", /accountsPanel\?\.openAccounts\(\)/.test(menu));
+// One sign out in the app, in the account rows: a second row here would be the
+// same control twice, and the two could disagree about who is signed in.
+check("the menu does not keep a sign out of its own", !/onsignout/.test(menu));
 check("sync is not in the menu — it never leaves the bar", !/Sync now/.test(menu) && !/void refresh\(\)/.test(menu));
-// Five menu actions in the written markup: four in the drawer (Feeds, Reading,
-// Settings, Sign out) and the account sheet's own Sign out.
-check("five menu actions in total", (menu.match(/role="menuitem"/g) ?? []).length === 5, String((menu.match(/role="menuitem"/g) ?? []).length));
-// Two ways to sign out is clutter; none is worse. One media query decides, so
-// there is no second copy of the breakpoint to drift away from it.
+// Four menu actions in the written markup: Feeds, Reading, Settings, Accounts.
+check("four menu actions in total", (menu.match(/role="menuitem"/g) ?? []).length === 4, String((menu.match(/role="menuitem"/g) ?? []).length));
+// The rows are one component mounted by two frames — the bar's panel and the
+// settings sheet — so add, switch and sign out cannot drift apart.
+check(
+  "the account rows are one component, mounted by both frames",
+  /<AccountsBody[\s\S]{0,200}?onsignout=/.test(read("src/components/AccountsPanel.svelte")) &&
+    /<AccountsBody[\s\S]{0,200}?onsignout=/.test(read("src/components/SettingsPanel.svelte")),
+);
 check("the breakpoint exists once, in CSS", !/matchMedia\(/.test(header) && /@media \(max-width: 560px\)/.test(header));
-check("wide bars do not repeat the menu's sign out", /@media \(min-width: 661px\)\s*\{[\s\S]{0,120}narrow-only/.test(header));
 // The account block — name and server address — is ellipsised, so a bar too
 // narrow for it did not break: it showed `hardlyrea…`. It leaves at 660, which
 // is where both strings fit whole (measured: nothing is cut from ~650 up), and
-// the menu's sign-out row follows it out, so no width has two sign outs and no
-// width has none.
-check("the account leaves the bar where it stops fitting", /@media \(max-width: 660px\)\s*\{\s*\.account\s*\{\s*display: none;/.test(header));
+// the panel is a sibling of that block rather than a child, so the menu's row
+// still opens it there instead of opening a fixed box inside `display: none`.
+check("the account leaves the bar where it stops fitting", /@media \(max-width: 660px\)\s*\{\s*\.account\s*\{\s*display: none;/.test(accountsPanel));
 check("and the switch stays in the bar there", !/@media \(max-width: 660px\)[\s\S]{0,200}\.switch/.test(header));
-check("the sign-out row returns at the same width the account leaves", (() => {
-  const away = Number((header.match(/@media \(max-width: (\d+)px\)\s*\{\s*\.account/) ?? [])[1]);
-  const back = Number((header.match(/@media \(min-width: (\d+)px\)\s*\{\s*\.sheet-server/) ?? [])[1]);
-  return away === back - 1;
-})());
+check("the panel is not inside the block that hides", /\.panel\s*\{[^}]*position:\s*fixed/.test(accountsPanel));
 
-// Sign out hangs off the name at full width, and the name is not a permanent
-// button of its own: nothing in the bar signs out until it is pressed.
-const account = header.slice(header.indexOf('class="account"'), header.indexOf('class="spacer"'));
-check("the name is the account's handle", /class="who"/.test(account) && /aria-haspopup="menu"/.test(account));
-check("sign out lives behind the name", /onsignout\?\.\(\)/.test(account));
-check("the name shrinks before it pushes", /max-width: 150px/.test(header) && /text-overflow: ellipsis/.test(header));
+// The name is the account's handle at full width, and it is not a permanent
+// button of its own: nothing in the bar switches account or signs out until it
+// is pressed.
+check("the name is the account's handle", /class="who"/.test(accountsPanel) && /aria-haspopup="dialog"/.test(accountsPanel));
+check("the account panel holds the actions", /onsignout\?\.\(\)/.test(accountsPanel) && /onaddaccount\?\.\(\)/.test(accountsPanel));
+check(
+  "the panel is the account list, switching and removing included",
+  /accounts\.rows/.test(accountsBody) && /accounts\.switchTo\(/.test(accountsBody) && /accounts\.remove\(/.test(accountsBody),
+);
+// The one thing in the panel that cannot be undone without the API password says
+// what it does, every time it is open.
+check("and says what removing an account does", /Removing an account forgets its sign-in/.test(accountsBody));
+check("one remove control, and every row has it", /class="row"[\s\S]*class="remove"[\s\S]*\{\/each\}/.test(accountsBody) && (accountsBody.match(/class="remove"/g) ?? []).length === 1);
+check("the name shrinks before it pushes", /max-width: 150px/.test(accountsPanel) && /text-overflow: ellipsis/.test(accountsPanel));
+check("the panel takes orders from the menu", /export function openAccounts\(\)/.test(accountsPanel));
 
 // Sync is outside the tools group, so the compact rules cannot hide it.
 const tools = header.slice(header.indexOf('class="tools"'), header.indexOf("</span>", header.indexOf('class="tools"')));
@@ -98,7 +117,14 @@ check("reading can be opened from outside", /export function openPanel\(\)/.test
 // Compact rules: exactly the controls that do not fit are the ones that go —
 // the triggers, never the panels they open.
 const compact = header.slice(header.indexOf("@media (max-width: 560px)"));
-check("the name goes long before compact does", /@media \(max-width: 660px\)\s*\{\s*\.account\s*\{/.test(header));
+check(
+  "the name goes long before compact does",
+  (() => {
+    const account = Number((accountsPanel.match(/@media \(max-width: (\d+)px\)/) ?? [])[1]);
+    const bar = Number((header.match(/@media \(max-width: (\d+)px\)\s*\{\s*\.bar/) ?? [])[1]);
+    return account === 660 && account > bar;
+  })(),
+);
 check("the bar-sized controls go when compact", /\.tools > :global\(\.reading\)/.test(compact) && /\.tools > :global\(\.themebar\)/.test(compact));
 check("but the group holding the panels is not hidden", !/\.tools\s*{[^}]*display:\s*none/.test(compact), compact.slice(0, 400));
 // The cap is the room the window has, less the bar it hangs under — so a tall
@@ -129,7 +155,7 @@ check(
 // A popover takes the press that lands outside it. Both panels are dialogs with
 // no scrim, so without this a tap on the article behind them left them open over
 // whatever had just been pressed — and their own trigger must still toggle.
-for (const [name, source] of [["settings", themePanel], ["reading", readingControls]]) {
+for (const [name, source] of [["settings", themePanel], ["reading", readingControls], ["accounts", accountsPanel]]) {
   check(
     `${name} closes on a press elsewhere`,
     /window\.addEventListener\("pointerdown", onDown, true\)/.test(source) &&
@@ -138,7 +164,7 @@ for (const [name, source] of [["settings", themePanel], ["reading", readingContr
   );
   check(
     `${name}'s own trigger is exempt, so it still toggles`,
-    /if \(panelEl\?\.contains\(target\) \|\| (gearEl|moreEl)\?\.contains\(target\)\) return;/.test(source),
+    /if \(panelEl\?\.contains\(target\) \|\| (gearEl|moreEl|whoEl)\?\.contains\(target\)\) return;/.test(source),
   );
   check(`${name} has its panel bound for the containment test`, /class="panel"[^>]*bind:this=\{panelEl\}/.test(source));
 }

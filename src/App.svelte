@@ -1,20 +1,33 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { AuthError, userInfo } from "./api/freshrss";
-  import type { Session, UserInfo } from "./api/freshrss";
-  import { clearSession, loadSession, saveSession } from "./api/session";
+  import type { Session } from "./api/freshrss";
   import { transport } from "./api/transport";
+  import { accounts } from "./state/accounts.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
 
-  type Phase = "checking" | "login" | "ready";
-
-  let phase = $state<Phase>("checking");
-  let session = $state<Session | null>(null);
-  let account = $state<UserInfo | null>(null);
+  let checking = $state(true);
+  /**
+   * The login screen opened from the account panel, rather than by having no
+   * session. It signs another account in; the one in use is untouched until it
+   * does, and cancelling puts the reader back.
+   */
+  let adding = $state(false);
   let initialServerUrl = $state("http://127.0.0.1:18080");
   /** Why the login screen appeared on its own, if it did not just start so. */
   let startupNote = $state("");
+
+  /**
+   * The account in use, from the store rather than from this component.
+   *
+   * A switch is a change there, and the reader below is keyed on the token, so a
+   * new session is a new mount of everything the old one was showing — which is
+   * also what makes the layout, reading and chrome stores re-read their own
+   * account.
+   */
+  const session = $derived(accounts.active);
+
   /**
    * How long the stored session gets before the app gives the window back.
    *
@@ -26,9 +39,9 @@
   const CHECK_TIMEOUT_MS = 9000;
 
   onMount(async () => {
-    const stored = loadSession();
+    const stored = accounts.active;
     if (stored === null) {
-      phase = "login";
+      checking = false;
       return;
     }
 
@@ -47,50 +60,44 @@
         tooSlow,
       ]);
 
-      if (answer === "timeout") {
-        startupNote = `${stored.serverUrl} did not answer in ${Math.round(CHECK_TIMEOUT_MS / 1000)}s — it may be offline.`;
-        phase = "login";
-        return;
-      }
-
-      account = answer.info;
-      session = stored;
-      phase = "ready";
+      if (answer !== "timeout") accounts.noteProfile(stored, answer.info);
+      else startupNote = `${stored.serverUrl} did not answer in ${Math.round(CHECK_TIMEOUT_MS / 1000)}s — it may be offline.`;
     } catch (cause) {
       if (cause instanceof AuthError) {
-        clearSession();
+        // This account's sign-in is dead. The other accounts on this device are
+        // not, so only this one is forgotten.
+        startupNote = `${stored.email} on ${stored.serverUrl} is no longer signed in. Add it again below.`;
+        accounts.dropActive();
       }
-      phase = "login";
     } finally {
       if (timer !== null) clearTimeout(timer);
+      checking = false;
     }
   });
 
+  /** Signed in from the login screen: the first account, or one more of them. */
   function handleConnected(next: Session) {
-    saveSession(next);
-    session = next;
-    account = null;
-    phase = "ready";
+    accounts.add(next);
+    adding = false;
+    startupNote = "";
+  }
 
-    void userInfo(transport, next)
-      .then((info) => {
-        account = info;
-      })
-      .catch(() => {
-        /* details are not needed by the shell */
-      });
+  function addAccount() {
+    startupNote = "";
+    adding = true;
+  }
+
+  function cancelAdd() {
+    adding = false;
   }
 
   function disconnect() {
-    clearSession();
-    session = null;
-    account = null;
-    phase = "login";
+    accounts.signOut();
   }
 </script>
 
 <main class="shell">
-  {#if phase === "checking"}
+  {#if checking}
     <!-- A splash that says nothing reads as a blank window, and a cold start
          here can take seconds before the first request lands. -->
     <div class="status" role="status" aria-live="polite">
@@ -101,12 +108,24 @@
       {/if}
       <p class="status-hint">Signing in with the session saved on this device.</p>
     </div>
-  {:else if phase === "login"}
-    <Login {initialServerUrl} notice={startupNote} onconnected={handleConnected} />
-  {:else if session}
+  {:else if session && !adding}
     {#key session.token}
-      <Main {session} {account} onsignout={disconnect} />
+      <Main
+        {session}
+        account={accounts.profile}
+        onsignout={disconnect}
+        onaddaccount={addAccount}
+      />
     {/key}
+  {:else}
+    <Login
+      {initialServerUrl}
+      notice={adding
+        ? "Signing in here adds an account. The one already on this device stays."
+        : startupNote}
+      onconnected={handleConnected}
+      oncancel={adding ? cancelAdd : undefined}
+    />
   {/if}
 </main>
 

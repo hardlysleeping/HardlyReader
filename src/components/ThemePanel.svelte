@@ -49,8 +49,35 @@
 
   let open = $state(false);
 
-  /** The bar has one panel open at a time, so it is told when this one opens. */
-  let { onopen }: { onopen?: () => void } = $props();
+  /**
+   * Which slice of this panel to draw, when it is drawn inside another frame.
+   *
+   * The same rows are offered twice: the popover under the gear in the bar, and
+   * the sections of the settings panel. `part` is how the second one asks for
+   * rows without the gear, the tabs or the popover around them — one set of
+   * controls, two frames, and no second copy to fall out of step.
+   */
+  /**
+   * The slices another frame can ask for. Reading's rows are their own component
+   * (`ReadingPanel`), and the Web tab stays in the popover, where the switch it
+   * holds means something — so neither is a part.
+   */
+  type ThemePart = "colours" | "layout" | "sync";
+
+  let {
+    onopen,
+    part = null,
+    onallsettings,
+  }: {
+    onopen?: () => void;
+    /** Embedded: draw these rows only, with no gear and no popover. */
+    part?: ThemePart | null;
+    /** The door from the popover into the whole settings panel, where there is one. */
+    onallsettings?: () => void;
+  } = $props();
+
+  /** Embedded means there is no popover here: no gear, no tabs, no Done. */
+  const embedded = $derived(part !== null);
 
   /** The Web tab's two verbs: open the address, and copy it for a phone. */
   let copied = $state(false);
@@ -257,52 +284,13 @@
   ];
 </script>
 
-<div class="themebar">
-  <button
-    class="swatch"
-    bind:this={gearEl}
-    aria-haspopup="dialog"
-    aria-expanded={open}
-    aria-label="Settings"
-    title="Settings"
-    onclick={toggleSettings}
-  >
-    <svg class="gear" viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="3.1" />
-      <path
-        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
-      />
-    </svg>
-  </button>
-</div>
+<!-- The rows, in the five slices they are asked for.
 
-{#if open}
-  <div class="panel" role="dialog" aria-label="Settings" bind:this={panelEl}>
-    <!-- Three sections instead of one long column: colour, the pane widths it
-         shares a panel with, and how the reader behaves. -->
-    <div class="tabs" role="tablist" aria-label="Settings sections">
-      {#each TABS as item (item.id)}
-        <button
-          class="tab"
-          class:on={tab === item.id}
-          role="tab"
-          id={`settings-tab-${item.id}`}
-          aria-selected={tab === item.id}
-          aria-controls={`settings-panel-${item.id}`}
-          tabindex={tab === item.id ? 0 : -1}
-          onclick={() => (tab = item.id)}
-          onkeydown={(event) => tabMove(event, item.id)}
-        >{item.label}</button>
-      {/each}
-    </div>
-
-    {#if tab === "colours"}
-      <div
-        class="tabpanel"
-        role="tabpanel"
-        id="settings-panel-colours"
-        aria-labelledby="settings-tab-colours"
-      >
+     They are snippets rather than five components because the popover and the
+     settings panel draw the same rows in different frames: one is 268px wide
+     under a tab strip, the other is a section of a sheet. Two hand-written
+     copies of a control is how the same setting ends up with two answers. -->
+{#snippet coloursBody()}
       <div class="row">
         <span class="key">Appearance</span>
         <div class="seg" role="group" aria-label="Appearance">
@@ -466,18 +454,9 @@
             </div>
           </div>
         </div>
-        <div class="row end">
-          <button class="reset" onclick={() => theme.reset()}>Reset colours</button>
-          <button class="done" onclick={() => (open = false)}>Done</button>
-        </div>
-      </div>
-    {:else if tab === "layout"}
-      <div
-        class="tabpanel"
-        role="tabpanel"
-        id="settings-panel-layout"
-        aria-labelledby="settings-tab-layout"
-      >
+{/snippet}
+
+{#snippet layoutBody()}
       <!-- What each pane count needs, and the width the "1" button collapses to.
            The first two are sums of the panes below the layout, so they move when
            a divider is dragged and writing one resizes that mode's columns. The
@@ -775,17 +754,9 @@
         </div>
       </div>
       <p class="hint">Keypad shows a number pad when a passcode is asked for. Off, it is a text field.</p>
-        <div class="row end">
-      <button class="done" onclick={() => (open = false)}>Done</button>
-        </div>
-      </div>
-    {:else if tab === "reading"}
-      <div
-        class="tabpanel"
-        role="tabpanel"
-        id="settings-panel-reading"
-        aria-labelledby="settings-tab-reading"
-      >
+{/snippet}
+
+{#snippet readingBody()}
       <!-- Reader view: the one switch that changes where article text comes
            from. Off by default — it costs a request per post, and the feed's own
            text is already here. -->
@@ -889,7 +860,9 @@
       <p class="hint">
         How long a post must stay open before it counts as read — only while the ⏱ button in the reader is on.
       </p>
+{/snippet}
 
+{#snippet syncBody()}
       <!-- Automatic sync. Off by default: a sync is five requests against
            someone else's server, and spending them unprompted is the user's
            choice to make, not the app's. -->
@@ -930,17 +903,9 @@
         Off, nothing is fetched until you press sync. On, it syncs when the app opens
         and {autoSyncLabel(chrome.autoSyncHours).toLowerCase()} while it stays open.
       </p>
-        <div class="row end">
-      <button class="done" onclick={() => (open = false)}>Done</button>
-        </div>
-      </div>
-    {:else}
-      <div
-        class="tabpanel"
-        role="tabpanel"
-        id="settings-panel-web"
-        aria-labelledby="settings-tab-web"
-      >
+{/snippet}
+
+{#snippet webBody()}
       <!-- The reader is a web app; the desktop build is that app in a window, and
            the phone build is the same app in a browser. This tab is the bridge:
            the address, the switch, and nothing that pretends to be a sync
@@ -1004,14 +969,130 @@
           <p class="hint error">{lan.error}</p>
         {/if}
       {/if}
-        <div class="row end">
-          <button class="done" onclick={() => (open = false)}>Done</button>
-        </div>
+{/snippet}
+
+<!-- One footer for every tab: Done closes the popover, and is not drawn where
+     there is no popover to close. Reset is the tab's own, so each tab passes its
+     own word for it — or none, where there is nothing to put back. -->
+{#snippet footer(resetLabel: string | null, onreset?: () => void)}
+  {#if !embedded || resetLabel !== null}
+    <div class="row end">
+      {#if resetLabel !== null}
+        <button class="reset" onclick={() => onreset?.()}>{resetLabel}</button>
+      {/if}
+      {#if !embedded}
+        <button class="done" onclick={() => (open = false)}>Done</button>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
+{#if embedded}
+  <!-- No gear, no tabs, no popover: the rows a settings section asked for, in
+       the frame the section supplies. -->
+  <div class="part">
+    {#if part === "colours"}
+      {@render coloursBody()}
+      {@render footer("Reset colours", () => theme.reset())}
+    {:else if part === "layout"}
+      {@render layoutBody()}
+      {@render footer(null)}
+    {:else if part === "sync"}
+      {@render syncBody()}
+      {@render footer(null)}
+    {/if}
+  </div>
+{:else}
+<div class="themebar">
+  <button
+    class="swatch"
+    bind:this={gearEl}
+    aria-haspopup="dialog"
+    aria-expanded={open}
+    aria-label="Settings"
+    title="Settings"
+    onclick={toggleSettings}
+  >
+    <svg class="gear" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.1" />
+      <path
+        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+      />
+    </svg>
+  </button>
+</div>
+
+{#if open}
+  <div class="panel" role="dialog" aria-label="Settings" bind:this={panelEl}>
+    <!-- The door to the whole panel. First, because the popover is the small
+         surface: someone who wants more settings should not have to scroll past
+         four tabs to find out there are more. -->
+    {#if onallsettings}
+      <button class="door" onclick={() => { onallsettings?.(); open = false; }}>All settings…</button>
+    {/if}
+    <!-- Three sections instead of one long column: colour, the pane widths it
+         shares a panel with, and how the reader behaves. -->
+    <div class="tabs" role="tablist" aria-label="Settings sections">
+      {#each TABS as item (item.id)}
+        <button
+          class="tab"
+          class:on={tab === item.id}
+          role="tab"
+          id={`settings-tab-${item.id}`}
+          aria-selected={tab === item.id}
+          aria-controls={`settings-panel-${item.id}`}
+          tabindex={tab === item.id ? 0 : -1}
+          onclick={() => (tab = item.id)}
+          onkeydown={(event) => tabMove(event, item.id)}
+        >{item.label}</button>
+      {/each}
+    </div>
+
+    {#if tab === "colours"}
+      <div
+        class="tabpanel"
+        role="tabpanel"
+        id="settings-panel-colours"
+        aria-labelledby="settings-tab-colours"
+      >
+      {@render coloursBody()}
+      {@render footer("Reset colours", () => theme.reset())}
+      </div>
+    {:else if tab === "layout"}
+      <div
+        class="tabpanel"
+        role="tabpanel"
+        id="settings-panel-layout"
+        aria-labelledby="settings-tab-layout"
+      >
+      {@render layoutBody()}
+      {@render footer(null)}
+      </div>
+    {:else if tab === "reading"}
+      <div
+        class="tabpanel"
+        role="tabpanel"
+        id="settings-panel-reading"
+        aria-labelledby="settings-tab-reading"
+      >
+      {@render readingBody()}
+      {@render syncBody()}
+      {@render footer(null)}
+      </div>
+    {:else}
+      <div
+        class="tabpanel"
+        role="tabpanel"
+        id="settings-panel-web"
+        aria-labelledby="settings-tab-web"
+      >
+      {@render webBody()}
+      {@render footer(null)}
       </div>
     {/if}
   </div>
 {/if}
-
+{/if}
 <style>
   .themebar {
     display: flex;
@@ -1081,6 +1162,43 @@
   /* Three short labels under the gear, with the chosen one carrying the accent
      instead of an underline: the panel is small and a rule under a tab would
      read as another separator in a panel full of them. */
+  /* The door to the whole settings panel: the popover is the small surface, so
+     the way out of it comes first, above the tabs, and reads as a way out rather
+     than as another setting. */
+  .door {
+    display: block;
+    width: 100%;
+    margin: 0 0 4px;
+    padding: 4px 7px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 11.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .door:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .door:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: 1px;
+  }
+
+  /* Embedded: the rows are drawn inside somebody else's frame — a section of the
+     settings panel — so this layer adds no box, no edge and no scroll of its
+     own. It is a wrapper only because a component needs one root. */
+  .part {
+    display: block;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
   .tabs {
     position: sticky;
     top: -10px;

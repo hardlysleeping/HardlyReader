@@ -4,13 +4,42 @@
   import { serverLabel } from "../lib/server-label";
   import { syncDescription, syncReadout } from "../lib/sync-progress";
   import { reader } from "../state/reader.svelte";
+  import AccountsPanel from "./AccountsPanel.svelte";
   import ReadingControls from "./ReadingControls.svelte";
+  import SettingsPanel from "./SettingsPanel.svelte";
   import ThemePanel from "./ThemePanel.svelte";
 
   // Typed by what the menu needs from them, so a component's instance type
   // never has to be named here.
   let readingControls = $state<{ openPanel: () => void; closePanel: () => void } | undefined>();
   let themePanel = $state<{ openSettings: () => void; closeSettings: () => void } | undefined>();
+  /**
+   * The account panel. It owns the name in the bar as well as the list behind it,
+   * and the compact menu opens it by hand at widths where the name is not drawn.
+   */
+  let accountsPanel = $state<{ openAccounts: () => void } | undefined>();
+
+  /**
+   * The whole settings panel, and whether it is up.
+   *
+   * It is the header's flag rather than the panel's own, because three things
+   * open and close it: the menu row, the door inside the gear's popover, and its
+   * own close button. One flag, one answer.
+   */
+  let settingsOpen = $state(false);
+
+  /**
+   * Settings, from either door.
+   *
+   * A panel in the bar is one at a time, so the two popovers stand down on the
+   * way in — the sheet is drawn over the app and would otherwise open behind an
+   * open popover, which reads as the press having done nothing.
+   */
+  function openSettings(): void {
+    readingControls?.closePanel();
+    themePanel?.closeSettings();
+    settingsOpen = true;
+  }
 
   /**
    * The compact menu.
@@ -25,46 +54,17 @@
   let sheet = $state<HTMLElement | null>(null);
 
   /**
-   * The account is a door, not a label: the name is here so signing out has
-   * somewhere to live, and it opens on a press rather than sitting in the bar as
-   * a button of its own. In a narrow window even the name goes — signing out is
-   * then a row in the menu.
+   * The account is a door, not a label: the name is here because that is where
+   * the accounts signed in on this device live — switching, adding and removing
+   * — and it opens on a press rather than sitting in the bar as a button of its
+   * own. In a narrow window even the name goes; the same panel then opens from a
+   * row in the menu, so accounts are never a wide-window privilege.
    */
   /* "Narrow" is decided in exactly one place: the compact media block at the
-     bottom of this file, which drops the account from the bar and
-     hides the rows only the compact menu needs. It used to be mirrored in a
-     `matchMedia` flag as well, and the two disagreed for a resize: the CSS went
-     compact while the flag still said wide, so the wide bar offered Sign out in
-     two places and a phone offered it in none. */
-
-  let accountOpen = $state(false);
-  let accountEl = $state<HTMLElement | null>(null);
-
-  function closeAccount() {
-    accountOpen = false;
-  }
-
-  function pickAccount(action: () => void) {
-    closeAccount();
-    action();
-  }
-
-  $effect(() => {
-    if (!accountOpen) return;
-    const onDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (accountEl !== null && target !== null && !accountEl.contains(target)) closeAccount();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeAccount();
-    };
-    window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("keydown", onKey);
-    };
-  });
+     bottom of this file, which drops the account from the bar. It used to be
+     mirrored in a `matchMedia` flag as well, and the two disagreed for a resize:
+     the CSS went compact while the flag still said wide, so the wide bar offered
+     Sign out in two places and a phone offered it in none. */
 
   function closeMenu() {
     menuOpen = false;
@@ -99,6 +99,7 @@
     server = "",
     controls,
     onsignout,
+    onaddaccount,
     ontogglesidebar,
     textTarget = "article",
   }: {
@@ -108,7 +109,10 @@
     subtitle?: string;
     /** The server this window is signed in to, exactly as it was entered. */
     server?: string;
+    /** Sign out of every account this device holds. */
     onsignout?: () => void;
+    /** Sign a second account in, leaving the one in use alone. */
+    onaddaccount?: () => void;
     ontogglesidebar?: () => void;
     /**
      * What the bar's A− and A+ resize. They belong to whichever column is open:
@@ -198,7 +202,10 @@
       <div class="sheet" role="menu" aria-label="Menu">
         <button role="menuitem" onclick={() => pick(() => ontogglesidebar?.())}>Feeds</button>
         <button role="menuitem" onclick={() => pick(() => readingControls?.openPanel())}>Reading</button>
-        <button role="menuitem" onclick={() => pick(() => themePanel?.openSettings())}>Settings</button>
+        <!-- The menu is the phone's way in, and the sheet is the phone's shape:
+             a 268px popover anchored to a hidden glyph was a popover opened at
+             arm's length. -->
+        <button role="menuitem" onclick={() => pick(openSettings)}>Settings</button>
         <!-- Only when the name is not in the bar: the account is where signing
              out lives, and on a narrow bar the account is in here. -->
         <!-- Always rendered, hidden by the same media query that drops the
@@ -207,43 +214,21 @@
         {#if address}
           <p class="sheet-server" title={server}>{address}</p>
         {/if}
-        <!-- One row always: hidden by the media query when the bar has the name
-             to press, shown when it does not. When there is no name at all the
-             row is not gated, because the menu is then the only way out. -->
-        <button
-          role="menuitem"
-          class:narrow-only={!!subtitle}
-          onclick={() => pick(() => onsignout?.())}>Sign out</button>
+        <!-- The account panel, for the widths where the name is not drawn: it is
+             the only door to the other accounts and to signing out. -->
+        <button role="menuitem" onclick={() => pick(() => accountsPanel?.openAccounts())}>
+          Accounts
+        </button>
       </div>
     {/if}
   </div>
   <span class="brand">{title}</span>
-  <!-- The name is the account's handle: pressing it offers what you can do with
-       the account, which is sign out. It shrinks to fit whatever it is given
-       rather than pushing the controls beside it. -->
+  <!-- The name is the account's handle: pressing it opens the list of accounts on
+       this device, which is where switching, adding and signing out live. It
+       shrinks to fit whatever it is given rather than pushing the controls beside
+       it. -->
   {#if subtitle}
-    <div class="account" bind:this={accountEl}>
-      <button
-        class="who"
-        aria-haspopup="menu"
-        aria-expanded={accountOpen}
-        title={subtitle}
-        onclick={() => (accountOpen = !accountOpen)}
-      >{subtitle}</button>
-      {#if address}
-        <span class="server" title={server}>{address}</span>
-      {/if}
-      {#if accountOpen}
-        <div class="who-sheet" role="menu" aria-label="Account">
-          <p class="who-name" title={subtitle}>{subtitle}</p>
-          <!-- The address lives here too: the bar's copy is the first thing to
-               go when the window narrows, and this is where you go looking for
-               "which server is this". -->
-          <p class="who-server">{server}</p>
-          <button role="menuitem" onclick={() => pickAccount(() => onsignout?.())}>Sign out</button>
-        </div>
-      {/if}
-    </div>
+    <AccountsPanel bind:this={accountsPanel} {subtitle} {server} {onaddaccount} {onsignout} />
   {/if}
 
   <div class="spacer"></div>
@@ -259,7 +244,11 @@
       target={textTarget}
       onopen={() => themePanel?.closeSettings()}
     />
-    <ThemePanel bind:this={themePanel} onopen={() => readingControls?.closePanel()} />
+    <ThemePanel
+      bind:this={themePanel}
+      onopen={() => readingControls?.closePanel()}
+      onallsettings={openSettings}
+    />
   </span>
 
   <!-- The count and the percentage for as long as the sync lasts. The bar for
@@ -316,6 +305,16 @@
 
 </header>
 
+<!-- Outside the bar: the sheet is a fixed overlay over the whole app, and the
+     bar's own box is not where a dialog belongs. -->
+<SettingsPanel
+  bind:open={settingsOpen}
+  name={subtitle}
+  {server}
+  {onaddaccount}
+  {onsignout}
+/>
+
 <style>
   /* A title bar, not a toolbar: enough height to hold a 34px control with air
      around it, and no more. */
@@ -337,132 +336,22 @@
     letter-spacing: -0.01em;
   }
 
-  .account {
-    position: relative;
-    display: flex;
-    align-items: center;
-    flex: 0 1 auto;
-    min-width: 0;
-  }
-
-  /* Shrinks before anything else in the bar: the name identifies, it does not
-     inform, and it already has a tooltip with its full text. */
-  .who {
-    flex: 0 1 auto;
-    min-width: 0;
-    max-width: 150px;
-    padding: 2px 6px;
-    border: 0;
-    border-radius: 6px;
-    background: none;
-    color: var(--muted);
-    font: inherit;
-    font-size: 11.5px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    cursor: pointer;
-  }
-
-  .who:hover,
-  .who[aria-expanded="true"] {
-    background: var(--hover);
-    color: var(--text);
-  }
-
-  /* The address sits beside the name and takes the slack: when the bar runs
-     tight it is the first thing to lose characters, because a truncated address
-     still says which box you are on while a truncated name says nothing. */
-  .server {
-    flex: 1 1 auto;
-    min-width: 0;
-    max-width: 30ch;
-    padding: 2px 2px 2px 5px;
-    color: var(--muted);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    cursor: default;
-  }
-
-  .who-sheet {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 70;
-    min-width: 148px;
-    max-width: 260px;
-    padding: 5px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: var(--surface);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-    animation: sheet-in 120ms ease-out;
-  }
-
-  .who-name {
-    margin: 0;
-    padding: 4px 7px 6px;
-    border-bottom: 1px solid var(--border-soft);
-    color: var(--muted);
-    font-size: 11px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* In the sheet there is room for the whole thing, and it wraps rather than
-     clipping: this is the copy you read when the bar's copy is gone. */
-  .who-server,
+  /* The server line in the compact menu: the copy you read when the bar's copy
+     is not drawn. It goes once the bar can hold the address itself. */
   .sheet-server {
-    margin: 0;
+    margin: 4px 0 0;
     padding: 4px 7px;
-    border-bottom: 1px solid var(--border-soft);
-    color: var(--text-dim);
+    border-top: 1px solid var(--border-soft);
+    color: var(--muted);
     font-size: 11px;
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
   }
 
-  .sheet-server {
-    border-bottom: 0;
-    border-top: 1px solid var(--border-soft);
-    margin-top: 4px;
-    color: var(--muted);
-  }
-
-  /* Wide enough for the bar to hold the account itself: the menu stops
-     repeating what the bar shows. One media query, so the menu and the bar can
-     never disagree about how narrow the window is — and it is the account's own
-     breakpoint, because the account is what the sign-out row repeats. */
   @media (min-width: 661px) {
-    .sheet-server,
-    .sheet .narrow-only {
+    .sheet-server {
       display: none;
     }
-  }
-
-  .who-sheet button {
-    display: block;
-    width: 100%;
-    margin-top: 4px;
-    padding: 5px 7px;
-    border: 0;
-    border-radius: 6px;
-    background: none;
-    color: var(--text-dim);
-    font: inherit;
-    font-size: 12.5px;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .who-sheet button:hover {
-    background: var(--hover);
-    color: var(--text);
   }
 
   .spacer {
@@ -715,21 +604,12 @@
   }
 
   /* The account block — the name and the server address — leaves the bar long
-     before the rest of it does.
-
-     Both strings are capped and ellipsised, so a narrow bar did not break:
-     it showed `hardlyrea…` and `reader.example…`, which reads as a bug and
-     tells you nothing the sheet does not. Measured on this bar, the pair comes
-     to ~218px, so with the brand, the layout switch, the reading and theme
-     triggers and the sync button around it, nothing is cut from about 650
-     upward and everything is cut below it. They come back at 660, which leaves
-     the switch in the bar at any width the bar can hold without changing size,
-     and the sheet already carries both strings for the widths below. */
-  @media (max-width: 660px) {
-    .account {
-      display: none;
-    }
-  }
+     before the rest of it does: measured on this bar the pair comes to ~218px, so
+     with the brand, the layout switch, the reading and theme triggers and the
+     sync button around it, nothing is cut from about 650 upward and everything is
+     cut below it. The breakpoint lives in `AccountsPanel` with the block it
+     hides, which is also where the same panel is opened from the menu — a fixed
+     panel inside a hidden element would open onto nothing. */
 
   /* Compact: the bar keeps what identifies the window and what changes the
      layout, and the rest moves into the menu. Every item that leaves the bar
