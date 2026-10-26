@@ -1477,10 +1477,13 @@
             onclick={(event) => flip(event, item, strip.length, 1)}
             onkeydown={(event) => keyFlip(event, item, strip.length, 1)}></span>
         {/if}
-        <!-- The toggles own the pointer. Without this, a press that slides a few
-             pixels becomes a list pan, and the pan swallows the click it ends
-             with — the button looks dead for exactly the reason the drag exists.
-             24px is smaller than a hand is steady. -->
+        <!-- The toggles own the pointer *for the mouse*. A mouse press that
+             slid a few pixels became a list pan, and the pan swallows the click
+             it ends with — the button looked dead for exactly the reason the
+             drag exists, and a mouse has a wheel to scroll with instead. On a
+             finger the pan is the only scroll there is, so `lib/drag-scroll.ts`
+             reads this attribute for the mouse only and lets a finger pan from
+             here, at a wider threshold so a shaky tap still lands. -->
         {#if readHere && reader.selectedId === item.id}
           <!-- The post, opened out of its row: the list is still the list, and
                the page is the bottom half of the row it belongs to. -->

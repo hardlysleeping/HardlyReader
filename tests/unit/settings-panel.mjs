@@ -167,9 +167,15 @@ try {
     "src/state/chrome.svelte.ts",
     "src/state/reading.svelte.ts",
     "src/state/lan.svelte.ts",
+    "src/state/floods.svelte.ts",
   ]) {
     buildRunes(state);
   }
+
+  // The Sync section's last row reads the reader's own answer about the server's
+  // add-on, so the reader store is built here too — after the modules it imports,
+  // which is what lets its rewritten imports point at their generated copies.
+  buildRunes("src/state/reader.svelte.ts");
 
   // The roster is a list; the harness supplies it rather than pulling the network in.
   mkdirSync(GEN, { recursive: true });

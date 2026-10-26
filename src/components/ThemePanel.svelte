@@ -36,6 +36,14 @@
   } from "../lib/scroll-advance";
   import { chrome } from "../state/chrome.svelte";
   import { AUTO_SYNC_HOURS, autoSyncLabel, parseAutoSyncHours } from "../lib/auto-sync";
+  import {
+    refreshOnReturnChoices,
+    refreshOnReturnLabel,
+    refreshOnReturnShort,
+    sameRefreshOnReturn,
+  } from "../lib/refresh-on-return";
+  import type { AddOnState } from "../lib/api-snapshot";
+  import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
   import { theme } from "../state/theme.svelte";
   import { layout } from "../state/layout.svelte";
@@ -78,6 +86,31 @@
 
   /** Embedded means there is no popover here: no gear, no tabs, no Done. */
   const embedded = $derived(part !== null);
+
+  /**
+   * The one row about the server's adapter, in the reader's words rather than
+   * the wire's.
+   *
+   * "Not installed" is the ordinary FreshRSS and says what it costs: the state
+   * the extension keeps stays here. "Unknown" is not a fourth kind of server, it
+   * is the absence of an answer — a read that has not landed, or one that failed
+   * for a reason that says nothing about the adapter — so it says that instead
+   * of guessing in either direction.
+   */
+  const ADD_ON: Record<AddOnState, { value: string; note: string }> = {
+    connected: {
+      value: "Connected",
+      note: "Order, hidden categories and pins sync between devices.",
+    },
+    absent: {
+      value: "Not installed",
+      note: "Hidden categories and pins stay on this device.",
+    },
+    unknown: {
+      value: "Unknown",
+      note: "Could not check just now.",
+    },
+  };
 
   /** The Web tab's two verbs: open the address, and copy it for a phone. */
   let copied = $state(false);
@@ -903,6 +936,39 @@
         Off, nothing is fetched until you press sync. On, it syncs when the app opens
         and {autoSyncLabel(chrome.autoSyncHours).toLowerCase()} while it stays open.
       </p>
+      <!-- Coming back to the window. A threshold, because a glance at another
+           window is not worth five requests; and `never`, which silences this
+           check alone — the app still syncs when it opens, and the interval
+           above keeps its own answer, so the row cannot read as an off switch. -->
+      <div class="row">
+        <span class="key">Refresh on return</span>
+        <div class="seg wrap" role="group" aria-label="Refresh on return">
+          {#each refreshOnReturnChoices() as choice (refreshOnReturnShort(choice))}
+            <button
+              class="segbtn"
+              class:on={sameRefreshOnReturn(chrome.refreshOnReturn, choice)}
+              aria-pressed={sameRefreshOnReturn(chrome.refreshOnReturn, choice)}
+              aria-label={`Refresh on return: ${refreshOnReturnLabel(choice)}`}
+              title={refreshOnReturnLabel(choice)}
+              onclick={() => chrome.setRefreshOnReturn(choice)}
+              >{refreshOnReturnShort(choice)}</button
+            >
+          {/each}
+        </div>
+      </div>
+      <p class="hint">
+        Back in the window after this long, it fetches once. Never turns off only this check:
+        opening the app still syncs, and the interval above still runs when it is on.
+      </p>
+      <!-- What the adapter is, in one line, from the state the app already
+           holds: no request of its own, nothing to press, and no second place
+           that reports it. Three answers, because "not installed" is an ordinary
+           FreshRSS rather than a fault, and "unknown" is not an answer at all. -->
+      <div class="row">
+        <span class="key">Server add-on</span>
+        <span class="state">{ADD_ON[reader.addOn].value}</span>
+      </div>
+      <p class="hint">{ADD_ON[reader.addOn].note}</p>
 {/snippet}
 
 {#snippet webBody()}
@@ -1478,6 +1544,14 @@
     font-size: 10.5px;
     line-height: 1.35;
     color: var(--muted);
+  }
+
+  /* A state, not a control: the value of a row with nothing to press beside it,
+     so it is drawn in the text colour rather than in a button's chrome. */
+  .state {
+    flex: 0 0 auto;
+    color: var(--text);
+    font-size: 11px;
   }
 
   input[type="color"] {

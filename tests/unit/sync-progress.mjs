@@ -273,6 +273,7 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"./stream-cache"', absolute("src/state/stream-cache.ts")],
   ['"./pins"', absolute("src/state/pins.ts")],
   ['"./persist"', absolute("src/state/persist.ts")],
+  ['"../lib/api-snapshot"', absolute("src/lib/api-snapshot.ts")],
   ['"../lib/account-key"', absolute("src/lib/account-key.ts")],
   ['"../lib/add-feeds"', absolute("src/lib/add-feeds.ts")],
   ['"../lib/opml"', absolute("src/lib/opml.ts")],

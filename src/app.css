@@ -334,6 +334,18 @@ html.drag-panning * {
   user-select: none !important;
 }
 
+/* A press that turned into a pan was not a press on what it started on.
+
+   The gesture belongs to the pan now, but the element the finger went down on
+   keeps its `:active` until the finger lifts — a star that stays lit for the
+   whole scroll reads as half-pressed and lights up again mid-drag. Every press
+   in the app is a scale and a wash on the same two properties, so dropping those
+   two while the pan holds is what takes the press back. */
+html.drag-panning :is(button, a, [role="button"]):active:not(.on):not([aria-pressed="true"]) {
+  transform: none !important;
+  background-color: transparent !important;
+}
+
 /* The window is not always the whole screen.
    -----------------------------------------------------------------------------
    On Android the window is edge-to-edge (targetSdk 35 and up draw behind the

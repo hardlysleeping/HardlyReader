@@ -20,12 +20,19 @@
  *   it lands, and that press does not also count as a click on the row underneath.
  * - **Nothing happens until the pointer has travelled `THRESHOLD`px.** Below
  *   that it is a click, and a click must stay a click — rows, buttons and links
- *   are how the app is used.
+ *   are how the app is used. A finger that landed on something tappable gets
+ *   `CONTROL_THRESHOLD` instead, because a hand is not steady and a 24px toggle
+ *   cannot answer a 5px trigger.
  * - **A pan swallows the click it ends with.** Otherwise releasing a drag over a
  *   row would also open the article that happened to be under the cursor.
  * - **Controls that own the pointer keep it**: `input`, `textarea`, `select`,
- *   `[contenteditable]`, the pane gutter (resize) and anything marked
- *   `data-no-drag-scroll`. A range slider must slide, not pan the page.
+ *   `[contenteditable]` and the pane gutter (resize). A range slider must slide,
+ *   not pan the page.
+ * - **`data-no-drag-scroll` is a mouse opt-out, not a finger one.** It exists
+ *   because a mouse press that slid a few pixels became a pan and swallowed the
+ *   click, which made the toggle under it look dead — and a mouse has a wheel
+ *   and a scrollbar to fall back on. A finger has neither: the pan is the only
+ *   way the content moves under it, so a finger is never refused there.
  * - **Shift, Alt, Ctrl and Meta disable it for the mouse**, so text selection and
  *   the browser's own gestures still work when asked for by name.
  */
@@ -35,12 +42,42 @@ import { decayVelocity, isFlung, isSpent, releaseVelocity, FLING, type FlingSamp
 /** Pixels the pointer must travel before a press becomes a pan. */
 const THRESHOLD = 5;
 
+/**
+ * The same, for a finger that went down on something tappable.
+ *
+ * A hand is not steady: 5px is inside the shake of a deliberate tap, so with one
+ * threshold every press on a 24px star became a pan and the tap was swallowed.
+ * Ten is still a short drag — a finger that means to scroll leaves it in the
+ * first centimetre — and it is a threshold per *press*, not a new global one: a
+ * finger that went down on the row's body still pans at `THRESHOLD`.
+ */
+const CONTROL_THRESHOLD = 10;
+
 /** How long after a pan ends a click is still considered part of it. */
 const CLICK_GRACE = 250;
 
-/** Targets that own pointer movement themselves. */
-const OWNS_POINTER =
-  "input, textarea, select, option, [contenteditable='true'], [data-no-drag-scroll], .gutter";
+/** Targets that own pointer movement themselves, whatever the pointer is. */
+const OWNS_POINTER = "input, textarea, select, option, [contenteditable='true'], .gutter";
+
+/**
+ * The same, plus the mouse-only opt-out.
+ *
+ * `data-no-drag-scroll` was added because a mouse press that slid a few pixels
+ * became a pan and swallowed the click it ended with, so the control under it
+ * looked dead. That is a mouse problem: a mouse has a wheel and a scrollbar. A
+ * finger has neither — the pan is the only way the content moves under it — so
+ * a finger only hands the gesture to something that would genuinely take it.
+ */
+const MOUSE_OWNS_POINTER = `${OWNS_POINTER}, [data-no-drag-scroll]`;
+
+/**
+ * What a finger is more likely to be aiming at than dragging.
+ *
+ * A press that starts on one of these still pans — the list has to move under a
+ * hand that started on a row — it just has to travel `CONTROL_THRESHOLD` first,
+ * so a shaky tap lands on the thing it was aimed at.
+ */
+const TAPPABLE = "button, a[href], [role='button'], [data-no-drag-scroll]";
 
 /** The panning state class, so CSS can show a grabbing cursor. */
 const PANNING_CLASS = "drag-panning";
@@ -84,6 +121,8 @@ export function installDragScroll(): () => void {
   let panning = false;
   let startX = 0;
   let startY = 0;
+  /** How far this press has to travel, which depends on what it landed on. */
+  let threshold = THRESHOLD;
   let lastX = 0;
   let lastY = 0;
   /** Where the pointer has been lately, for the release speed. */
@@ -161,7 +200,13 @@ export function installDragScroll(): () => void {
     if (event.pointerType === "mouse" && (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey))
       return;
     const origin = event.target instanceof Element ? event.target : null;
-    if (!origin || origin.closest(OWNS_POINTER)) return;
+    if (!origin) return;
+    // A finger gives the gesture up only to something that would actually take
+    // the movement: typing, a slider, the pane edge. A button or a row is panned
+    // past instead, because on a finger the pan is the only scroll there is. The
+    // mouse keeps every opt-out it had, `data-no-drag-scroll` included.
+    const finger = event.pointerType === "touch";
+    if (origin.closest(finger ? OWNS_POINTER : MOUSE_OWNS_POINTER)) return;
     // A press that caught a throw stops it; it does not also open what it landed
     // on, however long the hand rests there before letting go.
     caughtPress = flingCaught;
@@ -170,6 +215,9 @@ export function installDragScroll(): () => void {
     panSeq += 1;
     pointer = event.pointerId;
     panning = false;
+    // A control has to be travelled past further than a plain surface: a tap on
+    // a star that shakes below this is still a tap.
+    threshold = finger && origin.closest(TAPPABLE) ? CONTROL_THRESHOLD : THRESHOLD;
     startX = lastX = event.clientX;
     startY = lastY = event.clientY;
     // The event's own clock, not the clock at receipt: a burst of coalesced moves
@@ -184,7 +232,7 @@ export function installDragScroll(): () => void {
   function onPointerMove(event: PointerEvent) {
     if (!container || event.pointerId !== pointer) return;
     if (!panning) {
-      if (Math.hypot(event.clientX - startX, event.clientY - startY) < THRESHOLD) return;
+      if (Math.hypot(event.clientX - startX, event.clientY - startY) < threshold) return;
       panning = true;
       // A throw the hand overtakes is over: grabbing again mid-flight must not
       // also inherit the old speed.

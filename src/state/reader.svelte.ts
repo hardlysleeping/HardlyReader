@@ -63,6 +63,12 @@ import {
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
 import { readAccountValue, writeAccountValue } from "../lib/account-key";
+import {
+  clearApiSnapshot,
+  readApiSnapshot,
+  writeApiSnapshot,
+  type AddOnState,
+} from "../lib/api-snapshot";
 import { resolveIndent } from "../lib/indent";
 import { feedMenu, categoryMenu, type MenuAction, type MenuModel, type Point } from "../lib/contextmenu";
 import {
@@ -224,6 +230,24 @@ export class ReaderState {
   /** Why the state could not be read. Kept apart from `error`: no extension is
    * a normal install, not a failure worth a banner. */
   hiddenError = $state<string | null>(null);
+
+  /**
+   * Whether the state route answered "no such route", rather than not answering.
+   *
+   * A server without the adapter is an ordinary FreshRSS, not a fault: the app
+   * stops expecting hidden categories from it, and Settings can say so in one
+   * word. Cleared by the first read that lands, so a server that gains the
+   * extension while the app is open is picked up on the next read.
+   */
+  private stateRouteMissing = $state(false);
+
+  /**
+   * True once the stored snapshot was drawn at launch.
+   *
+   * It decides whether the older copy inside the sidebar cache may be applied:
+   * two caches of the same thing, and the one already on screen is the newer.
+   */
+  private apiSnapshotPainted = false;
 
   /** True while a hide/show/view write is in flight. */
   hiddenBusy = $state(false);
@@ -501,6 +525,28 @@ export class ReaderState {
   }
 
   /**
+   * What the server's extension is, as far as this window can tell.
+   *
+   * Three answers for one row in Settings, and they are three different things
+   * to a reader: `connected` means order, hidden categories and pins travel
+   * between devices; `absent` means this server has no adapter and they stay
+   * here; `unknown` means the question has not been answered — a read that has
+   * not landed yet, or one that failed for a reason that says nothing about the
+   * server.
+   *
+   * Read, never asked. Every block this depends on is already in hand from the
+   * launch read, the change watch and each sync, so the row costs no request.
+   */
+  get addOn(): AddOnState {
+    if (this.hiddenCategories.available) return "connected";
+    // Both routes are served by the same extension, so a 404 from either is a
+    // server without the other. `stateRouteMissing` is also what a server that
+    // is not FreshRSS answers before any route is tried at all.
+    if (this.stateRouteMissing || this.positionsRoute === "missing") return "absent";
+    return "unknown";
+  }
+
+  /**
    * Marks or unmarks a category.
    *
    * One state, written where it can be seen: through Pinned Categories when
@@ -755,6 +801,71 @@ export class ReaderState {
       this.categoryOrder = [];
       this.positionsStamp = 0;
     }
+    // Last, because it draws on what the lines above just read: the indent it
+    // resolves and the pins it leaves alone are this account's, not defaults.
+    this.loadApiSnapshot();
+  }
+
+  /**
+   * The extension state this account last saw, drawn before the first frame.
+   *
+   * Synchronous on purpose. The live read is already on its way — it rides in
+   * `loadSidebar`'s parallel work — but it answers a few hundred milliseconds
+   * after the window is drawing, and until then the sidebar would show every
+   * category, including the ones the extension hides and the ones a lock exists
+   * to cover. So the last state a read gave this account is painted here, and
+   * the live read is free to replace it.
+   *
+   * A cached `locked` is therefore the lock's own answer for the first frames of
+   * a launch. It is not sticky against a live read — that is the server proving
+   * otherwise — only against a read that failed: see `loadApiState`, which keeps
+   * a drawn lock rather than falling back to "no extension" when the network
+   * blinks.
+   */
+  private loadApiSnapshot(): void {
+    const session = this.session;
+    if (session === null || typeof localStorage === "undefined") return;
+    const snapshot = readApiSnapshot(localStorage, session);
+    if (snapshot === null) return;
+    this.apiSnapshotPainted = true;
+    this.hiddenCategories = snapshot.hiddenCategories;
+    this.favorites = snapshot.favorites;
+    this.sidebarIndent = this.withLocalIndent(snapshot.sidebarIndent);
+  }
+
+  /**
+   * Stores what the server just said, where the next launch reads it first.
+   *
+   * Written from the state read and from the three lock replies, not from every
+   * write: the hidden block is the part that must not be guessed at, and a lock
+   * set a second before quitting is exactly the one the next launch has to
+   * already know about. Pins and the indent travel with it because they came
+   * from the same read.
+   */
+  private saveApiSnapshot(): void {
+    const session = this.session;
+    if (session === null) return;
+    const state = {
+      hiddenCategories: this.hiddenCategories,
+      favorites: this.favorites,
+      sidebarIndent: this.sidebarIndent,
+    };
+    if (typeof localStorage === "undefined") return;
+    writeApiSnapshot(localStorage, session, state);
+  }
+
+  /**
+   * Forgets the snapshot, for a server that has answered "no such route".
+   *
+   * A server that lost the extension would otherwise be drawn from a cache of
+   * the last time it had one, forever. Only a definite "no route" clears it: a
+   * dropped connection says nothing about the adapter, and the next launch is
+   * allowed to draw what it has.
+   */
+  private clearStoredApiSnapshot(): void {
+    const session = this.session;
+    if (session === null || typeof localStorage === "undefined") return;
+    clearApiSnapshot(localStorage, session);
   }
 
   private savePrefs(): void {
@@ -1014,6 +1125,9 @@ export class ReaderState {
       const result = await apiLockHidden(transport, session);
       this.hiddenCategories = result.hiddenCategories;
       this.lockNotice = null;
+      // Cached now, not at the next read: an app locked a second before quitting
+      // must be locked on the first frame of the next launch, not after it.
+      this.saveApiSnapshot();
       // Locking hides categories server-side too, so the feed list can change.
       this.hiddenWriteGen += 1;
       this.scheduleHiddenCatchUp();
@@ -1042,6 +1156,9 @@ export class ReaderState {
     try {
       const result = await apiUnlockHidden(transport, session, passcode);
       this.hiddenCategories = result.hiddenCategories;
+      // An unlock is the one answer allowed to lift the curtain, so the snapshot
+      // that holds it down is rewritten from it.
+      this.saveApiSnapshot();
       // No light from here: the band pulses green in place (SidebarBand), which
       // is the app answering rather than the window celebrating.
       return true;
@@ -1072,6 +1189,9 @@ export class ReaderState {
     try {
       const result = await apiSetHiddenPasscode(transport, session, passcode);
       this.hiddenCategories = result.hiddenCategories;
+      // Setting or clearing the passcode is a lock fact: clearing it unlocks, so
+      // the snapshot has to follow or the next launch would draw the old one.
+      this.saveApiSnapshot();
       return true;
     } catch (error) {
       this.lockNotice = error instanceof ApiError ? error.message : "Could not save the passcode.";
@@ -1445,6 +1565,10 @@ export class ReaderState {
     this.hiddenError = null;
     this.favorites = unavailableFavorites();
     this.lockNotice = null;
+    // The state route and the snapshot were one server's answer; the next
+    // account is asked about on its own.
+    this.stateRouteMissing = false;
+    this.apiSnapshotPainted = false;
     // The routes below were learned from one server; the next account has its own.
     this.positionsRoute = "unknown";
     this.lastSyncAt = 0;
@@ -1467,6 +1591,10 @@ export class ReaderState {
     await this.hydrateSidebar();
     const stream = place.streamId ?? READING_LIST;
     const title = place.streamId === null ? "Reading list" : place.streamTitle;
+    // `loadSidebar` carries three feed reads and the extension state, and they
+    // ride beside the open stream: the state read is the live answer to the
+    // snapshot painted above, so it must land in the same round as the sidebar
+    // rather than after it.
     const [sidebarLanded] = await Promise.all([this.loadSidebar(), this.openStream(stream, title)]);
     // A launch load is a sync: it fetches the sidebar and the open stream. Only
     // when both landed — a failed launch leaves this at zero, which is how auto
@@ -1532,7 +1660,10 @@ export class ReaderState {
     this.subscriptions = snapshot.subscriptions;
     this.tags = snapshot.tags;
     this.setCounts(snapshot.counts);
-    if (snapshot.api !== undefined) {
+    // Only when no launch snapshot was drawn: that one was read before the first
+    // frame and is at least as fresh as this blob, and drawing an older one over
+    // it would be the flicker it exists to remove.
+    if (snapshot.api !== undefined && !this.apiSnapshotPainted) {
       this.hiddenCategories = snapshot.api.hiddenCategories;
       this.favorites = snapshot.api.favorites;
       this.sidebarIndent = this.withLocalIndent(snapshot.api.sidebarIndent);
@@ -1566,6 +1697,8 @@ export class ReaderState {
     this.hiddenCategories = unavailableState();
     this.hiddenError = null;
     this.hiddenBusy = false;
+    this.stateRouteMissing = false;
+    this.apiSnapshotPainted = false;
     this.favorites = unavailableFavorites();
     this.favoritesBusy = false;
     this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
@@ -1651,20 +1784,55 @@ export class ReaderState {
       this.favorites = state.favorites;
       this.sidebarIndent = this.withLocalIndent(state.sidebarIndent);
       this.hiddenError = null;
+      // The route answered, so the server has the adapter after all — a server
+      // that gained it while the app was open is picked up here.
+      this.stateRouteMissing = false;
       this.retryUnsentIndent(state.sidebarIndent.px);
+      // The next launch paints this instead of guessing, and a lock set a second
+      // before quitting is part of what it paints.
+      this.saveApiSnapshot();
       report?.land("extension");
     } catch (error) {
+      // A server without the route is the one failure that *is* news about the
+      // state: there is nothing on it to draw, so what was drawn goes too.
+      const gone = this.markStateRoute(error);
       // A failed read is not news about the state: when a write is still out,
       // what is drawn stays drawn, and only a read with nothing in flight may
       // report the extension gone.
       if (this.hiddenWritesSettled(generation)) {
-        this.hiddenCategories = unavailableState();
-        this.favorites = unavailableFavorites();
-        this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
+        // The curtain, though, stays down. Falling back to "no extension" here
+        // would put the hidden categories back on screen because the network
+        // blinked — the one thing a lock exists to prevent — so a lock that is
+        // already drawn stays drawn until a read proves otherwise.
+        if (gone || !this.hiddenCategories.locked) {
+          this.hiddenCategories = unavailableState();
+          this.favorites = unavailableFavorites();
+          this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
+        }
       }
       this.hiddenError = message(error);
       report?.fail("extension");
     }
+  }
+
+  /**
+   * Records what a failed state read says about the server itself.
+   *
+   * `route_not_found` — or a plain 404 — is the adapter answering that it has no
+   * such route, which is also what a server that is not FreshRSS answers before
+   * a request leaves at all. That is a server without the extension, and its
+   * cached snapshot is deleted: drawn from a cache, it would keep claiming an
+   * extension that is not there for as long as this device keeps the key.
+   *
+   * True when that is what the answer was, so the caller can stop drawing the
+   * state as well as stop expecting it.
+   */
+  private markStateRoute(error: unknown): boolean {
+    const missing = error instanceof ApiError && (error.code === "route_not_found" || error.status === 404);
+    if (!missing) return false;
+    this.stateRouteMissing = true;
+    this.clearStoredApiSnapshot();
+    return true;
   }
 
   /**
@@ -1688,8 +1856,15 @@ export class ReaderState {
       const state = await getHiddenState(transport, this.session);
       if (this.hiddenWritesSettled(generation)) this.hiddenCategories = state;
       this.hiddenError = null;
+      this.stateRouteMissing = false;
+      this.saveApiSnapshot();
     } catch (error) {
-      if (this.hiddenWritesSettled(generation)) this.hiddenCategories = unavailableState();
+      // Same rule as the fuller read: a lock that is drawn is not lifted by a
+      // read that failed, unless the failure is the route itself being gone.
+      const gone = this.markStateRoute(error);
+      if (this.hiddenWritesSettled(generation) && (gone || !this.hiddenCategories.locked)) {
+        this.hiddenCategories = unavailableState();
+      }
       this.hiddenError = message(error);
     }
   }
