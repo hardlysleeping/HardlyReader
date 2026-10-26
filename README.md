@@ -4,7 +4,7 @@ A reader for FreshRSS that behaves like a reading app rather than a web page: th
 
 It is also built for reading comics one after another: a Cards view where a page fills the pane at its own size, a wheel or a thumb that moves one post at a time, and an article pane that fits a page whole instead of cropping or blowing it up.
 
-Svelte 5, TypeScript, Tauri 2. Linux desktop today; the same code is the browser build.
+Svelte 5, TypeScript, Tauri 2. One codebase: a Linux desktop app, Android and iOS builds of the same UI, and a browser build.
 
 Its sidebar controls come from three small FreshRSS extensions, every one of them optional: **[Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories)** (hide, reveal, and lock a category), **[Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories)** (pin a category and order the pins), and the **[Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead)** that exposes their state over the API. Without them the app runs; the control that needs one says so instead of breaking.
 
@@ -79,7 +79,7 @@ Cards is the reading view for strips, and it is arranged around the things that 
 
 - FreshRSS with **API access enabled** (Settings → Authentication). The API password is what the app asks for, not the account password.
 - For the extension-backed features: **[Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories)** and/or **[Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories)**, plus the small **[Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead)** that exposes their state over the API.
-- To build: Node 20+, pnpm, Rust, and Tauri 2's Linux dependencies (WebKitGTK 4.1).
+- To build: Node 22+, pnpm, Rust, and Tauri 2's Linux dependencies (WebKitGTK 4.1).
 
 ## Running
 
@@ -124,7 +124,14 @@ The tests cover the parts that are easy to get quietly wrong: the GReader client
 
 ## Status
 
-0.2.0. The Linux desktop app is what is built and used; the same code runs as a browser build, and the phone layout is exercised but **not** tested on a device yet. There is no offline cache of article bodies or images — a server that is down is a server that is down. Releases are tagged source: no bundles are attached, because the 0.1.1 ones were built against a newer glibc than their targets and are not fit to ship.
+0.5.1, and three builds come out of this one tree:
+
+- **Linux desktop** — a single binary, no bundle. This is what is built and used daily.
+- **Android** — a universal APK, signed with the same key as previous releases, so it installs as an update. Tablet-sized windows get the full layout; a phone gets the one-pane view, or the sliding stack if you choose it.
+- **iOS** — an unsigned IPA. It is not on the App Store: the phone build is compiled on a Mac (or a cloud Mac), and signing happens on the device with a sideloading tool. A free Apple ID means a seven-day certificate and re-signing every week.
+- **Browser** — `pnpm build` produces the same UI as a static site, pointed at your own server.
+
+What is not proven yet: the upright sliding panes and the per-account state have unit coverage, but neither has been run on a physical phone. There is no offline cache of article bodies or images — a server that is down is a server that is down.
 
 Screenshots are of a demo build with invented feeds — no real subscriptions appear in this repository.
 
