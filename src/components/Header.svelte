@@ -4,13 +4,37 @@
   import { serverLabel } from "../lib/server-label";
   import { syncDescription, syncReadout } from "../lib/sync-progress";
   import { reader } from "../state/reader.svelte";
+  import AccountMenu from "./AccountMenu.svelte";
   import ReadingControls from "./ReadingControls.svelte";
+  import SettingsPanel from "./SettingsPanel.svelte";
   import ThemePanel from "./ThemePanel.svelte";
 
   // Typed by what the menu needs from them, so a component's instance type
   // never has to be named here.
   let readingControls = $state<{ openPanel: () => void; closePanel: () => void } | undefined>();
   let themePanel = $state<{ openSettings: () => void; closeSettings: () => void } | undefined>();
+
+  /**
+   * The whole settings panel, and whether it is up.
+   *
+   * It is the header's flag rather than the panel's own, because three things
+   * open and close it: the menu row, the door inside the gear's popover, and its
+   * own close button. One flag, one answer.
+   */
+  let settingsOpen = $state(false);
+
+  /**
+   * Settings, from either door.
+   *
+   * A panel in the bar is one at a time, so the two popovers stand down on the
+   * way in — the sheet is drawn over the app and would otherwise open behind an
+   * open popover, which reads as the press having done nothing.
+   */
+  function openSettings(): void {
+    readingControls?.closePanel();
+    themePanel?.closeSettings();
+    settingsOpen = true;
+  }
 
   /**
    * The compact menu.
@@ -198,7 +222,10 @@
       <div class="sheet" role="menu" aria-label="Menu">
         <button role="menuitem" onclick={() => pick(() => ontogglesidebar?.())}>Feeds</button>
         <button role="menuitem" onclick={() => pick(() => readingControls?.openPanel())}>Reading</button>
-        <button role="menuitem" onclick={() => pick(() => themePanel?.openSettings())}>Settings</button>
+        <!-- The menu is the phone's way in, and the sheet is the phone's shape:
+             a 268px popover anchored to a hidden glyph was a popover opened at
+             arm's length. -->
+        <button role="menuitem" onclick={() => pick(openSettings)}>Settings</button>
         <!-- Only when the name is not in the bar: the account is where signing
              out lives, and on a narrow bar the account is in here. -->
         <!-- Always rendered, hidden by the same media query that drops the
@@ -234,14 +261,15 @@
         <span class="server" title={server}>{address}</span>
       {/if}
       {#if accountOpen}
-        <div class="who-sheet" role="menu" aria-label="Account">
-          <p class="who-name" title={subtitle}>{subtitle}</p>
-          <!-- The address lives here too: the bar's copy is the first thing to
-               go when the window narrows, and this is where you go looking for
-               "which server is this". -->
-          <p class="who-server">{server}</p>
-          <button role="menuitem" onclick={() => pickAccount(() => onsignout?.())}>Sign out</button>
-        </div>
+        <!-- One account UI, mounted: the same component is the Accounts section
+             of the settings panel, so there is one sign-out rather than two that
+             can drift apart. -->
+        <AccountMenu
+          floating
+          name={subtitle}
+          {server}
+          onsignout={() => pickAccount(() => onsignout?.())}
+        />
       {/if}
     </div>
   {/if}
@@ -259,7 +287,11 @@
       target={textTarget}
       onopen={() => themePanel?.closeSettings()}
     />
-    <ThemePanel bind:this={themePanel} onopen={() => readingControls?.closePanel()} />
+    <ThemePanel
+      bind:this={themePanel}
+      onopen={() => readingControls?.closePanel()}
+      onallsettings={openSettings}
+    />
   </span>
 
   <!-- The count and the percentage for as long as the sync lasts. The bar for
@@ -315,6 +347,15 @@
   </button>
 
 </header>
+
+<!-- Outside the bar: the sheet is a fixed overlay over the whole app, and the
+     bar's own box is not where a dialog belongs. -->
+<SettingsPanel
+  bind:open={settingsOpen}
+  name={subtitle}
+  {server}
+  {onsignout}
+/>
 
 <style>
   /* A title bar, not a toolbar: enough height to hold a 34px control with air
@@ -388,50 +429,20 @@
     cursor: default;
   }
 
-  .who-sheet {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 70;
-    min-width: 148px;
-    max-width: 260px;
-    padding: 5px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: var(--surface);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-    animation: sheet-in 120ms ease-out;
-  }
-
-  .who-name {
-    margin: 0;
-    padding: 4px 7px 6px;
-    border-bottom: 1px solid var(--border-soft);
-    color: var(--muted);
-    font-size: 11px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* In the sheet there is room for the whole thing, and it wraps rather than
-     clipping: this is the copy you read when the bar's copy is gone. */
-  .who-server,
+  /* The account's own sheet is a component now (`AccountMenu`), because the
+     settings panel mounts the same one. What stays here is the copy the drawer
+     carries, and the address in it, which wraps rather than clipping: this is
+     the copy you read when the bar's copy is gone. */
   .sheet-server {
     margin: 0;
     padding: 4px 7px;
-    border-bottom: 1px solid var(--border-soft);
-    color: var(--text-dim);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    overflow-wrap: anywhere;
-  }
-
-  .sheet-server {
     border-bottom: 0;
     border-top: 1px solid var(--border-soft);
     margin-top: 4px;
     color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
   }
 
   /* Wide enough for the bar to hold the account itself: the menu stops
@@ -443,26 +454,6 @@
     .sheet .narrow-only {
       display: none;
     }
-  }
-
-  .who-sheet button {
-    display: block;
-    width: 100%;
-    margin-top: 4px;
-    padding: 5px 7px;
-    border: 0;
-    border-radius: 6px;
-    background: none;
-    color: var(--text-dim);
-    font: inherit;
-    font-size: 12.5px;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .who-sheet button:hover {
-    background: var(--hover);
-    color: var(--text);
   }
 
   .spacer {

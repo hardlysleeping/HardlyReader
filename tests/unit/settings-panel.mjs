@@ -1,0 +1,332 @@
+/**
+ * The settings panel, rendered without a browser.
+ *
+ *   node --experimental-strip-types --import ./tests/unit/register-ts.mjs \
+ *     tests/unit/settings-panel.mjs
+ *
+ * There is no DOM here and no GUI launch: the panel and everything it mounts is
+ * compiled for Svelte's server target and rendered to a string. That is enough
+ * to prove the two things this panel is *for*, which are both structural:
+ *
+ *   1. every section is a disclosure with real content inside it, so opening it
+ *      shows a control rather than an empty box;
+ *   2. no control appears twice. The panel mounts the components that already
+ *      own these settings — the theme's rows, the Aa's rows, the account's — so
+ *      a duplicate in the markup would mean a second copy was written here.
+ *
+ * What it cannot prove: that the sheet looks like a sheet, that the slide happens
+ * or that a thumb hits it at 390px. Those are visual checks in the running app.
+ *
+ * The state modules are runes, so each is type-stripped with the project's
+ * TypeScript and compiled with `compileModule` — the same treatment
+ * `mobile-nav.mjs` gives the layout. Nothing is stubbed: the rows read the real
+ * `layout`, `theme`, `reading` and `chrome` singletons, which is why the rendered
+ * values (the one-pane width, the chosen interval) are the app's own.
+ */
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { compile, compileModule, preprocess } from "svelte/compiler";
+import { render } from "svelte/server";
+import ts from "typescript";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const GEN = join(ROOT, "tests/unit/.gen-settings");
+
+let failures = 0;
+let checks = 0;
+function check(name, ok, detail = "") {
+  checks += 1;
+  if (ok) return;
+  failures += 1;
+  console.log(`FAIL ${name}${detail ? ` — ${detail}` : ""}`);
+}
+
+const read = (relative) => readFileSync(join(ROOT, relative), "utf8");
+const absolute = (relative) => pathToFileURL(join(ROOT, relative)).href;
+
+/** `svelte/compiler` does not strip TypeScript, so the build's first step is done here. */
+const typescript = {
+  script: ({ content, attributes }) => {
+    if (attributes.lang !== "ts") return undefined;
+    return {
+      code: ts.transpileModule(content, {
+        compilerOptions: {
+          module: ts.ModuleKind.ESNext,
+          target: ts.ScriptTarget.ES2022,
+          // A component's imports are used in its *markup*, which TypeScript
+          // cannot see: without this it elides them and the compiled component
+          // renders nothing it asked for.
+          verbatimModuleSyntax: true,
+        },
+        fileName: "component.ts",
+      }).outputText,
+    };
+  },
+};
+
+/** Every module built from source, keyed by the real file it came from. */
+const built = new Map();
+
+/** The file a specifier points at, or null when it is a bare package name. */
+function sourceOf(fromFile, specifier) {
+  if (!specifier.startsWith(".")) return null;
+  const base = resolve(dirname(fromFile), specifier);
+  for (const candidate of [base, `${base}.ts`, `${base}.js`, `${base}.svelte`]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Point a generated module's imports at what it actually needs.
+ *
+ * A generated file does not sit next to the module it came from, so `./theme`
+ * would resolve to nothing. Built modules get their generated URL; plain `.ts`
+ * libraries are imported in place, which Node's type stripping handles.
+ */
+function rewrite(code, fromFile) {
+  // Svelte's generated code quotes with single quotes; this file's own imports
+  // are not touched, only the strings a generated module imports from.
+  return code.replace(/(from\s*)(["'])([^"']+)\2/g, (whole, before, quote, specifier) => {
+    const source = sourceOf(fromFile, specifier);
+    if (source === null) return whole;
+    const target = built.get(source) ?? pathToFileURL(source).href;
+    return `${before}${quote}${target}${quote}`;
+  });
+}
+
+function buildRunes(relative) {
+  const file = join(ROOT, relative);
+  const { outputText } = ts.transpileModule(readFileSync(file, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    fileName: relative,
+  });
+  const compiled = compileModule(outputText, { generate: "client", filename: relative });
+  mkdirSync(GEN, { recursive: true });
+  const out = join(GEN, `${relative.split("/").pop().replace(/\.ts$/, "")}.mjs`);
+  writeFileSync(out, rewrite(compiled.js.code, file));
+  built.set(file, pathToFileURL(out).href);
+  return pathToFileURL(out).href;
+}
+
+function buildComponent(relative) {
+  const file = join(ROOT, relative);
+  return preprocess(readFileSync(file, "utf8"), typescript, { filename: relative }).then((pre) => {
+    const compiled = compile(pre.code, { generate: "server", filename: relative, dev: false });
+    const out = join(GEN, `${relative.split("/").pop().replace(/\.svelte$/, "")}.mjs`);
+    mkdirSync(GEN, { recursive: true });
+    writeFileSync(out, rewrite(compiled.js.code, file));
+    built.set(file, pathToFileURL(out).href);
+    return pathToFileURL(out).href;
+  });
+}
+
+let SettingsPanel;
+
+try {
+  // State first: the components import them by the names the compiler rewrites.
+  for (const state of [
+    "src/state/mobile-nav.svelte.ts",
+    "src/state/layout.svelte.ts",
+    "src/state/theme.svelte.ts",
+    "src/state/chrome.svelte.ts",
+    "src/state/reading.svelte.ts",
+    "src/state/lan.svelte.ts",
+  ]) {
+    buildRunes(state);
+  }
+
+  // Then the components, children before the panel that mounts them.
+  await buildComponent("src/components/AccountMenu.svelte");
+  await buildComponent("src/components/ReadingPanel.svelte");
+  await buildComponent("src/components/ThemePanel.svelte");
+  ({ default: SettingsPanel } = await import(await buildComponent("src/components/SettingsPanel.svelte")));
+
+  const { layout } = await import(built.get(join(ROOT, "src/state/layout.svelte.ts")));
+  const { APP_VERSION } = await import(absolute("src/lib/version.ts"));
+
+  const props = { open: true, name: "ada", server: "https://rss.example.test", onsignout: () => {} };
+  const draw = () => render(SettingsPanel, { props }).body;
+
+  const count = (haystack, needle) => haystack.split(needle).length - 1;
+
+  /**
+   * Where a class token is, in markup Svelte has stamped with its own scope hash
+   * (`class="label svelte-182y78p"`). An exact attribute match would fail on
+   * every element, so the tests below count the token, not the attribute.
+   */
+  const classAt = (body, token) => new RegExp(`class="${token}(?:[\\s"]|$)`, "g");
+  const hasClass = (body, token) => new RegExp(`class="${token}(?:[\\s"]|$)`).test(body);
+
+  /** The markup of one section, from its summary to the next section's. */
+  function section(body, label) {
+    const at = body.search(new RegExp(`<span class="label[^"]*">${label}</span>`));
+    if (at < 0) return "";
+    const next = body.indexOf("<details", at);
+    return body.slice(at, next < 0 ? body.length : next);
+  }
+
+  // -------------------------------------------------------------------------
+  // The frame: a dialog, with one way out and nothing behind it left reachable.
+  // -------------------------------------------------------------------------
+  {
+    const body = draw();
+    check("the panel is a dialog", count(body, 'role="dialog"') === 1);
+    check("it says it is modal", /role="dialog"[^>]*aria-modal="true"/.test(body));
+    check("and is named by its heading", /aria-labelledby="settings-title"/.test(body) && /<h2 id="settings-title"[^>]*>Settings<\/h2>/.test(body));
+    check("closing is one named control", count(body, 'aria-label="Close settings"') === 1);
+    check("the scrim is there to be pressed", (body.match(classAt(body, "scrim")) ?? []).length === 1);
+    check("the sheet can take focus itself", /class="sheet[^"]*"[^>]*tabindex="-1"/.test(body) || /tabindex="-1"[^>]*class="sheet/.test(body));
+  }
+
+  // -------------------------------------------------------------------------
+  // The sections: six disclosures, each with its own rows inside it.
+  // -------------------------------------------------------------------------
+  const SECTIONS = ["Accounts", "Appearance", "Reading", "Layout", "Sync", "About"];
+  {
+    const body = draw();
+    check("there are six sections", count(body, "<details") === 6, String(count(body, "<details")));
+    check("every one is a disclosure with a summary", count(body, "<summary") === 6, String(count(body, "<summary")));
+    check("every section is named", SECTIONS.every((label) => new RegExp(`<span class="label[^"]*">${label}</span>`).test(body)));
+    check("and says what is in it", SECTIONS.every((label) => hasClass(section(body, label), "note")));
+    // Native `<details>` is the mechanism: the content is inside the disclosure,
+    // so "open" is the browser's own answer and a keyboard can give it.
+    check(
+      "each section's rows are inside its own disclosure",
+      SECTIONS.every((label) => {
+        const part = section(body, label);
+        return hasClass(part, "content") && part.includes("</details>");
+      }),
+    );
+    check(
+      "the first one is open, the rest are shut",
+      (body.match(/<details[^>]*\sopen(?:=""|=''|\s|>)/g) ?? []).length === 1 &&
+        /<details[^>]*\sopen[^>]*>\s*<summary[^>]*>\s*<span class="label[^"]*">Accounts</.test(body),
+    );
+  }
+
+  // Every section shows the control it promises — read inside that section, so a
+  // row drawn in the wrong place cannot pass for one drawn in the right place.
+  {
+    const body = draw();
+    const prose = (haystack) => haystack.replace(/<[^>]*>/g, " ");
+
+    check("Accounts is the account: who, where, and the way out", (() => {
+      const part = prose(section(body, "Accounts"));
+      return /Signed in as\s+ada/.test(part) && part.includes("rss.example.test") && part.includes("Sign out");
+    })(), prose(section(body, "Accounts")).slice(0, 120));
+
+    check("Appearance is the theme's rows", (() => {
+      const part = section(body, "Appearance");
+      return part.includes('aria-label="Appearance"') && part.includes('aria-label="Page colour"') && part.includes('aria-label="Accent colour"');
+    })());
+
+    check("Reading is the Aa panel's rows", (() => {
+      const part = section(body, "Reading");
+      return part.includes('aria-label="Text size"') && part.includes('aria-label="Line spacing"') && part.includes('aria-label="Text alignment"');
+    })());
+
+    check("Layout is the pane widths, including the one-pane width", (() => {
+      const part = section(body, "Layout");
+      return part.includes('aria-label="Two-pane threshold in pixels"') && part.includes('aria-label="One-pane window width in pixels"') && part.includes('aria-label="Width the one-pane button collapses the window to"');
+    })());
+
+    check("Sync is the interval", (() => {
+      const part = section(body, "Sync");
+      return part.includes('aria-label="Sync automatically"') && part.includes('aria-label="How often to sync automatically"') && /\d+h</.test(part);
+    })());
+
+    check("About is the version, and it is the build's", (() => {
+      const manifest = JSON.parse(read("package.json"));
+      return new RegExp(`<span class="value[^"]*">${manifest.version}</span>`).test(section(body, "About")) && APP_VERSION === manifest.version;
+    })());
+  }
+
+  // -------------------------------------------------------------------------
+  // One control per setting: the panel borrows, it never writes its own.
+  // -------------------------------------------------------------------------
+  {
+    const body = draw();
+
+    const labels = [...body.matchAll(/aria-label="([^"]+)"/g)].map((match) => match[1]);
+    const seen = new Map();
+    for (const label of labels) seen.set(label, (seen.get(label) ?? 0) + 1);
+    const twice = [...seen.entries()].filter(([, times]) => times > 1).map(([label]) => label);
+    check("no labelled control is drawn twice", twice.length === 0, twice.join(", "));
+
+    // The explicit names as well as the generic sweep, because a swatch's label
+    // is a span rather than an aria-label and would slip past the check above.
+    const once = [
+      'aria-label="Accent colour"',
+      'aria-label="Page colour"',
+      'aria-label="Two-pane threshold in pixels"',
+      'aria-label="Three-pane threshold in pixels"',
+      'aria-label="One-pane window width in pixels"',
+      'aria-label="Width the one-pane button collapses the window to"',
+      'aria-label="Text size"',
+      'aria-label="Sync automatically"',
+      'aria-label="Close settings"',
+    ];
+    check("the named settings appear exactly once each", once.every((needle) => count(body, needle) === 1), once.filter((needle) => count(body, needle) !== 1).join(", "));
+
+    // A trigger is not a setting: the gear and the Aa stay in the bar, and the
+    // sheet is not a second place to press them.
+    check("no gear in the sheet", !body.includes('aria-label="Settings"'));
+    check("no Aa in the sheet", !body.includes('aria-label="Reading options"'));
+    check("no second Done", !hasClass(body, "done"));
+
+    // The whole point: the panel is a frame. Anything that writes a preference
+    // here would be a second control for a setting that already has one.
+    const source = read("src/components/SettingsPanel.svelte");
+    check(
+      "the panel defines no control of its own",
+      !/(?:theme|reading|chrome|layout)\.(?:set|toggle|step)[A-Za-z]*\(/.test(source) && !/type="range"|type="color"|type="number"/.test(source),
+    );
+    check("it mounts the components that own the rows", ["ThemePanel", "ReadingPanel", "AccountMenu"].every((name) => new RegExp(`from "\\./${name}\\.svelte"`).test(source)));
+    check("the layout rows are mounted whole, phone rows and all", /<ThemePanel part="layout" \/>/.test(source));
+  }
+
+  // -------------------------------------------------------------------------
+  // A phone's answer: the rows that only make sense on a phone are the same ones
+  // the popover draws, and they are still gated to a phone.
+  // -------------------------------------------------------------------------
+  {
+    const desktop = draw();
+    check("a desktop is not offered the phone's held-upright row", !desktop.includes('aria-label="How a phone held upright shows its panes"'));
+
+    layout.device = "phone";
+    const phone = draw();
+    check("a phone is, once", count(phone, 'aria-label="How a phone held upright shows its panes"') === 1);
+    check("and both answers are there to press", phone.includes(">One pane</button>") && phone.includes(">Sliding</button>"));
+    layout.device = "desktop";
+  }
+
+  // -------------------------------------------------------------------------
+  // The behaviour the markup cannot show: Escape, the breakpoint, less motion.
+  // -------------------------------------------------------------------------
+  {
+    const source = read("src/components/SettingsPanel.svelte");
+    check(
+      "Escape closes the sheet",
+      /function onkeydown\(event: KeyboardEvent\)/.test(source) &&
+        /if \(event\.key === "Escape"\) \{\s*event\.stopPropagation\(\);\s*close\(\);/.test(source),
+    );
+    // The sheet is drawn over the app, so the keyboard is kept inside it: the
+    // rows behind the scrim cannot be reached by pointer.
+    check("Tab stays inside it", /if \(event\.key !== "Tab" \|\| sheetEl === null\) return;/.test(source));
+    check("a section's own press writes its open state", /ontoggle=\{\(event\) => \(opened\[section\.id\] = event\.currentTarget\.open\)\}/.test(source));
+    check("the header owns the flag, so the bar and the sheet agree", /open = \$bindable\(false\)/.test(read("src/components/SettingsPanel.svelte")) && /bind:open=\{settingsOpen\}/.test(read("src/components/Header.svelte")));
+    check("a full-screen sheet under 700px", /@media \(max-width: 699px\)\s*\{\s*\.sheet \{\s*inset: 0;/.test(source));
+    check("and a wide panel above it", /width: min\(560px, calc\(100vw - 24px\)\)/.test(source));
+    check("a phone's sheet clears the status bar", /env\(safe-area-inset-top\)/.test(source));
+    check("less motion means the sheet arrives instead of sliding", /@media \(prefers-reduced-motion: reduce\)/.test(source) && /animation: none/.test(source));
+    check("the sheet scrolls, and its heading stays put", /\.head \{[\s\S]{0,400}?flex: 0 0 auto/.test(source) && /\.body \{[\s\S]{0,200}?overflow-y: auto/.test(source));
+  }
+} finally {
+  rmSync(GEN, { recursive: true, force: true });
+}
+
+console.log(`${checks - failures}/${checks} checks passed`);
+if (failures) process.exit(1);

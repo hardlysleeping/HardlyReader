@@ -30,16 +30,30 @@ const main = read("src/views/Main.svelte");
 const menu = header.slice(header.indexOf('class="sheet"'), header.indexOf("</div>\n  </div>"));
 check("the menu opens the feeds", /ontogglesidebar\?\.\(\)/.test(menu));
 check("the menu opens reading", /readingControls\?\.openPanel\(\)/.test(menu));
-check("the menu opens settings", /themePanel\?\.openSettings\(\)/.test(menu));
+// Settings from the menu is the settings panel now — the sheet a phone can use —
+// rather than the 268px popover the gear draws on a desktop.
+check(
+  "the menu opens the settings panel",
+  /pick\(openSettings\)/.test(menu) &&
+    /function openSettings\(\): void \{[\s\S]{0,160}?settingsOpen = true;/.test(header),
+);
+check("and settings can be opened from the popover's own door", /onallsettings=\{openSettings\}/.test(header));
 // The row is always in the markup and hidden by the media query when the bar has
 // the name to press; only the no-name case is gated in JS, because then the menu
 // is the only way out.
 check("the menu can sign out when the name is not there to press", /class:narrow-only=\{!!subtitle\}[\s\S]{0,120}onsignout\?\.\(\)/.test(menu));
 check("the menu's sign out is not gated twice", !/\{#if narrow/.test(menu));
 check("sync is not in the menu — it never leaves the bar", !/Sync now/.test(menu) && !/void refresh\(\)/.test(menu));
-// Five menu actions in the written markup: four in the drawer (Feeds, Reading,
-// Settings, Sign out) and the account sheet's own Sign out.
-check("five menu actions in total", (menu.match(/role="menuitem"/g) ?? []).length === 5, String((menu.match(/role="menuitem"/g) ?? []).length));
+// Five menu actions in total: four in the drawer (Feeds, Reading, Settings,
+// Sign out) and the account sheet's own Sign out — which is one component
+// (`AccountMenu`), mounted by this header and by the settings panel's Accounts
+// section, so there is one sign-out rather than one per surface.
+check("four menu actions in the drawer", (menu.match(/role="menuitem"/g) ?? []).length === 4, String((menu.match(/role="menuitem"/g) ?? []).length));
+check(
+  "and the account's own sign out is the fifth, in one component",
+  (read("src/components/AccountMenu.svelte").match(/role="menuitem"/g) ?? []).length === 1 &&
+    /<AccountMenu[\s\S]{0,200}?onsignout=/.test(header),
+);
 // Two ways to sign out is clutter; none is worse. One media query decides, so
 // there is no second copy of the breakpoint to drift away from it.
 check("the breakpoint exists once, in CSS", !/matchMedia\(/.test(header) && /@media \(max-width: 560px\)/.test(header));
