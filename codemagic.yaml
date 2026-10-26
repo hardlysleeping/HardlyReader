@@ -73,11 +73,13 @@ workflows:
           pnpm tauri ios build --help || true
           pnpm tauri ios build --ci --no-sign
           echo "--- build products:"
-          find src-tauri/gen/apple/build src-tauri/target -maxdepth 5 -name '*.app' 2>/dev/null | head
+          find src-tauri/gen/apple/build src-tauri/target -maxdepth 6 -name '*.app' 2>/dev/null || true
       - name: Package unsigned IPA
         script: |
           set -euo pipefail
-          APP=$(find src-tauri/gen/apple/build "$CM_BUILD_DIR/build" -maxdepth 6 -name '*.app' 2>/dev/null | head -1)
+          # -print -quit, not `| head -1`: under pipefail head closes the pipe and
+          # find dies of SIGPIPE, which reads as a failed step.
+          APP=$(find src-tauri/gen/apple/build "$CM_BUILD_DIR/build" -maxdepth 6 -name '*.app' -print -quit 2>/dev/null || true)
           [ -n "$APP" ] || { echo "no .app was produced"; exit 1; }
           echo "app=$APP"
           rm -rf "$CM_BUILD_DIR/build/ipa"; mkdir -p "$CM_BUILD_DIR/build/ipa/Payload"
