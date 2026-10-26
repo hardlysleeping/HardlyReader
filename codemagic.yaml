@@ -71,7 +71,7 @@ workflows:
           # which only works while `tauri ios build` is the thing driving it —
           # a bare xcodebuild fails. Let the CLI orchestrate Xcode.
           pnpm tauri ios build --help || true
-          pnpm tauri ios build --release --ci --no-sign
+          pnpm tauri ios build --ci --no-sign
           echo "--- build products:"
           find src-tauri/gen/apple/build src-tauri/target -maxdepth 5 -name '*.app' 2>/dev/null | head
       - name: Package unsigned IPA
