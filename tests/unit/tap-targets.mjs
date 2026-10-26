@@ -535,5 +535,58 @@ function noOverlaps(label, controls) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// The search field, which a phone types into
+// ---------------------------------------------------------------------------
+
+// A phone's field is 44 tall with three marks inside it. The marks are 36 wide
+// and sit 4 apart, so each box takes its own 36 plus that gap and stops — the
+// same rule as every other crowded pair here, and the reason a thumb aiming at
+// the paragraph mark cannot toggle people instead.
+{
+  const phoneFind = ruleBody(sidebar, ':global(html[data-device="phone"]) .find', "Sidebar phone");
+  const desktopFind = ruleBody(sidebar, ".find", "Sidebar");
+  const phoneMark = ruleBody(sidebar, ':global(html[data-device="phone"]) .find-deep', "Sidebar phone");
+  const box = ruleBody(app, 'html[data-device="phone"] .find :is(.find-clear, .find-deep)', "app.css");
+  const boxArea = ruleBody(app, 'html[data-device="phone"] .find :is(.find-clear, .find-deep)::after', "app.css");
+
+  const phoneHeight = px(phoneFind, "height", "phone field");
+  const desktopHeight = px(desktopFind, "height", "desktop field");
+  const markWidth = px(phoneMark, "width", "phone mark");
+  const gap = px(phoneFind, "gap", "phone field gap");
+
+  check("a phone's search field is 44 tall", phoneHeight === 44, `${phoneHeight}`);
+  check("and a desktop's is still 28", desktopHeight === 28, `${desktopHeight}`);
+  check("the marks in it grow to 36, not to the 18 a pointer gets", markWidth === 36, `${markWidth}`);
+  check(
+    "their boxes take the mark and the gap beside it, so two of them touch and stop",
+    px(box, "--tap44-w", "search box width") === markWidth + gap,
+    `${px(box, "--tap44-w", "search box width")} against ${markWidth} + ${gap}`,
+  );
+  check(
+    "and the box stops at the field's own edge",
+    px(box, "--tap44-h", "search box height") === phoneHeight,
+  );
+  check("the box is drawn, not just declared", /width: var\(--tap44-w/.test(boxArea) && /translate: -50% -50%/.test(boxArea));
+
+  const marks = [0, 1].map((index) =>
+    control(`mark ${index}`, {
+      x: 12 + index * (markWidth + gap),
+      y: 0,
+      w: markWidth,
+      h: markWidth,
+      tapW: markWidth + gap,
+      tapH: phoneHeight,
+    }),
+  );
+  probeAll("the search field", marks);
+  noOverlaps("the search field", marks);
+  check(
+    "the two marks keep every pixel of their own box",
+    Math.abs(marks[0].tap.right - marks[1].tap.left) < 0.001,
+    `${marks[0].tap.right} against ${marks[1].tap.left}`,
+  );
+}
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

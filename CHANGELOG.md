@@ -4,9 +4,41 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.2] — 2026-10-26
+
+The phone gets its own chrome, its own proportions, and a reveal that does not
+make you wait.
 
 ### Added
+
+- **A phone bar that knows where you are.** The desktop toolbar is not drawn on a
+  phone any more. In its place: the wordmark at the root, `‹ Feeds` above the
+  list, `‹ Posts` above the article, Sync at the trailing edge, and one `•••`
+  that opens the settings sheet the desktop opens from its menu. Back is the
+  same `nav.back()` the edge swipe and the hardware key already used.
+- **The status region belongs to the app.** The safe area used to be one
+  rectangle of padding around everything, which left the strip above the bar and
+  the strip below the list painted by the page rather than by the app. The shell
+  is edge to edge now (`100dvh`), the header paints through the status bar and
+  insets only its own controls, the list clears the home indicator, and in
+  landscape only the outermost columns step around the notch.
+- **A phone in landscape is laid out as a phone.** The panes were a fixed
+  168px + 240px, a desktop answer in a phone frame: a fifth of the width for
+  feeds, and an empty article column taking half of what was left. They are now
+  proportional — 28% feeds, 33% posts, the remainder for the article — and with
+  nothing selected the article's share goes to the posts pane. Stored widths
+  still win; a saved profile of some *other* phone frame is re-asked in the
+  current one, so a phone put down in portrait cannot open in landscape with a
+  150px drawer.
+- **A search field a phone can type into.** On a phone the field is 44px tall
+  instead of 28, its type is 15px instead of 12.5, and the three marks inside it
+  — clear, people, paragraph — are 36px with 44px hit boxes instead of 18px
+  targets under a thumb. The two mode marks sit 4px apart, so their boxes take
+  that gap and stop rather than covering each other. Desktop keeps 28 and 18.
+- **A thumb's targets.** The controls a phone is pressed on — Sync, `•••`, back,
+  a post's star, read mark and open, the category carets — keep their glyphs and
+  grow their hit boxes to 44×44, capped to the space each one actually has so a
+  box can never take its neighbour's tap.
 
 - **A phone's navigation is a layer, not a wall.** The bar, its `•••` control and
   the settings sheet are drawn as translucent material — a 20px blur at 180%
@@ -24,6 +56,20 @@ All notable changes to HardlyReader are recorded here. The format follows
   with the list showing through it.
 
 ### Changed
+
+- **Revealing a hidden category no longer waits for the network.** Hiding was
+  instant — the app draws the flag itself — but revealing was not: in Strict mode
+  the server leaves a hidden category's feeds out of the subscription list, so
+  the app held the flag and no rows and waited out a debounce plus four requests.
+  The last sidebar the server actually sent is now kept in memory for the
+  account, and a reveal adds the rows it is missing for the categories the new
+  state draws — immediately, before anything is awaited. Existing rows win,
+  nothing is ever removed, and the server's answer still replaces the list a
+  moment later, so a feed deleted elsewhere still disappears. A locked state
+  draws nothing from it, and neither does a copy older than a week.
+- **The bottom of Feeds on a phone is the list, not a form.** Import and Export
+  moved into `Settings → Feeds`, and the empty "No file chosen" line no longer
+  draws at all. The Feeds pane's fixed chrome loses about 44px at 390×844.
 
 - **Every way back is the same step.** The edge swipe's back direction and Escape
   now take the `mobileNav.back()` the bar's `‹`, the Android back key and the
