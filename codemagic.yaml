@@ -33,7 +33,7 @@ workflows:
           # packageManager field there, so it refuses to run pnpm. Install pnpm
           # ourselves and keep corepack out of it.
           export COREPACK_ENABLE_PROJECT_SPEC=0 COREPACK_ENABLE_STRICT=0
-          npm i -g pnpm@12 >/dev/null
+          npm i -g pnpm@12 --force >/dev/null
           pnpm -v
           pnpm install --frozen-lockfile
       - name: Generate the Xcode project
