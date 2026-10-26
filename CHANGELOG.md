@@ -4,6 +4,18 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A Content-Security-Policy.** The webview shipped without one, so DOMPurify was
+  the only thing between a bad feed article and the app's own window. Scripts are
+  now `'self'` with no `eval`; objects, frames, workers, `<base>` and form posts
+  are blocked outright. The sources that must stay open are named rather than
+  wildcarded: images and media from any feed host, your FreshRSS server over http
+  or https (a LAN address included), and Tauri's own IPC channel. The `opener`
+  permission is narrowed to http and https URLs, which is all the app opens.
+
 ## [0.6.0] — 2026-10-25
 
 The device holds more than one account, the phone gets one settings sheet, and
