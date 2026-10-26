@@ -4,8 +4,31 @@
   import type { Session } from "./api/freshrss";
   import { transport } from "./api/transport";
   import { accounts } from "./state/accounts.svelte";
+  import { layout } from "./state/layout.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
+
+  /**
+   * The device shape, published where CSS can see it.
+   *
+   * `layout.device` is the app's one platform switch — a coarse pointer and a
+   * shortest side of 500px or less, from `detectShape()` — and everything that
+   * is phone-only hangs off it. Until now it was only readable from TypeScript,
+   * so a stylesheet had to guess with a width breakpoint, and a narrow desktop
+   * window and a phone looked the same to CSS. This copies the answer onto
+   * `<html>` as `data-device`, once, for the whole document.
+   *
+   * Read inside the effect, so a store that recomputes (a rotation, a resize, a
+   * window dragged onto another monitor) re-publishes it. The attribute is set
+   * here rather than in a template because it belongs to the document, not to
+   * this component's markup: `app.css` keys its phone rules on it, and they have
+   * to apply to the login screen too.
+   */
+  $effect(() => {
+    const device = layout.device;
+    if (typeof document === "undefined") return;
+    document.documentElement.dataset.device = device;
+  });
 
   let checking = $state(true);
   /**

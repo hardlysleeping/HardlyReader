@@ -441,8 +441,9 @@
     .head {
       padding: 12px 12px 10px 16px;
       /* Clear of a phone's status bar and its notch, where the platform reserves
-         the top of the screen for itself. */
-      padding-top: max(12px, env(safe-area-inset-top));
+         the top of the screen for itself. The inset itself is declared once, in
+         `app.css`, so this sheet and the phone's header agree about it. */
+      padding-top: max(12px, var(--safe-top));
     }
 
     .close {
