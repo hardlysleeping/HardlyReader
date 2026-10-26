@@ -360,6 +360,16 @@
           reader.closeCategoryMenu();
           return;
         }
+        // Then the stack's layers, in the same order the Left key takes them.
+        // Escape is a back press everywhere else in the app, and a phone's
+        // stack is where back has more than one layer to unwind — without this
+        // a slid-in pane could only be dismissed by a gesture or the bar, and
+        // the key that means "out of this" did nothing but close the article
+        // underneath it.
+        if (stackBack()) {
+          event.preventDefault();
+          return;
+        }
         if (reader.back()) event.preventDefault();
         return;
       case "page":
@@ -398,6 +408,20 @@
    * rather than removed.
    */
   const stackDrawn = $derived(layout.stacked && mode === 3);
+
+  /**
+   * A phone with nothing open in the article column.
+   *
+   * Three panes on a landscape phone is 844px of frame, and a third of it
+   * showing "Select an article" is the largest thing on the screen being the
+   * emptiest. So on a phone — and only there — the empty column's share goes to
+   * the posts until a post is opened, when the column comes back at its own
+   * width (see `tracks`). Presentation only: this is a width, not a mode, and
+   * nothing is written to `layout`.
+   */
+  const articleSpare = $derived(
+    layout.device === "phone" && mode === 3 && !stackDrawn && reader.selectedId === null,
+  );
 
   /**
    * Whether the feeds pane is folded away in the mode being drawn.
@@ -578,6 +602,7 @@
       collapsed: folded,
       stacked: stackDrawn,
       keepWidths: layout.keepWidths,
+      articleless: articleSpare,
     }),
   );
 
@@ -597,6 +622,7 @@
       collapsed: folded,
       stacked: stackDrawn,
       keepWidths: layout.keepWidths,
+      articleless: articleSpare,
     }),
   );
 
@@ -639,6 +665,40 @@
    * stacked.
    */
   let slideTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * The phone's article column opening or closing is the same slide.
+   *
+   * A press arms that transition (`sliding` above), and opening a post is not a
+   * press — it is a change of content. On a phone it is also a change of *width*:
+   * the empty column's share belongs to the posts, so choosing a post moves a
+   * third of the frame from one pane to another. That is exactly the change a
+   * press is drawn over, so it gets the same class for the same duration, from
+   * the same motion setting, and reduced motion cuts it like everything else.
+   */
+  let articleSlide = $state(false);
+  let articleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The article's column as last drawn: `null` until the first pass. */
+  let articleWasOpen: boolean | null = null;
+
+  $effect(() => {
+    // Read so the effect re-runs when a post is opened, closed or the layout
+    // changes — and not otherwise.
+    const open = !articleSpare;
+    const was = articleWasOpen;
+    articleWasOpen = open;
+    // The first pass is the frame the view opened in, not a change: one column
+    // opening a post already at launch is not a slide.
+    if (was === null || was === open) return;
+    const ms = motionMs(layout.motion);
+    if (ms === 0) return;
+    articleSlide = true;
+    if (articleTimer !== null) clearTimeout(articleTimer);
+    articleTimer = setTimeout(() => {
+      articleSlide = false;
+      articleTimer = null;
+    }, ms + 70);
+  });
 
   /**
    * The panes themselves, so an arriving one can be given its own small bounce.
@@ -711,6 +771,8 @@
   onDestroy(() => {
     if (slideTimer !== null) clearTimeout(slideTimer);
     slideTimer = null;
+    if (articleTimer !== null) clearTimeout(articleTimer);
+    articleTimer = null;
   });
 
   /**
@@ -963,7 +1025,8 @@
     class:swapped={layout.stackSwapped}
     class:tucked={stackDrawn && layout.stackTuck !== null}
     class:folded={mode === 2 && folded}
-    class:sliding
+    class:articleless={articleSpare}
+    class:sliding={sliding || articleSlide}
     class:resizing
     bind:this={panes}
     style:grid-template-columns={columns}

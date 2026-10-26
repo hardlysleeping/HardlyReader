@@ -29,6 +29,11 @@
    * `refresh()`, the same settings sheet, the same `back()`. It draws 42px of
    * visible height plus whatever the status bar needs, which `app.css` pays for
    * with `--safe-top` — see the phone block there.
+   *
+   * It is also the phone's *only* bar. The sliding stack used to draw a second,
+   * 42px strip of its own while a pane was slid over another; that state is a
+   * depth this bar can already name (`atRoot`), so the strip is gone and the
+   * one step out lives here — one strip, one step, one place to look.
    */
   import { syncDescription, syncReadout } from "../lib/sync-progress";
   import { layout } from "../state/layout.svelte";
@@ -85,24 +90,51 @@
   });
 
   /**
+   * Whether there is anything behind the pane in front.
+   *
+   * The stack's own `depth` counts the layers it has an answer for, so a stack
+   * resting on the posts with the feeds slid over them is depth 1 — there is
+   * somewhere to go back to, even though the feeds are the shallower pane. This
+   * is the question the *bar* asks: draw the wordmark only when there is nothing
+   * behind, draw the step out when there is. Asking `depth === 1` instead made
+   * the feeds-over-posts state draw the wordmark and no way out, which is why
+   * the stack used to carry a second, 42px strip of its own for exactly that
+   * state; folding that strip into this bar is what this derived is for.
+   *
+   * The walk has two levels and no stack, so its root is unchanged: no article
+   * open is the feeds.
+   */
+  const atRoot = $derived(slideStack ? mobileNav.depth === 0 : depth === 1);
+
+  /**
    * What the left control goes back to, named as the destination.
    *
-   * Read from the nav rather than assumed from the depth number: the posts pane
-   * can also be slid *over* an article, and there `back` lands on the article
-   * rather than on the feeds. A control that says "Feeds" and goes to the
-   * article is worse than no control at all.
+   * Read from the nav rather than assumed from the depth number: a shallower
+   * pane can be slid *over* a deeper one — the feeds over the posts, the posts
+   * over an article — and there `back` lands on the pane underneath rather than
+   * one step further out. A control that says "Feeds" and goes to the article
+   * is worse than no control at all.
    */
   const backTo = $derived.by((): "Feeds" | "Posts" | "Article" => {
     // The walk's one step out of an article is the feeds it came from.
     if (!slideStack) return "Feeds";
-    if (depth === 3) return "Posts";
-    return mobileNav.overlayPane === 2 ? "Article" : "Feeds";
+    // An overlay dismisses to the pane it was slid over, which is the base.
+    if (mobileNav.overlayPane !== null) return mobileNav.basePane === 3 ? "Article" : "Posts";
+    // Nothing over the base: the article's step out is the posts.
+    return "Posts";
   });
 
-  /** The pane you are in, named — not the one you came from. */
-  const title = $derived(
-    depth === 3 ? (reader.selected?.title ?? reader.activeTitle) : reader.activeTitle,
-  );
+  /**
+   * The pane you are in, named — not the one you came from.
+   *
+   * The feeds slid over the posts are the feeds, whatever stream the list
+   * underneath is showing; an article is its own title; the posts are the
+   * stream's name (the category, the filter).
+   */
+  const title = $derived.by(() => {
+    if (slideStack && mobileNav.overlayPane === 1) return "Feeds";
+    return depth === 3 ? (reader.selected?.title ?? reader.activeTitle) : reader.activeTitle;
+  });
 
   /**
    * One step outward.
@@ -141,7 +173,7 @@
 </script>
 
 <header class="phone-header">
-  {#if depth === 1}
+  {#if atRoot}
     <!-- The root: the app's own name, and no control to the left of it. -->
     <span class="wordmark">HardlyReader</span>
   {:else}
@@ -223,7 +255,14 @@
 <style>
   /* 42px of visible bar. The status bar's own height is padding, paid by
      `app.css` from `--safe-top`, so the bar keeps the height it has on the
-     desktop and the surface behind the clock is still the header's. */
+     desktop and the surface behind the clock is still the header's.
+
+     The fill and the hairline are not set here. On a phone this bar is a piece
+     of the navigation material — translucent, blurred, one hairline — and that
+     material, with both of its fallbacks, is declared once under the root phone
+     switch in `app.css` (see "The material: navigation only"). What is left in
+     this rule is a solid paint for the one frame before `data-device` is
+     published; the phone rule overrides it at a higher specificity. */
   .phone-header {
     position: relative;
     display: flex;
@@ -231,7 +270,6 @@
     gap: 6px;
     flex: 0 0 auto;
     height: calc(var(--safe-top) + 42px);
-    border-bottom: 1px solid var(--edge);
     background: var(--surface);
     overflow: hidden;
   }
