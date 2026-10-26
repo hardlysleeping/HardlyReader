@@ -4,7 +4,7 @@ A small API bridge between [HardlyReader](https://github.com/hardlysleeping/Hard
 
 HardlyReader's sidebar controls — hide a category, pin a category, lock the hidden ones, drag an order — are not part of the GReader API. This extension exposes them over a JSON API that sits alongside it, so a desktop or phone client can use the same state the website writes, without a second copy of it anywhere.
 
-It owns no state of its own, with one exception (the dragged order, see below). It authenticates the caller with the same credential the GReader API accepts, then forwards intent to the extension that owns that state:
+It owns no state of its own, with two exceptions (the dragged order and the remembered settings — see below). It authenticates the caller with the same credential the GReader API accepts, then forwards intent to the extension that owns that state:
 
 | Owning extension | What is forwarded |
 |---|---|
@@ -44,6 +44,8 @@ Every request needs the same `Authorization: GoogleLogin auth=...` credential th
 | GET | `/v1/state` | hidden categories, favourites, pins and their order, sidebar indent |
 | GET | `/v1/positions` | the arrangement the user dragged, as stored for this user |
 | PUT | `/v1/positions` | store that arrangement; last write wins by the client's `updatedAt`, a stale write is `409` |
+| GET | `/v1/preferences` | the reader's remembered settings, one stamped document per account |
+| PUT | `/v1/preferences` | store that document; last write wins by stamp, a stale write is `409` with the winning document |
 | PUT | `/v1/hidden-categories/{id}` | hide or reveal one category |
 | PUT | `/v1/hidden-categories/view` | the sidebar view (`/v1/view` is an accepted alias) |
 | PUT | `/v1/favorites/{id}` | pin or unpin a category |
@@ -55,7 +57,9 @@ Every request needs the same `Authorization: GoogleLogin auth=...` credential th
 
 Errors carry a status and a stable code, and the codes are mapped from what the owning extension actually reported rather than invented here, so `store_unusable`, `save_failed` and `convergence_failed` mean what they say.
 
-`/v1/positions` is the one route where this extension keeps state instead of forwarding: FreshRSS stores no folder position, so there is nothing to hand it to. It is a per-user `positions.json` under `data/users/<login>/extensions/HardlyRead/`, a file rather than the user config because a finishing refresh rewrites that config from its in-memory copy and would silently drop a write made by another request.
+`/v1/positions` is one of two routes where this extension keeps state instead of forwarding: FreshRSS stores no folder position, so there is nothing to hand it to. It is a per-user `positions.json` under `data/users/<login>/extensions/HardlyRead/`, a file rather than the user config because a finishing refresh rewrites that config from its in-memory copy and would silently drop a write made by another request.
+
+`/v1/preferences` is the second: a `preferences.json` beside it, holding the client's namespaces (`reading`, `cards`, `theme`, `search`) as `{ updatedAt, value }` entries. The extension does not interpret a namespace's fields — a newer client may add one, and this server keeps it intact — and it never stores anything from the session. A read-only or older install answers `404`/`503`, which a client reads as "keep it on this device".
 
 The optional `/v1/people` routes exist only on an install that also carries the people provider; everywhere else they are plain unknown routes, because an empty list would read as "no such person" — a different truth from "this install cannot do that".
 
@@ -67,6 +71,7 @@ The optional `/v1/people` routes exist only on an install that also carries the 
 | `lib/HardlyReadApi.php` | routing, validation, status mapping — no FreshRSS dependency, so it is testable on its own |
 | `lib/HardlyReadPins.php` | pin order, read from the categories' own `position` |
 | `lib/HardlyReadPositionStore.php` | the per-user `positions.json` |
+| `lib/HardlyReadPreferenceStore.php` | the per-user `preferences.json` |
 | `lib/HardlyReadPeople.php` | the optional people provider |
 
 ## Tests

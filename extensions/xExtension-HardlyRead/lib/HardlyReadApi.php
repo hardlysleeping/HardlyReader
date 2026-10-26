@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/HardlyReadApiResponse.php';
 require_once __DIR__ . '/HardlyReadPositionStore.php';
+require_once __DIR__ . '/HardlyReadPreferenceStore.php';
 require_once __DIR__ . '/HardlyReadPins.php';
 
 /**
@@ -55,6 +56,9 @@ final class HardlyReadApi
 		'invalid_positions' => 'Positions must be lists of ids.',
 		'positions_unavailable' => 'Position storage is not available on this server.',
 		'stale_positions' => 'A newer arrangement is already stored: read it and try again.',
+		'invalid_preferences' => 'Preferences must be a map of namespaces to stamped values.',
+		'preferences_unavailable' => 'Preference storage is not available on this server.',
+		'stale_preferences' => 'Newer preferences are already stored: read them and try again.',
 		'invalid_pinned_value' => 'The "pinned" field must be a boolean.',
 		'pins_unavailable' => 'Category order is not available on this server.',
 	];
@@ -72,6 +76,12 @@ final class HardlyReadApi
 
 	/** @var ?Closure(string, array{updatedAt: int, categories: string[], feeds: string[]}): bool */
 	private ?Closure $savePositions = null;
+
+	/** @var ?Closure(string): array{apiVersion: int, updatedAt: int, entries: array} */
+	private ?Closure $loadPreferences = null;
+
+	/** @var ?Closure(string, array{apiVersion: int, updatedAt: int, entries: array}): bool */
+	private ?Closure $savePreferences = null;
 
 	/**
 	 * The pin order's reader and writer, or null when nothing was wired.
@@ -94,6 +104,8 @@ final class HardlyReadApi
 	 * @param callable(string): ?object $loadSidebarIndent
 	 * @param (callable(): ?object)|null $loadPeople
 	 * @param (callable(string): ?object)|null $loadPins
+	 * @param (callable(string): array)|null $loadPreferences
+	 * @param (callable(string, array): bool)|null $savePreferences
 	 */
 	public function __construct(
 		callable $authenticate,
@@ -104,6 +116,8 @@ final class HardlyReadApi
 		?callable $savePositions = null,
 		?callable $loadPeople = null,
 		?callable $loadPins = null,
+		?callable $loadPreferences = null,
+		?callable $savePreferences = null,
 	) {
 		$this->authenticate = Closure::fromCallable($authenticate);
 		$this->loadHiddenCategories = Closure::fromCallable($loadHiddenCategories);
@@ -113,6 +127,8 @@ final class HardlyReadApi
 		$this->savePositions = $savePositions === null ? null : Closure::fromCallable($savePositions);
 		$this->loadPeople = $loadPeople === null ? null : Closure::fromCallable($loadPeople);
 		$this->loadPins = $loadPins === null ? null : Closure::fromCallable($loadPins);
+		$this->loadPreferences = $loadPreferences === null ? null : Closure::fromCallable($loadPreferences);
+		$this->savePreferences = $savePreferences === null ? null : Closure::fromCallable($savePreferences);
 	}
 
 	/**
@@ -229,6 +245,30 @@ final class HardlyReadApi
 					? $result['message']
 					: 'The request was not accepted.',
 			]);
+		}
+
+		// GET, PUT /v1/preferences — the settings the reader wants to carry.
+		//
+		// One document, one account: a map of client namespaces to a stamped
+		// value. This extension does not interpret the namespaces — a newer
+		// client may add one, and an older server must keep it rather than
+		// prune what it does not know. Last write wins by the stamp the client
+		// sends, and a stale write is refused with the document that won, so a
+		// device coming back from offline can merge instead of guessing.
+		if ($segments[0] === 'preferences') {
+			if (count($segments) !== 1) {
+				return self::error(404, 'route_not_found', 'Unknown route.');
+			}
+			if ($this->loadPreferences === null || $this->savePreferences === null) {
+				return self::error(503, 'preferences_unavailable', self::CONTRACT_MESSAGES['preferences_unavailable']);
+			}
+			if ($method === 'GET') {
+				return new HardlyReadApiResponse(200, $this->preferenceDocument($username));
+			}
+			if ($method === 'PUT') {
+				return $this->putPreferences($username, $body);
+			}
+			return self::methodNotAllowed('GET, PUT');
 		}
 
 		// GET, PUT /v1/positions — the sidebar arrangement the user dragged.
@@ -356,6 +396,102 @@ final class HardlyReadApi
 		}
 
 		return self::error(404, 'route_not_found', 'Unknown route.');
+	}
+
+	/**
+	 * The stored settings document, in the wire shape.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function preferenceDocument(string $username): array
+	{
+		$stored = $this->loadPreferences === null ? null : ($this->loadPreferences)($username);
+		$stored = is_array($stored) ? HardlyReadPreferenceStore::sanitise($stored) : HardlyReadPreferenceStore::empty();
+
+		return $this->preferencesResponse($stored);
+	}
+
+	/**
+	 * A settings document as the client reads it.
+	 *
+	 * @param array<string, mixed> $document
+	 * @return array<string, mixed>
+	 */
+	private function preferencesResponse(array $document): array
+	{
+		return [
+			'apiVersion' => self::API_VERSION,
+			'updatedAt' => $document['updatedAt'],
+			// Always an object on the wire, even when empty: the client reads
+			// this as a map of namespaces, and `[]` would be a list there.
+			'entries' => $document['entries'] === [] ? new stdClass() : $document['entries'],
+		];
+	}
+
+	/**
+	 * Stores the settings document, namespace by namespace.
+	 *
+	 * Last write wins, decided by the client's stamps: the whole request is
+	 * refused when its newest entry is older than what is stored, so a device
+	 * coming back from a week offline cannot roll the account back. When it is
+	 * accepted, merge rather than replace — a client that knows fewer
+	 * namespaces than the account holds would otherwise prune the ones it did
+	 * not send, which is how an older build erases a newer one's settings.
+	 *
+	 * A stale write is answered with the winning document in the body, so the
+	 * client can merge the namespaces it actually holds newer instead of
+	 * retrying blindly or re-reading.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function putPreferences(string $username, array $body): HardlyReadApiResponse
+	{
+		if ($this->loadPreferences === null || $this->savePreferences === null) {
+			return self::error(503, 'preferences_unavailable', self::CONTRACT_MESSAGES['preferences_unavailable']);
+		}
+
+		// Required, not defaulted: a body without it would be a client bug, and
+		// reading it as "no namespaces" would wipe a good document.
+		if (!array_key_exists('entries', $body) || !is_array($body['entries'])) {
+			return self::error(400, 'invalid_preferences', self::CONTRACT_MESSAGES['invalid_preferences']);
+		}
+
+		$stored = ($this->loadPreferences)($username);
+		$stored = is_array($stored) ? HardlyReadPreferenceStore::sanitise($stored) : HardlyReadPreferenceStore::empty();
+
+		$incoming = HardlyReadPreferenceStore::sanitise($body);
+		if ($incoming['updatedAt'] === 0) {
+			// Nothing carryable in the request. Answer with what is stored
+			// rather than inventing a stamp the client never sent, which would
+			// refuse every honest write that follows.
+			return new HardlyReadApiResponse(200, $this->preferencesResponse($stored));
+		}
+
+		if ($stored['updatedAt'] > $incoming['updatedAt']) {
+			return self::error(
+				409,
+				'stale_preferences',
+				self::CONTRACT_MESSAGES['stale_preferences'],
+				['preferences' => $this->preferencesResponse($stored)],
+			);
+		}
+
+		$merged = $stored;
+		foreach ($incoming['entries'] as $name => $entry) {
+			$current = $merged['entries'][$name] ?? null;
+			// The same stamp replaces: a retry has to be idempotent, and the
+			// arriving value is the one the reader is looking at.
+			if (!is_array($current) || $entry['updatedAt'] >= $current['updatedAt']) {
+				$merged['entries'][$name] = $entry;
+			}
+		}
+		$merged = HardlyReadPreferenceStore::sanitise($merged);
+
+		if (!($this->savePreferences)($username, $merged)) {
+			return self::error(500, 'save_failed', 'Could not save the preferences.');
+		}
+
+		return new HardlyReadApiResponse(200, $this->preferencesResponse($merged));
 	}
 
 	/**

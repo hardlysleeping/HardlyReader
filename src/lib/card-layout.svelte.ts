@@ -33,6 +33,26 @@ class CardLayoutState {
     this.columns = saved.columns;
   }
 
+  /** The two fields that travel, as one value. */
+  snapshot(): Record<string, unknown> {
+    return { mode: this.mode, columns: this.columns };
+  }
+
+  /**
+   * Takes the account's card layout.
+   *
+   * Each field is validated on its own, so a value that lost one of them still
+   * brings the other instead of resetting both.
+   */
+  adopt(value: Record<string, unknown>): void {
+    const mode = isCardLayout(value.mode) ? value.mode : this.mode;
+    const columns = isMasonryColumns(value.columns) ? value.columns : this.columns;
+    if (mode === this.mode && columns === this.columns) return;
+    this.mode = mode;
+    this.columns = columns;
+    writeCardPrefs(browserStorage(), { mode, columns });
+  }
+
   get masonry(): boolean {
     return this.mode === "masonry";
   }
