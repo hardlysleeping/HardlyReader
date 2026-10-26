@@ -4,7 +4,7 @@ import {
   clampThresholds, widthFor, intentWidths, MODE_HYSTERESIS, fitTarget, thresholdLimits,
   DEFAULT_LAYOUT, layoutWidths, neededWidth, thresholdsFor, scaleLayout, settleRequirement,
   intentLayout, layoutFromWidths, extendToThree,
-  STACK_GUTTER, STACK_SHARE, STACK_MIN_PANE, stackWidth, stackNeeded, clampShare,
+  STACK_GUTTER, STACK_SHARE, STACK_MIN_PANE, stackWidth, stackNeeded, clampShare, shareFromDrag,
   RAIL,
   paneSlots,
 } from "../../src/lib/panes.ts";
@@ -622,7 +622,37 @@ check(
 // either pane a sliver.
 {
   check("half is the shipped split", STACK_SHARE.fallback === 0.5);
-  check("a tall column allows the full range", clampShare(0.1, 900) === STACK_SHARE.min && clampShare(0.9, 900) === STACK_SHARE.max);
+  
+// The drag that places the seam. `stackTemplate` draws the top pane at
+// `share × column`, so the pointer's travel over the column is the share's
+// travel over 1: a drag of 1px moves the seam 1px, and 400px in an 800px column
+// is half of it. Every denominator but the column makes the handle leave the
+// finger — the bug where it jumped to an end of the range instead of following.
+{
+  const H = 800;
+  const start = 0.4;
+  check("a pixel of travel is a pixel of seam", Math.abs(shareFromDrag(start, 1, H) - (start + 1 / H)) < 1e-12);
+  const after = shareFromDrag(start, 120, H);
+  check(
+    "and 120px of travel moves the seam exactly 120px",
+    Math.abs(after * H - (start * H + 120)) < 1e-9,
+    `${after * H} against ${start * H + 120}`,
+  );
+  check(
+    "a move of a few pixels does not change the split by a quarter",
+    Math.abs(shareFromDrag(start, 5, H) - start) < 0.01,
+    String(shareFromDrag(start, 5, H) - start),
+  );
+  check(
+    "an unmeasured column leaves the split where it was instead of jumping",
+    shareFromDrag(start, 40, 0) === start && shareFromDrag(start, 40, Number.NaN) === start,
+  );
+  check(
+    "the same travel in a taller column moves the seam the same pixels",
+    Math.abs(shareFromDrag(0.5, 100, 600) * 600 - 400) < 1e-9,
+  );
+}
+check("a tall column allows the full range", clampShare(0.1, 900) === STACK_SHARE.min && clampShare(0.9, 900) === STACK_SHARE.max);
   check("a middle drag is left alone", clampShare(0.62, 900) === 0.62);
   const room = 400 - STACK_GUTTER;
   const tight = clampShare(0.1, 400);

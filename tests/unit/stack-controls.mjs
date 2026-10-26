@@ -468,9 +468,14 @@ check(
     /\.ctl-bar button \{[\s\S]{0,400}pointer-events: auto;/.test(gutter),
 );
 check(
-  "the drag still measures the whole column through the seam's wrapper",
-  /closest<HTMLElement>\("\.seam"\)\?\.parentElement/.test(gutter) &&
-    /getBoundingClientRect\(\)\.height/.test(gutter),
+  "the drag still measures the whole column — the slot's parent, not the seam's",
+  // The seam is drawn inside `.slot.seam-y`, the 6px track it occupies, so the
+  // seam's own parent measured those 6px and a 1px drag became a whole share.
+  // The column the rows are a percentage of is the grid the slot sits in.
+  /closest<HTMLElement>\("\.slot"\)/.test(gutter) &&
+    /slot\.parentElement/.test(gutter) &&
+    /getBoundingClientRect\(\)\.height/.test(gutter) &&
+    !/closest<HTMLElement>\("\.seam"\)/.test(gutter),
 );
 check(
   "with a pane tucked the seam is drawn over the one that stayed, at the split",

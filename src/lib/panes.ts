@@ -74,6 +74,24 @@ export function stackNeeded(widths: PaneWidths, articleMin: number = MIN.article
  * too short for both floors the split becomes half, which is the least wrong
  * answer available.
  */
+/**
+ * Where a stacked drag puts the seam.
+ *
+ * `start` is the share the drag began at, `dy` the pixels the pointer has
+ * travelled, and `height` the column the rows are a percentage *of* — the same
+ * number `stackTemplate` divides, because the seam's top edge is drawn at
+ * `share × height`. That identity is the whole point: moving the pointer 1px
+ * moves the seam 1px, so the handle stays under the finger. Dividing by
+ * anything else (the seam's own track, the column less the gutter) makes the
+ * seam run away from the pointer or crawl behind it, which reads as a drag that
+ * cannot be controlled.
+ */
+export function shareFromDrag(start: number, dy: number, height: number): number {
+  if (!Number.isFinite(start)) return STACK_SHARE.fallback;
+  if (!Number.isFinite(height) || height <= 0 || !Number.isFinite(dy)) return start;
+  return start + dy / height;
+}
+
 export function clampShare(share: number, height: number, gutter = STACK_GUTTER): number {
   if (!Number.isFinite(share)) return STACK_SHARE.fallback;
   const bounded = (value: number): number =>
