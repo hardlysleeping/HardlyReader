@@ -48,6 +48,18 @@ workflows:
         script: |
           set -euo pipefail
           source "$HOME/.cargo/env"
+          # tauri's iOS bootstrap insists on `brew reinstall libimobiledevice`,
+          # and this image's Homebrew dies inside that formula's post-install
+          # ("unknown install step: run"). The package is already installed and
+          # only device deploy needs it, so answer that one call with success.
+          mkdir -p "$CM_BUILD_DIR/bin"
+          printf '%s\n' '#!/bin/bash' \
+            'if { [ "$1" = reinstall ] || [ "$1" = install ]; } && [ "$2" = libimobiledevice ]; then' \
+            '  echo "brew wrapper: libimobiledevice is already installed"; exit 0' \
+            'fi' \
+            'exec /opt/homebrew/bin/brew "$@"' > "$CM_BUILD_DIR/bin/brew"
+          chmod +x "$CM_BUILD_DIR/bin/brew"
+          export PATH="$CM_BUILD_DIR/bin:$PATH"
           pnpm tauri ios init --ci
           ls -la src-tauri/gen/apple
       - name: Build unsigned .app
