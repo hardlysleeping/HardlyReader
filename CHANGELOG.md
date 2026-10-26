@@ -4,6 +4,40 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-10-25
+
+The device holds more than one account, the phone gets one settings sheet, and
+the claim about what a key may contain is now true.
+
+### Added
+
+- **Accounts are a list.** Add a second account without signing out, switch
+  between them, and remove one: a switch re-authenticates before it re-points
+  the client and re-reads the layout, reading preferences and sidebar chrome for
+  the account that came in. Removing an account forgets that sign-in only — its
+  settings stay on the device, so signing back in finds them.
+- **One settings sheet.** On a phone the hamburger opens six sections —
+  Accounts, Appearance, Reading, Layout, Sync, About — each mounting the control
+  the desktop already had rather than a copy of it.
+
+### Fixed
+
+- **The integration suite runs in CI.** It used to be wired to paths and
+  variable names that nothing read, so the job reported success while the
+  FreshRSS checks never executed. It now checks out both extensions, drives a
+  real FreshRSS, and fails if anything is missing. 86 checks.
+
+### Changed
+
+- **Per-account device state, honestly described.** The remembered place and the
+  IndexedDB cache (sidebar, stream pages, post text) are scoped by the same
+  account slug as everything else, so no key this build writes carries a server
+  or an address. Cache entries written by 0.5.1, whose keys spelled both out, are
+  deleted on first launch rather than migrated. The hash is a name, not a secret:
+  anyone holding the device who can guess an address can hash the guess and see
+  whether a key is theirs. Retained pre-scoping `localStorage` blobs, kept for
+  downgrade, still hold an address until they are overwritten.
+
 ## [0.5.1] — 2026-10-25
 
 The phone gets its own way to move, and a device can hold more than one account.
@@ -15,14 +49,9 @@ The phone gets its own way to move, and a device can hold more than one account.
   the article, and back again. A back button unwinds one layer before anything
   app-level happens. Off by default — "One pane" is what portrait did before.
 - **Per-account device state.** The layout, reading preferences, sidebar chrome,
-  pins, local indent and the remembered place are now stored under a hash of the
-  account rather than once for the whole device, and the cached sidebar, stream
-  pages and post text in IndexedDB are scoped the same way — a device that
-  upgrades drops the cache entries whose keys used to spell out the server and
-  the address. The hash is taken over the server and the address; neither appears
-  in a key this build writes. It is a name, not a secret: anyone holding the
-  device who can guess an address can hash the guess and see whether a key is
-  theirs.
+  pins and local indent are now stored under a hash of the account rather than
+  once for the whole device, so a second login starts from its own state. The
+  hash is the server and the address; neither ever appears in a key.
 
 ### Unchanged on purpose
 
