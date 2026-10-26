@@ -7,12 +7,16 @@
  * was open, and the feed unfolded in the one-column layout — and read back at
  * sign-in.
  *
- * Two rules keep it honest. It is per account (the storage key carries the
- * server and the user), so one login never resumes in another's feed. And it is
- * a hint, not an instruction: a feed that has since been deleted falls back to
- * the Reading list, and a post that is no longer in the first page simply is not
- * reopened. Nothing here calls the network; it is a shape and a key.
+ * Two rules keep it honest. It is per account, and the account is named by the
+ * same slug as everything else in `localStorage` — a hash of the server and the
+ * address, neither of which appears in the key — so one login never resumes in
+ * another's feed without a key saying whose it is. And it is a hint, not an
+ * instruction: a feed that has since been deleted falls back to the Reading
+ * list, and a post that is no longer in the first page simply is not reopened.
+ * Nothing here calls the network; it is a shape and a key.
  */
+
+import { scopedKey, type AccountIdentity, type KeyStore } from "./account-key";
 
 export interface Place {
   /** The stream that was open. Null means nothing has been remembered yet. */
@@ -38,9 +42,80 @@ export const EMPTY_PLACE: Place = {
   listScroll: 0,
 };
 
-/** Per account, like the sidebar's own preferences. */
-export function placeKey(serverUrl: string, email: string): string {
-  return `hardlyreader:place:${serverUrl}|${email}`;
+/** The base the place lives under; the account is appended as its slug. */
+export const PLACE_BASE = "hardlyreader:place";
+
+/** Per account, like the sidebar's own preferences — by slug, not by name. */
+export function placeKey(account: AccountIdentity): string {
+  return scopedKey(PLACE_BASE, account);
+}
+
+/**
+ * What a build before the slug wrote: `hardlyreader:place:<server>|<email>`.
+ *
+ * Only used to adopt a place already on the device, and only for the account it
+ * names. The old blob is left in place, like every other pre-scoping key, so a
+ * downgrade still finds it.
+ */
+export function legacyPlaceKey(account: AccountIdentity): string {
+  return `${PLACE_BASE}:${account.serverUrl}|${account.email}`;
+}
+
+/**
+ * The stored place for this account, adopting the pre-slug key once.
+ *
+ * Unlike the device-wide preference keys, this one needs no "who claimed it
+ * first" bookkeeping: the old key spelled the account out, so a blob found under
+ * it can only be this account's.
+ */
+export function readPlace(storage: KeyStore | undefined, account: AccountIdentity | null): Place {
+  if (!storage || account === null) return { ...EMPTY_PLACE };
+  const key = placeKey(account);
+  const own = get(storage, key);
+  if (own !== null) return parseOrEmpty(own);
+
+  const legacy = get(storage, legacyPlaceKey(account));
+  if (legacy === null) return { ...EMPTY_PLACE };
+  try {
+    // Copied forward so the next launch reads the slug key directly.
+    storage.setItem(key, legacy);
+  } catch {
+    /* full or blocked: the value is still this launch's to resume from */
+  }
+  return parseOrEmpty(legacy);
+}
+
+function parseOrEmpty(raw: string): Place {
+  try {
+    return parsePlace(JSON.parse(raw));
+  } catch {
+    return { ...EMPTY_PLACE };
+  }
+}
+
+function get(storage: KeyStore, key: string): string | null {
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stores where the reader was. Storage that is full or blocked just means the
+ * app opens on the Reading list, so failure is silent by design.
+ */
+export function writePlace(
+  storage: KeyStore | undefined,
+  account: AccountIdentity | null,
+  place: Place,
+): void {
+  if (!storage || account === null) return;
+  try {
+    storage.setItem(placeKey(account), JSON.stringify(place));
+  } catch {
+    /* preferences just do not persist */
+  }
 }
 
 function text(value: unknown): string | null {

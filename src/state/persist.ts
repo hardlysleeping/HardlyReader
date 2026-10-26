@@ -10,7 +10,13 @@
  * Every call is best effort. Where IndexedDB does not exist (unit tests, some
  * private modes) or fails, reads return undefined and writes do nothing: the app
  * simply behaves as it did before this cache existed.
+ *
+ * Keys are account-scoped the same way `localStorage` is, through the one slug
+ * in `lib/account-key`: `<slug>|<name>`, never a server or an address. See
+ * `scopeKey` for what the slug does and does not buy.
  */
+
+import { accountSlug, type AccountIdentity } from "../lib/account-key";
 
 const DB_NAME = "hardlyreader-cache";
 const DB_VERSION = 1;
@@ -42,7 +48,14 @@ function open(): Promise<IDBDatabase | null> {
           db.createObjectStore(STORE, { keyPath: "key" }).createIndex("at", "at");
         }
       };
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const db = request.result;
+        // Old-layout blobs are unreadable from here on; drop them rather than
+        // leave stored addresses behind. Fire and forget: a read that arrives
+        // first is simply a miss.
+        void dropStaleKeys(db);
+        resolve(db);
+      };
       request.onerror = () => resolve(null);
       request.onblocked = () => resolve(null);
     } catch {
@@ -59,9 +72,65 @@ function settle<T>(request: IDBRequest<T>): Promise<T | undefined> {
   });
 }
 
-/** Keys are scoped to one account on one server, so two logins never mix. */
-export function scopeKey(serverUrl: string, user: string, name: string): string {
-  return `${serverUrl.replace(/\/+$/, "")}|${user}|${name}`;
+/**
+ * Keys are scoped to one account, so two logins never mix.
+ *
+ * The account is named by the same slug `localStorage` uses — a hash of the
+ * server and the address, never either of them. IndexedDB is as readable as
+ * `localStorage` to anything running in the webview (and to anyone with a
+ * developer console), so a key that spelled out the server and then the address
+ * was a stored address with a cache value bolted on.
+ *
+ * What the slug buys: no stored key carries a name, and two accounts on one
+ * device land on different keys. What it does not buy: secrecy. 32 bits of
+ * FNV-1a is an identity tag; someone holding the device who can name a candidate
+ * server and address can hash it in microseconds and see whether a blob is
+ * theirs. It is not a password, not a salt, and not a boundary worth trusting if
+ * the cache value itself is sensitive — the cache holds public feed text and
+ * stream listings, and that is a fair thing to keep in a readable place.
+ */
+export function scopeKey(account: AccountIdentity, name: string): string {
+  return `${accountSlug(account)}|${name}`;
+}
+
+/**
+ * Shapes a key this build writes. A blob under any other key was written by an
+ * older build and can no longer be found, since every read goes through
+ * `scopeKey`.
+ */
+const OWN_KEY = /^[0-9a-f]{8}\|/;
+
+let swept = false;
+
+/**
+ * Drops cache blobs this build cannot read, once per launch.
+ *
+ * The pre-scoping keys were `${serverUrl}|${user}|${name}`, so on a device that
+ * upgrades they hold exactly the server and the address we no longer want
+ * stored — and nothing would ever delete them: lookups miss them, and
+ * `pruneStreams`/`clearScope` filter on a slug prefix they do not carry.
+ *
+ * These blobs are read once or not at all: they are let go, not migrated. A
+ * cache is disposable by definition, and the whole cost of letting one go is the
+ * single round-trip it was there to save, once. Migrating instead would mean
+ * reading old keys, parsing an address out of them to work out whose they were,
+ * and re-writing them — more code, more address handling, to save one fetch.
+ */
+async function dropStaleKeys(db: IDBDatabase): Promise<void> {
+  if (swept) return;
+  swept = true;
+  try {
+    const keys = await settle<IDBValidKey[]>(
+      db.transaction(STORE, "readonly").objectStore(STORE).getAllKeys(),
+    );
+    if (keys === undefined) return;
+    const stale = keys.filter((key) => !OWN_KEY.test(String(key)));
+    if (stale.length === 0) return;
+    const store = db.transaction(STORE, "readwrite").objectStore(STORE);
+    for (const key of stale) store.delete(key);
+  } catch {
+    /* housekeeping: an un-swept store is only untidy, never wrong */
+  }
 }
 
 export async function readCached<T>(key: string): Promise<{ value: T; at: number } | undefined> {

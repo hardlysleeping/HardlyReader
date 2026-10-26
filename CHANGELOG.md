@@ -4,6 +4,33 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+The device holds more than one account, the phone gets one settings sheet, and
+the claim about what a key may contain is now true.
+
+### Added
+
+- **Accounts are a list.** Add a second account without signing out, switch
+  between them, and remove one: a switch re-authenticates before it re-points
+  the client and re-reads the layout, reading preferences and sidebar chrome for
+  the account that came in. Removing an account forgets that sign-in only — its
+  settings stay on the device, so signing back in finds them.
+- **One settings sheet.** On a phone the hamburger opens six sections —
+  Accounts, Appearance, Reading, Layout, Sync, About — each mounting the control
+  the desktop already had rather than a copy of it.
+
+### Changed
+
+- **Per-account device state, honestly described.** The remembered place and the
+  IndexedDB cache (sidebar, stream pages, post text) are scoped by the same
+  account slug as everything else, so no key this build writes carries a server
+  or an address. Cache entries written by 0.5.1, whose keys spelled both out, are
+  deleted on first launch rather than migrated. The hash is a name, not a secret:
+  anyone holding the device who can guess an address can hash the guess and see
+  whether a key is theirs. Retained pre-scoping `localStorage` blobs, kept for
+  downgrade, still hold an address until they are overwritten.
+
 ## [0.5.1] — 2026-10-25
 
 The phone gets its own way to move, and a device can hold more than one account.

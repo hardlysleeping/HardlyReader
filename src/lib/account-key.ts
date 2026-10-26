@@ -14,13 +14,20 @@
  * name is a leak with extra steps.
  *
  * The slug is an identity tag, not a security boundary: 32 bits, so two accounts
- * on one device never collide in practice, and no one can recover an address from
- * it. It is also stable — the same server and email hash the same way on every
- * launch, which is what makes stored state findable again.
+ * on one device never meet in practice, and stable — the same server and email
+ * hash the same way on every launch, which is what makes stored state findable
+ * again. It is not secrecy. Someone holding the device who can name a candidate
+ * server and address can hash that guess in microseconds and see whether a key is
+ * theirs; what the hash stops is a name sitting in plain sight in a storage dump,
+ * which is the part a screenshot or a pasted log actually spreads. The same slug
+ * scopes the IndexedDB cache (see `state/persist.ts`), so one device-wide answer
+ * to "whose key is this" holds for both stores.
  *
  * The legacy global keys are never deleted. A build without this file still
  * reads them, so a downgrade keeps working; and the first account to look for its
- * scoped copy adopts what the global key held (see `readAccountValue`).
+ * scoped copy adopts what the global key held (see `readAccountValue`). The
+ * IndexedDB side takes the other road: those blobs are a disposable cache, so an
+ * old-layout key is dropped rather than adopted.
  */
 
 /** The session key, imported from the module that owns it, so a rename cannot
@@ -46,8 +53,8 @@ export type KeyStore = Pick<Storage, "getItem" | "setItem">;
  * on a device do not meet.
  */
 export function accountSlug(account: AccountIdentity): string {
-  const server = normalizeServer(account.serverUrl);
-  const email = account.email.trim().toLowerCase();
+  const server = normalizeServer(text(account.serverUrl));
+  const email = text(account.email).trim().toLowerCase();
   const input = `${server}|${email}`;
   let hash = 0x811c9dc5;
   for (let index = 0; index < input.length; index += 1) {
@@ -61,6 +68,19 @@ export function accountSlug(account: AccountIdentity): string {
 
 function normalizeServer(serverUrl: string): string {
   return serverUrl.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+/**
+ * A missing field is treated as empty rather than thrown on.
+ *
+ * Hashing runs on the cache write path, where a throw is worse than a plain
+ * answer: a session restored from an older build, or one mid-way through a login,
+ * can arrive without an address. Such a session still hashes to a stable slug
+ * (different servers on one device stay apart); there is simply no second
+ * identity on that server for it to be confused with.
+ */
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 /**
