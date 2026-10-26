@@ -482,7 +482,48 @@ html[data-device="phone"] .tap44 {
   touch-action: manipulation;
 }
 
+/* The phone bar's own controls need no class of their own: the bar has exactly
+   three, and naming them here keeps the markup of a component that is already
+   phone-only free of a rule about phones. Their boxes stop at the bar's 42px so
+   none of them hangs over the seam into the panes, where nothing is a control. */
+html[data-device="phone"] .phone-header :is(.step, .more, .sync) {
+  position: relative;
+  touch-action: manipulation;
+  --tap44-w: 44px;
+  --tap44-h: 42px;
+}
+
+/* The stack's own bar, the strip a slid pane carries while an overlay is open:
+   one 34px step in a 42px bar, so the same cap and no reach past the seam. */
+html[data-device="phone"] .stack .bar .step {
+  position: relative;
+  touch-action: manipulation;
+  --tap44-w: 44px;
+  --tap44-h: 42px;
+}
+
+html[data-device="phone"] .stack .bar .step::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--tap44-w, 44px);
+  height: var(--tap44-h, 44px);
+  translate: -50% -50%;
+}
+
 html[data-device="phone"] .tap44::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--tap44-w, 44px);
+  height: var(--tap44-h, 44px);
+  translate: -50% -50%;
+}
+
+
+html[data-device="phone"] .phone-header :is(.step, .more, .sync)::after {
   content: "";
   position: absolute;
   left: 50%;

@@ -97,6 +97,7 @@ const stack = read("src/components/MobilePaneStack.svelte");
 const list = read("src/components/ArticleList.svelte");
 const sidebar = read("src/components/Sidebar.svelte");
 const panel = read("src/components/SettingsPanel.svelte");
+const phoneHeader = read("src/components/PhoneHeader.svelte");
 
 // ---------------------------------------------------------------------------
 // One rule, and it is the phone's
@@ -170,17 +171,25 @@ const panel = read("src/components/SettingsPanel.svelte");
 {
   const gated = (text, needle) => new RegExp(`${needle}[\\s\\S]{0,200}?class:tap44=\\{layout\\.device === "phone"\\}`);
 
+  // A phone's bar is `PhoneHeader.svelte`, and it is phone-only by construction,
+  // so its three controls carry no `class:tap44` of their own: one rule in
+  // `app.css` names them. The desktop bar is not mounted on a phone at all.
   check(
-    "Sync carries it, on a phone",
-    gated(header, '<button\\s+class="sync"').test(header),
+    "the phone bar's Sync gets the box from the bar rule",
+    /class="sync"/.test(phoneHeader) &&
+      /html\[data-device="phone"\] \.phone-header :is\(\.step, \.more, \.sync\) \{[^}]*--tap44-w: 44px/.test(app),
   );
   check(
     "the stack's back step carries it",
     gated(stack, '<button\\s+type="button"\\s+class="step"').test(stack),
   );
+  // The one-column crumb row is not drawn on a phone any more — the bar above it
+  // is that strip — so it needs no phone hit box, and giving it one would be a
+  // class that can never be drawn.
   check(
-    "both crumb steps carry it, back and home alike",
-    (main.match(/class="step"\s*\n\s*class:tap44=\{layout\.device === "phone"\}/g) ?? []).length === 2,
+    "the crumb row is desktop-only, so it carries no phone box",
+    /mode === 1 && level !== "feeds" && layout\.device !== "phone"/.test(main) &&
+      (main.match(/class:tap44=\{layout\.device === "phone"\}/g) ?? []).length === 0,
   );
   check(
     "the star, the read mark and the link out carry it",
@@ -201,9 +210,15 @@ const panel = read("src/components/SettingsPanel.svelte");
   // this tree. What is here is the ☰ that opens the same menu, and it carries the
   // class so that a phone's way into Settings is a thumb's target today.
   check(
-    "the menu that stands in for the phone's ••• carries it, capped at the bar",
-    /class="icon menu"\s*\n\s*class:tap44=\{layout\.device === "phone"\}/.test(header) &&
-      /:global\(html\[data-device="phone"\]\) \.icon\.menu\.tap44 \{\s*--tap44-h: 42px;\s*\}/.test(header),
+    "the phone's ••• is in the bar rule too",
+    /class="more"/.test(phoneHeader) &&
+      /html\[data-device="phone"\] \.phone-header :is\(\.step, \.more, \.sync\)::after \{/.test(app),
+  );
+  check(
+    "and every box in that bar stops at the bar's 42px, not at the panes",
+    /--tap44-h: 42px/.test(
+      ruleBody(app, 'html[data-device="phone"] .phone-header :is(.step, .more, .sync)', "app.css"),
+    ),
   );
   check(
     "the menu is the smallest thing it has to grow: 28 in a 42 bar",
@@ -399,30 +414,18 @@ function noOverlaps(label, controls) {
 }
 
 // ---------------------------------------------------------------------------
-// Two steps side by side in the crumb strip
+// The crumb strip, which a phone no longer draws
 // ---------------------------------------------------------------------------
 
+// On a phone the bar above is that strip, so the one-column crumb row is not
+// mounted there and its two steps need no phone hit box: a box for a control
+// that cannot be drawn is a rule that never lands. What is asserted instead is
+// that the row stayed a desktop row.
 {
-  const coarse = coarseBlock(main, "Main.svelte");
-  const step = {
-    w: px(ruleBody(coarse, ".step", "Main coarse"), "width", "crumb step"),
-    h: px(ruleBody(coarse, ".step", "Main coarse"), "height", "crumb step"),
-  };
-  const gap = px(ruleBody(main, ".crumbs", "Main"), "gap", "crumbs gap");
-  const bar = px(ruleBody(coarse, ".crumbs", "Main coarse"), "height", "crumb strip");
   check(
-    "the strip's steps grow to the middle of their gap and no further than the strip",
-    /:global\(html\[data-device="phone"\]\) \.step\.tap44 \{\s*--tap44-w: calc\(100% \+ 4px\);\s*--tap44-h: 42px;/.test(main),
-  );
-  check("...which is the gap and the height the strip actually declares", gap === 4 && bar === 42, `gap ${gap}, strip ${bar}`);
-
-  const crumbs = inARow(["back", "home"], { w: step.w, h: step.h, gap, tapW: step.w + gap, tapH: bar });
-  probeAll("the crumb strip", crumbs);
-  noOverlaps("the crumb strip", crumbs);
-  check(
-    "back and home keep every pixel of their own box",
-    Math.abs(crumbs[0].tap.right - crumbs[1].tap.left) < 0.001,
-    `${crumbs[0].tap.right} against ${crumbs[1].tap.left}`,
+    "the crumb strip stays a desktop row, so it carries no phone box",
+    /mode === 1 && level !== "feeds" && layout\.device !== "phone"/.test(main) &&
+      !/\.step\.tap44/.test(main),
   );
 }
 
@@ -440,7 +443,11 @@ function noOverlaps(label, controls) {
   check("Sync is 34 in a 42 bar", sync.w === 34 && sync.h === 34 && bar === 42, `${sync.w}×${sync.h} in ${bar}`);
   check(
     "and its box stops at the bar's edges",
-    /:global\(html\[data-device="phone"\]\) \.sync\.tap44 \{\s*--tap44-h: 42px;\s*\}/.test(header),
+    // The bar's own Sync is `PhoneHeader`'s now; the cap lives in the one rule
+    // that names the bar's three controls, so a 44px box cannot reach the panes.
+    /--tap44-h: 42px/.test(
+      ruleBody(app, 'html[data-device="phone"] .phone-header :is(.step, .more, .sync)', "app.css"),
+    ),
   );
 
   const step = {
@@ -450,7 +457,12 @@ function noOverlaps(label, controls) {
   const strip = px(ruleBody(coarseBlock(stack, "MobilePaneStack.svelte"), ".bar", "stack coarse"), "height", "stack strip");
   check(
     "the stack's back step is the same control in the same strip",
-    step.w === 34 && strip === 42 && /:global\(html\[data-device="phone"\]\) \.step\.tap44 \{\s*--tap44-h: 42px;\s*\}/.test(stack),
+    step.w === 34 &&
+      strip === 42 &&
+      // The cap is in `app.css` rather than the component: a scoped rule that
+      // only ever matches through a `class:` directive is pruned as unused, so
+      // the box it declared was never drawn.
+      /--tap44-h: 42px/.test(ruleBody(app, 'html[data-device="phone"] .stack .bar .step', "app.css")),
     `${step.w}×${step.h} in ${strip}`,
   );
 

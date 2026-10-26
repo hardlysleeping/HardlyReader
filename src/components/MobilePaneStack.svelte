@@ -404,9 +404,7 @@
   /* The strip is 42px tall and the control is the first thing in it: the hit box
      stops at the strip's edges and grows sideways into the label's gap, which is
      text, not a control. */
-  :global(html[data-device="phone"]) .step.tap44 {
-    --tap44-h: 42px;
-  }
+
 
   .step:hover,
   .step:focus-visible {
