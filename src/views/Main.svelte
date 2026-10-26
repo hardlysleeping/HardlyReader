@@ -10,6 +10,7 @@
   import LoadAura from "../components/LoadAura.svelte";
   import MobilePaneStack from "../components/MobilePaneStack.svelte";
   import PaneGutter from "../components/PaneGutter.svelte";
+  import PhoneHeader from "../components/PhoneHeader.svelte";
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
   import { startAutoSync } from "../lib/auto-sync";
@@ -860,15 +861,29 @@
     .map(([name, value]) => `${name}:${value}`)
     .join(";")}
 >
-  <Header
-    subtitle={account?.userName ?? session.email}
-    server={session.serverUrl}
-    controls={layoutSwitch}
-    {onsignout}
-    {onaddaccount}
-    ontogglesidebar={showFeeds}
-    textTarget={articleShown ? "article" : "list"}
-  />
+  <!-- A phone gets the hierarchical bar instead: the wordmark, one step out, and
+       Sync. The desktop bar is not mounted there, so none of its controls — the
+       drawer toggle, the account, the layout switch, the two popovers — are
+       drawn on a phone, and nothing in `Header.svelte` has to know phones exist.
+       A tablet stays `desktop` (see `detectShape()`), so it keeps the toolbar. -->
+  {#if layout.device === "phone"}
+    <PhoneHeader
+      subtitle={account?.userName ?? session.email}
+      server={session.serverUrl}
+      {onsignout}
+      {onaddaccount}
+    />
+  {:else}
+    <Header
+      subtitle={account?.userName ?? session.email}
+      server={session.serverUrl}
+      controls={layoutSwitch}
+      {onsignout}
+      {onaddaccount}
+      ontogglesidebar={showFeeds}
+      textTarget={articleShown ? "article" : "list"}
+    />
+  {/if}
 
   <!-- The seam under the bar doubles as the activity light. -->
   <LoadAura />
@@ -888,8 +903,14 @@
        buttons taking 34px off a column with none to spare. It sits outside the
        pane grid, which is also what keeps the grid's rows the same list in
        every mode — a row that appears and disappears would make the panes
-       rescale instead of move. -->
-  {#if mode === 1 && level !== "feeds"}
+       rescale instead of move.
+
+       Not on a phone: the bar above is that strip there. `PhoneHeader` owns the
+       one step out — the same `nav.back()` the gesture and the hardware key
+       take — so drawing this one too would put two back controls on one screen
+       and take a second 42px off the list. A desktop window narrowed to one
+       column still gets it, exactly as before. -->
+  {#if mode === 1 && level !== "feeds" && layout.device !== "phone"}
     <nav class="crumbs" aria-label="Location">
       <button
         class="step"

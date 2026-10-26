@@ -170,7 +170,9 @@ check(
 // whole height, with one it is what the strip left.
 check(
   "the crumb strip is not drawn on the feeds surface",
-  /\{#if mode === 1 && level !== "feeds"\}\s*<nav class="crumbs"/.test(main),
+  // The phone's bar is the strip there now, so the condition also names the
+  // device; the level rule this check is about is unchanged.
+  /\{#if mode === 1 && level !== "feeds"[^}]*\}\s*<nav class="crumbs"/.test(main),
 );
 check(
   "and it is not a row of the grid, so it cannot resize the panes",

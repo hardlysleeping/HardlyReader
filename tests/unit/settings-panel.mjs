@@ -371,7 +371,7 @@ try {
     check("the header owns the flag, so the bar and the sheet agree", /open = \$bindable\(false\)/.test(read("src/components/SettingsPanel.svelte")) && /bind:open=\{settingsOpen\}/.test(read("src/components/Header.svelte")));
     check("a full-screen sheet under 700px", /@media \(max-width: 699px\)\s*\{\s*\.sheet \{\s*inset: 0;/.test(source));
     check("and a wide panel above it", /width: min\(560px, calc\(100vw - 24px\)\)/.test(source));
-    check("a phone's sheet clears the status bar", /env\(safe-area-inset-top\)/.test(source));
+    check("a phone's sheet clears the status bar", /max\(12px, var\(--safe-top\)\)/.test(source));
     check("less motion means the sheet arrives instead of sliding", /@media \(prefers-reduced-motion: reduce\)/.test(source) && /animation: none/.test(source));
     check("the sheet scrolls, and its heading stays put", /\.head \{[\s\S]{0,400}?flex: 0 0 auto/.test(source) && /\.body \{[\s\S]{0,200}?overflow-y: auto/.test(source));
   }

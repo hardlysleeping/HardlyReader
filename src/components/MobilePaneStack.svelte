@@ -269,7 +269,7 @@
            would arrive empty. Hidden ones are `inert`, so the tab order and the
            screen reader follow the pane that is actually in front. -->
       <section
-        class="layer"
+        class="layer stack-scroller"
         class:front={showing === pane}
         class:behind={pane < showing}
         class:ahead={pane > showing}
@@ -312,7 +312,13 @@
   /* One pane wide each, and moved rather than resized: the layer occupies the
      frame and the transform is what puts it where it belongs. `translateX` is a
      percentage of the layer's own width, which is the frame's, so the same
-     offsets hold on any phone. */
+     offsets hold on any phone.
+
+     `stack-scroller` (in app.css, phones only) is the home-indicator inset: it
+     pads this layer's bottom, so the layer's own background paints the strip
+     under the indicator and the pane inside it stops above it. On the layer and
+     not on `.frame` for exactly that reason — padding on the frame would shrink
+     the layer's containing block and leave the page colour in the strip. */
   .layer {
     position: absolute;
     inset: 0;
