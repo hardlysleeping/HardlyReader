@@ -893,6 +893,7 @@
     <nav class="crumbs" aria-label="Location">
       <button
         class="step"
+        class:tap44={layout.device === "phone"}
         onclick={stepBack}
         aria-label={backTo}
         title={backTo}
@@ -901,6 +902,7 @@
       </button>
       <button
         class="step"
+        class:tap44={layout.device === "phone"}
         onclick={goHome}
         aria-label="Feeds"
         title="Feeds"
@@ -1604,6 +1606,14 @@
     stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  /* Back and home sit 4px apart in a 42px strip. Two 44px boxes would cover each
+     other's inner half — a mistimed press on "back" would go home — so each box
+     grows to the middle of that gap and stops, and stops at the strip's edges. */
+  :global(html[data-device="phone"]) .step.tap44 {
+    --tap44-w: calc(100% + 4px);
+    --tap44-h: 42px;
   }
 
   .step:hover:not(:disabled) {

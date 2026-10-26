@@ -1493,6 +1493,7 @@
         <div class="acts" data-no-drag-scroll>
           <button
             class="act star"
+            class:tap44={layout.device === "phone"}
             class:on={isStarred(item)}
             aria-pressed={isStarred(item)}
             aria-label={isStarred(item) ? "Remove star" : "Star this post"}
@@ -1507,6 +1508,7 @@
           </button>
           <button
             class="act mark"
+            class:tap44={layout.device === "phone"}
             class:on={isRead(item)}
             aria-pressed={isRead(item)}
             aria-label={isRead(item) ? "Mark unread" : "Mark read"}
@@ -1522,6 +1524,7 @@
                  what every desktop already means by "open this somewhere else". -->
             <button
               class="act open"
+              class:tap44={layout.device === "phone"}
               aria-label="Open at source"
               title="Open at source"
               onclick={(event) => openAtSource(item, event)}
@@ -2471,6 +2474,49 @@
 
   .act.open {
     color: var(--act-link);
+  }
+
+  /* A thumb's target, without a thumb's footprint.
+     -------------------------------------------------------------------------
+     The three marks are one pill, and how far apart they sit depends on the
+     view: 8px in a row, 4px in the tree, 3px in a grid. A 44px box on each would
+     cover most of its neighbour, so each box grows to the middle of the gap —
+     `100%` of the mark plus the gap — and stops there. `--tap44-gap` is declared
+     beside every one of those gaps above; the fallback of 0 is "no growth
+     sideways", which is the safe answer if a new view forgets to say.
+     Vertically the box is 44 by default. In the tree it stops at the pill: a
+     tree row is one line tall, so the post above and the post below are the
+     nearest controls and they keep every pixel of their own hit area. */
+  :global(html[data-device="phone"]) .act.tap44 {
+    --tap44-w: calc(100% + var(--tap44-gap, 0px));
+  }
+
+  /* The gap each pill is drawn with, restated for the hit boxes beside the rule
+     that reads it. Every one of these is the same number as the `gap:` on the
+     same selector above — a box sized for a spacing the view is not using would
+     either stop short of the thumb or cover the neighbour. */
+  :global(html[data-device="phone"]) .acts {
+    --tap44-gap: 8px;
+  }
+
+  :global(html[data-device="phone"]) .items.compact .acts {
+    --tap44-gap: 8px;
+  }
+
+  :global(html[data-device="phone"]) .compact .acts {
+    --tap44-gap: 4px;
+  }
+
+  :global(html[data-device="phone"]) .grid .acts {
+    --tap44-gap: 3px;
+  }
+
+  :global(html[data-device="phone"]) .cards .acts {
+    --tap44-gap: calc(8px * var(--row-scale, 1));
+  }
+
+  :global(html[data-device="phone"]) .compact .act.tap44 {
+    --tap44-h: calc(100% + 4px);
   }
 
   /* The three actions are one object at the row's end, not three glyphs that
