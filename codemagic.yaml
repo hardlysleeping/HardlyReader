@@ -36,6 +36,14 @@ workflows:
           npm i -g pnpm@12 --force >/dev/null
           pnpm -v
           pnpm install --frozen-lockfile
+      - name: Prepare Homebrew
+        script: |
+          set -euo pipefail
+          # `pod install` makes tauri reinstall libimobiledevice, and brew then
+          # refuses to pour its ca-certificates dependency because a keg is
+          # already linked. Unlink it so the pour is allowed to relink.
+          brew unlink ca-certificates >/dev/null 2>&1 || true
+          brew --version | head -1
       - name: Generate the Xcode project
         script: |
           set -euo pipefail
