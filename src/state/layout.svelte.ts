@@ -1236,6 +1236,28 @@ class LayoutState {
 
   load(): void {
     void this.loadMonitor();
+    this.readStored();
+  }
+
+  /**
+   * Reads the layout again, for the account that is now in use.
+   *
+   * This store is a singleton loaded once at import, so without this a switch
+   * kept the previous account's panes, fold state and mode in memory — and then
+   * wrote them back under the *new* account's key at the next press, so the second
+   * login inherited the first one's layout twice over. Everything an account owns
+   * is re-read from its own key here; the geometry, the thresholds and the
+   * clamping are the very same code path `load()` uses, so nothing about how a
+   * layout is measured changes.
+   *
+   * The screen monitor is deliberately not asked again: it is about the window,
+   * not the account, and it is idempotent anyway.
+   */
+  reload(): void {
+    this.readStored();
+  }
+
+  private readStored(): void {
     const size = windowSize();
     this.device = detectDevice();
     this.available = size.width;
