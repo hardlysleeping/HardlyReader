@@ -22,6 +22,8 @@ const header = read("src/components/Header.svelte");
 const themePanel = read("src/components/ThemePanel.svelte");
 const readingControls = read("src/components/ReadingControls.svelte");
 const accountsPanel = read("src/components/AccountsPanel.svelte");
+// The rows themselves live in `AccountsBody`, the frame the settings sheet mounts too.
+const accountsBody = read("src/components/AccountsBody.svelte");
 const app = read("src/app.css");
 const main = read("src/views/Main.svelte");
 
@@ -33,14 +35,28 @@ const menuStart = header.indexOf('class="sheet"');
 const menu = header.slice(menuStart, header.indexOf("</div>", menuStart));
 check("the menu opens the feeds", /ontogglesidebar\?\.\(\)/.test(menu));
 check("the menu opens reading", /readingControls\?\.openPanel\(\)/.test(menu));
-check("the menu opens settings", /themePanel\?\.openSettings\(\)/.test(menu));
+// Settings from the menu is the settings panel — the sheet a phone can use —
+// rather than the 268px popover the gear draws on a desktop.
+check(
+  "the menu opens the settings panel",
+  /pick\(openSettings\)/.test(menu) &&
+    /function openSettings\(\): void \{[\s\S]{0,160}?settingsOpen = true;/.test(header),
+);
+check("and settings can be opened from the popover's own door", /onallsettings=\{openSettings\}/.test(header));
 check("the menu opens the account panel", /accountsPanel\?\.openAccounts\(\)/.test(menu));
-// One sign out in the app, in the panel: a second row here would be the same
-// control twice, and the two could disagree about who is signed in.
+// One sign out in the app, in the account rows: a second row here would be the
+// same control twice, and the two could disagree about who is signed in.
 check("the menu does not keep a sign out of its own", !/onsignout/.test(menu));
 check("sync is not in the menu — it never leaves the bar", !/Sync now/.test(menu) && !/void refresh\(\)/.test(menu));
 // Four menu actions in the written markup: Feeds, Reading, Settings, Accounts.
 check("four menu actions in total", (menu.match(/role="menuitem"/g) ?? []).length === 4, String((menu.match(/role="menuitem"/g) ?? []).length));
+// The rows are one component mounted by two frames — the bar's panel and the
+// settings sheet — so add, switch and sign out cannot drift apart.
+check(
+  "the account rows are one component, mounted by both frames",
+  /<AccountsBody[\s\S]{0,200}?onsignout=/.test(read("src/components/AccountsPanel.svelte")) &&
+    /<AccountsBody[\s\S]{0,200}?onsignout=/.test(read("src/components/SettingsPanel.svelte")),
+);
 check("the breakpoint exists once, in CSS", !/matchMedia\(/.test(header) && /@media \(max-width: 560px\)/.test(header));
 // The account block — name and server address — is ellipsised, so a bar too
 // narrow for it did not break: it showed `hardlyrea…`. It leaves at 660, which
@@ -58,12 +74,12 @@ check("the name is the account's handle", /class="who"/.test(accountsPanel) && /
 check("the account panel holds the actions", /onsignout\?\.\(\)/.test(accountsPanel) && /onaddaccount\?\.\(\)/.test(accountsPanel));
 check(
   "the panel is the account list, switching and removing included",
-  /accounts\.rows/.test(accountsPanel) && /accounts\.switchTo\(/.test(accountsPanel) && /accounts\.remove\(/.test(accountsPanel),
+  /accounts\.rows/.test(accountsBody) && /accounts\.switchTo\(/.test(accountsBody) && /accounts\.remove\(/.test(accountsBody),
 );
 // The one thing in the panel that cannot be undone without the API password says
 // what it does, every time it is open.
-check("and says what removing an account does", /Removing an account forgets its sign-in/.test(accountsPanel));
-check("one remove control, and every row has it", /class="row"[\s\S]*class="remove"[\s\S]*\{\/each\}/.test(accountsPanel) && (accountsPanel.match(/class="remove"/g) ?? []).length === 1);
+check("and says what removing an account does", /Removing an account forgets its sign-in/.test(accountsBody));
+check("one remove control, and every row has it", /class="row"[\s\S]*class="remove"[\s\S]*\{\/each\}/.test(accountsBody) && (accountsBody.match(/class="remove"/g) ?? []).length === 1);
 check("the name shrinks before it pushes", /max-width: 150px/.test(accountsPanel) && /text-overflow: ellipsis/.test(accountsPanel));
 check("the panel takes orders from the menu", /export function openAccounts\(\)/.test(accountsPanel));
 
