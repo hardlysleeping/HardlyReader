@@ -2770,6 +2770,14 @@
        cards is the only space in the column, which is why stepping one card puts
        it exactly on the top edge instead of ten pixels below it. */
     padding: 0;
+    /* Where `center` snaps to, written down: the snapport is the port reduced by
+       this, and `centreCard` centres against the port's own middle, so a snap
+       point at 0 is the same place the wheel puts a card. The number is the
+       column's own block padding, which is none — the list *is* the pane. If a
+       padding is ever added above, it has to be added here too, or every card
+       the thumb lets go of lands half that padding off where the wheel had just
+       put the same card. */
+    scroll-padding-block: 0;
   }
 
   .cards::-webkit-scrollbar {
