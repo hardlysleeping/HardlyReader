@@ -11,9 +11,7 @@
 import { capabilitiesFor, detectShape, isTauri, type Capabilities } from "../lib/platform";
 import {
   DEFAULT_LAYOUT,
-  DEFAULT_LIST3,
   DEFAULT_MOTION,
-  DEFAULT_WIDTHS,
   FLAT_ROWS,
   STACK_SHARE,
   THRESHOLDS,
@@ -46,6 +44,7 @@ import {
   nextTuck,
   nudge,
   pairFloor,
+  phoneLayout,
   resetPane,
   scaleLayout,
   settleRequirement,
@@ -146,15 +145,59 @@ function isTauriWindow(): boolean {
   return isTauri();
 }
 
-/** Narrower default columns on a phone: 380px of a 390px screen is not a sidebar. */
-function defaultWidths(device: Device): PaneWidths {
-  return device === "phone" ? { sidebar: 168, list: 240 } : { ...DEFAULT_WIDTHS };
+/**
+ * The phone's pane profile as 0.6.0 stored it: a 168px drawer, a 240px list and
+ * the article's own minimum.
+ *
+ * Only ever compared against a save, never drawn from — see `adoptPhoneProfile`.
+ */
+const LEGACY_PHONE_PANES: PaneLayout = { sidebar: 168, list2: 240, list3: 240, article: 320 };
+
+/**
+ * The panes a fresh install opens with, for the frame it is actually in.
+ *
+ * A desktop takes the owner's columns unchanged. A phone takes a proportion of
+ * its own frame — 28% feeds, 33% posts, the article the remainder, each floored
+ * at the phone's text minimum (see `phoneLayout`). It used to take a fixed
+ * 168 + 240, which on a landscape phone drew the feeds a fifth of the width
+ * while an empty article column held half of it: a desktop proportion with a
+ * small screen's problem.
+ *
+ * This is a *default* and nothing more: any width the user has shaped is read
+ * back over it, so the profile only ever answers a phone that has none.
+ */
+function defaultPanes(device: Device, available: number): PaneLayout {
+  return device === "phone" ? phoneLayout(available) : { ...DEFAULT_LAYOUT };
 }
 
-/** The third column's own default: a phone keeps the narrow one. */
-function defaultList3(device: Device): number {
-  return device === "phone" ? defaultWidths(device).list : DEFAULT_LIST3;
+/** The two widths the pane arithmetic wants: the sidebar and this mode's posts. */
+function defaultWidths(device: Device, available: number): PaneWidths {
+  const panes = defaultPanes(device, available);
+  return { sidebar: panes.sidebar, list: panes.list2 };
 }
+
+/** The third column's own default: the posts width three panes ship with. */
+function defaultList3(device: Device, available: number): number {
+  return defaultPanes(device, available).list3;
+}
+
+/** Whether two layouts are the same four numbers. */
+function samePanes(a: PaneLayout, b: PaneLayout): boolean {
+  return (
+    a.sidebar === b.sidebar && a.list2 === b.list2 && a.list3 === b.list3 && a.article === b.article
+  );
+}
+
+/**
+ * The frames a phone profile could have been taken from.
+ *
+ * A phone is a coarse pointer and a screen whose shortest side is 500 or less
+ * (`detectShape()`), so the width a phone draws in runs from a few hundred
+ * pixels to about a thousand. The range is deliberately generous: it is only
+ * ever used to ask "is this save a profile", and a frame that wide can only make
+ * that question answer no.
+ */
+const PHONE_PROFILE_RANGE = { min: 280, max: 1200 } as const;
 
 function isMode(value: unknown): value is PaneMode {
   return value === 1 || value === 2 || value === 3;
@@ -833,11 +876,11 @@ class LayoutState {
    * mode's posts width: the reset button on that row, not a reset of everything.
    */
   resetWidths(mode: 2 | 3): void {
-    const defaults = defaultWidths(this.device);
+    const defaults = defaultPanes(this.device, this.drawn);
     const next: PaneLayout =
       mode === 3
-        ? { ...this.panes, list3: defaultList3(this.device), article: DEFAULT_LAYOUT.article }
-        : { ...this.panes, list2: defaults.list };
+        ? { ...this.panes, list3: defaults.list3, article: defaults.article }
+        : { ...this.panes, list2: defaults.list2 };
     this.panes = settleRequirement(intentLayout(next, this.device), mode, this.available, this.device, this.stacked);
     this.syncThresholds();
     this.settle();
@@ -846,19 +889,16 @@ class LayoutState {
 
   /** Whether a mode's columns differ from the shipped ones. */
   paneEdited(mode: 2 | 3): boolean {
-    const defaults = defaultWidths(this.device);
+    const defaults = defaultPanes(this.device, this.drawn);
     return mode === 3
-      ? this.panes.list3 !== defaultList3(this.device) || this.panes.article !== DEFAULT_LAYOUT.article
-      : this.panes.list2 !== defaults.list;
+      ? this.panes.list3 !== defaults.list3 || this.panes.article !== defaults.article
+      : this.panes.list2 !== defaults.list2;
   }
 
   /** Back to the shipped shape: default panes, and the default one-pane width. */
   resetThresholds(): void {
-    const defaults = defaultWidths(this.device);
-    this.panes = intentLayout(
-      { ...DEFAULT_LAYOUT, sidebar: defaults.sidebar, list2: defaults.list, list3: defaultList3(this.device) },
-      this.device,
-    );
+    const defaults = defaultPanes(this.device, this.drawn);
+    this.panes = intentLayout(defaults, this.device);
     this.thresholds = { ...THRESHOLDS[this.device] };
     this.syncThresholds();
     this.settle();
@@ -1273,11 +1313,8 @@ class LayoutState {
       ...size,
       thresholds: this.thresholds,
     });
-    const defaults = defaultWidths(this.device);
-    this.panes = intentLayout(
-      { ...DEFAULT_LAYOUT, sidebar: defaults.sidebar, list2: defaults.list, list3: defaultList3(this.device) },
-      this.device,
-    );
+    const defaults = defaultPanes(this.device, size.width);
+    this.panes = intentLayout(defaults, this.device);
     this.syncThresholds();
     if (typeof localStorage === "undefined") {
       this.settle(false);
@@ -1333,7 +1370,7 @@ class LayoutState {
           : STACK_SHARE.fallback;
       const panes = saved.panes;
       if (panes && typeof panes.sidebar === "number" && typeof panes.list3 === "number") {
-        this.panes = intentLayout(
+        const stored = intentLayout(
           {
             sidebar: panes.sidebar,
             list2: typeof panes.list2 === "number" ? panes.list2 : panes.list3,
@@ -1342,6 +1379,7 @@ class LayoutState {
           },
           this.device,
         );
+        this.panes = this.adoptPhoneProfile(stored) ?? stored;
       } else {
         const widths = saved.widths;
         if (widths && typeof widths.sidebar === "number" && typeof widths.list === "number") {
@@ -1362,6 +1400,65 @@ class LayoutState {
     }
     // First paint: the window is what it is, so the band has nothing to decide.
     this.settle(false);
+  }
+
+  /**
+   * Is this save a phone's profile rather than a width someone chose?
+   *
+   * A profile is written down like a choice — a mode press, a fold, a tuck all
+   * save the panes the app gave the phone — so the next launch has a "stored
+   * width" that is really the default of whatever frame the last session was in.
+   * That matters, because 28% of a portrait 390 is 150: left alone, the profile
+   * of a phone put down in portrait becomes the fifth of the screen that the
+   * profile exists to get rid of, the first time it is opened in landscape.
+   *
+   * The question is therefore asked of the arithmetic rather than of a stored
+   * flag: these four numbers are a profile if a phone frame would have been
+   * given exactly them. Asked that way it also catches 0.6.0's fixed pair, which
+   * is named beside it because no frame's proportions produce it. Anything else
+   * — anything a drag, a nudge or a reset left behind that is not a profile of
+   * some frame — is the user's, and is never touched here.
+   */
+  private isPhoneProfile(panes: PaneLayout): boolean {
+    if (samePanes(panes, LEGACY_PHONE_PANES)) return true;
+    for (let width = PHONE_PROFILE_RANGE.min; width <= PHONE_PROFILE_RANGE.max; width += 1) {
+      if (samePanes(panes, phoneLayout(width))) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The profile a phone should be drawing in the frame it is in now.
+   *
+   * `null` when the panes are the user's, and the profile is not.
+   */
+  private adoptPhoneProfile(stored: PaneLayout): PaneLayout | null {
+    if (this.device !== "phone") return null;
+    if (!this.isPhoneProfile(stored)) return null;
+    return intentLayout(phoneLayout(this.available), this.device);
+  }
+
+  /**
+   * A phone's shipped columns are proportions of the frame, so a rotation is a
+   * new answer to the same question.
+   *
+   * `setAvailable` deliberately never rewrites the panes: a resize must not
+   * shrink a layout the user shaped. A profile is the other case — it is the
+   * app's answer, not theirs, and 28% of a 390px portrait frame is not 28% of
+   * an 844px landscape one. So while the panes are still *exactly* the profile
+   * of the frame they were made for, they are recomputed for the new one; one
+   * dragged edge and they are the user's, and nothing here touches them.
+   *
+   * Nothing is saved: a rotation is not a choice, and the next launch takes the
+   * profile of whatever frame it opens in.
+   */
+  private followPhoneProfile(px: number): void {
+    if (this.device !== "phone") return;
+    if (!samePanes(this.panes, phoneLayout(this.available))) return;
+    const next = intentLayout(phoneLayout(px), this.device);
+    if (samePanes(next, this.panes)) return;
+    this.panes = next;
+    this.syncThresholds();
   }
 
   /**
@@ -1406,6 +1503,9 @@ class LayoutState {
     const sameWidth = px === this.available;
     const height = windowSize().height;
     const sameHeight = height === this.height;
+    // Before the measurement moves: the profile it is compared against is the
+    // one belonging to the frame the panes were made for (see below).
+    if (!sameWidth) this.followPhoneProfile(px);
     this.available = px;
     this.height = height;
     // A rotation arrives as a resize, and this is the only place the upright
@@ -1485,7 +1585,8 @@ class LayoutState {
   }
 
   reset(which: "sidebar" | "list"): void {
-    const fallback = this.device === "phone" ? defaultWidths(this.device)[which] : resetPane(which);
+    const fallback =
+      this.device === "phone" ? defaultWidths(this.device, this.drawn)[which] : resetPane(which);
     this.write(which, fallback);
     this.commit();
   }

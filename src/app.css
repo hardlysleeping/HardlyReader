@@ -439,6 +439,14 @@ html[data-device="phone"] .panes > .slot.article {
   html[data-device="phone"] .panes > .slot.article {
     padding-right: var(--safe-right);
   }
+
+  /* With no post open the article's column is given to the posts
+     (`articleless`, see `Main.svelte`), which makes the posts the outermost
+     column on the right — so the notch's inset is theirs for as long as they
+     hold that edge. */
+  html[data-device="phone"] .panes.articleless > .slot.posts {
+    padding-right: var(--safe-right);
+  }
 }
 
 button {

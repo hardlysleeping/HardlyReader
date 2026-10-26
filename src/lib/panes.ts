@@ -815,6 +815,61 @@ export const DEFAULT_LAYOUT: PaneLayout = {
   article: MIN.article,
 };
 
+/* ------------------------------------------------------------------------- *
+ * A phone's own proportions.
+ *
+ * A phone shipped on the desktop's numbers — a 168px drawer and a 240px list —
+ * and on a landscape phone those are not small, they are *wrong*: 168 is a
+ * fifth of an 844px frame, so the feeds were drawn narrower than the phone in
+ * portrait draws them, and the article — which on a phone is often showing
+ * nothing at all — held half the width. The answer is not a smaller version of
+ * a desktop's pair of numbers; it is a proportion of the frame the phone
+ * actually has, so the same phone in portrait, in landscape and in a split view
+ * divides what it is given.
+ *
+ * The shares are of the *frame*, not of what is left after the two seams: 28%
+ * of 844 is 237, and a fifth of that frame is the complaint. Each column is
+ * still floored at the phone's own text minimum (`MINIMUMS.phone`), so a frame
+ * that is too narrow for the proportions gets read-able columns rather than
+ * three slivers — `clampWidths` then fits the result to the frame it is in,
+ * exactly as it does for a width the user dragged.
+ * ------------------------------------------------------------------------- */
+
+/** The share of the frame a phone's feeds and posts columns ask for. */
+export const PHONE_SHARES = { feeds: 0.28, posts: 0.33 } as const;
+
+/**
+ * The posts width a phone's *two*-pane shape ships with.
+ *
+ * Unchanged from 0.6.0 on purpose: two panes draw the posts as the elastic
+ * column (`1fr`), so there the number is a preference nothing is drawn from,
+ * and only the three-pane row — the one that was wrong — is re-profiled.
+ */
+export const PHONE_PAIR_LIST = 240;
+
+/**
+ * A phone's shipped layout, from the frame it is drawing in.
+ *
+ * 28% feeds, 33% posts, and the article takes the remainder. Both shares round
+ * *up*: 0.28 of 844 is 236.32, and a feeds pane rounded down to 236 is a column
+ * sitting under the share it was given, which is the one thing a proportion
+ * must not do.
+ *
+ * The article is stored as the remainder rather than as its own proportion, so
+ * the four numbers sum to the frame the profile was taken from — which is also
+ * what makes the three-pane requirement derived from them the frame itself
+ * rather than a number beside it.
+ */
+export function phoneLayout(available: number): PaneLayout {
+  const mins = MINIMUMS.phone;
+  const frame = Number.isFinite(available) && available > 0 ? available : 0;
+  const room = Math.max(0, frame - GUTTER * 2);
+  const sidebar = Math.max(mins.sidebar, Math.ceil(frame * PHONE_SHARES.feeds));
+  const list3 = Math.max(mins.list, Math.round(frame * PHONE_SHARES.posts));
+  const article = Math.max(mins.article, room - sidebar - list3);
+  return { sidebar, list2: Math.max(mins.list, PHONE_PAIR_LIST), list3, article };
+}
+
 /** The two widths the grid and the drag arithmetic want, for one mode. */
 export function layoutWidths(layout: PaneLayout, mode: PaneMode): PaneWidths {
   return { sidebar: layout.sidebar, list: mode === 3 ? layout.list3 : layout.list2 };
@@ -1032,6 +1087,9 @@ export function nudge(widths: PaneWidths, which: "sidebar" | "list", direction: 
  * when a press fits the window to it, but with "Keep window" the frame stays the
  * size the user chose and the pane keeps the width it was given — the sidebar's
  * width, pinned left — with the rest of the frame simply empty.
+ *
+ * `articleless` is the phone's: three columns where the third has nothing in it
+ * hands that column to the posts rather than to the background.
  */
 export interface PaneTemplate {
   /** The pane container's width, in CSS pixels. */
@@ -1039,6 +1097,21 @@ export interface PaneTemplate {
   collapsed?: boolean;
   stacked?: boolean;
   keepWidths?: boolean;
+  /**
+   * Nothing is open in the article column, so the column has nothing to show.
+   *
+   * A phone sets this and nothing else does: a landscape phone at three panes
+   * is 844px wide, and a third of that held by a pane that reads "Select an
+   * article" is the largest thing on the screen being the emptiest. The
+   * article's share goes to the posts, and its seam with it, so the list is as
+   * wide as the phone allows until a post is opened.
+   *
+   * It is a *width*, not a mode: the five tracks stay five lengths, so opening
+   * a post is the same change of widths — and therefore the same slide — as
+   * every other layout change, and `paneSlots` is untouched. A desktop frame
+   * keeps the column, empty or not, because a desktop has the room for it.
+   */
+  articleless?: boolean;
 }
 
 /**
@@ -1081,6 +1154,13 @@ export function tracks(mode: PaneMode, widths: PaneWidths, template: PaneTemplat
   }
   if (stacked) {
     // Feeds, seam, one right-hand column split into rows by `stackTemplate`.
+    return [size(lead), size(gap), size(total - lead - gap), 0, 0];
+  }
+  if (template.articleless === true) {
+    // A phone with nothing open: the article's column and its seam go to the
+    // posts, so the row is the feeds and one list as wide as the frame allows.
+    // Five lengths again, in the same order, so this is a change of widths and
+    // the third column slides back in when a post is opened.
     return [size(lead), size(gap), size(total - lead - gap), 0, 0];
   }
   return [size(lead), size(gap), size(widths.list), size(GUTTER), size(total - lead - gap - widths.list - GUTTER)];
