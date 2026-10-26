@@ -63,12 +63,57 @@ check("a press is not a pan until it travels", threshold >= 4 && threshold <= 10
 check("the click after a pan is swallowed", /performance\.now\(\) - endedAt > CLICK_GRACE/.test(source));
 check("and the swallow expires", /const CLICK_GRACE = \d+/.test(source));
 
-// Controls that own the pointer keep it.
+// Controls that own the pointer keep it — and which controls those are depends
+// on the pointer. Typing, a slider and the pane edge hold the gesture against
+// either hand. `data-no-drag-scroll` is a mouse opt-out only: it was added
+// because a mouse press that slid a few pixels became a pan and swallowed the
+// click, and a mouse has a wheel to scroll with instead. A finger has no wheel,
+// so the pan is the only scroll there is and a finger is never refused there.
 check(
-  "inputs, the gutter and opt-outs are left alone",
-  /input, textarea, select, option, \[contenteditable='true'\], \[data-no-drag-scroll\], \.gutter/.test(source),
+  "typing, a slider and the pane edge are left alone whatever the pointer is",
+  /const OWNS_POINTER = "input, textarea, select, option, \[contenteditable='true'\], \.gutter"/.test(source),
 );
-check("the opt-out is honoured", /origin\.closest\(OWNS_POINTER\)/.test(source));
+check(
+  "the mouse's own list is the general one plus the opt-out",
+  /`\$\{OWNS_POINTER\}, \[data-no-drag-scroll\]`/.test(source),
+);
+check(
+  "and the press reads one list or the other by pointer type",
+  /const finger = event\.pointerType === "touch";\s*\n\s*if \(origin\.closest\(finger \? OWNS_POINTER : MOUSE_OWNS_POINTER\)\) return;/.test(
+    source,
+  ),
+);
+
+// The threshold is per press, not raised for everyone: a finger that landed on
+// a control has to travel further before the pan takes the tap away from it,
+// and a finger that landed on the row's body still pans at `THRESHOLD`.
+const controlThreshold = Number(/const CONTROL_THRESHOLD = (\d+)/.exec(source)?.[1] ?? "0");
+check("a control is travelled past further than a plain surface", controlThreshold > threshold && controlThreshold <= 12, String(controlThreshold));
+check(
+  "only a finger's press on something tappable gets it",
+  /threshold = finger && origin\.closest\(TAPPABLE\) \? CONTROL_THRESHOLD : THRESHOLD;/.test(source),
+);
+check(
+  "what a finger can tap is a button, a link, a role button or an opt-out strip",
+  /const TAPPABLE = "button, a\[href\], \[role='button'\], \[data-no-drag-scroll\]"/.test(source),
+);
+check(
+  "and the pan measures against that press's threshold",
+  /Math\.hypot\(event\.clientX - startX, event\.clientY - startY\) < threshold\) return;/.test(source),
+);
+
+// The press that became a pan is not a press on the control it started on: the
+// pressed look has to go with the gesture, or the star stays lit for the whole
+// scroll.
+check(
+  "a pan drops the pressed look it started on",
+  /html\.drag-panning :is\(button, a, \[role="button"\]\):active:not\(\.on\):not\(\[aria-pressed="true"\]\) \{/.test(css) &&
+    /transform: none !important;\s*\n\s*background-color: transparent !important;/.test(css),
+);
+check(
+  "and a control that is switched on keeps its colour",
+  /:active:not\(\.on\):not\(\[aria-pressed="true"\]\)/.test(css),
+);
 
 // Content follows the pointer, both axes.
 check("the scroll is taken from the pointer's travel", /scrollTop -= event\.clientY - lastY/.test(source) && /scrollLeft -= event\.clientX - lastX/.test(source));
@@ -139,11 +184,12 @@ check("the release arms nothing else", /panning = false;\s*\n\s*pointer = null;\
 check("the grabbing cursor is defined once", /html\.drag-panning/.test(css));
 check("the panning class is added and removed", new RegExp(`classList\\.add\\(PANNING_CLASS\\)`).test(source) && /classList\.remove\(PANNING_CLASS\)/.test(source));
 
-// A press on a 24px toggle is smaller than a hand is steady: if it slides past
+// A press on a 24px toggle is smaller than a mouse is steady: if it slides past
 // the threshold it becomes a pan, and the pan swallows the click — the button
-// reads as dead. The toggles therefore own the pointer.
+// reads as dead. The toggles therefore own the pointer for the mouse. A finger
+// pans from them instead, at `CONTROL_THRESHOLD`.
 const list = read("../../src/components/ArticleList.svelte");
-check("the star, read and source toggles own the pointer", /class="acts" data-no-drag-scroll/.test(list));
+check("the star, read and source toggles own the pointer for the mouse", /class="acts" data-no-drag-scroll/.test(list));
 check("and the rule that gives it to them is the one the module reads", /\[data-no-drag-scroll\]/.test(source));
 
 // Taking the pan from the browser is a per-surface decision: the three readers
