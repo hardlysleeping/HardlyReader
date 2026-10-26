@@ -236,14 +236,14 @@ check("and the nested block does not make its own scrollbar", /\.list\.nested \.
 check("touch gets a real target for the toggles", /@media \(pointer: coarse\)[\s\S]{0,120}width: 34px/.test(list));
 
 
-// Pins while locked: the control leaves the band and sits above it, outside
-// both the fold and the curtain, so asking for pinned-only never depends on
-// being unlocked.
+// One band, three states, and the pin control is drawn in every one of them:
+// asking for pinned-only never depends on being unlocked. The states themselves
+// (what a locked band may say) are `sidebar-band.mjs`; this only guards that the
+// pin is one control, not a copy per state.
 const band = read("src/components/SidebarBand.svelte");
 check("the pin control is defined once", (band.match(/\{#snippet pinControl\(\)\}/g) ?? []).length === 1);
-check("and rendered in the band", /\{@render pinControl\(\)\}/.test(band));
-check("it also renders while locked", /\{#if locked\}[\s\S]{0,200}\{@render pinControl\(\)\}/.test(band));
-check("the locked copy is outside the reveal", /\{#if locked\}[\s\S]{0,200}lockpin[\s\S]{0,300}?<button[\s\S]{0,40}class="bar"/.test(band));
+check("and rendered in the open band", /\{@render pinControl\(\)\}/.test(band));
+check("it also renders while locked", /\{#if locked\}[\s\S]{0,900}\{@render pinControl\(\)\}/.test(band));
 check("there is only one pin control in the markup", (band.match(/class="ctl pin"/g) ?? []).length === 0 || (band.match(/class="ctl pin"/g) ?? []).length === 1);
 
 // Layout, not just labels: each of these was a flex child shrunk to nothing by

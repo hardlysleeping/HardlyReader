@@ -17,11 +17,17 @@ export type PinView = "all" | "only" | "without";
 
 export const PIN_VIEW_CYCLE: readonly PinView[] = ["all", "only", "without"];
 
-/** The pin filter's three states, in the words the extension uses. */
+/**
+ * The pin filter's three states, in the words the extension uses.
+ *
+ * `without` is "Hidden favourites", not "Unpinned": FavoriteCategories calls the
+ * categories it is filtering out hidden favourites, and the band has no licence
+ * to invent a fourth word for a state the extension already names.
+ */
 export const PIN_VIEW_LABELS: Record<PinView, string> = {
   all: "Mixed",
-  only: "Only",
-  without: "Unpinned",
+  only: "Favourites",
+  without: "Hidden favourites",
 };
 
 export function nextPinView(view: PinView): PinView {
