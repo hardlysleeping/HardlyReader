@@ -4,7 +4,38 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.1] — 2026-10-26
+
+The phone stops fighting the thumb, and the app opens knowing what it is showing.
+
+### Added
+
+- **Launch is a sync.** Opening the app refreshes it whether or not the auto-sync
+  interval is on — that setting is for a window left open, not permission to open
+  on last week's posts. Coming back to the window refreshes too, after a wait you
+  choose in Settings → Sync: 5 minutes (the default), 10, 30, always, or never.
+  `Never` silences only that path; opening the app still syncs.
+- **The server add-on says which it is.** One row in Settings → Sync: connected,
+  not installed, or unknown. Read from state already in hand, so it costs no
+  request and has no button.
+
+### Fixed
+
+- **The app knows what the extension hides before it draws.** It used to paint a
+  sidebar with no idea which categories were hidden or whether a lock was down —
+  the state only arrived with a sync — so a hidden category could appear and a
+  curtain could lift. The last state the server gave the account is now kept per
+  account and painted before the first frame, then replaced by the live read in
+  the same round as the sidebar. A lock that is drawn stays drawn when a read
+  fails: a dropped connection is not an unlock.
+- **A finger can scroll the list from anywhere.** The app pans its own lists, and
+  it used to refuse any press that started on a control, which made the row's
+  star / read / open strip and every feed row a dead zone with no browser pan to
+  fall back on. That refusal was written for the mouse; it is now a mouse-only
+  rule, and a press that lands on a control scrolls after 10px instead of 5 so a
+  shaky tap still lands.
+- A pan no longer leaves the control it started on looking pressed — except one
+  that is switched on, which keeps its colour.
 
 ### Changed
 
