@@ -78,7 +78,7 @@ import {
   withFavoritesView,
   type FavoritesWriteOutcome,
 } from "./favorites";
-import { effectiveView, visibleGroups } from "./hidden";
+import { effectiveView, showsCategory, visibleGroups } from "./hidden";
 import { filterByAuthor, filterItems } from "../lib/article-filter";
 import { reading } from "./reading.svelte";
 import { StreamCache } from "./stream-cache";
@@ -129,6 +129,39 @@ interface SidebarSnapshot {
     favorites: FavoritesState;
     sidebarIndent: SidebarIndentState;
   };
+}
+
+/**
+ * How old a remembered sidebar may be and still stand in for the server's rows.
+ *
+ * Seven days. It is a policy, not a tuning knob: the copy is only a prediction
+ * of what to draw while the real list is in flight, so it is worth less the
+ * older it is — a week is ample time for the server to add, delete or
+ * recategorise feeds, and a row that has been wrong that long is worse than the
+ * blank the catch-up paint fills a moment later. Past the cap the copy is
+ * refused and the sidebar waits for the server, exactly as it did before this
+ * existed.
+ */
+const SIDEBAR_REMEMBERED_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The last sidebar the server really sent, kept in memory for one account.
+ *
+ * `hydrateSidebar` fills this once from the disk snapshot, and every successful
+ * `loadSidebar` replaces it with the answer, so it is always either what the
+ * server said or this device's recording of it. `key` is the account's own
+ * storage scope: two logins never share a copy, and a copy whose scope no longer
+ * matches the session is never drawn. `at` is when the rows were captured — the
+ * disk blob's write time when they were read back, now when the server answered.
+ *
+ * In memory because the reveal path cannot wait: `readCached` is an IndexedDB
+ * round trip, and the first paint after a reveal must not await anything.
+ */
+interface RememberedSidebar {
+  key: string;
+  subscriptions: Subscription[];
+  counts: { id: string; count: number }[];
+  at: number;
 }
 
 /** Abort surfaces as a DOMException; it is not an error worth showing. */
@@ -278,6 +311,13 @@ export class ReaderState {
    */
   private hiddenPending = 0;
   private hiddenCatchUp: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * The last sidebar the server sent, for the reveals that need rows its
+   * current list omits. One account's copy at a time: cleared with the account,
+   * and checked against the session's own key before it is ever drawn.
+   */
+  private rememberedSidebar: RememberedSidebar | null = null;
 
   /** Last lock/unlock message, so a wrong passcode is visible rather than silent. */
   lockNotice = $state<string | null>(null);
@@ -1211,6 +1251,9 @@ export class ReaderState {
     const optimistic = withCategoryHidden(previous, id, hidden);
     if (optimistic === previous) return null;
     this.hiddenCategories = optimistic;
+    // A reveal puts back the rows the server's list omits, before anything is
+    // awaited. A hide needs nothing: the hidden state now filters the row out.
+    if (!hidden) this.revealRows(optimistic);
 
     const token = (this.hiddenIdTokens.get(id) ?? 0) + 1;
     this.hiddenIdTokens.set(id, token);
@@ -1236,6 +1279,10 @@ export class ReaderState {
 
     const previous = this.hiddenCategories;
     this.hiddenCategories = withView(previous, view);
+    // `revealed` draws every category and `only` draws just the hidden ones;
+    // either way the list in hand can be missing rows Strict omitted, so they
+    // are filled from the last list the server sent before the write is queued.
+    if (view !== "hidden") this.revealRows(this.hiddenCategories);
     const token = ++this.hiddenViewToken;
     this.hiddenWriteGen += 1;
 
@@ -1565,6 +1612,8 @@ export class ReaderState {
     this.hiddenError = null;
     this.favorites = unavailableFavorites();
     this.lockNotice = null;
+    // The remembered rows belong to the account whose server sent them.
+    this.rememberedSidebar = null;
     // The state route and the snapshot were one server's answer; the next
     // account is asked about on its own.
     this.stateRouteMissing = false;
@@ -1655,7 +1704,19 @@ export class ReaderState {
     const key = this.diskKey("sidebar");
     if (key === null) return;
     const cached = await readCached<SidebarSnapshot>(key);
-    if (cached === undefined || this.subscriptions.length > 0) return;
+    if (cached === undefined) return;
+    // The read is async and the session can change while it is out: rows read
+    // for one account are not another account's to remember.
+    if (this.diskKey("sidebar") !== key) return;
+    // Kept whether or not it is painted below — the network may have won this
+    // race, and a reveal later in the session still needs these rows.
+    this.rememberedSidebar = {
+      key,
+      subscriptions: cached.value.subscriptions,
+      counts: cached.value.counts,
+      at: cached.at,
+    };
+    if (this.subscriptions.length > 0) return;
     const snapshot = cached.value;
     this.subscriptions = snapshot.subscriptions;
     this.tags = snapshot.tags;
@@ -1685,6 +1746,77 @@ export class ReaderState {
     });
   }
 
+  /**
+   * Keeps what the server just sent, for the next reveal.
+   *
+   * Exactly the rows and counts of the answer — never `this.subscriptions`,
+   * which a reveal may already have padded with remembered rows. A feed deleted
+   * elsewhere must not be remembered back into existence by a later merge.
+   */
+  private rememberSidebar(
+    key: string | null,
+    subscriptions: Subscription[],
+    counts: { id: string; count: number }[],
+  ): void {
+    // The read took four requests: an account that started meanwhile is not the
+    // one these rows belong to, so they are let go rather than mis-filed.
+    if (key === null || this.diskKey("sidebar") !== key) return;
+    this.rememberedSidebar = { key, subscriptions, counts, at: Date.now() };
+  }
+
+  /**
+   * Draws the rows a reveal needs, from the last sidebar the server sent.
+   *
+   * Strict mode hides a category by dropping every feed in it to priority -10,
+   * and GReader then leaves those feeds out of `subscription/list` altogether:
+   * after a reveal the app holds the flag and no rows, so the sidebar stayed
+   * empty until the catch-up reload landed — a 250 ms debounce plus four
+   * requests. This fills exactly that hole, synchronously, before any await.
+   *
+   * The rule, in one line: add the remembered rows whose category the new state
+   * draws and the live list does not already have, and nothing else. A row that
+   * is present wins by id, so the server's own title, categories and position
+   * are never overwritten; a count is taken only for a row that was added, never
+   * over a live one. Nothing is ever removed, from the list or from the copy —
+   * the copy is a prediction about what to draw, never authority over what is
+   * hidden, because the hidden state itself is what decides what is shown. The
+   * catch-up `loadSidebar` then replaces the whole list when the server answers,
+   * which is what drops a feed deleted elsewhere.
+   *
+   * Draws nothing at all while locked: a curtain that lets remembered rows
+   * through is not a curtain. A passcode is what lifts the lock, so `locked` is
+   * the whole condition — an account that has set one and unlocked it is not
+   * locked, and its reveals are as instant as anyone's.
+   */
+  private revealRows(state: HiddenCategoriesState): void {
+    const remembered = this.rememberedSidebar;
+    const key = this.diskKey("sidebar");
+    if (remembered === null || key === null || remembered.key !== key) return;
+    if (!state.available || state.locked) return;
+    // `!(age <= cap)` rather than `age > cap`: a copy with no usable capture
+    // time is one nobody can vouch for, and NaN compares false both ways.
+    if (!(Date.now() - remembered.at <= SIDEBAR_REMEMBERED_MAX_AGE_MS)) return;
+
+    const present = new Set(this.subscriptions.map((feed) => feed.id));
+    const added: Subscription[] = [];
+    for (const feed of remembered.subscriptions) {
+      if (present.has(feed.id)) continue;
+      const categories = feed.categories ?? [];
+      if (!categories.some((category) => showsCategory(state, category.label))) continue;
+      present.add(feed.id);
+      added.push(feed);
+    }
+    if (added.length === 0) return;
+
+    this.subscriptions = [...this.subscriptions, ...added];
+    const rememberedCounts = new Map(remembered.counts.map((entry) => [entry.id, entry.count]));
+    for (const feed of added) {
+      if (this.counts.has(feed.id)) continue;
+      const count = rememberedCounts.get(feed.id);
+      if (count !== undefined) this.counts.set(feed.id, count);
+    }
+  }
+
   stop(): void {
     this.session = null;
     this.streamHistory = [];
@@ -1697,6 +1829,8 @@ export class ReaderState {
     this.hiddenCategories = unavailableState();
     this.hiddenError = null;
     this.hiddenBusy = false;
+    // The rows one account's server sent are not the next one's.
+    this.rememberedSidebar = null;
     this.stateRouteMissing = false;
     this.apiSnapshotPainted = false;
     this.favorites = unavailableFavorites();
@@ -1720,6 +1854,8 @@ export class ReaderState {
   async loadSidebar(report?: SyncReport): Promise<boolean> {
     if (!this.session) return false;
     const session = this.session;
+    // Captured before the four reads: the answer is only this account's.
+    const sidebarKey = this.diskKey("sidebar");
     const fetchStep = <T>(id: "feeds" | "tags" | "counts", fetchOne: () => Promise<T>): Promise<T> => {
       report?.start(id);
       return fetchOne().then(
@@ -1756,6 +1892,9 @@ export class ReaderState {
     this.subscriptions = feeds.value;
     this.tags = tags.value;
     this.setCounts(counts.value);
+    // The answer, exactly as it came: this is what a later reveal may draw from
+    // while the next read is out.
+    this.rememberSidebar(sidebarKey, feeds.value, counts.value);
     this.persistSidebar(counts.value);
     return true;
   }
