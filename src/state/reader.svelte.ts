@@ -62,6 +62,7 @@ import {
   type SidebarIndentState,
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
+import { readAccountValue, writeAccountValue } from "../lib/account-key";
 import { resolveIndent } from "../lib/indent";
 import { feedMenu, categoryMenu, type MenuAction, type MenuModel, type Point } from "../lib/contextmenu";
 import {
@@ -96,6 +97,17 @@ const STREAM_CACHE_MAX = 20;
 const PREFETCH_MAX_INFLIGHT = 2;
 /** Past this many feeds, categories start folded so the sidebar draws quickly. */
 const LARGE_SIDEBAR_FEEDS = 150;
+
+/**
+ * The base of the one blob this device keeps for an account.
+ *
+ * Pins, the categories folded shut (the local hidden set), the indent chosen here
+ * and the arrangement all share it, because they are written together on every
+ * change: one key is one atomic write. It used to carry `serverUrl|email` in its
+ * name, which put an address in a storage key; the account's copy is a hashed slug
+ * now, and a pre-scoping blob is adopted once by the account it named.
+ */
+const PREFS_BASE = "hardlyreader.prefs.v1";
 
 interface DiskStream {
   items: StreamItem[];
@@ -699,16 +711,17 @@ export class ReaderState {
     this.savePrefs();
   }
 
-  private prefsKey(): string | null {
-    const session = this.session;
-    return session === null ? null : `hardlyreader:prefs:${session.serverUrl}|${session.email}`;
-  }
-
   private loadPrefs(): void {
-    const key = this.prefsKey();
-    if (key === null || typeof localStorage === "undefined") return;
+    const session = this.session;
+    if (session === null || typeof localStorage === "undefined") return;
     try {
-      const raw = JSON.parse(localStorage.getItem(key) ?? "null") as Record<string, unknown> | null;
+      // The pre-scoping key named the account outright, so the account that finds
+      // it is the account it belongs to — no claiming needed, and the old blob is
+      // left in place for a downgrade.
+      const legacyKey = `hardlyreader:prefs:${session.serverUrl}|${session.email}`;
+      const raw = JSON.parse(
+        readAccountValue(localStorage, PREFS_BASE, session, legacyKey) ?? "null",
+      ) as Record<string, unknown> | null;
       this.localPins = parsePins(raw?.pins);
       const order = raw?.order;
       this.feedOrder = Array.isArray(order)
@@ -745,11 +758,13 @@ export class ReaderState {
   }
 
   private savePrefs(): void {
-    const key = this.prefsKey();
-    if (key === null || typeof localStorage === "undefined") return;
+    const session = this.session;
+    if (session === null || typeof localStorage === "undefined") return;
     try {
-      localStorage.setItem(
-        key,
+      writeAccountValue(
+        localStorage,
+        PREFS_BASE,
+        session,
         JSON.stringify({
           pins: this.localPins,
           collapsed: this.collapsedCategories,

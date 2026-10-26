@@ -32,6 +32,10 @@ import {
   positionsBody,
   samePositions,
 } from "../../src/lib/positions.ts";
+import { scopedKey } from "../../src/lib/account-key.ts";
+
+/** One blob holds pins, the local fold set and the indent cache. */
+const PREFS_BASE = "hardlyreader.prefs.v1";
 
 let checks = 0;
 let failures = 0;
@@ -142,6 +146,7 @@ function buildReadingModule() {
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
     .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
+    .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
   const out = join(GEN_DIR, "positions-reading.mjs");
@@ -196,6 +201,7 @@ function buildReaderModule() {
     .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")))
     .replaceAll('"./pins"', JSON.stringify(absolute("src/state/pins.ts")))
     .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")))
+    .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
     .replaceAll('"../lib/opml"', JSON.stringify(absolute("src/lib/opml.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
@@ -207,7 +213,7 @@ function buildReaderModule() {
 const SESSION = { serverUrl: "https://reader.test", email: "u@reader.test", token: "u/0123456789abcdef" };
 const OTHER = { ...SESSION, email: "other@reader.test" };
 
-const PREFS = (session) => `hardlyreader:prefs:${session.serverUrl}|${session.email}`;
+const PREFS = (session) => scopedKey(PREFS_BASE, session);
 
 function subscription(id, title, label) {
   return {

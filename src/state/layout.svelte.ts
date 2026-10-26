@@ -19,7 +19,9 @@ import {
   THRESHOLDS,
   THRESHOLD_LIMITS,
   isPaneMotion,
+  isMobilePortraitMode,
   type Device,
+  type MobilePortraitMode,
   type PaneLayout,
   type PaneMode,
   type PaneMotion,
@@ -54,7 +56,12 @@ import {
   widthFor,
 } from "../lib/panes";
 import { canFitWindow, fitWindowTo, screenWidth } from "../lib/window-fit";
+import { readAccountValue, storedAccount, writeAccountValue } from "../lib/account-key";
 
+/**
+ * The base of the layout key. An account's copy is `base:<slug>`; the bare key is
+ * the pre-accounting one, read before sign-in and adopted by the first account.
+ */
 const STORAGE_KEY = "hardlyreader.layout.v1";
 
 /**
@@ -113,6 +120,16 @@ interface SavedLayout {
   stackSwapped?: boolean;
   /** How much of the stacked right column is above the seam. */
   stackShare?: number;
+  /**
+   * What a phone held upright draws: one pane at a time, or the sliding stack.
+   *
+   * A layout preference, saved with the rest of them, and read back only to
+   * draw with — never re-decided by a measurement. Turning the device does not
+   * touch it (see `upright`, which is the measurement, and this, which is the
+   * answer), so a phone that was set to the stack comes back to the stack after
+   * a rotation, and the same phone turned sideways still draws three columns.
+   */
+  mobilePortraitMode?: MobilePortraitMode;
 }
 
 /**
@@ -280,6 +297,31 @@ class LayoutState {
    * the starting point for a reader whose system asks for reduced motion.
    */
   motion = $state<PaneMotion>(DEFAULT_MOTION);
+
+  /**
+   * What a phone held upright draws: the walk it has always had, or the stack.
+   *
+   * A preference with a mode's lifetime rather than a gesture's: written only by
+   * the panel, read by the view, and saved with the rest of the layout. Nothing
+   * in here writes it back — not `setAvailable`, which is where a rotation
+   * arrives, and not `settle`, which is where a width decides the pane count.
+   * That is what "rotation must never overwrite the chosen layout mode" means in
+   * practice: orientation is a measurement, and a measurement does not get to
+   * answer a question the user has already answered.
+   */
+  mobilePortraitMode = $state<MobilePortraitMode>("single");
+
+  /**
+   * Whether the device is standing upright, as of the last measurement.
+   *
+   * The same answer as the private `portrait` getter above, kept as state so the
+   * view can *react* to a rotation: the getter prefers the screen's own
+   * dimensions, and `screen.width` is not a signal — a derived value that read it
+   * would keep drawing the stack after the phone was turned, because nothing it
+   * depends on had changed. Written where a measurement is taken, so a resize
+   * (which is what a rotation is, from here) re-asks the question.
+   */
+  upright = $state(false);
 
   /**
    * Bumped by every press that moves the panes.
@@ -1041,6 +1083,20 @@ class LayoutState {
     this.save();
   }
 
+  /**
+   * One pane at a time, or the sliding stack, on a phone held upright.
+   *
+   * Nothing else changes with it: the widths, the thresholds and the chosen mode
+   * are about the columns, and the stack draws the same three panes a screen at a
+   * time. Turned sideways the answer is not consulted at all — landscape keeps
+   * the desktop three-column layout either way.
+   */
+  setMobilePortraitMode(next: MobilePortraitMode): void {
+    if (!isMobilePortraitMode(next) || this.mobilePortraitMode === next) return;
+    this.mobilePortraitMode = next;
+    this.save();
+  }
+
   /** A press that moves the panes: the view may draw the change over time. */
   private press(): void {
     this.pressSeq += 1;
@@ -1184,6 +1240,7 @@ class LayoutState {
     this.device = detectDevice();
     this.available = size.width;
     this.height = size.height;
+    this.upright = this.portrait;
     this.thresholds = { ...THRESHOLDS[this.device] };
     // Reduced motion picks the starting feel, not the available ones: a press
     // that moves no pixels is the honest default for someone who asked the
@@ -1205,7 +1262,7 @@ class LayoutState {
       return;
     }
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = readAccountValue(localStorage, STORAGE_KEY, storedAccount(localStorage));
       if (raw === null) {
         this.settle(false);
         return;
@@ -1236,6 +1293,11 @@ class LayoutState {
       // A saved feel is theirs, reduced motion or not: the system only chose the
       // default they started from.
       if (isPaneMotion(saved.motion)) this.motion = saved.motion;
+      // The phone's portrait shape, read back as the answer it was. An older
+      // save has no such key and gets the walk it was already drawing.
+      if (isMobilePortraitMode(saved.mobilePortraitMode)) {
+        this.mobilePortraitMode = saved.mobilePortraitMode;
+      }
       // A save from before the stack existed simply loads side by side, which is
       // what it was looking at.
       this.stackChoice = saved.stacked === true;
@@ -1324,6 +1386,10 @@ class LayoutState {
     const sameHeight = height === this.height;
     this.available = px;
     this.height = height;
+    // A rotation arrives as a resize, and this is the only place the upright
+    // answer is re-read. It never writes `mobilePortraitMode`: the shape is what
+    // the device is doing, the preference is what the reader asked for.
+    this.upright = this.portrait;
     if (sameWidth && sameHeight && this.pressTarget === null) return;
     // The window has arrived, or given up: either way the measurement is the
     // truth again from here, so a resize the user makes is followed at once
@@ -1420,8 +1486,10 @@ class LayoutState {
   private save(): void {
     if (typeof localStorage === "undefined") return;
     try {
-      localStorage.setItem(
+      writeAccountValue(
+        localStorage,
         STORAGE_KEY,
+        storedAccount(localStorage),
         JSON.stringify({
           mode: this.desired,
           panes: this.panes,
@@ -1437,6 +1505,7 @@ class LayoutState {
           stacked: this.stackChoice,
           stackSwapped: this.stackSwapped,
           stackShare: this.stackShare,
+          mobilePortraitMode: this.mobilePortraitMode,
         }),
       );
     } catch {

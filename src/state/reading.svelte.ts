@@ -51,7 +51,16 @@ import {
 } from "../lib/reading-layout";
 import { clampEffort, EFFORT_DEFAULT } from "../lib/scroll-advance";
 import { EXTRACT_DEFAULT } from "../lib/extract";
+import { readAccountValue, storedAccount, writeAccountValue } from "../lib/account-key";
 
+/**
+ * The base of the reading key; an account's copy is `base:<slug>`.
+ *
+ * One blob for every reading choice, which is why it is scoped as a unit: a second
+ * login must not open with the first one's text scale, list view or mark-read mode.
+ * The bare key is the pre-accounting one, read before sign-in and adopted by the
+ * first account.
+ */
 const STORAGE_KEY = "hardlyreader.reading.v1";
 
 /** How read state is decided: by you, or by a clock while the post is open. */
@@ -215,7 +224,7 @@ class ReadingState {
   load(): void {
     if (typeof localStorage === "undefined") return;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = readAccountValue(localStorage, STORAGE_KEY, storedAccount(localStorage));
       if (raw === null) return;
       const saved = JSON.parse(raw) as {
         advanceOnScroll?: unknown;
@@ -501,8 +510,10 @@ class ReadingState {
   private save(): void {
     if (typeof localStorage === "undefined") return;
     try {
-      localStorage.setItem(
+      writeAccountValue(
+        localStorage,
         STORAGE_KEY,
+        storedAccount(localStorage),
         JSON.stringify({
           advanceOnScroll: this.advanceOnScroll,
           articleFilter: this.articleFilter,

@@ -680,6 +680,40 @@
         setting is still yours.
       </p>
 
+      <!-- The phone's own layout question, which is *not* the pane count: a
+           portrait phone has one width whatever it says, so the choice is how
+           that width is spent — the walk it shipped with, or three panes that
+           slide. Only drawn on a phone: on a desktop no portrait frame is ever
+           drawn, and a control that cannot do anything is worse than no control.
+           Turned sideways the answer is not consulted at all — the phone draws the
+           columns it always did — which is why the row does not mention it. -->
+      {#if layout.device === "phone"}
+      <div class="row">
+        <span class="key">Held upright</span>
+        <div class="seg" role="group" aria-label="How a phone held upright shows its panes">
+          <button
+            class="segbtn"
+            class:on={layout.mobilePortraitMode === "single"}
+            aria-pressed={layout.mobilePortraitMode === "single"}
+            title="One pane at a time: the feed list, then the post, with the list in a drawer"
+            onclick={() => layout.setMobilePortraitMode("single")}>One pane</button>
+          <button
+            class="segbtn"
+            class:on={layout.mobilePortraitMode === "stack"}
+            aria-pressed={layout.mobilePortraitMode === "stack"}
+            title="Three panes a screen apart: swipe in from the left edge for the one behind"
+            onclick={() => layout.setMobilePortraitMode("stack")}>Sliding</button>
+        </div>
+      </div>
+      <p class="hint">
+        Sliding puts the feeds, the posts and the article one screen apart, so the
+        pane you came from is still there behind the one you are on: swipe in from
+        the left edge, or press back, to come out one layer. One pane is the walk
+        the phone has always had. Turned sideways this answer is not used: the
+        columns are the ones the phone always drew, and the answer is kept.
+      </p>
+      {/if}
+
       <!-- How three panes are *arranged*, which is a different question from how
            wide they are — so this row is outside the pixel sliders above, and
            outside their gate on purpose: a phone has no thresholds, no pane
