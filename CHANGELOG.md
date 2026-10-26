@@ -4,6 +4,27 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — 2026-10-25
+
+The phone gets its own way to move, and a device can hold more than one account.
+
+### Added
+
+- **Sliding panes, for a phone held upright.** One pane at a time, sliding out
+  of the way: an edge swipe from the posts to the feed list, from the posts to
+  the article, and back again. A back button unwinds one layer before anything
+  app-level happens. Off by default — "One pane" is what portrait did before.
+- **Per-account device state.** The layout, reading preferences, sidebar chrome,
+  pins and local indent are now stored under a hash of the account rather than
+  once for the whole device, so a second login starts from its own state. The
+  hash is the server and the address; neither ever appears in a key.
+
+### Unchanged on purpose
+
+- Landscape and the desktop grid keep exactly the layout they had. A rotation
+  never writes the layout mode, and the 1/2/3 buttons, gutters and thresholds
+  are untouched.
+
 ## [0.5.0] — 2026-10-25
 
 The window decides how many panes it can hold, and the panes give way one at a
