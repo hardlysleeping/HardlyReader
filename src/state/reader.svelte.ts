@@ -1415,7 +1415,47 @@ export class ReaderState {
     }
   }
 
+  /**
+   * Everything one account's session put on screen, cleared before another one
+   * starts.
+   *
+   * `start` is re-entered when the account changes, not only when the app
+   * launches: the reader is one object for the whole run, so a feed list, a post,
+   * a count or a hidden-category set left over from the account that was in use
+   * would be painted under the new account's name until its own requests landed —
+   * and a count map only ever gains entries, so the old numbers would sit beside
+   * the new ones for the rest of the run. Preferences, the open stream and the
+   * scroll position are not cleared here: they are read back below, from the new
+   * account's own keys.
+   */
+  private resetForAccount(): void {
+    this.subscriptions = [];
+    this.tags = [];
+    this.items = [];
+    this.counts.clear();
+    this.busyItems.clear();
+    this.selectedId = null;
+    this.continuation = undefined;
+    this.activeStream = READING_LIST;
+    this.activeTitle = "Reading list";
+    this.authorFilter = null;
+    this.expandedFeedId = null;
+    this.menu = null;
+    this.hiddenCategories = unavailableState();
+    this.hiddenError = null;
+    this.favorites = unavailableFavorites();
+    this.lockNotice = null;
+    // The routes below were learned from one server; the next account has its own.
+    this.positionsRoute = "unknown";
+    this.lastSyncAt = 0;
+    this.articleScrollRestore = null;
+    this.listScrollRestore = null;
+    this.liveScroll.article = 0;
+    this.liveScroll.list = 0;
+  }
+
   async start(session: Session): Promise<void> {
+    this.resetForAccount();
     this.session = session;
     this.error = null;
     this.loadPrefs();

@@ -30,7 +30,15 @@
     session,
     account,
     onsignout,
-  }: { session: Session; account: UserInfo | null; onsignout?: () => void } = $props();
+    onaddaccount,
+  }: {
+    session: Session;
+    account: UserInfo | null;
+    /** Sign out of every account on this device. */
+    onsignout?: () => void;
+    /** Sign a second account in without touching the one in use. */
+    onaddaccount?: () => void;
+  } = $props();
 
   /** A launch load newer than this counts as the launch sync. */
   const AUTO_SYNC_LAUNCH_GRACE_MS = 30_000;
@@ -158,6 +166,12 @@
   let launched = $state(false);
 
   onMount(() => {
+    // Three stores outlive a session, and this view is mounted once per session
+    // — a switch remounts it — so this is where each one re-reads the account
+    // that is now in use. The layout is the one that *had* to be told: it is
+    // loaded at import, before there is an account to load for, so without this
+    // call a switch kept the previous account's panes and mode in memory.
+    layout.reload();
     chrome.load();
     reading.load();
     void reader.start(session).finally(() => (launched = true));
@@ -812,6 +826,7 @@
     server={session.serverUrl}
     controls={layoutSwitch}
     {onsignout}
+    {onaddaccount}
     ontogglesidebar={showFeeds}
     textTarget={articleShown ? "article" : "list"}
   />

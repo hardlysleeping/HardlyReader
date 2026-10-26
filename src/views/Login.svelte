@@ -9,9 +9,20 @@
     /** Why this screen appeared without the reader asking for it. */
     notice?: string;
     onconnected: (session: Session) => void;
+    /**
+     * Back to the reader, when this screen was opened from the account panel to
+     * add an account rather than because there is no session. Absent when signing
+     * in is the only way forward.
+     */
+    oncancel?: () => void;
   }
 
-  let { initialServerUrl = "http://127.0.0.1:18080", notice = "", onconnected }: Props = $props();
+  let {
+    initialServerUrl = "http://127.0.0.1:18080",
+    notice = "",
+    onconnected,
+    oncancel,
+  }: Props = $props();
 
   let serverUrl = $state(untrack(() => initialServerUrl));
   let email = $state("");
@@ -111,6 +122,13 @@
     <button type="submit" disabled={busy}>
       {busy ? "Connecting…" : "Connect"}
     </button>
+
+    <!-- Only when there is a reader behind this screen: adding an account is
+         reversible, and a form that was entered by mistake must not be a dead
+         end. -->
+    {#if oncancel}
+      <button type="button" class="back" onclick={oncancel}>Back to the reader</button>
+    {/if}
   </form>
 </div>
 
@@ -195,6 +213,21 @@
     opacity: 0.6;
     cursor: default;
   }
+
+  /* The way back is a quiet verb, not a second way to connect: it reads as the
+     lesser of the two so it cannot be pressed by accident. */
+  .back {
+    padding: 0.3rem 0.75rem;
+    background: none;
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 0.85rem;
+  }
+
+  .back:hover {
+    color: var(--text);
+  }
+
   .field {
     position: relative;
   }
