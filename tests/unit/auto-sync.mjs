@@ -133,7 +133,7 @@ function harness(options = {}) {
   check("the launch path starts the timer", /startAutoSync\(\{/.test(main) && /return \(\) => run\.stop\(\)/.test(main));
   check("it waits for the launch load", /const started = launched;/.test(main) && /if \(!enabled \|\| !started\) return;/.test(main));
   check("a sync does not restart the timer", /untrack\(\(\) =>\s*startAutoSync/.test(main));
-  check("a launch load counts as the launch sync", /AUTO_SYNC_LAUNCH_GRACE_MS/.test(main));
+  check("a launch load counts as the launch sync", /launch: refreshDueOnLaunch\(reader\.lastSyncAt\)/.test(main));
   check("both settings are in the panel", /Auto sync/.test(panel) && /Every/.test(panel));
   check("every interval is offered", /\{#each AUTO_SYNC_HOURS as hours/.test(panel));
   check("the interval is unusable while off", /disabled=\{!chrome\.autoSync\}/.test(panel));
