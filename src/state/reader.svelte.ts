@@ -83,7 +83,7 @@ import {
   withFavoritesView,
   type FavoritesWriteOutcome,
 } from "./favorites";
-import { effectiveView, showsCategory, visibleGroups } from "./hidden";
+import { effectiveView, enforcing, showsCategory, visibleGroups } from "./hidden";
 import { filterByAuthor, filterItems } from "../lib/article-filter";
 import { reading } from "./reading.svelte";
 import { StreamCache, sameStreamPage } from "./stream-cache";
@@ -565,6 +565,16 @@ export class ReaderState {
   /** How many categories the extension hides. Never drawn while locked. */
   get hiddenCount(): number {
     return this.hiddenCategories.available ? this.hiddenCategories.hiddenIds.length : 0;
+  }
+
+  /**
+   * Whether the curtain is being enforced right now — the strip's badge.
+   *
+   * Locked counts as hidden content in every sense, but the badge is not drawn
+   * then: a lock that still said ENFORCED would be a lock that says something.
+   */
+  get hiddenEnforced(): boolean {
+    return enforcing(this.hiddenCategories);
   }
 
   get hiddenHasPasscode(): boolean {
