@@ -191,6 +191,22 @@ export function isPaneMotion(value: unknown): value is PaneMotion {
 }
 
 /**
+ * What a phone held upright draws: the one-pane walk, or the sliding stack.
+ *
+ * Here rather than in `state/mobile-nav.svelte.ts`, because the layout has to be
+ * able to read and store it without importing a runes module: `layout.svelte.ts`
+ * is compiled on its own by several unit suites, and a dependency on signals it
+ * does not own turns a plain import into a compiler question. It is layout
+ * vocabulary — a shape the layout draws — so it lives with the pane types.
+ */
+export type MobilePortraitMode = "single" | "stack";
+
+/** Whether a stored or typed value is one of the two portrait modes. */
+export function isMobilePortraitMode(value: unknown): value is MobilePortraitMode {
+  return value === "single" || value === "stack";
+}
+
+/**
  * The elastic on the pane that arrives, and only on that one.
  *
  * The columns themselves never overshoot: a track pushed past the width its

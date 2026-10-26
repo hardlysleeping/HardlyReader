@@ -8,6 +8,7 @@
   import Header from "../components/Header.svelte";
   import LayoutSwitch from "../components/LayoutSwitch.svelte";
   import LoadAura from "../components/LoadAura.svelte";
+  import MobilePaneStack from "../components/MobilePaneStack.svelte";
   import PaneGutter from "../components/PaneGutter.svelte";
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
@@ -21,6 +22,7 @@
   import { readingVars } from "../lib/reading-layout";
   import { chrome } from "../state/chrome.svelte";
   import { layout } from "../state/layout.svelte";
+  import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
   import { reading } from "../state/reading.svelte";
   import { reader } from "../state/reader.svelte";
 
@@ -104,6 +106,24 @@
   let panes = $state<HTMLElement | null>(null);
 
   const mode = $derived(layout.mode);
+
+  /**
+   * The phone's sliding stack, instead of the columns.
+   *
+   * True only for a phone held upright whose preference says `stack`. Everything
+   * else — portrait with the walk, and every landscape or desktop frame — draws
+   * the grid below exactly as it always has, which is what keeps the one-pane UI
+   * and the desktop three-pane layout byte for byte what they were. The question
+   * itself is asked once, in `slidesInPortrait`, so the panel cannot offer a
+   * setting the view disagrees with.
+   */
+  const slideStack = $derived(
+    slidesInPortrait({
+      device: layout.device,
+      portrait: layout.upright,
+      mode: layout.mobilePortraitMode,
+    }),
+  );
 
   /**
    * Landing on one pane lands on the feeds, and landing on two lands on the
@@ -267,6 +287,7 @@
         }
         // Out of the article. In one column that is the feed list again, with
         // the feed you were reading still open where you left it.
+        if (stackBack()) return;
         if (reader.back()) return;
         // Nothing open: Left still means "one column to the left", so the panes
         // give one up instead of the key doing nothing. The window is not asked
@@ -672,6 +693,22 @@
   }
 
   /**
+   * The stack's own back press, ahead of the walk's.
+   *
+   * The layers in front are the stack's: an overlay closes first, then the
+   * article — and only when the stack has nothing left does the key mean what it
+   * has always meant. False everywhere the stack is not drawn, so nothing about
+   * one column, three columns or a desktop window changes.
+   */
+  function stackBack(): boolean {
+    if (!slideStack) return false;
+    const step = mobileNav.back();
+    if (step === "overlay") return true;
+    if (step === "article") return reader.back();
+    return false;
+  }
+
+  /**
    * The article's own lock: home first, then the curtain.
    *
    * The jump is a local view change, so it happens immediately; the lock is a
@@ -740,6 +777,17 @@
 
   /** The hamburger is the one-column way back to the feeds. */
   function showFeeds() {
+    if (slideStack) {
+      // Feeds are a pane in front here, not a mode: out of whatever is being
+      // read, then the list slid in over the posts — the same two steps the
+      // walk takes, as one press. Closing the article first is what keeps the
+      // reader honest: a post still "open" behind the list would stop the next
+      // one from arriving, because the level would not have changed.
+      reader.closeReader();
+      mobileNav.show(2);
+      mobileNav.openPrevious();
+      return;
+    }
     if (layout.mode === 1) reader.closeReader();
     else layout.setMode(1);
   }
@@ -811,6 +859,18 @@
     </nav>
   {/if}
 
+  {#if slideStack}
+    <!-- The phone's sliding stack: the same three panes, one screen each, moved
+         with transforms instead of drawn as columns. It replaces the grid below
+         rather than living inside it, which is why a portrait phone that chose
+         `single` runs the markup under `{:else}` untouched. -->
+    <MobilePaneStack
+      nav={mobileNav}
+      onframe={(element) => (panes = element)}
+      onClose={closeArticle}
+      onLock={mode === 1 ? lockFromArticle : undefined}
+    />
+  {:else}
   <!-- One grid, every pane, always mounted. The tracks are five lengths in every
        mode (see `gridTemplate`), so moving between layouts is a change of widths
        rather than a rebuild, and a change of widths is something CSS can draw
@@ -940,6 +1000,7 @@
       {/if}
     {/if}
   </div>
+  {/if}
 
   {#if menu}
     <CategoryMenu
