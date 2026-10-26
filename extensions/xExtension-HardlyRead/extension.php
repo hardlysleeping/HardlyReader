@@ -81,6 +81,8 @@ class HardlyReadExtension extends Minz_Extension
 				loadSidebarIndent: fn (string $username): ?object => $this->loadUserExtension($username, self::INDENT_EXTENSION),
 				loadPositions: fn (string $username): array => $this->positions($username)->load(),
 				savePositions: fn (string $username, array $document): bool => $this->positions($username)->save($document),
+				loadPreferences: fn (string $username): array => $this->preferences($username)->load(),
+				savePreferences: fn (string $username, array $document): bool => $this->preferences($username)->save($document),
 				loadPeople: fn (): ?object => $this->loadPeople(),
 				loadPins: fn (string $username): ?object => $this->pins($username),
 			);
@@ -225,6 +227,20 @@ class HardlyReadExtension extends Minz_Extension
 	private function positions(string $username): HardlyReadPositionStore
 	{
 		return new HardlyReadPositionStore(HardlyReadPositionStore::dirForUser($username));
+	}
+
+	/**
+	 * The remembered settings for one user.
+	 *
+	 * Same directory rules as the arrangement store: the login is in the path,
+	 * so one account's copy is invisible to another, and a login that cannot be
+	 * a path segment is refused inside the store rather than here.
+	 */
+	private function preferences(string $username): HardlyReadPreferenceStore
+	{
+		require_once __DIR__ . '/lib/HardlyReadPreferenceStore.php';
+
+		return new HardlyReadPreferenceStore(HardlyReadPreferenceStore::dirForUser($username));
 	}
 
 	/**

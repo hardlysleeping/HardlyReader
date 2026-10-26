@@ -2,7 +2,7 @@
 	"name": "Hardly Read",
 	"author": "hardlysleeping",
 	"description": "API bridge between HardlyReader clients and FreshRSS extensions.",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"entrypoint": "HardlyRead",
 	"type": "system"
 }

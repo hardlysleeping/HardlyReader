@@ -1,9 +1,11 @@
 /**
  * The theme the user picked, applied to the document.
  *
- * Device-local on purpose: colours and wording are how this machine is set up,
- * not what the account is. It is read at module load and written to `:root`
- * before the first paint, so a light-mode user never sees a dark frame.
+ * The colours follow the account — a reader who sets a dark theme on the
+ * desktop expects it on the phone — while the background picture and its
+ * blur/dim/glass stay on the machine that chose them (see `snapshot`). It is
+ * still read at module load and written to `:root` before the first paint, so a
+ * light-mode user never sees a dark frame.
  */
 import {
   DEFAULT_THEME,
@@ -41,6 +43,46 @@ class ThemeState {
 
   reset(): void {
     this.current = { ...DEFAULT_THEME };
+    this.save();
+    apply(this.current);
+  }
+
+  /**
+   * The part of the theme that travels: the mode and every colour.
+   *
+   * The background picture and its blur/dim/glass are not here on purpose.
+   * They are a photograph scaled to one screen, the largest thing the theme
+   * holds by an order of magnitude, and "how this machine is dressed" rather
+   * than "which colours this reader chose".
+   */
+  snapshot(): Record<string, unknown> {
+    return {
+      mode: this.current.mode,
+      accent: this.current.accent,
+      accentEdges: this.current.accentEdges,
+      hidden: this.current.hidden,
+      pinned: this.current.pinned,
+      lockOpen: this.current.lockOpen,
+      lockClosed: this.current.lockClosed,
+      unlock: this.current.unlock,
+      sync: this.current.sync,
+      trim: this.current.trim,
+      link: this.current.link,
+      star: this.current.star,
+      monotoneActions: this.current.monotoneActions,
+      bg: this.current.bg,
+    };
+  }
+
+  /**
+   * Takes the account's colours.
+   *
+   * Merged over what is here rather than replacing it, so a value that does
+   * not mention the background picture cannot delete it, and a field the
+   * account has never carried keeps this device's answer.
+   */
+  adopt(value: Record<string, unknown>): void {
+    this.current = parseTheme({ ...this.current, ...value });
     this.save();
     apply(this.current);
   }

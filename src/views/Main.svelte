@@ -25,6 +25,7 @@
   import { chrome } from "../state/chrome.svelte";
   import { layout } from "../state/layout.svelte";
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
+  import { prefs } from "../state/prefs.svelte";
   import { reading } from "../state/reading.svelte";
   import { reader } from "../state/reader.svelte";
 
@@ -82,6 +83,18 @@
       document.removeEventListener("visibilitychange", wake);
       watch.stop();
     };
+  });
+
+  /**
+   * Remembered settings follow the account.
+   *
+   * `observe()` reads every store's snapshot, so this effect re-runs on any
+   * change and schedules one debounced write. It does nothing at all until a
+   * session has started, and adopting the account's copy updates the recorded
+   * values first, so a pull never bounces back out as a local edit.
+   */
+  $effect(() => {
+    prefs.observe();
   });
 
   $effect(() => {
@@ -214,6 +227,11 @@
     layout.reload();
     chrome.load();
     reading.load();
+    // The account's copy of the remembered settings, read once behind the first
+    // paint. It is started here rather than in `reader.start` because it spans
+    // stores the reader does not own — the theme, the cards, the search toggle —
+    // and this view is mounted once per session, so the switch is the moment.
+    prefs.start(session);
     void reader.start(session).finally(() => (launched = true));
 
     // The mode is drawn from the real container width rather than from an
@@ -773,6 +791,9 @@
     slideTimer = null;
     if (articleTimer !== null) clearTimeout(articleTimer);
     articleTimer = null;
+    // The account's settings stop travelling with this view; the values stay in
+    // local storage, which is what the next mount reads before any network.
+    prefs.stop();
   });
 
   /**
