@@ -15,9 +15,14 @@ The phone gets its own way to move, and a device can hold more than one account.
   the article, and back again. A back button unwinds one layer before anything
   app-level happens. Off by default — "One pane" is what portrait did before.
 - **Per-account device state.** The layout, reading preferences, sidebar chrome,
-  pins and local indent are now stored under a hash of the account rather than
-  once for the whole device, so a second login starts from its own state. The
-  hash is the server and the address; neither ever appears in a key.
+  pins, local indent and the remembered place are now stored under a hash of the
+  account rather than once for the whole device, and the cached sidebar, stream
+  pages and post text in IndexedDB are scoped the same way — a device that
+  upgrades drops the cache entries whose keys used to spell out the server and
+  the address. The hash is taken over the server and the address; neither appears
+  in a key this build writes. It is a name, not a secret: anyone holding the
+  device who can guess an address can hash the guess and see whether a key is
+  theirs.
 
 ### Unchanged on purpose
 

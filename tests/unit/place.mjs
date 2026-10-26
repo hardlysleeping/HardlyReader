@@ -14,7 +14,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { EMPTY_PLACE, parsePlace, placeKey } from "../../src/lib/place.ts";
+import { EMPTY_PLACE, legacyPlaceKey, parsePlace, placeKey, readPlace, writePlace } from "../../src/lib/place.ts";
+import { accountSlug } from "../../src/lib/account-key.ts";
 import { GEN_DIR, ROOT, buildReaderModule } from "./build-reader.mjs";
 
 let failures = 0;
@@ -80,19 +81,56 @@ check("blank strings are not values", parsePlace({ streamId: "   " }).streamId =
 check("unknown fields are ignored", !("secret" in parsePlace({ streamId: "feed/1", secret: 1 })));
 check("a number is not a stream", parsePlace({ streamId: 7 }).streamId === null);
 
+const PLACE_ONE = { serverUrl: "https://a.example", email: "one@example" };
+const PLACE_TWO = { serverUrl: "https://a.example", email: "two@example" };
+const PLACE_ELSEWHERE = { serverUrl: "https://b.example", email: "one@example" };
+
 check(
-  "the key carries both the server and the user",
-  placeKey("https://a.example", "one@example") === "hardlyreader:place:https://a.example|one@example",
-  placeKey("https://a.example", "one@example"),
+  "the key is the account's slug, not its name",
+  placeKey(PLACE_ONE) === `hardlyreader:place:${accountSlug(PLACE_ONE)}`,
+  placeKey(PLACE_ONE),
+);
+check(
+  "the key carries neither the server nor the address",
+  !placeKey(PLACE_ONE).includes("a.example") && !placeKey(PLACE_ONE).includes("@"),
+  placeKey(PLACE_ONE),
 );
 check(
   "two accounts on one server never share a place",
-  placeKey("https://a.example", "one@example") !== placeKey("https://a.example", "two@example"),
+  placeKey(PLACE_ONE) !== placeKey(PLACE_TWO),
 );
 check(
   "two servers with one address never share a place",
-  placeKey("https://a.example", "one@example") !== placeKey("https://b.example", "one@example"),
+  placeKey(PLACE_ONE) !== placeKey(PLACE_ELSEWHERE),
 );
+
+// A device that already had a place — under the old key, which named the account
+// outright — signing in after the slug. Only the account it named may adopt it.
+{
+  const map = new Map();
+  const storage = {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => map.set(key, String(value)),
+  };
+  const old = JSON.stringify({ streamId: "feed/7", streamTitle: "MoMA" });
+  map.set(legacyPlaceKey(PLACE_ONE), old);
+
+  check("the account named by the old key adopts it", readPlace(storage, PLACE_ONE).streamId === "feed/7");
+  check("it lands on the scoped key", map.get(placeKey(PLACE_ONE)) === old);
+  check("the old blob stays for a downgrade", map.has(legacyPlaceKey(PLACE_ONE)));
+  check("another account does not inherit it", readPlace(storage, PLACE_TWO).streamId === null);
+
+  writePlace(storage, PLACE_TWO, { ...EMPTY_PLACE, streamId: "feed/9" });
+  check(
+    "each account now has its own place",
+    readPlace(storage, PLACE_ONE).streamId === "feed/7" && readPlace(storage, PLACE_TWO).streamId === "feed/9",
+  );
+  check(
+    "no key this build wrote names an account",
+    [...map.keys()].filter((key) => key !== legacyPlaceKey(PLACE_ONE)).every((key) => !key.includes("@") && !key.includes("example")),
+    [...map.keys()].join(", "),
+  );
+}
 
 // ------------------------------------------------------------- the real thing
 
@@ -191,12 +229,12 @@ check(
 );
 
 // A stored value written by an older build, or by hand, must not break sign-in.
-store.set(placeKey(session.serverUrl, session.email), "{not json");
+store.set(placeKey(session), "{not json");
 const broken = new ReaderState();
 broken.session = session;
 check("corrupt storage falls back to nowhere instead of throwing", broken.readPlace().streamId === null);
 
-store.set(placeKey(session.serverUrl, session.email), JSON.stringify({ streamId: "feed/7" }));
+store.set(placeKey(session), JSON.stringify({ streamId: "feed/7" }));
 const partial = new ReaderState();
 partial.session = session;
 check("a partial record still resumes the feed", partial.readPlace().streamId === "feed/7");
