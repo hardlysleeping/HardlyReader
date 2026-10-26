@@ -169,19 +169,17 @@ const phoneHeader = read("src/components/PhoneHeader.svelte");
 // ---------------------------------------------------------------------------
 
 {
-  const gated = (text, needle) => new RegExp(`${needle}[\\s\\S]{0,200}?class:tap44=\\{layout\\.device === "phone"\\}`);
-
-  // A phone's bar is `PhoneHeader.svelte`, and it is phone-only by construction,
-  // so its three controls carry no `class:tap44` of their own: one rule in
-  // `app.css` names them. The desktop bar is not mounted on a phone at all.
   check(
     "the phone bar's Sync gets the box from the bar rule",
     /class="sync"/.test(phoneHeader) &&
       /html\[data-device="phone"\] \.phone-header :is\(\.step, \.more, \.sync\) \{[^}]*--tap44-w: 44px/.test(app),
   );
+  // There is no second strip any more: the stack's own 42px bar over a slid
+  // pane is gone (its state is one the phone bar names), so the stack carries no
+  // step and no box. One bar, three controls, one rule.
   check(
-    "the stack's back step carries it",
-    gated(stack, '<button\\s+type="button"\\s+class="step"').test(stack),
+    "the stack draws no strip, so it carries no phone box",
+    !/class="bar"/.test(stack) && !/class="step"[\s\S]{0,120}tap44/.test(stack),
   );
   // The one-column crumb row is not drawn on a phone any more — the bar above it
   // is that strip — so it needs no phone hit box, and giving it one would be a
@@ -450,25 +448,21 @@ function noOverlaps(label, controls) {
     ),
   );
 
-  const step = {
-    w: px(ruleBody(coarseBlock(stack, "MobilePaneStack.svelte"), ".step", "stack coarse"), "width", "stack step"),
-    h: px(ruleBody(coarseBlock(stack, "MobilePaneStack.svelte"), ".step", "stack coarse"), "height", "stack step"),
-  };
-  const strip = px(ruleBody(coarseBlock(stack, "MobilePaneStack.svelte"), ".bar", "stack coarse"), "height", "stack strip");
+  // The stack used to add a 34px step in a 42px strip of its own. It draws no
+  // strip now (the phone bar is the one), so there is no second box to size:
+  // what is asserted is that the step, and its cap, really are gone rather than
+  // orphaned in `app.css`.
   check(
-    "the stack's back step is the same control in the same strip",
-    step.w === 34 &&
-      strip === 42 &&
-      // The cap is in `app.css` rather than the component: a scoped rule that
-      // only ever matches through a `class:` directive is pruned as unused, so
-      // the box it declared was never drawn.
-      /--tap44-h: 42px/.test(ruleBody(app, 'html[data-device="phone"] .stack .bar .step', "app.css")),
-    `${step.w}×${step.h} in ${strip}`,
+    "the stack's step and its strip are gone together",
+    !/class="step"/.test(stack) &&
+      !/class="bar"/.test(stack) &&
+      !/\.stack \.bar \.step/.test(app) &&
+      !stack.includes("@media (pointer: coarse)"),
   );
 
   // Both are alone in their bar: the box is 44 wide and stops at the bar's top
   // and bottom, so the strip's own edges are the only thing it can reach.
-  for (const [label, control34] of [["Sync", sync], ["the menu", menu], ["the stack's back step", step]]) {
+  for (const [label, control34] of [["Sync", sync], ["the menu", menu]]) {
     const alone = [control("control", { x: 0, y: 0, w: control34.w, h: control34.h, tapW: 44, tapH: bar })];
     check(
       `${label}: 44 wide, and inside the strip's height`,

@@ -360,6 +360,16 @@
           reader.closeCategoryMenu();
           return;
         }
+        // Then the stack's layers, in the same order the Left key takes them.
+        // Escape is a back press everywhere else in the app, and a phone's
+        // stack is where back has more than one layer to unwind — without this
+        // a slid-in pane could only be dismissed by a gesture or the bar, and
+        // the key that means "out of this" did nothing but close the article
+        // underneath it.
+        if (stackBack()) {
+          event.preventDefault();
+          return;
+        }
         if (reader.back()) event.preventDefault();
         return;
       case "page":

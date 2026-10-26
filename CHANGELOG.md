@@ -4,6 +4,37 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A phone's navigation is a layer, not a wall.** The bar, its `•••` control and
+  the settings sheet are drawn as translucent material — a 20px blur at 180%
+  saturation under 72% of the surface colour, one hairline, and a shadow that
+  falls onto the top of the content — so the chrome reads as floating over the
+  reading instead of stopping it at a divider. Nothing else is translucent: feed
+  rows, cards, categories and article text keep the surface they had.
+  This is an imitation on purpose, and it is an imitation: on iOS the real
+  Liquid Glass is a `UIVisualEffectView` composed by the system, and a WKWebView
+  cannot be handed one. `backdrop-filter` is the web's approximation of the same
+  idea — sample what is behind, blur it, tint it — without the system's
+  adaptivity, its lit edge, or its GPU budget. Where the backdrop cannot be
+  blurred, or the system is set to reduce transparency, all three surfaces go
+  back to a solid `--surface`: 72% of a surface with no blur behind it is a bar
+  with the list showing through it.
+
+### Changed
+
+- **Every way back is the same step.** The edge swipe's back direction and Escape
+  now take the `mobileNav.back()` the bar's `‹`, the Android back key and the
+  browser's history already took, so a gesture and a button cannot land on
+  different layers. Each press still unwinds exactly one, and the panes keep the
+  slide they had.
+- **One strip on a phone.** The sliding stack's own back bar — the second 42px
+  strip it drew while a pane was slid over another — is removed. Its state is a
+  depth the phone bar can already name, so the step out lives there and the pane
+  keeps that height.
+
 ## [0.6.1] — 2026-10-26
 
 The phone stops fighting the thumb, and the app opens knowing what it is showing.
