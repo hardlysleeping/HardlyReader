@@ -58,3 +58,33 @@ export class StreamCache {
     return this.entries.size;
   }
 }
+
+/**
+ * Whether a freshly fetched page says the same thing as what is already drawn.
+ *
+ * A revalidation that found nothing new must not repaint: reassigning an
+ * identical array re-runs every row's keyed effect and throws away the scroll
+ * anchor, for a picture that would come out the same. Comparing first is what
+ * makes "revalidate in the background" invisible when there is nothing to see.
+ *
+ * Read and starred state live in `categories`, so a page whose flags moved is a
+ * real change even when the ids are the same.
+ */
+export function sameStreamPage(
+  left: { items: StreamItem[]; continuation?: string },
+  right: { items: StreamItem[]; continuation?: string },
+): boolean {
+  if ((left.continuation ?? "") !== (right.continuation ?? "")) return false;
+  if (left.items.length !== right.items.length) return false;
+  for (let index = 0; index < left.items.length; index += 1) {
+    const a = left.items[index];
+    const b = right.items[index];
+    if (a === b) continue;
+    if (a.id !== b.id) return false;
+    if ((a.title ?? "") !== (b.title ?? "")) return false;
+    if ((a.published ?? 0) !== (b.published ?? 0)) return false;
+    if ((a.categories ?? []).join("\u0000") !== (b.categories ?? []).join("\u0000")) return false;
+  }
+  return true;
+}
+
