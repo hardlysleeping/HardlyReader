@@ -17,6 +17,8 @@ import { pathToFileURL } from "node:url";
 import { compileModule } from "svelte/compiler";
 import ts from "typescript";
 
+import { scopedKey } from "../../src/lib/account-key.ts";
+
 const ROOT = new URL("../../", import.meta.url).pathname;
 const GEN_DIR = join(ROOT, "tests/unit/.gen");
 
@@ -63,6 +65,7 @@ function buildReadingModule() {
     .replaceAll('"../lib/dwell"', JSON.stringify(absolute("src/lib/dwell.ts")))
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
     .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
+    .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
   const out = join(GEN_DIR, "reading.mjs");
@@ -144,6 +147,7 @@ function buildReaderModule() {
     .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")))
     .replaceAll('"./pins"', JSON.stringify(absolute("src/state/pins.ts")))
     .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")))
+    .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
     .replaceAll('"../lib/opml"', JSON.stringify(absolute("src/lib/opml.ts")));
 }
@@ -510,7 +514,7 @@ try {
     const first = new ReaderState();
     first.session = session;
     first.toggleCategory("category/1");
-    const key = "hardlyreader:prefs:https://reader.test|u@reader.test";
+    const key = scopedKey("hardlyreader.prefs.v1", session);
     const written = JSON.parse(store.get(key) ?? "null");
     check("collapsing a category writes the preference", written?.collapsed?.["category/1"] === true);
 

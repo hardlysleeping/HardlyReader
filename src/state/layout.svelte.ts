@@ -54,7 +54,12 @@ import {
   widthFor,
 } from "../lib/panes";
 import { canFitWindow, fitWindowTo, screenWidth } from "../lib/window-fit";
+import { readAccountValue, storedAccount, writeAccountValue } from "../lib/account-key";
 
+/**
+ * The base of the layout key. An account's copy is `base:<slug>`; the bare key is
+ * the pre-accounting one, read before sign-in and adopted by the first account.
+ */
 const STORAGE_KEY = "hardlyreader.layout.v1";
 
 /**
@@ -1205,7 +1210,7 @@ class LayoutState {
       return;
     }
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = readAccountValue(localStorage, STORAGE_KEY, storedAccount(localStorage));
       if (raw === null) {
         this.settle(false);
         return;
@@ -1420,8 +1425,10 @@ class LayoutState {
   private save(): void {
     if (typeof localStorage === "undefined") return;
     try {
-      localStorage.setItem(
+      writeAccountValue(
+        localStorage,
         STORAGE_KEY,
+        storedAccount(localStorage),
         JSON.stringify({
           mode: this.desired,
           panes: this.panes,

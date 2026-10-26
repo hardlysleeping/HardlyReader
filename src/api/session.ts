@@ -1,6 +1,7 @@
 import { DEFAULT_API_PATH, normalizeApiPath, type Session } from "./freshrss";
 
-const STORAGE_KEY = "hardlyreader.session";
+/** Where the signed-in account lives on this device. Also read by `lib/account-key`. */
+export const SESSION_KEY = "hardlyreader.session";
 
 /**
  * Session persistence. localStorage is enough while the only stored value is a
@@ -12,7 +13,7 @@ const STORAGE_KEY = "hardlyreader.session";
  * away: an upgrade must never require signing in again.
  */
 export function loadSession(): Session | null {
-  const raw = localStorage.getItem(STORAGE_KEY);
+  const raw = localStorage.getItem(SESSION_KEY);
   if (raw === null) {
     return null;
   }
@@ -37,17 +38,17 @@ export function loadSession(): Session | null {
     /* fall through and discard */
   }
 
-  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(SESSION_KEY);
   return null;
 }
 
 export function saveSession(session: Session): void {
   localStorage.setItem(
-    STORAGE_KEY,
+    SESSION_KEY,
     JSON.stringify({ ...session, apiPath: normalizeApiPath(session.apiPath) }),
   );
 }
 
 export function clearSession(): void {
-  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(SESSION_KEY);
 }

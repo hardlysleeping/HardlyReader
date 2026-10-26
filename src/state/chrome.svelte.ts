@@ -1,18 +1,22 @@
 /**
- * Sidebar chrome that is nobody's account data: whether the control band is
- * collapsed.
+ * Sidebar chrome: whether the control band is collapsed, whether the pad is on,
+ * whether the app syncs by itself.
  *
  * This used to live in the per-account prefs blob, keyed by `serverUrl|email`.
- * That made "stay collapsed" depend on the session having been restored before
- * the first render and on that key being byte-identical across launches — many
- * ways for a purely visual preference to fail. It has its own key now, it is
- * read before the first paint, and a login, a logout or a differently
- * normalised server URL cannot reset it.
+ * That made "stay collapsed" depend on that key being byte-identical across
+ * launches — many ways for a purely visual preference to fail. It has its own key
+ * now, it is read before the first paint, and the key is a hash of the account
+ * (`lib/account-key`): a second login on this device gets its own chrome instead
+ * of the first one's.
+ *
+ * The account is resolved from the stored session at each read and write, not
+ * captured once: signing in during this run must start scoping immediately.
  *
  * The storage rules live in `lib/chrome-prefs.ts` so they can be tested without
  * a Svelte compiler.
  */
 
+import { storedAccount, type AccountIdentity } from "../lib/account-key";
 import type { AutoSyncHours } from "../lib/auto-sync";
 import {
   browserStorage,
@@ -59,11 +63,17 @@ class ChromeState {
   autoSyncHours = $state<AutoSyncHours>(1);
 
   load(): void {
-    this.bandCollapsed = readBandCollapsed(browserStorage());
-    this.indentOpen = readIndentOpen(browserStorage());
-    this.pinPad = readPinPad(browserStorage());
-    this.autoSync = readAutoSync(browserStorage());
-    this.autoSyncHours = readAutoSyncHours(browserStorage());
+    const account = this.account();
+    this.bandCollapsed = readBandCollapsed(browserStorage(), account);
+    this.indentOpen = readIndentOpen(browserStorage(), account);
+    this.pinPad = readPinPad(browserStorage(), account);
+    this.autoSync = readAutoSync(browserStorage(), account);
+    this.autoSyncHours = readAutoSyncHours(browserStorage(), account);
+  }
+
+  /** The account this chrome belongs to, or null before sign-in. */
+  private account(): AccountIdentity | null {
+    return storedAccount(browserStorage());
   }
 
   /**
@@ -79,18 +89,18 @@ class ChromeState {
 
   /** Back to the fold state the user actually chose. */
   restoreBand(): void {
-    this.bandCollapsed = readBandCollapsed(browserStorage());
+    this.bandCollapsed = readBandCollapsed(browserStorage(), this.account());
   }
 
   toggleIndentOpen(): void {
     this.indentOpen = !this.indentOpen;
-    writeIndentOpen(browserStorage(), this.indentOpen);
+    writeIndentOpen(browserStorage(), this.indentOpen, this.account());
   }
 
   setPinPad(on: boolean): void {
     if (this.pinPad === on) return;
     this.pinPad = on;
-    writePinPad(browserStorage(), on);
+    writePinPad(browserStorage(), on, this.account());
   }
 
   togglePinPad(): void {
@@ -100,24 +110,24 @@ class ChromeState {
   setAutoSync(on: boolean): void {
     if (this.autoSync === on) return;
     this.autoSync = on;
-    writeAutoSync(browserStorage(), on);
+    writeAutoSync(browserStorage(), on, this.account());
   }
 
   setAutoSyncHours(hours: AutoSyncHours): void {
     if (this.autoSyncHours === hours) return;
     this.autoSyncHours = hours;
-    writeAutoSyncHours(browserStorage(), hours);
+    writeAutoSyncHours(browserStorage(), hours, this.account());
   }
 
   toggleBand(): void {
     this.bandCollapsed = !this.bandCollapsed;
-    writeBandCollapsed(browserStorage(), this.bandCollapsed);
+    writeBandCollapsed(browserStorage(), this.bandCollapsed, this.account());
   }
 
   setBandCollapsed(collapsed: boolean): void {
     if (this.bandCollapsed === collapsed) return;
     this.bandCollapsed = collapsed;
-    writeBandCollapsed(browserStorage(), collapsed);
+    writeBandCollapsed(browserStorage(), collapsed, this.account());
   }
 }
 
