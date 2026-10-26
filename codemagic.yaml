@@ -1,0 +1,71 @@
+# Cloud macOS build for the iOS test IPA.
+# Produces an UNSIGNED .ipa; signing happens on the device side (AltStore/SideStore
+# re-sign every install), so no Apple credentials exist in CI.
+workflows:
+  ios-unsigned:
+    name: HardlyReader iOS unsigned IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      node: 22.23.1
+      xcode: latest
+      vars:
+        CARGO_TERM_COLOR: always
+    cache:
+      cache_paths:
+        - ~/.cargo
+        - $HOME/.rustup
+        - $HOME/Library/Caches/tauri
+        - $CM_BUILD_DIR/src-tauri/target
+    scripts:
+      - name: Toolchain
+        script: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          source "$HOME/.cargo/env"
+          rustup target add aarch64-apple-ios
+          rustc -V; cargo -V; xcodebuild -version
+      - name: Install frontend deps
+        script: |
+          set -euo pipefail
+          node -v; pnpm -v
+          pnpm install --frozen-lockfile
+      - name: Generate the Xcode project
+        script: |
+          set -euo pipefail
+          source "$HOME/.cargo/env"
+          pnpm tauri ios init --ci
+          ls -la src-tauri/gen/apple
+      - name: Build unsigned .app
+        script: |
+          set -euo pipefail
+          source "$HOME/.cargo/env"
+          cd src-tauri/gen/apple
+          PROJ=$(ls -d *.xcodeproj | head -1)
+          SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{f=1;next} f&&NF{print $1}' | grep -i '_iOS$' | head -1)
+          [ -n "$SCHEME" ] || SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{f=1;next} f&&NF{print $1}' | head -1)
+          echo "project=$PROJ scheme=$SCHEME"
+          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath "$CM_BUILD_DIR/build/ios" \
+            -resolvePackageDependencies
+          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath "$CM_BUILD_DIR/build/ios" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+      - name: Package unsigned IPA
+        script: |
+          set -euo pipefail
+          APP=$(find "$CM_BUILD_DIR/build/ios/Build/Products" -maxdepth 3 -name '*.app' | head -1)
+          echo "app=$APP"
+          mkdir -p "$CM_BUILD_DIR/build/ipa/Payload"
+          cp -R "$APP" "$CM_BUILD_DIR/build/ipa/Payload/"
+          cd "$CM_BUILD_DIR/build/ipa"
+          zip -qry "$CM_BUILD_DIR/build/HardlyReader-unsigned.ipa" Payload
+          unzip -l "$CM_BUILD_DIR/build/HardlyReader-unsigned.ipa" | head -20
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
+    artifacts:
+      - build/HardlyReader-unsigned.ipa
+      - build/ios/Build/Products/**/*.app
