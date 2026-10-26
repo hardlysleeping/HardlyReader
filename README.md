@@ -122,6 +122,8 @@ pnpm test     # unit suites, headless, no browser and no server
 
 The tests cover the parts that are easy to get quietly wrong: the GReader client, the pane maths, filters and ordering, the extension API's state and error shapes, the reading timer, the lock flows, search grouping, and the memory of where you were.
 
+The Tauri window runs under a Content-Security-Policy (`app.security.csp`). `docs/csp.md` says what each directive is there for, what the capability behind it still allows, and what only a built app can prove; `tests/unit/csp.mjs` keeps it from drifting.
+
 ## Status
 
 0.2.0. The Linux desktop app is what is built and used; the same code runs as a browser build, and the phone layout is exercised but **not** tested on a device yet. There is no offline cache of article bodies or images — a server that is down is a server that is down. Releases are tagged source: no bundles are attached, because the 0.1.1 ones were built against a newer glibc than their targets and are not fit to ship.
