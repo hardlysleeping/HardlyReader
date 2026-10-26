@@ -81,6 +81,7 @@ workflows:
           # find dies of SIGPIPE, which reads as a failed step.
           APP=$(find src-tauri/gen/apple/build "$CM_BUILD_DIR/build" -maxdepth 6 -name '*.app' -print -quit 2>/dev/null || true)
           [ -n "$APP" ] || { echo "no .app was produced"; exit 1; }
+          APP="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
           echo "app=$APP"
           rm -rf "$CM_BUILD_DIR/build/ipa"; mkdir -p "$CM_BUILD_DIR/build/ipa/Payload"
           cp -R "$APP" "$CM_BUILD_DIR/build/ipa/Payload/"
@@ -91,4 +92,3 @@ workflows:
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
     artifacts:
       - build/HardlyReader-unsigned.ipa
-      - build/ios/Build/Products/**/*.app
