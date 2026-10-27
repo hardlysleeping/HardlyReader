@@ -116,7 +116,14 @@
     // that can forward for the server (the PWA on this box), the adapter's routes
     // are reachable through it. A window with no such host answers nothing and
     // the URLs stay absolute, which is what the desktop app wants anyway.
-    void detectProxy();
+    //
+    // Awaited, not fired and forgotten: the reader's first state read happens a
+    // few ticks after this function returns, so a probe still in flight would
+    // let that read go absolute — refused cross-origin, and the extension state
+    // is then drawn as missing for the whole session. The probe bounds itself
+    // (see `detectProxy`), so a host that never answers costs one second here
+    // and nothing else.
+    await detectProxy();
 
     const stored = accounts.active;
     if (stored === null) {

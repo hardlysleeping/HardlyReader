@@ -252,11 +252,28 @@ export function apiUrl(serverUrl: string, path: string): string {
  *
  * Cheap and silent: one request, at start, and a failure means "no proxy" — which
  * is the truth everywhere except the PWA on a host that runs `serve-pwa.py`.
+ *
+ * **Awaited by the caller before anything reads the extension state.** The probe
+ * has to land before the first `apiUrl` call: a state read that starts first is
+ * built while `proxyOrigin` is still null, goes absolute, is refused
+ * cross-origin, and takes the hidden categories with it for the rest of the
+ * session (a failed read is not re-drawn). The wait is bounded so a host that
+ * accepts the connection and never answers cannot hold the splash screen — after
+ * `PROXY_PROBE_TIMEOUT_MS` the answer is "no proxy" and the app moves on.
  */
+const PROXY_PROBE_TIMEOUT_MS = 1500;
+
 export async function detectProxy(): Promise<void> {
   if (typeof location === "undefined" || !/^https?:$/.test(location.protocol)) return;
   try {
-    const response = await transport(`${location.origin}/__proxy`, { method: "GET" });
+    const response = await transport(`${location.origin}/__proxy`, {
+      method: "GET",
+      // Not every WebView this app runs in has `AbortSignal.timeout` (it is
+      // Safari 16.4). Where it is missing the probe simply has no bound: the
+      // app must still detect a proxy, and an unbounded probe that answers is
+      // better than a bounded one that throws and silently means "no proxy".
+      signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(PROXY_PROBE_TIMEOUT_MS) : undefined,
+    });
     if (!response.ok) return;
     const body = (await response.json()) as { proxy?: unknown };
     if (body?.proxy === true) proxyOrigin = location.origin;
