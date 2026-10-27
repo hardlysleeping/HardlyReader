@@ -89,6 +89,22 @@ workflows:
           pnpm tauri ios build --ci --no-sign
           echo "--- build products:"
           find src-tauri/gen/apple/build src-tauri/target -maxdepth 6 -name '*.app' 2>/dev/null || true
+      - name: Package unsigned IPA
+        script: |
+          set -euo pipefail
+          # -print -quit, not `| head -1`: under pipefail head closes the pipe and
+          # find dies of SIGPIPE, which reads as a failed step.
+          APP=$(find src-tauri/gen/apple/build "$CM_BUILD_DIR/build" -maxdepth 6 -name '*.app' -print -quit 2>/dev/null || true)
+          [ -n "$APP" ] || { echo "no .app was produced"; exit 1; }
+          APP="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
+          echo "app=$APP"
+          rm -rf "$CM_BUILD_DIR/build/ipa"; mkdir -p "$CM_BUILD_DIR/build/ipa/Payload"
+          cp -R "$APP" "$CM_BUILD_DIR/build/ipa/Payload/"
+          cd "$CM_BUILD_DIR/build/ipa"
+          zip -qry "$CM_BUILD_DIR/build/HardlyReader-unsigned.ipa" Payload
+          unzip -l "$CM_BUILD_DIR/build/HardlyReader-unsigned.ipa" | head -20
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
       - name: Check the app declares its background task
         script: |-
           set -euo pipefail
@@ -132,6 +148,9 @@ workflows:
             || echo "(no exported C entry point; release builds strip symbols)"
           strings -a "$APP/$EXEC" | grep -F 'bg-refresh' | head -5 \
             || echo "(no bg-refresh log literals found; the identifier below is the assertion)"
+          echo "--- identity strings in the binary:"
+          strings -a "$APP/$EXEC" | grep -i 'hardlysleep\|hardlyreader' | sort -u | head -10 \
+            || true
           if strings -a "$APP/$EXEC" | grep -qF 'ing.hardlysleep.hardlyreader.refresh'; then
             echo "found: the background refresh identifier is in the binary"
           else
@@ -140,21 +159,5 @@ workflows:
           fi
           [ "$status" -eq 0 ] || exit 1
           echo "background refresh: declared in Info.plist, wired to the binary"
-      - name: Package unsigned IPA
-        script: |
-          set -euo pipefail
-          # -print -quit, not `| head -1`: under pipefail head closes the pipe and
-          # find dies of SIGPIPE, which reads as a failed step.
-          APP=$(find src-tauri/gen/apple/build "$CM_BUILD_DIR/build" -maxdepth 6 -name '*.app' -print -quit 2>/dev/null || true)
-          [ -n "$APP" ] || { echo "no .app was produced"; exit 1; }
-          APP="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
-          echo "app=$APP"
-          rm -rf "$CM_BUILD_DIR/build/ipa"; mkdir -p "$CM_BUILD_DIR/build/ipa/Payload"
-          cp -R "$APP" "$CM_BUILD_DIR/build/ipa/Payload/"
-          cd "$CM_BUILD_DIR/build/ipa"
-          zip -qry "$CM_BUILD_DIR/build/HardlyReader-unsigned.ipa" Payload
-          unzip -l "$CM_BUILD_DIR/build/HardlyReader-unsigned.ipa" | head -20
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
     artifacts:
       - build/HardlyReader-unsigned.ipa
