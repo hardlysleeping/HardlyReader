@@ -19,12 +19,12 @@
  *    scrolling a page down would leave three prepared posts a screenful behind.
  *    The caller decides where it starts, because only the list knows its
  *    viewport.
- * 3. **On at all.** A post is prepared only when the pane would fetch it, and
- *    that decision is not this module's: the caller hands over the same answer
- *    the pane uses (`wantsFullText()` in `full-text.ts` — the post's own ¶
- *    press, the feed's Auto / Feed / Full webpage, then Auto's read). A second
- *    copy of the rule here would drift from the pane and spend a request on a
- *    page the reader would never be shown.
+ * 3. **What the pane would fetch.** A post is prepared only when its page would
+ *    be shown, and that decision is not this module's: the caller hands over the
+ *    same answer the pane uses (`wantsFullText()` in `full-text.ts` — the post's
+ *    own ¶ press, the feed's Auto / Feed / Full webpage, then Auto's read). A
+ *    second copy of the rule here would drift from the pane and spend a request
+ *    on a page the reader would never be shown.
  *
  * And two things it must never do: hold up a stream load, and pay a publisher
  * twice. The first is why nothing here is awaited from a paint — a plan is set
