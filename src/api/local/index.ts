@@ -1,0 +1,62 @@
+/**
+ * Local mode, in one import.
+ *
+ * The seam is `ReaderBackend`; this directory is the other side of it. Nothing
+ * in the app imports this yet — wiring the store to hold a `LocalBackend`
+ * instead of calling the GReader functions is a separate change, and it is a
+ * change to the store, not to the backend.
+ *
+ * The two entry points a caller is expected to use:
+ *
+ *   const backend = await openLocalBackend();   // SQLite on desktop, IDB in a tab
+ *   await backend.stream(READING_LIST);
+ *
+ * `openLocalStore` is there for the same reason at one level down, for code
+ * that needs the library rather than the reading interface — an importer, a
+ * maintenance script, a test.
+ */
+import { LocalBackend, type LocalBackendOptions } from "./local-backend";
+import { openLocalDatabase, type LocalDatabaseOptions } from "./open";
+import { LocalStore } from "./store";
+
+export { LocalBackend } from "./local-backend";
+export { LocalStore, localItemId } from "./store";
+export { openLocalDatabase, preferredEngine } from "./open";
+export { LocalStorageError } from "./driver";
+export { MemoryDatabase } from "./memory-db";
+export type { LocalDatabaseOptions } from "./open";
+export type { LocalBackendOptions } from "./local-backend";
+export type {
+  EntryInput,
+  EntryPage,
+  EntryQuery,
+  ExtractionInput,
+  FeedCount,
+  ReadingPosition,
+  SubscribeOptions,
+} from "./store";
+export type {
+  EntryRow,
+  ExtractionRow,
+  FeedRow,
+  FolderRow,
+  LocalEngine,
+  LocalRow,
+  LocalValue,
+  PositionRow,
+  TableName,
+} from "./schema";
+export type { LocalDatabase, WriteOperation } from "./driver";
+
+/** Opens the library this runtime should use. */
+export async function openLocalStore(options: LocalDatabaseOptions = {}): Promise<LocalStore> {
+  return new LocalStore(await openLocalDatabase(options));
+}
+
+/** Opens the library and wraps it in the seam. */
+export async function openLocalBackend(
+  options: LocalDatabaseOptions & LocalBackendOptions = {},
+): Promise<LocalBackend> {
+  const store = await openLocalStore(options);
+  return new LocalBackend(store, { deviceName: options.deviceName });
+}
