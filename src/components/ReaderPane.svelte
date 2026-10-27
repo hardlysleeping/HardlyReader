@@ -81,16 +81,49 @@
    */
   let pageHeight = $state(0);
 
+  /**
+   * The page's content box: what the observer would report, read from the
+   * element instead.
+   *
+   * `clientWidth` is the padding box less the scrollbar, and the content box is
+   * that less its padding — the same rectangle `entry.contentRect` gives, so the
+   * two paths cannot disagree about the frame a picture is fitted to.
+   */
+  function pageSize(page: HTMLElement): { width: number; height: number } {
+    const style = getComputedStyle(page);
+    const px = (value: string): number => Number.parseFloat(value) || 0;
+    return {
+      width: Math.round(page.clientWidth - px(style.paddingLeft) - px(style.paddingRight)),
+      height: Math.round(page.clientHeight - px(style.paddingTop) - px(style.paddingBottom)),
+    };
+  }
+
+  /**
+   * The frame a picture is fitted to, measured when the article is bound and
+   * kept up to date by the observer.
+   *
+   * Measuring on the element matters because the observer's first delivery is
+   * not a promise. An article built inside a pane that is not in front — the
+   * phone's stack keeps every layer mounted and moves them with `transform`, so
+   * the article is drawn off screen and `inert` until it is slid in — can be
+   * observed and then never reported on, and the pane used to wait for that
+   * report forever: `pageWidth` stayed 0, so every picture was drawn at its
+   * file's own width and a 684px comic was clipped to a 390px pane. Nothing
+   * wrote a width, and nothing was going to.
+   */
   $effect(() => {
     const page = scroller;
     if (page === null) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry !== undefined) {
-        pageWidth = Math.round(entry.contentRect.width);
-        pageHeight = Math.round(entry.contentRect.height);
-      }
-    });
+    const write = (): void => {
+      const size = pageSize(page);
+      // A frame with no width has not been laid out yet, which is not the same
+      // as a frame that is zero wide: writing it would un-fit every picture.
+      if (size.width <= 0) return;
+      pageWidth = size.width;
+      pageHeight = size.height;
+    };
+    write();
+    const observer = new ResizeObserver(write);
     observer.observe(page);
     return () => observer.disconnect();
   });
@@ -111,6 +144,12 @@
    * the pane even though the words are not.
    */
   function paintPicture(img: HTMLImageElement): void {
+    // Nothing to fit against yet. The stylesheet is already holding the picture
+    // to the pane by then (`width: auto` inside a `max-width: 100%`), so this
+    // is the one case where saying nothing is the right answer: writing the
+    // file's own width instead is what drew a 684px comic 684px wide inside a
+    // 390px pane and clipped it.
+    if (pageWidth <= 0) return;
     const width = fittedWidth(
       { width: img.naturalWidth, height: img.naturalHeight },
       { width: pageWidth, height: pageHeight },

@@ -368,8 +368,24 @@ check(
 check(
   "the pane measures its own height, not the window's",
   /let pageHeight = \$state\(0\);/.test(pane) &&
-    /pageHeight = Math\.round\(entry\.contentRect\.height\);/.test(pane) &&
+    /height: Math\.round\(page\.clientHeight - px\(style\.paddingTop\) - px\(style\.paddingBottom\)\)/.test(pane) &&
     /style:--page-height=\{pageHeight > 0 \? `\$\{pageHeight\}px` : null\}/.test(pane),
+);
+// The observer's first delivery is not a promise: an article built inside a pane
+// that is off screen and `inert` — the phone's stack, mid-slide — can be
+// observed and never reported on. Waiting for that report left the frame at 0
+// forever and every comic drawn at its file's width.
+check(
+  "the page is measured when the article is bound, not awaited from the observer",
+  /const write = \(\): void => \{[\s\S]{0,400}?write\(\);\s*const observer = new ResizeObserver\(write\);/.test(pane),
+);
+check(
+  "a report of no box is not a measurement",
+  /const size = pageSize\(page\);[\s\S]{0,220}?if \(size\.width <= 0\) return;/.test(pane),
+);
+check(
+  "a picture with no page to fit against keeps the stylesheet's own width",
+  /function paintPicture\(img: HTMLImageElement\): void \{[\s\S]{0,400}?if \(pageWidth <= 0\) return;/.test(pane),
 );
 check(
   "every picture in the body is capped by the frame's height and fitted whole",
