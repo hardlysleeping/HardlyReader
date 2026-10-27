@@ -3,9 +3,10 @@
  *
  *   node tests/unit/harness-imports.mjs
  *
- * Six suites compile `reader.svelte.ts` themselves with Svelte's
+ * Seven suites compile `reader.svelte.ts` themselves with Svelte's
  * `compileModule` — `build-reader`, `reader-state`, `favorites`, `hidden-write`,
- * `positions` and `sync-progress` — so every relative import in that source file
+ * `hidden-local`, `positions` and `sync-progress` — so every relative import in
+ * that source file
  * has to be rewritten to the real file, and each of them carries its own copy
  * of the list. A new relative import in either source file, added without
  * touching all four lists, fails those suites with
@@ -40,6 +41,7 @@ const BUILDERS = [
   "tests/unit/reader-state.mjs",
   "tests/unit/favorites.mjs",
   "tests/unit/hidden-write.mjs",
+  "tests/unit/hidden-local.mjs",
   "tests/unit/positions.mjs",
   "tests/unit/sync-progress.mjs",
 ];
@@ -52,21 +54,31 @@ function specifiers(source) {
   return [...found].sort();
 }
 
+/**
+ * Whether a builder's list names this specifier — in either spelling.
+ *
+ * A rewrite target may be written as `"./hidden"` or, in the chains that rewrite
+ * a string that is itself quoted, as `\\"./hidden\\"`. Both are the same import,
+ * and a guard that only knew one spelling silently excused the file that used
+ * the other (which is how `hidden-local.mjs` went unlisted here).
+ */
+const named = (text, spec) => text.includes(`"${spec}"`) || text.includes(`\\"${spec}\\"`);
+
 const builders = BUILDERS.map((path) => ({ path, text: read(path) }));
 
 for (const source of SOURCES) {
   const specs = specifiers(source);
   check(`${source} imports something relative at all`, specs.length > 0, String(specs.length));
-  check("every suite that compiles it carries a list", builders.length === 6, String(builders.length));
+  check("every suite that compiles it carries a list", builders.length === 7, String(builders.length));
   for (const builder of builders) {
     // A builder that rewrites none of this module's specifiers builds it through
     // `generated()`, which resolves every relative import on its own (that is
     // how `reading.svelte.ts` is handled in `build-reader.mjs`). One that
     // rewrites some of them is carrying the hand-written list, and then it has
     // to carry all of them.
-    const listed = specs.filter((spec) => builder.text.includes(`"${spec}"`));
+    const listed = specs.filter((spec) => named(builder.text, spec));
     if (listed.length === 0) continue;
-    const missing = specs.filter((spec) => !builder.text.includes(`"${spec}"`));
+    const missing = specs.filter((spec) => !named(builder.text, spec));
     check(
       `${builder.path} rewrites every relative import of ${source}`,
       missing.length === 0,
@@ -77,7 +89,13 @@ for (const source of SOURCES) {
 
 // And the new modules the lists were just taught about actually exist, so a
 // rename cannot leave four lists pointing at a file nobody has.
-for (const spec of ["../lib/stream-loads", "../lib/stream-perf", "../lib/stream-scroll"]) {
+for (const spec of [
+  "../lib/stream-loads",
+  "../lib/stream-perf",
+  "../lib/stream-scroll",
+  "../lib/extract-ledger",
+  "../lib/full-text",
+]) {
   const file = `src/${spec.replace("../", "")}.ts`;
   check(`${file} is where the lists say it is`, /export /.test(read(file)));
 }

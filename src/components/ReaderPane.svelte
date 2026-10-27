@@ -11,6 +11,7 @@
     type Extracted,
   } from "../lib/extract";
   import { ledger, type BodyChoice } from "../lib/extract-ledger";
+  import { looksTruncated, wantsFullText } from "../lib/full-text";
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
@@ -410,6 +411,14 @@
   const feedBody = $derived(sanitizeArticle(item?.content?.content ?? item?.summary?.content ?? ""));
 
   /**
+   * The feed this post came from — the unit a full-text answer belongs to.
+   *
+   * Both account kinds name it the same way (`feed/<url>`), so the answer follows
+   * the feed in a local library as well as on a server.
+   */
+  const feedId = $derived(item?.origin?.streamId ?? null);
+
+  /**
    * What the reader decided about this one post, when they decided anything.
    *
    * The account-wide switch is "extract every post"; this is "this one", in
@@ -441,10 +450,27 @@
   $effect(() => {
     const current = item;
     const url = link;
-    // The feed's own text needs no page, and neither does a post the reader has
-    // put back on the feed. Everything else waits for one fetch — and the
-    // ledger decides whether that fetch is worth making at all.
-    const wanted = (reading.extract || choice === "article") && choice !== "feed";
+    // Where this post's text comes from: the reader's own ¶ press on this entry,
+    // the feed's answer (Auto / Feed / Full webpage), or Auto's read — the
+    // account-wide switch, what Auto already knows about the feed, and this
+    // post's own markup. The feed's text needs no page, and neither does a post
+    // the reader has put back on the feed; everything else waits for one fetch,
+    // and the ledger decides whether that fetch is worth making at all.
+    const wanted = wantsFullText({
+      post: choice,
+      feed: reader.feedExtract(feedId),
+      accountWide: reading.extract,
+      remembered: reader.feedTruncated(feedId),
+      html: feedBody,
+    });
+
+    // Auto's verdict, written once for the feed that proved it: the piece this
+    // feed sends stops short, so its later posts need no second test. Silent on
+    // purpose — it changes nothing that is drawn, and the fetch below is the
+    // answer to the post on screen.
+    if (wanted && reader.feedExtract(feedId) === "auto" && looksTruncated(feedBody)) {
+      reader.noteFeedTruncated(feedId);
+    }
 
     if (!wanted || !current || url === "") {
       extracted = null;

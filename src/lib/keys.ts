@@ -26,10 +26,25 @@ export interface KeyContext {
   hasArticle: boolean;
   atArticleStart: boolean;
   atArticleEnd: boolean;
+  /**
+   * Keyboard focus is inside the article pane — the third pane, once Right has
+   * handed it over. Up/Down there are the pane's own scroll, not the post list's
+   * walk: a reader who has stepped into the article is moving the page, and a
+   * key that silently swapped the article under them would be a different
+   * action from the one the pane shows.
+   */
+  inArticle: boolean;
 }
 
 export function resolveKey(key: string, ctx: KeyContext): KeyIntent {
   if (ctx.typing || ctx.menuOpen) return { type: "none" };
+
+  // Inside the article pane the arrows and Home/End belong to the page: the
+  // scroller is focused and natively scrolls, so claiming them here would swap
+  // the article instead of moving through it.
+  if (ctx.inArticle && (key === "ArrowUp" || key === "ArrowDown" || key === "Home" || key === "End")) {
+    return { type: "none" };
+  }
 
   switch (key) {
     case "ArrowDown":

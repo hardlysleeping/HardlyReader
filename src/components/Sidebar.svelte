@@ -1996,6 +1996,40 @@
     opacity: 0.4;
   }
 
+  /* A finger is not a mouse. The 2px track and 9px thumb above are a fine mouse
+     grip and a poor thumb grip: on a phone a touch that lands beside the thumb
+     only jumps the value there, and the drag that follows never becomes a drag,
+     so the slider could be tapped and not moved. On a coarse pointer the row
+     gets real height, the thumb grows to something a thumb can hold, and
+     `touch-action: none` stops the webview from claiming the gesture as a page
+     scroll and cancelling the range input underneath it. */
+  @media (pointer: coarse) {
+    .indent input[type="range"] {
+      height: 34px;
+      touch-action: none;
+    }
+
+    .indent input[type="range"]::-webkit-slider-runnable-track {
+      height: 3px;
+    }
+
+    .indent input[type="range"]::-webkit-slider-thumb {
+      width: 20px;
+      height: 20px;
+      /* (track 3px − thumb 20px) / 2, so the thumb stays centred on the track. */
+      margin-top: -8.5px;
+    }
+
+    .indent input[type="range"]::-moz-range-track {
+      height: 3px;
+    }
+
+    .indent input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+    }
+  }
+
   .count {
     font-size: 11px;
     font-variant-numeric: tabular-nums;

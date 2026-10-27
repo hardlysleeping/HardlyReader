@@ -84,6 +84,8 @@ export function buildReaderModule() {
     .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
     .replaceAll('"../lib/opml"', JSON.stringify(absolute("src/lib/opml.ts")))
+    .replaceAll('"../lib/extract-ledger"', JSON.stringify(absolute("src/lib/extract-ledger.ts")))
+    .replaceAll('"../lib/full-text"', JSON.stringify(absolute("src/lib/full-text.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(readingModule()))
     .replaceAll('"./theme.svelte"', JSON.stringify(themeModule()))
     .replaceAll('"./floods.svelte"', JSON.stringify(floodsModule()))

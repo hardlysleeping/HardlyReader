@@ -28,6 +28,8 @@ const pane = read("src/components/ReaderPane.svelte");
 const inline = read("src/components/InlineArticle.svelte");
 const extract = read("src/lib/extract.ts");
 const ledger = read("src/lib/extract-ledger.ts");
+const fullText = read("src/lib/full-text.ts");
+const reader = read("src/state/reader.svelte.ts");
 
 const button = pane.slice(pane.indexOf('class="icon full"'), pane.indexOf("</button>", pane.indexOf('class="icon full"')));
 
@@ -52,19 +54,38 @@ check("the ledger stores choices by entry id", /choices\[entryId\] = \{ choice, 
 check("and keeps them under the one documented key", /hardlyreader\.extract\.v1/.test(ledger));
 check("a choice only ever has two values", /export type BodyChoice = "feed" \| "article";/.test(ledger));
 
-// The automatic fetch is the account's, the override's, and never a page the
-// ledger has parked.
-check("the pane asks for a page when the account or this post wants one", /const wanted = \(reading\.extract \|\| choice === "article"\) && choice !== "feed";/.test(pane));
+// The automatic fetch is the account's, the override's, the feed's own answer
+// and Auto's read of it — and never a page the ledger has parked.
+check("the pane asks the one rule where the text comes from", /const wanted = wantsFullText\(\{/.test(pane));
+check("...with this post's own press", /post: choice,/.test(pane));
+check("...the feed's answer", /feed: reader\.feedExtract\(feedId\),/.test(pane));
+check("...the account-wide switch", /accountWide: reading\.extract,/.test(pane));
+check("...what Auto already knows about the feed", /remembered: reader\.feedTruncated\(feedId\),/.test(pane));
+check("...and this post's own markup", /html: feedBody,/.test(pane));
+check("the rule lives in its own module, not in a component", /export function wantsFullText/.test(fullText));
 check("an automatic fetch goes through the ledger", /void extractFor\(id, url\)\.then/.test(pane));
 check("a parked page is not asked again without a press", /if \(!options\.force && ledger\.parked\(url\)\) return null;/.test(extract));
 check("a failure is written down with its reason", /ledger\.record\(url, page\.failure\)/.test(extract) && /ledger\.record\(url, "thin"\)/.test(extract));
 check("a page that answers is forgiven", /ledger\.forgive\(url\)/.test(extract));
 
+// Auto's read of a feed is remembered per feed, once, and never as a change to
+// what is on screen: the post that proved it is already being fetched.
+check("Auto writes what it found against the feed", /reader\.noteFeedTruncated\(feedId\)/.test(pane) && /ledger\.noteTruncated\(streamId\)/.test(reader));
+check("...and only when the feed is on Auto", /reader\.feedExtract\(feedId\) === "auto" && looksTruncated\(feedBody\)/.test(pane));
+check("the note is silent, so it cannot re-run the fetch it came from", /noteFeedTruncated\(streamId: string \| null \| undefined\): void \{\s*if \(!streamId \|\| ledger\.truncated\(streamId\)\) return;\s*ledger\.noteTruncated\(streamId\);\s*\}/.test(reader));
+
+// One feed, one answer, written by the menu and read by both surfaces.
+check("the menu's answer is written to the ledger", /case "full-text":[\s\S]{0,320}this\.setFeedExtract\(target\.id, action\.mode\)/.test(reader));
+check("...through one writer, which is what invalidates the panes", /setFeedExtract\(streamId: string, mode: FullTextMode\): void \{\s*ledger\.rememberFeed\(streamId, choiceFromMode\(mode\)\);\s*this\.feedExtractVersion \+= 1;/.test(reader));
+check("the feed's answer is read per call, so a switch reads its own", /return modeFromChoice\(ledger\.feedChoice\(streamId\)\)/.test(reader));
+check("and the menu is built from the same two facts", /this\.feedExtract\(menu\.target\.id\),\s*this\.feedTruncated\(menu\.target\.id\),/.test(reader));
+
 // What is on screen comes from one function, so both choices and the automatic
 // rule cannot disagree.
 check("the body is resolved by bodyFor", /const picked = \$derived\(bodyFor\(choice, extractedNow, feedBody\)\)/.test(pane));
 check("the feed's text is still the fallback", /const feedBody = \$derived\(sanitizeArticle\(/.test(pane));
-check("asking for the feed never fetches", /choice !== "feed"/.test(pane));
+check("a post put back on the feed never fetches", /if \(question\.post !== null\) return question\.post === "article";/.test(fullText));
+check("a feed told Feed never fetches either", /if \(question\.feed === "feed"\) return false;/.test(fullText));
 
 // A paywall stub is not a full article, and the network is the reader's to ask
 // for: the preference is never written by the button.
@@ -77,7 +98,9 @@ check("and it can be retried with the same press", /class="retry"[\s\S]{0,200}to
 // One post read in two places must not disagree about which text is the article.
 check("the inline row reads the pane's choice", /const choice = \$derived\(ledger\.choice\(item\.id\)\)/.test(inline));
 check("and resolves the body the same way", /bodyFor\(choice, extractedFor === item\.id \? extracted : null, feedBody\)/.test(inline));
-check("a post put back on the feed is not fetched there either", /\(reading\.extract \|\| choice === "article"\) && choice !== "feed"/.test(inline));
+check("a post put back on the feed is not fetched there either", /const wanted = wantsFullText\(\{/.test(inline) && /post: choice,/.test(inline));
+check("...and the row honours the feed's answer too", /feed: reader\.feedExtract\(feedId\),/.test(inline));
+check("two surfaces, one rule: neither resolves it on its own", !/reading\.extract \|\| choice === "article"/.test(pane) && !/reading\.extract \|\| choice === "article"/.test(inline));
 
 // The building blocks it reuses are the extractor's, not new ones.
 check("the extractor still owns the policy", /export function chooseBody/.test(extract) && /export function bodyFor/.test(extract) && /export async function extractFor/.test(extract));

@@ -216,6 +216,86 @@ check(
   Object.keys(after).slice(0, 4).join(", "),
 );
 
+// --- the per-feed answer, and Auto's verdict -------------------------------
+
+// A feed is a publisher with a habit, so its answer outlives the post that
+// prompted it and is kept apart from the per-article choices in the same blob.
+const feeds = fakeStorage();
+const feedLedger = createExtractLedger({ storage: feeds, account: null });
+const feedId = "feed/https://pub.example/rss";
+
+check("a feed starts on Auto, which is no stored answer", feedLedger.feedChoice(feedId) === null);
+check("and Auto has seen nothing yet", !feedLedger.truncated(feedId));
+
+feedLedger.rememberFeed(feedId, "article", t0);
+check("Full webpage is remembered against the feed", feedLedger.feedChoice(feedId) === "article");
+check("it does not touch a post's choice", feedLedger.choice(feedId) === null);
+feedLedger.rememberFeed(feedId, "feed", t0);
+check("and so is Feed", feedLedger.feedChoice(feedId) === "feed");
+feedLedger.rememberFeed(feedId, null, t0);
+check("putting a feed back on Auto stores nothing", feedLedger.feedChoice(feedId) === null);
+
+check(
+  "per feed, not per account",
+  feedLedger.feedChoice("feed/https://other.example/rss") === null,
+);
+
+// Auto's verdict is a fact about the feed: written once, and it does not change
+// the feed's answer.
+feedLedger.noteTruncated(feedId, t0);
+feedLedger.noteTruncated(feedId, t0 + HOUR);
+check("Auto remembers that the feed cuts posts short", feedLedger.truncated(feedId));
+check("and the answer is still Auto", feedLedger.feedChoice(feedId) === null);
+
+const feedRestart = createExtractLedger({ storage: feeds, account: null });
+check("a feed's answer survives a relaunch", feedLedger.rememberFeed(feedId, "article", t0) === undefined && feedRestart.feedChoice(feedId) === "article");
+check("so does Auto's verdict", feedRestart.truncated(feedId));
+
+// The verdict is stamped once: a second sighting rewrites nothing.
+const stamped = JSON.parse(feeds.getItem(EXTRACT_LEDGER_KEY)).truncated[feedId];
+feedLedger.noteTruncated(feedId, t0 + 90 * DAY);
+const unchanged = JSON.parse(feeds.getItem(EXTRACT_LEDGER_KEY)).truncated[feedId];
+check("the first sighting is the one kept", stamped.at === t0 && unchanged.at === t0, `${stamped.at} then ${unchanged.at}`);
+
+// And it is per account, like the rest of the blob: a feed id means nothing to
+// another login.
+const twoLogins = fakeStorage();
+const first = createExtractLedger({ storage: twoLogins, account: { serverUrl: "https://rss.example", email: "one@example.com" } });
+const second = createExtractLedger({ storage: twoLogins, account: { serverUrl: "https://rss.example", email: "two@example.com" } });
+first.rememberFeed(feedId, "article", t0);
+first.noteTruncated(feedId, t0);
+check("one login's feed answer is its own", first.feedChoice(feedId) === "article" && first.truncated(feedId));
+check("the other login starts on Auto", second.feedChoice(feedId) === null && !second.truncated(feedId));
+
+// A blob this module did not write is dropped field by field, and the two new
+// records are no more trusted than the old ones.
+const foreignFeeds = fakeStorage();
+foreignFeeds.setItem(
+  EXTRACT_LEDGER_KEY,
+  JSON.stringify({
+    feeds: { bad: { choice: "maybe", at: t0 }, good: { choice: "feed", at: t0 } },
+    truncated: { yes: { at: t0 }, no: { at: "recently" } },
+  }),
+);
+const scanned = createExtractLedger({ storage: foreignFeeds, account: null });
+check("an unknown feed answer is not trusted", scanned.feedChoice("bad") === null);
+check("a valid one beside it still is", scanned.feedChoice("good") === "feed");
+check("a verdict without a time is not trusted", !scanned.truncated("no"));
+check("a valid verdict is kept", scanned.truncated("yes"));
+
+// The caps cover both new records, so a long subscription list cannot grow the
+// blob without bound.
+const feedCaps = fakeStorage();
+const cappedFeeds = createExtractLedger({ storage: feedCaps, account: null });
+for (let index = 0; index < 520; index += 1) {
+  cappedFeeds.rememberFeed(`feed/https://example.com/${index}`, "article", t0 + index);
+  cappedFeeds.noteTruncated(`feed/https://example.com/${index}`, t0 + index);
+}
+const storedFeeds = JSON.parse(feedCaps.getItem(EXTRACT_LEDGER_KEY));
+check("the feed answers are capped", Object.keys(storedFeeds.feeds).length === 500, String(Object.keys(storedFeeds.feeds).length));
+check("the verdicts are capped too", Object.keys(storedFeeds.truncated).length === 500, String(Object.keys(storedFeeds.truncated).length));
+check("and the newest of each are the ones kept", storedFeeds.feeds["feed/https://example.com/519"] !== undefined && storedFeeds.truncated["feed/https://example.com/519"] !== undefined);
+
 if (failures === 0) {
   console.log(`ok ${checks} checks — the extractor's memory`);
 } else {

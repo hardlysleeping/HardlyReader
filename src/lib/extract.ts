@@ -78,14 +78,26 @@ export function canExtract(url: string): boolean {
   }
 }
 
-/** Characters of text in a fragment of HTML, for the size comparison below. */
-export function textLength(html: string): number {
+/**
+ * The words in a fragment of HTML, one space between them.
+ *
+ * Tags become a space rather than nothing, so `a</p><p>b` does not fuse into
+ * `ab`; entities become a space too, because `&nbsp;` is not a character of the
+ * article. `script` and `style` are dropped whole — their contents are not text
+ * a reader sees, and counting them lets a cookie banner look like an article.
+ */
+export function plainText(html: string): string {
   return html
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
     .replace(/<[^>]*>/g, " ")
     .replace(/&[a-z#0-9]+;/gi, " ")
     .replace(/\s+/g, " ")
-    .trim().length;
+    .trim();
+}
+
+/** Characters of text in a fragment of HTML, for the size comparison below. */
+export function textLength(html: string): number {
+  return plainText(html).length;
 }
 
 /**

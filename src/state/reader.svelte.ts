@@ -76,6 +76,8 @@ import {
 } from "../lib/api-snapshot";
 import { resolveIndent } from "../lib/indent";
 import { feedMenu, categoryMenu, type MenuAction, type MenuModel, type Point } from "../lib/contextmenu";
+import { ledger } from "../lib/extract-ledger";
+import { choiceFromMode, modeFromChoice, type FullTextMode } from "../lib/full-text";
 import {
   applyFavoritesWrite,
   nextFavoriteView as viewAfter,
@@ -499,6 +501,8 @@ export class ReaderState {
           menu.target.title,
           menu.confirming,
           this.isFeedPinned(menu.target.id),
+          this.feedExtract(menu.target.id),
+          this.feedTruncated(menu.target.id),
         );
   }
 
@@ -604,6 +608,53 @@ export class ReaderState {
 
   isFeedPinned(streamId: string): boolean {
     return this.localPins.feeds.includes(streamId);
+  }
+
+  /**
+   * Bumped when a feed's full-text answer changes, so an open pane re-reads the
+   * feed it is showing.
+   *
+   * The answers themselves live in the extractor's ledger, which is not a runes
+   * store — it is written by the menu and read by two components. A counter is
+   * the whole of the join: `feedExtract()` and `feedTruncated()` read it, so a
+   * `$derived` or `$effect` that asks them is invalidated by a change, and
+   * choosing "Full webpage" for a feed lands on the article already on screen.
+   */
+  feedExtractVersion = $state(0);
+
+  /**
+   * Where this feed's text comes from, as the reader last answered — `auto`
+   * unless they said otherwise. Per account and per device, because a feed id is
+   * only meaningful to the login that has it.
+   */
+  feedExtract(streamId: string | null | undefined): FullTextMode {
+    void this.feedExtractVersion;
+    if (!streamId) return modeFromChoice(null);
+    return modeFromChoice(ledger.feedChoice(streamId));
+  }
+
+  /** Whether Auto has already caught this feed cutting its posts short. */
+  feedTruncated(streamId: string | null | undefined): boolean {
+    void this.feedExtractVersion;
+    return streamId ? ledger.truncated(streamId) : false;
+  }
+
+  /** One answer for one feed. Auto is stored as the absence of an answer. */
+  setFeedExtract(streamId: string, mode: FullTextMode): void {
+    ledger.rememberFeed(streamId, choiceFromMode(mode));
+    this.feedExtractVersion += 1;
+  }
+
+  /**
+   * Auto's own read of a feed, written once.
+   *
+   * Deliberately silent: this is a fact about the feed, not a change to what is
+   * on screen — the post that produced it is already being fetched. Bumping the
+   * counter here would re-run the pane's effect on the fetch it just started.
+   */
+  noteFeedTruncated(streamId: string | null | undefined): void {
+    if (!streamId || ledger.truncated(streamId)) return;
+    ledger.noteTruncated(streamId);
   }
 
   /**
@@ -1243,6 +1294,14 @@ export class ReaderState {
           return null;
         }
         this.setFeedPinned(target.id, action.pinned);
+        return null;
+      case "full-text":
+        this.menu = null;
+        if (target.kind !== "feed") return null;
+        // Nothing leaves this device and nothing can fail: the answer is read by
+        // both surfaces out of the ledger, so the pane redraws from the same
+        // fact the menu will show next time it opens.
+        this.setFeedExtract(target.id, action.mode);
         return null;
     }
   }

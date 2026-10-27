@@ -18,6 +18,12 @@
 import { categoryIdForLabel, isHiddenCategory, type HiddenCategoriesState } from "../api/hardlyread";
 import type { HiddenAuthority } from "../state/hidden";
 import { pinWords } from "./theme";
+import {
+  FULL_TEXT_DEFAULT,
+  FULL_TEXT_LABELS,
+  FULL_TEXT_MODES,
+  type FullTextMode,
+} from "./full-text";
 
 /* ---------------------------------------------------------------------------
  * Long press
@@ -184,6 +190,7 @@ export function placeMenu(anchor: Point, menu: Size, viewport: Size): Point {
 export type MenuAction =
   | { type: "hidden"; hidden: boolean }
   | { type: "pin"; pinned: boolean }
+  | { type: "full-text"; mode: FullTextMode }
   | { type: "remove-feed" }
   | { type: "confirm-remove" }
   | { type: "cancel-remove" };
@@ -196,6 +203,8 @@ export interface MenuItemModel {
   disabled: boolean;
   /** Optional leading glyph, when the item's meaning has a marker. */
   glyph?: string;
+  /** One line of explanation, read as a tooltip rather than drawn in the list. */
+  hint?: string;
 }
 
 export interface MenuModel {
@@ -218,6 +227,12 @@ export interface MenuModel {
   remove: MenuItemModel | null;
   /** The second half of a removal: confirm or back out. Empty otherwise. */
   confirm: MenuItemModel[];
+  /**
+   * Where a feed's text comes from: Auto, Feed, Full webpage. A feed row's
+   * question, and empty on a category — a category is a folder, and its posts
+   * come from whichever feeds are in it.
+   */
+  fullText: MenuItemModel[];
 }
 
 
@@ -283,23 +298,40 @@ export function categoryMenu(
     },
     remove: null,
     confirm: [],
+    fullText: [],
   };
 }
 
 /**
  * The menu for one feed row.
  *
- * Removal is the only thing a feed can be offered that the app cannot do from
- * the row itself, and it is destructive, so it arrives in two steps: asking
- * for the removal, then confirming it. `confirm` is that second step; it holds
- * both answers, so backing out is as reachable as going ahead.
+ * Two things a feed can be given that the row itself cannot show: the removal
+ * (destructive, so it arrives in two steps — `confirm` is that second step, and
+ * it holds both answers so backing out is as reachable as going ahead), and the
+ * answer to where its text comes from.
+ *
+ * **Auto / Feed / Full webpage** is per feed because the publisher's habit is:
+ * one feed sends the piece, the next sends two sentences and a link. `mode` is
+ * what the reader answered for this feed (Auto until they say otherwise), and
+ * `truncated` is what Auto has seen it do — which is why the Auto item can say
+ * what it will do next instead of leaving the reader to find out. The three
+ * words and their order live in `full-text.ts`, not here.
  */
 export function feedMenu(
   title: string,
   confirming: boolean,
   pinned = false,
+  mode: FullTextMode = FULL_TEXT_DEFAULT,
+  truncated = false,
 ): MenuModel {
   const words = pinWords();
+  const hints: Record<FullTextMode, string> = {
+    auto: truncated
+      ? "This feed cuts its posts short; the page is fetched for each"
+      : "Fetch the page when the feed's text stops short",
+    feed: "Always show the text the feed sent — nothing is fetched",
+    article: "Always fetch the publisher's page for this feed",
+  };
   return {
     kind: "feed",
     label: title,
@@ -308,6 +340,15 @@ export function feedMenu(
     pin: confirming
       ? null
       : { action: { type: "pin", pinned: !pinned }, label: pinned ? words.remove : words.add, glyph: "📌", checked: false, disabled: false },
+    fullText: confirming
+      ? []
+      : FULL_TEXT_MODES.map((asked) => ({
+          action: { type: "full-text" as const, mode: asked },
+          label: FULL_TEXT_LABELS[asked],
+          checked: mode === asked,
+          disabled: false,
+          hint: hints[asked],
+        })),
     remove: confirming
       ? null
       : {

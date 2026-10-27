@@ -812,7 +812,8 @@
       </div>
       <p class="hint">
         Article fetches the original page and keeps only the text; if the page
-        cannot be fetched, the feed's own text is shown.
+        cannot be fetched, the feed's own text is shown. A feed can answer this
+        for itself in its row menu — Auto, Feed or Full webpage.
       </p>
       <div class="row">
         <span class="key">Scroll effort</span>
