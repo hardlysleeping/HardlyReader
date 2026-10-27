@@ -28,6 +28,7 @@ const ROUTES = {
   "/paywalled": { status: 403, body: "no", type: "text/html" },
   "/broken": { status: 500, body: "oops", type: "text/html" },
   "/stub": { status: 200, body: "<html><body><p>short</p></body></html>", type: "text/html" },
+  "/shared": { status: 200, body: "<html><body><p>short</p></body></html>", type: "text/html" },
   "/notes.txt": { status: 200, body: "plain text", type: "text/plain" },
 };
 
@@ -72,6 +73,17 @@ try {
   // --- a press is a retry ---------------------------------------------------
   await extractFor("entry-c", paid, { force: true });
   check("an explicit press asks again", requests.length === 2, String(requests.length));
+
+  // --- one page, two callers ------------------------------------------------
+  // The queue prepares the posts ahead while the pane may open one of them, so
+  // the same page can be asked for twice in the same moment. One request.
+  const shared = `${origin}/shared`;
+  await Promise.all([extractFor("entry-e", shared), extractFor("entry-f", shared)]);
+  check(
+    "two callers cost one request",
+    requests.filter((path) => path === "/shared").length === 1,
+    JSON.stringify(requests.filter((path) => path === "/shared")),
+  );
 
   // --- a broken server is not a refusal -------------------------------------
   const broken = `${origin}/broken`;

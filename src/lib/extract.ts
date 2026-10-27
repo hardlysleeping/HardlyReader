@@ -494,6 +494,33 @@ export async function extractFor(
   // never serve is the behaviour this avoids: a parked page is not asked again
   // until its retry time, and only an explicit press gets past that.
   if (!options.force && ledger.parked(url)) return null;
+  const extracted = await extractOnce(url);
+  if (extracted === null) return null;
+  rememberExtraction(id, extracted);
+  return extracted;
+}
+
+/**
+ * Pages being extracted right now, by URL.
+ *
+ * Two callers can want the same page in the same moment — the queue preparing
+ * the posts ahead, and the pane for the post the reader has just opened — and a
+ * publisher should not be asked twice for one article. The second caller waits on
+ * the first request instead of starting one: one fetch, one parse, one ledger
+ * entry, and the article lands for both at once.
+ */
+const running = new Map<string, Promise<Extracted | null>>();
+
+function extractOnce(url: string): Promise<Extracted | null> {
+  const going = running.get(url);
+  if (going !== undefined) return going;
+  const started = extractPage(url).finally(() => running.delete(url));
+  running.set(url, started);
+  return started;
+}
+
+/** One page, from request to article, with what the ledger learns from it. */
+async function extractPage(url: string): Promise<Extracted | null> {
   const page = await fetchPage(url);
   if ("failure" in page) {
     ledger.record(url, page.failure);
@@ -507,6 +534,5 @@ export async function extractFor(
     return null;
   }
   ledger.forgive(url);
-  rememberExtraction(id, extracted);
   return extracted;
 }
