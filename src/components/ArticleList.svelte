@@ -516,10 +516,31 @@
   let fitComic = $state(false);
   /** Set while a fit is landing: the resize it causes must not ask for another. */
   let fitting = false;
+  /** The window size the last fit asked the shell for, so its own resize is known. */
+  let fitAsked = { width: 0, height: 0 };
+  /**
+   * Cards already fitted since the reader last acted.
+   *
+   * Scrolling is not a request for a resize: moving through a stream of comics
+   * used to size the window once per card, and a card whose shape differed from
+   * the last one moved it again — the window appeared to thrash while the
+   * reader was only scrolling. One fit per card, and no card twice.
+   */
+  const fittedCards = new Set<string>();
+  /** When fits landed, so a shell that cannot honour a size cannot be argued with. */
+  const fitStamps: number[] = [];
+  /** The shortest window the app is allowed to be — `minHeight` in tauri.conf. */
+  const FIT_FLOOR_H = 480;
 
   function toggleFitComic(): void {
     fitComic = !fitComic;
-    if (fitComic) void fitToComic();
+    fittedCards.clear();
+    fitStamps.length = 0;
+    // A press is the reader asking for the page's own size, so it may narrow the
+    // window as well as widen it. Scrolling never narrows: the window is the
+    // reader's, and taking it away while they move through a stream would be a
+    // control arguing with them.
+    if (fitComic) void fitToComic(true);
   }
 
   /**
@@ -537,48 +558,73 @@
     const el = itemsEl;
     const card = currentCard();
     if (!el || !card) return;
+    const id = card.dataset.id ?? "";
     const img = card.querySelector<HTMLImageElement>(".lead img");
     if (!img) return;
     if (img.naturalWidth === 0 || img.naturalHeight === 0) {
       // Its shape is not known until it lands; ask again then.
-      img.addEventListener("load", () => void fitToComic(), { once: true });
+      img.addEventListener("load", () => void fitToComic(shrink), { once: true });
       return;
     }
-    const screen = await screenSize();
-    if (!screen) return;
-    const feeds = document.querySelector<HTMLElement>('[data-pane="feeds"]');
-    const pane1 = feeds ? Math.round(feeds.getBoundingClientRect().width) : 0;
-    // Everything in the window that is not the posts pane: the gutter, and in
-    // three-pane mode the article pane too. Left alone, whatever it is.
-    const rest = Math.max(0, Math.round(window.innerWidth - pane1 - el.clientWidth));
-    const header = document.querySelector<HTMLElement>('[data-pane="posts"] .list-header');
-    const chrome =
-      card.offsetHeight - Math.round(img.getBoundingClientRect().height) +
-      (header ? Math.round(header.getBoundingClientRect().height) : 0);
-    const pane2 = el.clientWidth;
-    const natural = img.naturalWidth / img.naturalHeight;
-    const availW = Math.max(240, screen.width - pane1 - rest - 8);
-    const availH = Math.max(240, screen.height - chrome - 8);
-    // Width for a page whose height fills the screen, then the two caps: its own
-    // pixels, and the room the monitor has. Below the current pane it does not
-    // go — a fit that shrank the window would be a fit the reader did not ask
-    // for.
-    const room = Math.min(availH * natural, img.naturalWidth, availW);
-    const paneNext = Math.round(Math.min(shrink ? room : Math.max(pane2, room), availW));
-    const pictureH = Math.round(paneNext / natural);
-    const height = Math.min(
-      screen.height,
-      Math.max(shrink ? 240 : window.innerHeight, chrome + pictureH),
-    );
-    if (
-      Math.abs(paneNext - el.clientWidth) < 1 &&
-      Math.abs(height - window.innerHeight) < 1
-    ) {
-      return;
-    }
+    // Once per card. A resize is only the answer to "this page is the wrong
+    // size", and a card that has had its answer keeps it while it stays under
+    // the port.
+    if (fittedCards.has(id)) return;
+    const now = Date.now();
+    while (fitStamps.length > 0 && now - fitStamps[0] > 1200) fitStamps.shift();
+    // A shell that clamps what it was asked for keeps reporting a new size; a
+    // handful of tries is a fit that has been answered as far as it can be.
+    if (fitStamps.length >= 3) return;
+    fittedCards.add(id);
     fitting = true;
     try {
-      await fitWindowTo(pane1 + rest + paneNext, height);
+      const screen = await screenSize();
+      if (!screen) return;
+      const feeds = document.querySelector<HTMLElement>('[data-pane="feeds"]');
+      const pane1 = feeds ? Math.round(feeds.getBoundingClientRect().width) : 0;
+      // Everything in the window that is not the posts pane: the gutter, and in
+      // three-pane mode the article pane too. Left alone, whatever it is.
+      const rest = Math.max(0, Math.round(window.innerWidth - pane1 - el.clientWidth));
+      const header = document.querySelector<HTMLElement>('[data-pane="posts"] .list-header');
+      const chrome =
+        card.offsetHeight - Math.round(img.getBoundingClientRect().height) +
+        (header ? Math.round(header.getBoundingClientRect().height) : 0);
+      const pane2 = el.clientWidth;
+      const natural = img.naturalWidth / img.naturalHeight;
+      const availW = Math.max(240, screen.width - pane1 - rest - 8);
+      const availH = Math.max(240, screen.height - chrome - 8);
+      // How much of the pane the picture is drawn across. One picture is the
+      // whole width; a post that carries several shows one panel at a time, and
+      // each is drawn narrower than the pane so the pages share one zoom. Sizing
+      // the window to a panel's own pixels without this asked for a window wider
+      // than the panel needed, and the strip did not change size at all.
+      const share = Math.min(
+        1,
+        Math.max(0.1, img.getBoundingClientRect().width / Math.max(1, pane2)),
+      );
+      // Width for a page whose height fills the screen, then the two caps: its own
+      // pixels, and the room the monitor has. Below the current pane it does not
+      // go — a fit that shrank the window would be a fit the reader did not ask
+      // for.
+      const room = Math.min(availH * natural, img.naturalWidth / share, availW);
+      const paneNext = Math.round(Math.min(shrink ? room : Math.max(pane2, room), availW));
+      const pictureH = Math.round((paneNext * share) / natural);
+      // Never taller than the picture needs, never shorter than a window may be:
+      // asking for less than the shell's own floor gets clamped, and a clamp is a
+      // size the fit did not ask for and will ask for again.
+      const height = Math.min(
+        screen.height,
+        Math.max(shrink ? FIT_FLOOR_H : window.innerHeight, chrome + pictureH),
+      );
+      if (
+        Math.abs(paneNext - el.clientWidth) < 1 &&
+        Math.abs(height - window.innerHeight) < 1
+      ) {
+        return;
+      }
+      fitAsked = { width: pane1 + rest + paneNext, height };
+      fitStamps.push(Date.now());
+      await fitWindowTo(fitAsked.width, fitAsked.height);
     } finally {
       // A resize moves the cards under the port, which is a scroll away from
       // asking for the same fit again. One fit per settling is enough.
@@ -707,6 +753,19 @@
     // directions. The splitter is not: a fit that undid the drag would be a
     // control arguing with the reader.
     const onWindowResize = () => {
+      // The resize the fit itself asked for arrives here as a `resize` too.
+      // Answering it with another fit is the fit arguing with itself: every
+      // answer moves the cards, which asks again, and the window jumps between
+      // sizes while the reader is only scrolling. A size we asked for is not a
+      // size the reader made.
+      if (
+        Math.abs(window.innerWidth - fitAsked.width) < 2 &&
+        Math.abs(window.innerHeight - fitAsked.height) < 2
+      ) {
+        return;
+      }
+      fittedCards.clear();
+      fitStamps.length = 0;
       if (view === "cards" && fitComic) void fitToComic(true);
     };
     window.addEventListener("resize", onWindowResize);

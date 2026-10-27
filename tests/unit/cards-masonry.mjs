@@ -797,10 +797,10 @@ check(
       /const pane1 = feeds \? Math\.round\(feeds\.getBoundingClientRect\(\)\.width\) : 0;/.test(fn) &&
       // The room the page needs, capped by its own pixels and the monitor; the
       // pane only ever grows to it unless the reader is the one resizing.
-      /const room = Math\.min\(availH \* natural, img\.naturalWidth, availW\);/.test(fn) &&
+      /const room = Math\.min\(availH \* natural, img\.naturalWidth \/ share, availW\);/.test(fn) &&
       /Math\.min\(shrink \? room : Math\.max\(pane2, room\), availW\)/.test(fn) &&
       /async function fitToComic\(shrink = false\): Promise<void>/.test(fn) &&
-      /await fitWindowTo\(pane1 \+ rest \+ paneNext, height\);/.test(fn) &&
+      /await fitWindowTo\(fitAsked\.width, fitAsked\.height\);/.test(fn) &&
       /if \(!fitComic \|\| fitting \|\| view !== "cards"\) return;/.test(fn)
     );
   })(),
@@ -847,6 +847,106 @@ check(
       // the splitter changes the port but never the window, so it re-places the
       // card and leaves the fit alone
       !/fitToComic/.test(settle)
+    );
+  })(),
+);
+
+// A post that carries several pictures draws one panel at a time, each narrower
+// than the pane so the pages share one zoom. A fit that sized the window to a
+// panel's own pixels without knowing that asked for a window wider than the
+// panel needed, and the picture did not change size at all.
+check(
+  "fit knows how much of the pane the picture is drawn across",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const ask = src.slice(src.indexOf("async function fitToComic"), src.indexOf("function syncSnap"));
+    return (
+      /const share = Math\.min\(\s*1,\s*Math\.max\(0\.1, img\.getBoundingClientRect\(\)\.width \/ Math\.max\(1, pane2\)\),\s*\);/.test(ask) &&
+      /img\.naturalWidth \/ share/.test(ask) &&
+      /const pictureH = Math\.round\(\(paneNext \* share\) \/ natural\);/.test(ask) &&
+      // one picture is the whole width, so the single-page case is unchanged
+      !/const room = Math\.min\(availH \* natural, img\.naturalWidth, availW\);/.test(ask)
+    );
+  })(),
+);
+
+// A press is the reader asking for the page's own size, so it may narrow the
+// window as well as widen it. Scrolling may not: the window is the reader's, and
+// a fit that took it away while they were moving through a stream would be a
+// control arguing with them.
+check(
+  "a press may narrow the window, scrolling only widens it",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const toggle = src.slice(src.indexOf("function toggleFitComic"), src.indexOf("async function fitToComic"));
+    const sync = src.slice(src.indexOf("function syncSnap"), src.indexOf("function onCardsScroll"));
+    return (
+      /if \(fitComic\) void fitToComic\(true\);/.test(toggle) &&
+      /fittedCards\.clear\(\);/.test(toggle) &&
+      // a card scrolled into the middle asks for room, never for a smaller window
+      /if \(fitComic\) void fitToComic\(\);/.test(sync) &&
+      !/fitToComic\(true\)/.test(sync)
+    );
+  })(),
+);
+
+// The fit's own resize comes back through `window.resize`. Answering it with
+// another fit is the fit arguing with itself, one resize per answer: the window
+// jumps between sizes while the reader is only scrolling. The size the last fit
+// asked for is remembered, and an arrival at that size is left alone.
+check(
+  "and the window the fit asked for is not mistaken for the reader resizing it",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const watch = src.slice(src.indexOf("function cardResize"), src.indexOf("$effect(() => {", src.indexOf("function cardResize")));
+    const ask = src.slice(src.indexOf("async function fitToComic"), src.indexOf("function syncSnap"));
+    return (
+      /fitAsked = \{ width: pane1 \+ rest \+ paneNext, height \};/.test(ask) &&
+      /let fitAsked = \{ width: 0, height: 0 \};/.test(src) &&
+      /Math\.abs\(window\.innerWidth - fitAsked\.width\) < 2/.test(watch) &&
+      /Math\.abs\(window\.innerHeight - fitAsked\.height\) < 2/.test(watch) &&
+      // the early return comes before the fit is asked for
+      watch.indexOf("fitAsked.width") < watch.indexOf("void fitToComic(true)") &&
+      // and a resize that is the reader's does re-arm the cards it cleared
+      /fittedCards\.clear\(\);\s*fitStamps\.length = 0;/.test(watch)
+    );
+  })(),
+);
+
+// Without this, a card moved into the middle under a lit fit was a resize per
+// card, and a stream of comics of different shapes was a window that kept
+// changing size while the reader scrolled it.
+check(
+  "one fit per card, and a shell that clamps cannot be argued with",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const ask = src.slice(src.indexOf("async function fitToComic"), src.indexOf("function syncSnap"));
+    return (
+      /if \(fittedCards\.has\(id\)\) return;/.test(ask) &&
+      /fittedCards\.add\(id\);/.test(ask) &&
+      /const id = card\.dataset\.id \?\? "";/.test(ask) &&
+      /if \(fitStamps\.length >= 3\) return;/.test(ask) &&
+      /now - fitStamps\[0\] > 1200/.test(ask)
+    );
+  })(),
+);
+
+// Asking for a window shorter than the shell's own floor gets clamped, and a
+// clamp is a size the fit did not ask for — which it then asks for again. The
+// floor the fit uses is the one in tauri.conf.json, read from there so the two
+// cannot drift apart.
+check(
+  "and a fit never asks for a window shorter than the one the shell allows",
+  (() => {
+    const src = read("src/components/ArticleList.svelte");
+    const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
+    const min = conf.app?.windows?.[0]?.minHeight;
+    const declared = Number(/const FIT_FLOOR_H = (\d+);/.exec(src)?.[1]);
+    return (
+      Number.isFinite(min) &&
+      declared === min &&
+      /shrink \? FIT_FLOOR_H : window\.innerHeight/.test(src) &&
+      !/shrink \? 240/.test(src)
     );
   })(),
 );
