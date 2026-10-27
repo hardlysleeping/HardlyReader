@@ -1,6 +1,7 @@
 <script lang="ts">
   import { isRead, isStarred } from "../api/freshrss";
   import {
+    bodyFor,
     canExtract,
     chooseBody,
     extractFor,
@@ -9,6 +10,7 @@
     sameImage,
     type Extracted,
   } from "../lib/extract";
+  import { ledger, type BodyChoice } from "../lib/extract-ledger";
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
@@ -276,19 +278,47 @@
    */
   const feedBody = $derived(sanitizeArticle(item?.content?.content ?? item?.summary?.content ?? ""));
 
+  /**
+   * What the reader decided about this one post, when they decided anything.
+   *
+   * The account-wide switch is "extract every post"; this is "this one", in
+   * either direction — asking for the article on a summary-only feed, or for the
+   * feed's own text on a post whose extracted version is worse. It is written to
+   * the ledger by entry id, so it outlives the next post, the next launch and
+   * the next sync, and it never travels to another account.
+   */
+  let choice = $state<BodyChoice | null>(null);
+  /** The entry that choice belongs to, so switching posts cannot inherit it. */
+  let choiceFor = $state<string | null>(null);
+
+  $effect(() => {
+    const current = item?.id ?? null;
+    if (current === choiceFor) return;
+    choiceFor = current;
+    choice = current === null ? null : ledger.choice(current);
+  });
+
   /** The extraction for the open post, if one has arrived. */
   let extracted = $state<Extracted | null>(null);
   /** Which post that extraction belongs to, so a late result cannot land on the next one. */
   let extractedFor = $state<string | null>(null);
+  /** A press is waiting on a page. */
+  let fetching = $state(false);
+  /** Nothing is said about a failure until the reader asked for one. */
+  let refused = $state(false);
 
   $effect(() => {
     const current = item;
     const url = link;
-    const wanted = reading.extract;
+    // The feed's own text needs no page, and neither does a post the reader has
+    // put back on the feed. Everything else waits for one fetch — and the
+    // ledger decides whether that fetch is worth making at all.
+    const wanted = (reading.extract || choice === "article") && choice !== "feed";
 
     if (!wanted || !current || url === "") {
       extracted = null;
       extractedFor = null;
+      fetching = false;
       return;
     }
 
@@ -316,63 +346,68 @@
   });
 
   /**
-   * Experimental, per-article full read.
+   * The per-article switch, in both directions.
    *
-   * The global preference extracts every post that has a link; this is the same
-   * fetch on demand, for one article, from a button — the way to read a
-   * summary-only feed without turning extraction on for a whole account. It is
-   * keyed by id so a page that lands after the reader has moved on is dropped
-   * rather than pasted over the next article.
+   * The account-wide preference extracts every post that has a link; this is one
+   * article at a time, from a button — the way to read a summary-only feed
+   * without turning extraction on for a whole account, and the way to put a post
+   * back on the feed's own text when the extracted version is worse.
    */
-  let manualId = $state<string | null>(null);
-  let manualBody = $state<Extracted | null>(null);
-  let manualBusy = $state(false);
-  /** Nothing is shown about a failure until the reader asked for one. */
-  let manualFailed = $state(false);
+  /** The extraction in force for the open post. */
+  const extractedNow = $derived(extractedFor === item?.id ? extracted : null);
 
-  $effect(() => {
-    const current = item?.id ?? null;
-    if (current === manualId) return;
-    manualId = null;
-    manualBody = null;
-    manualBusy = false;
-    manualFailed = false;
-  });
+  /** What is on screen, and where it came from. */
+  const picked = $derived(bodyFor(choice, extractedNow, feedBody));
+  const body = $derived(sanitizeArticle(picked.html));
+  /** Whether the article, rather than the feed's own text, is what is being read. */
+  const showingArticle = $derived(picked.source === "article");
 
-  const manualActive = $derived(manualId !== null && manualId === item?.id && manualBody !== null);
-
-  /** The extraction in force for the open post, from either route. */
-  const extractedNow = $derived(
-    manualActive ? manualBody : extractedFor === item?.id ? extracted : null,
-  );
-
-  async function loadFullArticle(): Promise<void> {
+  /**
+   * A press on the article returns to the feed's text; a press on the feed
+   * fetches this one page.
+   *
+   * The fetch is explicit, so it is also a retry: the ledger may have parked this
+   * URL after a paywall or a timeout, and pressing the button is the reader
+   * saying they want it tried anyway. Nothing is remembered as "this post reads
+   * as the article" until an article actually arrives — a remembered choice is a
+   * fact about the post, not a wish.
+   */
+  async function toggleReading(): Promise<void> {
     const current = item;
-    if (!current || link === "" || manualBusy) return;
+    if (!current || link === "" || fetching) return;
+    if (showingArticle) {
+      setChoice("feed");
+      return;
+    }
     const id = current.id;
-    manualBusy = true;
-    manualFailed = false;
-    const result = await extractFor(id, link);
+    fetching = true;
+    refused = false;
+    const result = await extractFor(id, link, { force: true });
+    // Moving on cancels the landing: a slow page must never replace the article
+    // the reader is now looking at.
     if (item?.id !== id) return;
-    manualBusy = false;
+    fetching = false;
     // `chooseBody` already refuses a paywall stub or an extraction that found
     // less than the feed sent; asking for the full article does not override
     // that, it only overrides "do not fetch at all".
     if (result === null || chooseBody(result, feedBody).source !== "article") {
-      manualFailed = true;
+      refused = true;
       return;
     }
-    manualId = id;
-    manualBody = result;
+    setChoice("article");
+    extracted = result;
+    extractedFor = id;
   }
 
-  function dropFullArticle(): void {
-    manualId = null;
-    manualBody = null;
-    manualFailed = false;
+  /** One place writes the choice, so the ledger and the pane cannot disagree. */
+  function setChoice(next: BodyChoice | null): void {
+    const id = item?.id ?? null;
+    choice = next;
+    choiceFor = id;
+    if (id === null) return;
+    if (next === null) ledger.forget(id);
+    else ledger.remember(id, next);
   }
-
-  const body = $derived(sanitizeArticle(chooseBody(extractedNow, feedBody).html));
 
   /** A picture the feed sent, swapped out when the file is gone. */
   let brokenLeads = new Set<string>();
@@ -520,17 +555,17 @@
              original" because it is the same page, read in here instead. -->
         <button
           class="icon full"
-          class:on={manualActive}
-          aria-pressed={manualActive}
-          aria-busy={manualBusy}
-          aria-label={manualActive ? "Show what the feed sent" : "Load the full article"}
-          title={manualBusy
+          class:on={showingArticle}
+          aria-pressed={showingArticle}
+          aria-busy={fetching}
+          aria-label={showingArticle ? "Show what the feed sent" : "Load the full article"}
+          title={fetching
             ? "Fetching the publisher's page…"
-            : manualActive
+            : showingArticle
               ? "Showing the full article — click for what the feed sent"
               : "Experimental: fetch the publisher's page and show just the article"}
-          onclick={() => (manualActive ? dropFullArticle() : void loadFullArticle())}
-        >{manualBusy ? "⋯" : "¶"}</button>
+          onclick={() => void toggleReading()}
+        >{fetching ? "⋯" : "¶"}</button>
       {/if}
       {#if link}
         <button class="icon" aria-label="Open original" title="Open original" onclick={() => openExternal(link)}>
@@ -574,10 +609,10 @@
         <span>{item.origin?.title ?? ""}</span>
         {#if item.author}<span>· {item.author}</span>{/if}
         <span>· {absoluteTime(item.timestampUsec, item.published)}</span>
-        {#if manualFailed}
+        {#if refused}
           <span class="retry" role="status">
             · no full article
-            <button class="inline" onclick={() => void loadFullArticle()}>try again</button>
+            <button class="inline" onclick={() => void toggleReading()}>try again</button>
           </span>
         {/if}
       </p>

@@ -9,19 +9,20 @@
    * and the post being read is the one in front of you.
    *
    * The body is the article pane's own pipeline, deliberately: the feed's HTML,
-   * the account's extraction preference when it is on, and `chooseBody` deciding
-   * between them. Two surfaces that disagreed about which text is the article
-   * would be two readers.
+   * the extraction preference when it is on, the per-article choice the pane
+   * writes, and `bodyFor` deciding between them. Two surfaces that disagreed
+   * about which text is the article would be two readers.
    */
   import { type StreamItem } from "../api/freshrss";
   import {
-    chooseBody,
+    bodyFor,
     extractFor,
     imageSources,
     rememberedExtraction,
     sameImage,
     type Extracted,
   } from "../lib/extract";
+  import { ledger } from "../lib/extract-ledger";
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { reader } from "../state/reader.svelte";
@@ -38,10 +39,20 @@
   let extracted = $state<Extracted | null>(null);
   let extractedFor = $state<string | null>(null);
 
+  /**
+   * What the reader asked for on this post in the article pane, if anything.
+   *
+   * One post read in two places must not disagree about which text is the
+   * article, so the row honours the pane's own per-article choice — including
+   * "give me the feed's version", which is why it does not ask the network at
+   * all.
+   */
+  const choice = $derived(ledger.choice(item.id));
+
   $effect(() => {
     const id = item.id;
     const url = link;
-    const wanted = reading.extract;
+    const wanted = (reading.extract || choice === "article") && choice !== "feed";
 
     if (!wanted || url === "") {
       extracted = null;
@@ -72,7 +83,7 @@
   });
 
   const body = $derived(
-    sanitizeArticle(chooseBody(extractedFor === item.id ? extracted : null, feedBody).html),
+    sanitizeArticle(bodyFor(choice, extractedFor === item.id ? extracted : null, feedBody).html),
   );
 
   let brokenLead = $state(false);

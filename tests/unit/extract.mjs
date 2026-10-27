@@ -1,4 +1,5 @@
 import {
+  bodyFor,
   canExtract,
   chooseBody,
   EXTRACT_DEFAULT,
@@ -85,6 +86,39 @@ check("a hair under the ratio loses", chooseBody(justUnder, feedFull).source ===
 
 // An empty feed body must still accept a real extraction: nothing to lose.
 check("an empty feed body accepts an extraction", chooseBody(good, "").source === "article");
+
+// --- pictures are part of "worse" -----------------------------------------
+
+// Three pictures is a gallery; an extraction that kept none of them is a
+// stripped article, not a cleaner one.
+const gallery = `<p>${"word ".repeat(120)}</p>` + [1, 2, 3].map((n) => `<img src="/p/${n}.jpg">`).join("");
+const stripped = { html: `<p>${"word ".repeat(200)}</p>`, title: "t", byline: "", textLength: 1000 };
+check("a gallery with no pictures left in the extraction keeps the feed", chooseBody(stripped, gallery).source === "feed");
+
+// One picture surviving is enough: the extractor found the article.
+const kept = { ...stripped, html: `<p>${"word ".repeat(200)}</p><img src="/p/1.jpg">` };
+check("one picture kept is enough to trust the extraction", chooseBody(kept, gallery).source === "article");
+
+// Two thumbnails in the feed are not a gallery.
+const pair = `<p>${"word ".repeat(120)}</p><img src="/a.jpg"><img src="/b.jpg">`;
+check("two thumbnails do not veto an extraction", chooseBody(stripped, pair).source === "article");
+
+// A feed with no pictures never trips the rule.
+check("a text-only feed is judged on its words alone", chooseBody(stripped, long(1200)).source === "article");
+
+// --- what the reader asked for --------------------------------------------
+
+check("no choice is the automatic rule", bodyFor(null, good, feedShort).source === "article");
+check("no choice, no extraction, is the feed", bodyFor(null, null, feedShort).source === "feed");
+check("asking for the feed never fetches and never shows the article", bodyFor("feed", good, feedShort).source === "feed");
+check("and returns the feed's html exactly", bodyFor("feed", good, feedShort).html === feedShort);
+check("asking for the article shows it when it is worth showing", bodyFor("article", good, feedShort).source === "article");
+check("but a paywall stub still loses to the feed", bodyFor("article", thin, feedShort).source === "feed");
+check("and so does an extraction that found less than the feed", bodyFor("article", justUnder, feedFull).source === "feed");
+check("a wish for the article with nothing fetched is the feed", bodyFor("article", null, feedShort).source === "feed");
+
+const withoutHtml = (picked) => picked.html;
+check("a feed choice returns the feed even when an article arrived", withoutHtml(bodyFor("feed", good, feedFull)) === feedFull);
 
 if (failures === 0) {
   console.log(`ok ${checks} checks — reader view extraction rules`);

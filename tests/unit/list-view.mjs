@@ -618,7 +618,7 @@ check(
 );
 check(
   "the expanded post is the article pane's own pipeline, not a second reader",
-  /chooseBody\(/.test(inlineSource) &&
+  /bodyFor\(/.test(inlineSource) &&
     /sanitizeArticle\(/.test(inlineSource) &&
     /rememberedExtraction\(id\)/.test(inlineSource) &&
     /prepareImages\(node\)/.test(inlineSource) &&
