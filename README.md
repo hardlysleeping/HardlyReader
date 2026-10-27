@@ -10,10 +10,15 @@ build, and Android and iOS.
 
 ![Three panes: feeds, posts, article](docs/screenshots/three-panes.png)
 
-When three columns will not fit, the same three panes stack: feeds beside the post
-list, the article underneath, nothing dropped.
+When three columns will not fit they stack — feeds beside the post list, the article
+underneath, nothing dropped. One pane is the phone: the feed you picked fills it. Two
+panes with Cards reads a comic page at its own size, one card per row.
 
-![Three panes stacked: feeds beside the post list, the article below](docs/screenshots/three-panes-stacked.png)
+<p align="center">
+  <img src="docs/screenshots/three-panes-stacked.png" width="300" alt="Three panes stacked: feeds beside the post list, the article below">
+  <img src="docs/screenshots/one-pane-phone.png" width="200" alt="One pane on a phone, opened on a single feed">
+  <img src="docs/screenshots/two-panes-cards.png" width="430" alt="Two panes with Cards: one comic page per card">
+</p>
 
 ## Install
 
