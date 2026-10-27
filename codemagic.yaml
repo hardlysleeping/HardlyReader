@@ -155,12 +155,15 @@ workflows:
           # not finding it means nothing registered anything.
           grep 'hardlyreader_app_refresh' "$STRINGS" \
             || echo "(no exported C entry point; release builds strip symbols)"
-          # The mangled spelling survives dead-stripping (measured on the
-          # shipped binary: "..._handleyySvF"), so both entry points are
-          # asserted, not merely printed. A build that compiled the refresher
-          # but dropped the hook fails here instead of never waking.
+          # Read the binary itself for these, not the strings dump: `strings`
+          # decides what counts as a string and the two implementations do not
+          # agree (macOS printed 30451 lines where GNU printed 40295 for the
+          # same app, and had dropped the mangled entry points). `grep -a` is a
+          # raw byte search, so it answers the same on both. The mangled
+          # spelling survives dead-stripping: "..._handleyySvF" is in a release
+          # build of this app.
           for entry in hardlyreader_app_refresh_handle hardlyreader_app_refresh_schedule; do
-            if grep -q "$entry" "$STRINGS"; then
+            if grep -aq "$entry" "$APP/$EXEC"; then
               echo "found: $entry"
             else
               echo "::error::$entry is not in the binary — half the wiring did not compile in"
