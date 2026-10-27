@@ -996,7 +996,9 @@
       onclick={() => open(STATE_STARRED, "Starred")}
     >
       <span class="label">Starred</span>
-      <span class="count">{reader.countFor(STATE_STARRED)}</span>
+      {#if reader.countIfKnown(STATE_STARRED) !== null}
+        <span class="count">{reader.countFor(STATE_STARRED)}</span>
+      {/if}
     </button>
   </div>
 
