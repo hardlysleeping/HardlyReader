@@ -65,7 +65,9 @@
   const session = $derived(accounts.active);
 
   /** The device token this device signs in with, when it signed in by pairing. */
-  const deviceToken = $derived(session === null ? null : deviceTokenOf(session.token));
+  // Loose on purpose: a store that has not loaded yet hands back `undefined`, and
+  // a strict `=== null` test let that through to a property read on nothing.
+  const deviceToken = $derived(session ? deviceTokenOf(session.token) : null);
 
   async function loadPending(): Promise<void> {
     const current = accounts.active;
