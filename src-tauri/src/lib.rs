@@ -8,6 +8,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
+        // The local library's SQLite file. The schema is created by
+        // `src/api/local/sqlite-db.ts` on first open rather than by a Rust
+        // migration, so the table definitions have exactly one home and the
+        // unit suite can run the same `CREATE TABLE` text against real SQLite.
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .manage(lan::LanState::default())
         .invoke_handler(tauri::generate_handler![
             lan::lan_start,

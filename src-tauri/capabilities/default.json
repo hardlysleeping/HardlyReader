@@ -29,6 +29,10 @@
         }
       ]
     },
-    "core:window:allow-set-size"
+    "core:window:allow-set-size",
+    "sql:allow-load",
+    "sql:allow-select",
+    "sql:allow-execute",
+    "sql:allow-close"
   ]
 }
