@@ -30,6 +30,7 @@
       ]
     },
     "core:window:allow-set-size",
+    "dialog:allow-save",
     "sql:allow-load",
     "sql:allow-select",
     "sql:allow-execute",

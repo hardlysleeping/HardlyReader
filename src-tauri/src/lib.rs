@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod files;
 mod lan;
 mod sync;
 
@@ -9,6 +10,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
+        // The save dialog the OPML export opens. The picker is the plugin's; the
+        // write is `files::save_text`, so a page can only save to a path the
+        // reader chose in it.
+        .plugin(tauri_plugin_dialog::init())
         // The local library's SQLite file. The schema is created by
         // `src/api/local/sqlite-db.ts` on first open rather than by a Rust
         // migration, so the table definitions have exactly one home and the
@@ -22,7 +27,9 @@ pub fn run() {
             // The device-sync document: one file, in a folder the reader
             // chose. The page names the folder; `sync.rs` names the file.
             sync::sync_read,
-            sync::sync_write
+            sync::sync_write,
+            // The OPML export: the dialog picks the path, this writes the bytes.
+            files::save_text
         ])
         // A window that is gone is not a server: closing the reader stops the
         // share rather than leaving a socket open behind a closed window.

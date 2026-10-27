@@ -9,9 +9,9 @@
  * wording the same outcome differently, so the reading, the subscribing and the
  * sentence live here once, and each surface only draws a button.
  *
- * The download and the clipboard are in here too, for the same reason: the
- * native window's caveat (WebKitGTK saves a blob only if the shell handles it,
- * and this shell does not) is a fact about the app, not about the sidebar.
+ * The save, the share and the clipboard are in here too, for the same reason:
+ * "export" is a different gesture in a browser tab, in the native window and on
+ * a phone, and the app has to answer all three the same way from one place.
  */
 import { buildOpml, opmlFileName, parseOpml, type OpmlFeed, type OpmlFolder } from "./opml";
 
@@ -67,7 +67,7 @@ export async function importFeedsFile(
 }
 
 /** The anchor-and-blob download every browser understands. */
-function saveFile(name: string, xml: string): void {
+function anchorDownload(name: string, xml: string): void {
   const blob = new Blob([xml], { type: "text/x-opml" });
   const href = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -84,13 +84,66 @@ function inWindow(): boolean {
   return typeof window !== "undefined" && typeof (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
 }
 
+/** A phone or a tablet: a sandboxed webview with no downloads folder of its own. */
+function onPhone(): boolean {
+  return typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+/**
+ * The native save dialog, then a real write.
+ *
+ * `plugin:dialog|save` is the dialog plugin's own command; it is called through
+ * `invoke` rather than the plugin's JS package so the frontend keeps one Tauri
+ * dependency. The path it answers with is the ONLY path written to —
+ * `files::save_text` refuses a relative one and stages the bytes before renaming
+ * them into place.
+ *
+ * `null` means the reader closed the dialog: a cancel, not a failure.
+ */
+async function saveThroughDialog(name: string, xml: string): Promise<string | null> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const path = await invoke<string | null>("plugin:dialog|save", {
+    options: {
+      defaultPath: name,
+      filters: [{ name: "OPML", extensions: ["opml"] }],
+    },
+  });
+  if (!path) return null;
+  return await invoke<string>("save_text", { path, contents: xml });
+}
+
+/**
+ * The share sheet, which is the only way a file leaves a phone.
+ *
+ * Its "Save to Files" is the phone's own prompt; there is no downloads folder a
+ * webview may write to. Answers false when the shell will not share a document,
+ * so the caller can fall back to the clipboard instead of claiming a file.
+ */
+async function shareThroughSheet(name: string, xml: string): Promise<boolean> {
+  const file = new File([xml], name, { type: "text/x-opml" });
+  const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
+  if (nav.canShare?.({ files: [file] }) !== true) return false;
+  try {
+    await nav.share({ files: [file], title: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Writes the feed list out as OPML, folders and all.
  *
- * The native Linux window is the exception the sentence has to carry: WebKitGTK
- * only saves a download if the shell handles it, and this shell does not, so
- * there the file also goes to the clipboard rather than claiming a file that
- * never appeared.
+ * Three shells, three answers, because "export" means a different gesture in
+ * each of them:
+ *
+ * - the native window: a Save dialog, then the file lands where the reader put
+ *   it. Closing the dialog is a cancel, and says so.
+ * - a phone: the share sheet, whose Save to Files is the phone's own prompt.
+ * - a browser tab: the anchor download every browser understands.
+ *
+ * When the shell can do neither of the native two, the OPML goes to the
+ * clipboard rather than claiming a file that never appeared.
  */
 export async function exportFeedsOpml(
   categories: readonly FeedFolder[],
@@ -104,10 +157,27 @@ export async function exportFeedsOpml(
 
   const name = opmlFileName(new Date());
   const xml = buildOpml(folders);
-  saveFile(name, xml);
-
   const feeds = `${total} feed${total === 1 ? "" : "s"}`;
-  if (!inWindow()) return { name, note: `Exported ${feeds} to ${name}.` };
+
+  if (!inWindow()) {
+    anchorDownload(name, xml);
+    return { name, note: `Exported ${feeds} to ${name}.` };
+  }
+
+  if (onPhone()) {
+    if (await shareThroughSheet(name, xml)) {
+      return { name, note: `Exported ${feeds} — saved from the share sheet.` };
+    }
+  } else {
+    try {
+      const saved = await saveThroughDialog(name, xml);
+      if (saved === null) return { name: null, note: "Export cancelled — no file was written." };
+      return { name, note: `Exported ${feeds} to ${saved}` };
+    } catch {
+      // Fall through to the clipboard: a dialog that cannot open is not a reason
+      // to lose the export.
+    }
+  }
 
   let copied = false;
   try {
@@ -119,7 +189,7 @@ export async function exportFeedsOpml(
   return {
     name,
     note: copied
-      ? `Exported ${feeds}. If no file appeared, the OPML is on your clipboard.`
-      : `Exported ${feeds} to ${name} — if no file appeared, the window could not save it.`,
+      ? `Exported ${feeds}. The window could not save a file, so the OPML is on your clipboard.`
+      : `Exported ${feeds} to ${name} — the window could not save it.`,
   };
 }
