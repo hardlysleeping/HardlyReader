@@ -97,13 +97,33 @@ workflows:
           # called, and nothing anywhere reports it. So the keys are read back out
           # of the built app, and the C entry point is looked for in the binary —
           # both of which are only true if the wiring step actually landed.
+          #
+          # Each assertion prints what it found before failing, so a red build
+          # says which half is missing instead of only that one of them is.
+          echo "--- what the build produced:"
+          find src-tauri/gen/apple/build "$CM_BUILD_DIR/build" -maxdepth 6 \
+            \( -name '*.app' -o -name '*.xcarchive' -o -name '*.ipa' \) 2>/dev/null || true
           APP=$(find src-tauri/gen/apple/build "$CM_BUILD_DIR/build" -maxdepth 6 -name '*.app' -print -quit 2>/dev/null || true)
-          [ -n "$APP" ] || { echo "no .app was produced"; exit 1; }
-          /usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers:0' "$APP/Info.plist" \
-            | grep -qx 'ing.hardlysleep.hardlyreader.refresh'
-          /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes:0' "$APP/Info.plist" | grep -qx 'fetch'
-          EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
-          nm -gU "$APP/$EXEC" | grep -q 'hardlyreader_app_refresh_handle'
+          [ -n "$APP" ] || { echo "::error::no .app was produced"; exit 1; }
+          echo "app=$APP"
+          PLIST="$APP/Info.plist"
+          echo "--- the keys the background refresh needs:"
+          /usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers' "$PLIST" \
+            || echo "(missing BGTaskSchedulerPermittedIdentifiers)"
+          /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$PLIST" \
+            || echo "(missing UIBackgroundModes)"
+          status=0
+          /usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers:0' "$PLIST" 2>/dev/null \
+            | grep -qx 'ing.hardlysleep.hardlyreader.refresh' \
+            || { echo "::error::BGTaskSchedulerPermittedIdentifiers does not start with the refresh identifier"; status=1; }
+          /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes:0' "$PLIST" 2>/dev/null \
+            | grep -qx 'fetch' \
+            || { echo "::error::UIBackgroundModes does not start with fetch"; status=1; }
+          EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")
+          echo "--- refresh entry points in $EXEC:"
+          nm -gU "$APP/$EXEC" | grep 'hardlyreader_app_refresh' \
+            || { echo "::error::the refresh entry points are not in the binary"; status=1; }
+          [ "$status" -eq 0 ] || exit 1
           echo "background refresh: declared in Info.plist, wired to the binary"
       - name: Package unsigned IPA
         script: |

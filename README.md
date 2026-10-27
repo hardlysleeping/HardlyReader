@@ -67,6 +67,13 @@ place.
 Apple developer account behind it. Install with [AltStore](https://altstore.io)
 or Sideloadly and a free Apple ID (7-day signing). Needs iOS 15 or newer.
 
+The iOS build also refreshes feeds while it is in the background, on the
+system's schedule (`BGAppRefreshTask`). That schedule is iOS's, not the app's:
+it is opportunistic, it may run once a day or not for days, and it never runs at
+all after the app has been force-quit. The hour in the code is what the app asks
+for, not what it gets — a wake that does not arrive simply leaves the library as
+of the last one that did.
+
 ## Connect it to FreshRSS
 
 Every install asks for three things once:
@@ -146,6 +153,9 @@ http plugin regardless.
 - The Tauri window runs under a Content-Security-Policy; [`docs/csp.md`](docs/csp.md)
   explains each directive and what only a built app can prove.
 - [`docs/android.md`](docs/android.md) covers the Android build and signing.
+- [`docs/ios-background-refresh.md`](docs/ios-background-refresh.md) covers the
+  iOS background refresh: the identifier, the native poller behind it, and what
+  iOS will and will not promise (nothing guaranteed, nothing after a force-quit).
 - No offline cache of article bodies or images: a server that is down is a
   server that is down.
 - Screenshots use invented feeds; no real subscriptions appear in this repo.
