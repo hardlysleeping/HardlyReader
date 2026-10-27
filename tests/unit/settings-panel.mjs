@@ -168,6 +168,7 @@ try {
     "src/state/reading.svelte.ts",
     "src/state/lan.svelte.ts",
     "src/state/floods.svelte.ts",
+    "src/state/offline.svelte.ts",
   ]) {
     buildRunes(state);
   }
@@ -183,6 +184,7 @@ try {
 
   // Then the components, children before the panel that mounts them.
   await buildComponent("src/components/AccountsBody.svelte");
+  await buildComponent("src/components/OfflinePanel.svelte");
   await buildComponent("src/components/ReadingPanel.svelte");
   await buildComponent("src/components/ThemePanel.svelte");
   ({ default: SettingsPanel } = await import(await buildComponent("src/components/SettingsPanel.svelte")));
@@ -230,7 +232,7 @@ try {
   // -------------------------------------------------------------------------
   // The sections: six disclosures, each with its own rows inside it.
   // -------------------------------------------------------------------------
-  const SECTIONS = ["Accounts", "Appearance", "Reading", "Layout", "Sync", "About"];
+  const SECTIONS = ["Accounts", "Appearance", "Reading", "Layout", "Sync", "Offline", "About"];
   {
     const body = draw();
     // Sections carry `class="sec"`. Counted by that class, not by every
@@ -238,8 +240,8 @@ try {
     // its own (Accounts holds the pairing block), and the question here is how
     // many *sections* there are.
     const sections = (markup) => (markup.match(/<details[^>]*class="sec/g) ?? []).length;
-    check("there are six sections", sections(body) === 6, String(sections(body)));
-    check("every one is a disclosure with a summary", count(body, 'class="sum') === 6, String(count(body, 'class="sum')));
+    check("there are seven sections", sections(body) === 7, String(sections(body)));
+    check("every one is a disclosure with a summary", count(body, 'class="sum') === 7, String(count(body, 'class="sum')));
     check("every section is named", SECTIONS.every((label) => new RegExp(`<span class="label[^"]*">${label}</span>`).test(body)));
     check("and says what is in it", SECTIONS.every((label) => hasClass(section(body, label), "note")));
     // Native `<details>` is the mechanism: the content is inside the disclosure,
@@ -295,6 +297,51 @@ try {
     check("Sync is the interval", (() => {
       const part = section(body, "Sync");
       return part.includes('aria-label="Sync automatically"') && part.includes('aria-label="How often to sync automatically"') && /\d+h</.test(part);
+    })());
+
+    // Offline: the cache's own numbers and the four answers the policy has, and
+    // no switch that mirrors feeds ahead of time.
+    check("Offline is the cache: storage, what it keeps, the ceiling, and the way out", (() => {
+      const part = section(body, "Offline");
+      return (
+        part.includes("Storage used") &&
+        part.includes('aria-label="Keep read articles"') &&
+        part.includes('aria-label="Keep starred and pinned"') &&
+        part.includes('aria-label="Cache pictures"') &&
+        part.includes('aria-label="Cache limit"') &&
+        part.includes('aria-label="Clear cache"')
+      );
+    })());
+    check("Offline offers five ceilings, with no limit among them", (() => {
+      const part = section(body, "Offline");
+      const ladder = part.slice(part.indexOf('aria-label="Cache limit"'));
+      const answers = [...ladder.matchAll(/class="segbtn[^"]*"[^>]*>([^<]+)<\/button>/g)].map((match) => match[1].trim());
+      return answers.length === 5 && answers[0] === "No limit" && answers.includes("250 MB");
+    })());
+    check("Offline has no download-everything switch", (() => {
+      // Read the controls, not the prose: the hint at the foot *says* there is
+      // no such switch, and a search across the section would find that word.
+      const part = section(body, "Offline");
+      const controls = [...part.matchAll(/<(?:button|input)[^>]*>/g)].map((match) => match[0]);
+      return (
+        controls.length > 0 &&
+        !controls.some((control) => /download|mirror|everything|all feeds/i.test(control))
+      );
+    })());
+    check("Offline says there is no library rather than showing a zero", (() => {
+      const part = section(body, "Offline");
+      return /No offline library on this device yet/.test(part) && /<span class="state[^"]*">—<\/span>/.test(part);
+    })());
+    check("Offline's picture switch says when the build has no picture cache", (() => {
+      const part = section(body, "Offline");
+      const pictureRow = part.slice(part.indexOf('aria-label="Cache pictures"'));
+      const row = pictureRow.slice(0, pictureRow.indexOf("</div>"));
+      // The switch stays usable — it is a real preference the picture cache
+      // reads — and the line under it says this build stores nothing for it.
+      return (
+        !/\sdisabled(?:="")?/.test(row) &&
+        /No picture cache in this build yet/.test(part)
+      );
     })());
 
     check("About is the version, and it is the build's", (() => {

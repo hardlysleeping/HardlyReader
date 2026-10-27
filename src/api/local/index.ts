@@ -25,6 +25,26 @@ export { openLocalDatabase, preferredEngine } from "./open";
 export { LocalStorageError } from "./driver";
 export { MemoryDatabase } from "./memory-db";
 export {
+  CACHE_LIMIT_CHOICES,
+  CACHE_POLICY_DEFAULT,
+  MB,
+  bytesOf,
+  describeCache,
+  formatBytes,
+  formatLimit,
+  measureCache,
+  pinnedFeedUrls,
+  planClear,
+  planEviction,
+} from "./cache";
+export type {
+  CachePolicy,
+  CacheReport,
+  CacheTables,
+  CacheUsage,
+  EvictionPlan,
+} from "./cache";
+export {
   REFRESH_POLICY,
   createRefresher,
   dueFeeds,
