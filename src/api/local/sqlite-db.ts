@@ -31,6 +31,7 @@ import {
   columnNames,
   columnValues,
   createTableSql,
+  sqlType,
   tableNames,
   TABLES,
   type LocalRow,
@@ -51,6 +52,50 @@ interface SqlDatabase {
   execute(query: string, values?: unknown[]): Promise<unknown>;
   select<T>(query: string, values?: unknown[]): Promise<T>;
   close(): Promise<boolean>;
+}
+
+/**
+ * The two statements a migration needs, so it can be run by a test against an
+ * engine other than the plugin.
+ *
+ * `ensureColumns` below is the only part of this file that touches a database
+ * that already exists, which makes it the only part worth proving outside a
+ * launched app: a fresh install creates its tables from `createTableSql` and
+ * never notices, while an install from before a column existed is exactly the
+ * case that would fail on first write with `no such column`.
+ */
+export interface SqlExecutor {
+  execute(query: string, values?: unknown[]): Promise<unknown>;
+  select<T>(query: string, values?: unknown[]): Promise<T>;
+}
+
+/**
+ * Adds, to a table that already exists, every column the schema declares and
+ * the table is missing.
+ *
+ * SQLite's `CREATE TABLE IF NOT EXISTS` does nothing at all to a table that is
+ * already there, so a new column is invisible to every database created before
+ * it — and a `put` that names it fails at the first write rather than at the
+ * first read, which is a library that stops accepting articles after an update.
+ * `ALTER TABLE … ADD COLUMN` is the whole fix; a new column is always nullable
+ * here, because a row written before it has no value to invent.
+ *
+ * Returns the columns it added, which is what the suite asserts on.
+ */
+export async function ensureColumns(db: SqlExecutor, table: TableName): Promise<string[]> {
+  const rows = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('${table}')`,
+  );
+  const present = new Set(rows.map((row) => row.name));
+  const added: string[] = [];
+  for (const column of TABLES[table].columns) {
+    if (present.has(column.name)) continue;
+    await db.execute(
+      `ALTER TABLE "${table}" ADD COLUMN "${column.name}" ${sqlType(column.type)}`,
+    );
+    added.push(column.name);
+  }
+  return added;
 }
 
 /** SQLite's default limit on bound parameters, with room left for the rest. */
@@ -93,6 +138,10 @@ export class SqliteDatabase implements LocalDatabase {
     const opened = new SqliteDatabase(db);
     for (const table of tableNames()) {
       await db.execute(createTableSql(table));
+      // A library created by an older version has the table but not every
+      // column in it; the file is the reader's, so it is brought forward rather
+      // than replaced.
+      await ensureColumns(db, table);
     }
     return opened;
   }

@@ -24,14 +24,36 @@ export { LocalStore, localItemId } from "./store";
 export { openLocalDatabase, preferredEngine } from "./open";
 export { LocalStorageError } from "./driver";
 export { MemoryDatabase } from "./memory-db";
+export {
+  REFRESH_POLICY,
+  createRefresher,
+  dueFeeds,
+  feedDueAt,
+  feedIntervalSeconds,
+  isFeedDue,
+  refreshDueFeeds,
+} from "./refresh";
 export type { LocalDatabaseOptions } from "./open";
 export type { LocalBackendOptions } from "./local-backend";
+export type {
+  FeedFetcher,
+  FeedRequest,
+  FeedResponse,
+  RefreshFailure,
+  RefreshOptions,
+  RefreshPolicy,
+  RefreshReport,
+  Refresher,
+  RefresherOptions,
+  WakeReason,
+} from "./refresh";
 export type {
   EntryInput,
   EntryPage,
   EntryQuery,
   ExtractionInput,
   FeedCount,
+  FetchOutcome,
   ReadingPosition,
   SubscribeOptions,
 } from "./store";

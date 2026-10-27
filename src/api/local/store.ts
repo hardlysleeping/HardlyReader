@@ -97,6 +97,20 @@ export interface SubscribeOptions {
   iconUrl?: string | null;
 }
 
+/** What one successful poll of one feed leaves behind. */
+export interface FetchOutcome {
+  /** Seconds, when the poll's answer arrived. */
+  at: number;
+  /** The feed's `ETag`, if it declared one. */
+  etag?: string | null;
+  /** The feed's `Last-Modified`, if it declared one. */
+  lastModified?: string | null;
+  /** What the feed calls itself, when the document carried a title. */
+  title?: string | null;
+  /** The site's address, which is where the feed's own posts live. */
+  siteUrl?: string | null;
+}
+
 /** GReader's default page size, which is what a caller who names none expects. */
 const DEFAULT_PAGE = 20;
 
@@ -190,6 +204,75 @@ export class LocalStore {
     return this.db.get<FeedRow>("feeds", feedUrl);
   }
 
+  /**
+   * A poll that got an answer, recorded on the feed's own row.
+   *
+   * Three things are remembered: when it happened, the validators to send back
+   * next time, and that the feed is working. The failure count going to zero is
+   * part of the record rather than a tidy-up — it is what stops a feed that
+   * failed once from being treated as a feed that fails.
+   *
+   * A feed's name is taken from the feed itself only while the row's title came
+   * from the URL. Once the reader has typed a title, or a feed has spoken for
+   * itself, a later fetch must not rename it: a subscription that renames itself
+   * whenever the site tweaks its `<title>` is a list that moves under the hand.
+   *
+   * Returns null when the feed is no longer subscribed — it can be removed while
+   * a poll is in flight, and the poll's result belongs to nothing then.
+   */
+  async recordFetch(feedUrl: string, outcome: FetchOutcome): Promise<FeedRow | null> {
+    const url = this.feedUrl(feedUrl);
+    const feed = await this.db.get<FeedRow>("feeds", url);
+    if (feed === null) return null;
+
+    const named = outcome.title?.trim() ?? "";
+    const learnName = named !== "" && feed.title_source === "url";
+    const site = outcome.siteUrl?.trim() ?? "";
+
+    const row: FeedRow = {
+      ...feed,
+      fetched_at: outcome.at,
+      attempted_at: outcome.at,
+      etag: outcome.etag ?? null,
+      last_modified: outcome.lastModified ?? null,
+      failures: 0,
+      last_error: null,
+      ...(learnName ? { title: named, title_source: "feed" } : {}),
+      ...(site !== "" ? { html_url: site } : {}),
+    };
+
+    await this.db.write([{ type: "put", table: "feeds", row }]);
+    return row;
+  }
+
+  /**
+   * A poll that did not get an answer, recorded so the next attempt waits.
+   *
+   * `fetched_at` is left alone on purpose: it is when the feed was last read
+   * successfully, and moving it because a site is down would hide how long this
+   * library has been stale. `attempted_at` moves, because the wait before the
+   * next attempt is measured from the attempt, and the count of failures is what
+   * widens it. The message is kept so a reader can be told why.
+   */
+  async recordFetchFailure(
+    feedUrl: string,
+    failure: { at: number; error: string },
+  ): Promise<FeedRow | null> {
+    const url = this.feedUrl(feedUrl);
+    const feed = await this.db.get<FeedRow>("feeds", url);
+    if (feed === null) return null;
+
+    const row: FeedRow = {
+      ...feed,
+      attempted_at: failure.at,
+      failures: (feed.failures ?? 0) + 1,
+      last_error: failure.error,
+    };
+
+    await this.db.write([{ type: "put", table: "feeds", row }]);
+    return row;
+  }
+
   async folders(): Promise<FolderRow[]> {
     const rows = await this.db.all<FolderRow>("folders");
     return rows.sort(
@@ -223,6 +306,14 @@ export class LocalStore {
       folder: folder === "" ? null : folder,
       added_at: seconds(),
       title_source: given !== "" ? "given" : "url",
+      // Nothing has been fetched yet, and the row says so rather than looking
+      // like a feed that was polled at the epoch.
+      fetched_at: null,
+      attempted_at: null,
+      etag: null,
+      last_modified: null,
+      failures: 0,
+      last_error: null,
     };
 
     await this.db.write([

@@ -71,6 +71,26 @@ export const TABLES = {
        * such rather than looking like a feed that renamed itself.
        */
       { name: "title_source", type: "text" },
+      /**
+       * The poll's own memory, kept on the row it belongs to.
+       *
+       * A device that fetches its own feeds cannot ask a server whether
+       * something is due, so the answer has to be stored: when this feed was
+       * last read successfully, when it was last attempted at all, and the
+       * two validators that let a poll cost nothing when nothing changed.
+       *
+       * Two times rather than one, because they answer different questions.
+       * `fetched_at` is how stale this library is — a feed that answered `500`
+       * has not become current — while `attempted_at` is what the next attempt
+       * is measured from, so a feed that is down is retried on a widening
+       * interval instead of on every wake. `failures` is the width of it.
+       */
+      { name: "fetched_at", type: "integer" },
+      { name: "attempted_at", type: "integer" },
+      { name: "etag", type: "text" },
+      { name: "last_modified", type: "text" },
+      { name: "failures", type: "integer" },
+      { name: "last_error", type: "text" },
     ],
   },
 
@@ -157,7 +177,7 @@ export function tableNames(): TableName[] {
   return Object.keys(TABLES) as TableName[];
 }
 
-function sqlType(type: ColumnType): string {
+export function sqlType(type: ColumnType): string {
   switch (type) {
     case "text":
       return "TEXT";
@@ -201,6 +221,17 @@ export interface FeedRow extends LocalRow {
   folder: string | null;
   added_at: number;
   title_source: string;
+  /** Seconds of the last poll that got an answer; null until one has. */
+  fetched_at: number | null;
+  /** Seconds of the last poll attempt, successful or not. */
+  attempted_at: number | null;
+  /** The feed's own validators, sent back on the next poll. */
+  etag: string | null;
+  last_modified: string | null;
+  /** Consecutive failed polls, reset by any poll that gets an answer. */
+  failures: number | null;
+  /** Why the last poll failed, in words, or null when it did not. */
+  last_error: string | null;
 }
 
 /** A row of `entries`. */
