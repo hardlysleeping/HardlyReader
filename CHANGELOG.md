@@ -4,6 +4,16 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **Cards are one per row, and the columns are gone.** The view offered a
+  masonry arrangement — a pick in the bar, then 2, 3 or 4 columns — with a store,
+  a storage key and a preferences namespace behind it. One card per row is the
+  shape: the pick, the column CSS, the model and its key are removed, and a
+  stored choice is simply no longer read.
+
 ## [0.6.5] — 2026-10-26
 
 ### Changed

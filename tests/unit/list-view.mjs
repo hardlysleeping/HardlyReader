@@ -34,8 +34,6 @@ import {
 } from "../../src/lib/list-view.ts";
 import { GUTTER, gridTemplate, paneSlots } from "../../src/lib/panes.ts";
 import {
-  CARD_LAYOUTS,
-  CARD_LAYOUT_DEFAULT,
   CARD_WINDOW,
   CARD_SIZES,
   GRID_COLUMN_MAX,
@@ -43,17 +41,10 @@ import {
   gridColumnValue,
   GRID_COLUMNS_DEFAULT,
   GRID_TILE_MIN,
-  MASONRY_COLUMN_CHOICES,
-  MASONRY_COLUMNS_DEFAULT,
-  MASONRY_GAP,
   gridIsSquare,
   gridTemplate as gridColumnsTemplate,
-  isCardLayout,
   isCardSize,
   isGridColumns,
-  isMasonryColumns,
-  masonryColumns,
-  masonryTrack,
 } from "../../src/lib/list-view.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -291,22 +282,9 @@ check("the window is a height per unit of width", CARD_WINDOW.auto * 5 === 7.5);
 check("stored sizes are validated", isCardSize("large") && !isCardSize("huge") && isGridColumns(3) && isGridColumns(7) && !isGridColumns(9));
 check("the card sizes are three", CARD_SIZES.length === 3);
 
-// Cards' second arrangement is a pick, not a fifth shape: two layouts, and the
-// one that already shipped is the default.
-check("cards have two arrangements", CARD_LAYOUTS.join(",") === "rows,masonry", CARD_LAYOUTS.join(","));
-check("one card per row is the default", CARD_LAYOUT_DEFAULT === "rows");
-check("a stored layout is checked, not trusted", isCardLayout("masonry") && !isCardLayout("Masonry") && !isCardLayout(null));
-check(
-  "the views did not gain a fifth shape",
-  LIST_VIEWS.length === 4 && !LIST_VIEWS.includes("masonry"),
-  String(LIST_VIEWS.length),
-);
-check("the column counts are 2, 3 and 4", MASONRY_COLUMN_CHOICES.join(",") === "2,3,4", MASONRY_COLUMN_CHOICES.join(","));
-check("two columns unless another is chosen", MASONRY_COLUMNS_DEFAULT === 2);
-check("counts are numbers, not sizes", !isMasonryColumns("3") && !isMasonryColumns(1) && !isMasonryColumns(5));
-check("an unknown stored count falls back to two", masonryColumns(3) === 3 && masonryColumns(9) === 2 && masonryColumns("4") === 2);
-check("the container is handed a column count, not a length", masonryTrack(4) === "4" && masonryTrack(undefined) === "2");
-check("columns and their gutter are the same 10px the rows were apart", MASONRY_GAP === 10);
+// Cards are one per row and there is nothing to pick: no second arrangement, and
+// no fifth view pill for one.
+check("the views did not gain a masonry shape", LIST_VIEWS.length === 4, String(LIST_VIEWS.length));
 
 // The controls live in the bar and belong to one view each.
 check("the sizer is in the bar, not a panel", /class="bar"[\s\S]{0,6000}class="sizer"/.test(listSource));
@@ -322,8 +300,8 @@ check(
   "auto is a button, not the end of the range",
   /class="sizebtn"[\s\S]{0,320}onclick=\{\(\) => reading\.setGridColumns\("auto"\)\}/.test(listSource),
 );
-// The cards' branch holds the shape picks, the masonry toggle and the column
-// counts, so it is sliced by its own delimiters rather than a character window.
+// The cards' branch holds no shape picks, so it is sliced by its own delimiters
+// rather than a character window.
 const cardsBranch = listSource.slice(
   listSource.indexOf('{:else if view === "cards"}'),
   listSource.indexOf('<div class="filters"'),

@@ -128,7 +128,7 @@ const THEME_B = { mode: "light", accent: "#0078e0" };
 {
   // Two devices editing different halves: both survive, which is the reason
   // provenance is per namespace rather than one stamp for the whole blob.
-  const local = doc({ reading: entry(READING_A, 900), cards: entry({ mode: "masonry" }, 100) });
+  const local = doc({ reading: entry(READING_A, 900), search: entry({ deep: true }, 100) });
   const remote = doc({ reading: entry(READING_B, 800), theme: entry(THEME_A, 950) });
   const merged = mergePreferences(local, remote);
 
@@ -142,7 +142,7 @@ const THEME_B = { mode: "light", accent: "#0078e0" };
   );
   check(
     "a namespace only this device holds is kept",
-    entryOf(merged.doc, "cards")?.value.mode === "masonry",
+    entryOf(merged.doc, "search")?.value.deep === true,
   );
   check(
     "the document's stamp is the newest entry, not the account's",
@@ -184,15 +184,19 @@ const THEME_B = { mode: "light", accent: "#0078e0" };
       // and adopting it would put a value into a store that cannot validate it.
       experiments: entry({ telemetry: true }, 300),
       theme: entry("not an object", 400),
-      cards: entry({ mode: "rows" }, 0),
-      search: entry({ deep: "yes" }, Number.NaN),
+      search: entry({ deep: false }, 0),
     },
   });
 
   check("an unknown namespace is not adopted", !Object.hasOwn(remote.entries, "experiments"));
   check("a scalar where an object belongs is ignored", remote.entries.theme === undefined);
-  check("a zero stamp proves nothing and is ignored", remote.entries.cards === undefined);
-  check("a malformed stamp is ignored", remote.entries.search === undefined);
+  check("a zero stamp proves nothing and is ignored", remote.entries.search === undefined);
+  const malformed = parsePreferences({
+    apiVersion: PREFS_API_VERSION,
+    updatedAt: 10,
+    entries: { search: entry({ deep: "yes" }, Number.NaN) },
+  });
+  check("a malformed stamp is ignored", malformed.entries.search === undefined);
   check(
     "the rest of the document still arrives",
     same(entryOf(remote, "reading")?.value, READING_B),
@@ -264,7 +268,6 @@ const THEME_B = { mode: "light", accent: "#0078e0" };
   const full = doc({
     reading: entry(READING_A, 100),
     theme: entry(THEME_A, 250),
-    search: entry({ deep: false }, 150),
   });
   const body = preferencesBody(full);
   const back = parsePreferences(body);
@@ -273,7 +276,7 @@ const THEME_B = { mode: "light", accent: "#0078e0" };
   check("the body round trips", samePreferences(full, back), body);
   check(
     "namespaces this device does not hold are absent from the body",
-    !Object.hasOwn(body.entries, "cards"),
+    !Object.hasOwn(body.entries, "search"),
     Object.keys(body.entries),
   );
 
