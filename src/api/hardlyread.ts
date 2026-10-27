@@ -37,6 +37,7 @@
  * PUT route needs that id. `categoryIdForLabel()` is the bridge.
  */
 import { normalizeApiPath, normalizeServerUrl, type Session, type Transport } from "./freshrss";
+import { transport } from "./transport";
 import { mergePositions, nextStamp, parsePositions, positionsBody, type Positions } from "../lib/positions";
 import { parseAddPerson, parsePeopleList, parsePeopleStatus, recordAvailability, type Person } from "../lib/people";
 import { parsePreferences, preferencesBody, type PrefsDoc } from "../lib/prefs-sync";
@@ -206,8 +207,62 @@ export function unavailableState(): HiddenCategoriesState {
   };
 }
 
+/**
+ * Where the adapter's routes live for this window.
+ *
+ * Normally that is the server itself. A page served from somewhere else — the
+ * PWA on the tailnet, which is how the phone reads its feeds — cannot reach
+ * these routes cross-origin at all: the GReader API sends
+ * `access-control-allow-origin: *` and `misc.php` sends nothing, so the browser
+ * refuses to hand back the answer (measured: `TypeError: Failed to fetch`, while
+ * the request does go out and return). The extension state is where the passcode
+ * count, the hidden categories and the pins live, so without these routes the
+ * app cannot know any of it.
+ *
+ * Rather than make the reader type this window's address into the server field —
+ * which would make that field lie, and is wrong for the desktop app, which talks
+ * to the server directly — the page can answer for the server. When whatever is
+ * hosting the page advertises a proxy (`GET /__proxy` → `{"proxy": true}`), the
+ * adapter's calls go to `<this origin>/through/<server origin>/<path>` and the
+ * host forwards them. `serverUrl` keeps its meaning; only the transport differs.
+ */
+let proxyOrigin: string | null = null;
+
+/** Told by `detectProxy`, or left null where nothing is hosting a proxy. */
+export function setProxyOrigin(origin: string | null): void {
+  proxyOrigin = origin;
+}
+
+/** The adapter URL for one route, through the host's proxy when there is one. */
 export function apiUrl(serverUrl: string, path: string): string {
-  return `${normalizeServerUrl(serverUrl)}${API_PREFIX}${path}`;
+  const absolute = `${normalizeServerUrl(serverUrl)}${API_PREFIX}${path}`;
+  if (proxyOrigin === null) return absolute;
+  try {
+    const target = new URL(absolute);
+    // Same origin already: a proxy would be a hop for nothing.
+    if (typeof location !== "undefined" && target.origin === location.origin) return absolute;
+    return `${proxyOrigin}/through/${encodeURIComponent(target.origin)}${target.pathname}${target.search}`;
+  } catch {
+    return absolute;
+  }
+}
+
+/**
+ * Asks the page's own host whether it can forward for the server.
+ *
+ * Cheap and silent: one request, at start, and a failure means "no proxy" — which
+ * is the truth everywhere except the PWA on a host that runs `serve-pwa.py`.
+ */
+export async function detectProxy(): Promise<void> {
+  if (typeof location === "undefined" || !/^https?:$/.test(location.protocol)) return;
+  try {
+    const response = await transport(`${location.origin}/__proxy`, { method: "GET" });
+    if (!response.ok) return;
+    const body = (await response.json()) as { proxy?: unknown };
+    if (body?.proxy === true) proxyOrigin = location.origin;
+  } catch {
+    /* not proxied: the adapter URL stays absolute, as it always was */
+  }
 }
 
 /**

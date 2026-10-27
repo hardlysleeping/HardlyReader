@@ -19,12 +19,20 @@ read the extension state — which is where the passcode count, the hidden
 categories and the pins live. The visible symptom was the lock claiming it had
 not been told whether a passcode was set, on an account that had one.
 
-With the proxy in place, **sign in with this app's own address as the server
-URL** (for example `https://<host>.<tailnet>.ts.net:8457`), not the FreshRSS
-host. `/api/greader.php` answers through the proxy exactly as it does there, and
-because the page and the API are one origin the browser has nothing to check.
-An account already saved against the FreshRSS host will keep hitting the CORS
-wall until its server URL is changed.
+**Nothing changes about the server URL.** The reader keeps signing in with their
+own FreshRSS address (`https://cenvalweb.tail900410.ts.net:8449`); the page detects
+the proxy at start (`GET /__proxy`) and routes only the adapter's calls through
+its own origin, as `/through/<server origin>/api/misc.php/...`. The proxy forwards
+them with the caller's own headers, so the session token is what authorises the
+request, exactly as it would be directly.
+
+The forwarder is not open: `/through/` only accepts hosts listed in
+`HARDLYREAD_ALLOW` (default: the host of `HARDLYREAD_UPSTREAM`), and answers 403
+for anything else — otherwise anyone on the network could use this box as an open
+proxy. An unknown origin gets 403, not a forwarded request.
+
+Where there is no proxy — the desktop and phone apps, a plain static host — the
+adapter URLs stay absolute and the app talks to the server directly, as before.
 
 The alternative is the same-origin deployment below, which removes the question
 for the same reason: one origin, no CORS.

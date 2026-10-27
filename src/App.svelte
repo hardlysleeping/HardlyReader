@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { AuthError, userInfo } from "./api/freshrss";
+  import { detectProxy } from "./api/hardlyread";
   import type { Session } from "./api/freshrss";
   import { transport } from "./api/transport";
   import { accounts } from "./state/accounts.svelte";
@@ -111,6 +112,12 @@
   const CHECK_TIMEOUT_MS = 9000;
 
   onMount(async () => {
+    // Before anything reads the extension state: if the page is served by a host
+    // that can forward for the server (the PWA on this box), the adapter's routes
+    // are reachable through it. A window with no such host answers nothing and
+    // the URLs stay absolute, which is what the desktop app wants anyway.
+    void detectProxy();
+
     const stored = accounts.active;
     if (stored === null) {
       // No account on this device: that is not an error and not a reason to

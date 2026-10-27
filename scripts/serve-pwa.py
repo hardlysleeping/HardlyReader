@@ -36,6 +36,7 @@ import argparse
 import functools
 import http.client
 import http.server
+import json
 import mimetypes
 import os
 import posixpath
@@ -47,6 +48,18 @@ DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 
 # Where /api/ goes. Overridable so this can point at a test harness instead.
 UPSTREAM = os.environ.get("HARDLYREAD_UPSTREAM", "https://cenvalweb.tail900410.ts.net:8449")
+
+# Hosts this page will forward for. `/through/<origin>/...` exists so the app can
+# keep the reader's own server URL while its adapter routes still arrive
+# same-origin; an open forwarder would let anyone on the network use this box as a
+# proxy, so the list starts as the upstream's host and no more.
+ALLOWED_HOSTS = {
+    h.strip().lower()
+    for h in os.environ.get(
+        "HARDLYREAD_ALLOW", urllib.parse.urlsplit(UPSTREAM).hostname or ""
+    ).split(",")
+    if h.strip()
+}
 
 # Headers that describe a single hop and must not be forwarded either way.
 HOP_BY_HOP = {
@@ -69,9 +82,9 @@ mimetypes.add_type("image/png", ".png")
 mimetypes.add_type("image/svg+xml", ".svg")
 
 
-def forward(method: str, path: str, headers, body: bytes | None):
+def forward(method: str, path: str, headers, body: bytes | None, origin: str | None = None):
     """One request to the upstream, as (status, headers, body)."""
-    url = urllib.parse.urlsplit(UPSTREAM)
+    url = urllib.parse.urlsplit(origin or UPSTREAM)
     host = url.hostname or "127.0.0.1"
     if url.scheme == "https":
         conn = http.client.HTTPSConnection(
@@ -124,15 +137,47 @@ class PWAHandler(http.server.SimpleHTTPRequestHandler):
         sys.stderr.write("%s - %s\n" % (self.address_string(), format % args))
 
     def _is_api(self) -> bool:
-        return self.path == "/api" or self.path.startswith("/api/")
+        return self.path == "/api" or self.path.startswith("/api/") or self.path == "/__proxy"
+
+    def _through_parts(self):
+        """/through/<url-encoded origin>/<path> → (origin, path), or None."""
+        if not self.path.startswith("/through/"):
+            return None
+        rest = self.path[len("/through/"):]
+        encoded, _, tail = rest.partition("/")
+        origin = urllib.parse.unquote(encoded)
+        url = urllib.parse.urlsplit(origin)
+        if url.scheme not in ("http", "https") or not url.hostname:
+            return ("", "")
+        if url.hostname.lower() not in ALLOWED_HOSTS:
+            return ("", "")
+        return (origin, "/" + tail)
+
+    def _advertise(self) -> None:
+        """What the app asks for before it decides how to reach the adapter."""
+        payload = json.dumps({"proxy": True, "upstream": UPSTREAM, "allow": sorted(ALLOWED_HOSTS)}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(payload)))
+        super().end_headers()
+        self.wfile.write(payload)
 
     def _forward(self) -> None:
+        if self.path == "/__proxy":
+            return self._advertise()
         body = None
         length = self.headers.get("Content-Length")
         if length:
             body = self.rfile.read(int(length))
+        through = self._through_parts()
+        if through is not None and through[0] == "":
+            self.send_error(403, "that origin is not on this proxy's list")
+            return
+        target = through[1] if through is not None else self.path
+        origin = through[0] if through is not None else None
         try:
-            status, headers, data = forward(self.command, self.path, self.headers, body)
+            status, headers, data = forward(self.command, target, self.headers, body, origin)
         except Exception as error:  # unreachable upstream, refused TLS, timeout
             self.send_response(502)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -153,7 +198,7 @@ class PWAHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(data)
 
     def do_GET(self) -> None:
-        if self._is_api():
+        if self._is_api() or self.path.startswith("/through/"):
             return self._forward()
         return super().do_GET()
 
@@ -163,12 +208,12 @@ class PWAHandler(http.server.SimpleHTTPRequestHandler):
         return super().do_HEAD()
 
     def do_POST(self) -> None:
-        if self._is_api():
+        if self._is_api() or self.path.startswith("/through/"):
             return self._forward()
         self.send_error(405)
 
     def do_PUT(self) -> None:
-        if self._is_api():
+        if self._is_api() or self.path.startswith("/through/"):
             return self._forward()
         self.send_error(405)
 
@@ -178,7 +223,7 @@ class PWAHandler(http.server.SimpleHTTPRequestHandler):
         self.send_error(405)
 
     def do_OPTIONS(self) -> None:
-        if self._is_api():
+        if self._is_api() or self.path.startswith("/through/"):
             return self._forward()
         self.send_error(405)
 
