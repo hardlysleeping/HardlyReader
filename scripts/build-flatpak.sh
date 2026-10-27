@@ -16,6 +16,18 @@ OUT="$REPO/flatpak/$APP_ID-$VERSION.flatpak"
 
 [ -x "$BINARY" ] || { echo "no binary at $BINARY (build it in hrbuild first)"; exit 1; }
 
+# A release binary from plain `cargo build --release` carries NO frontend. The
+# assets are embedded only when the `custom-protocol` feature is on, which the
+# `tauri build` CLI passes for you. Such a binary packages cleanly, produces a
+# window with nothing in it, and — because its content never changes — looks
+# like a successful rebuild every time (flatpak-builder writes ~1.5 kB and says
+# nothing). Refuse it here rather than shipping a blank app.
+if ! grep -aq "assets/" "$BINARY"; then
+  echo "refusing $BINARY: no embedded frontend — it was built without the feature." >&2
+  echo "  rebuild with: cargo build --release --features tauri/custom-protocol" >&2
+  exit 1
+fi
+
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp "$BINARY" "$STAGE/hardlyreader"
