@@ -123,6 +123,9 @@ function buildReaderModule() {
     .replaceAll('"../lib/indent"', JSON.stringify(absolute("src/lib/indent.ts")))
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
+    .replaceAll('"../lib/stream-loads"', JSON.stringify(absolute("src/lib/stream-loads.ts")))
+    .replaceAll('"../lib/stream-perf"', JSON.stringify(absolute("src/lib/stream-perf.ts")))
+    .replaceAll('"../lib/stream-scroll"', JSON.stringify(absolute("src/lib/stream-scroll.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
     .replaceAll('"./theme.svelte"', JSON.stringify(buildThemeModule()))
     .replaceAll('"./floods.svelte"', JSON.stringify(buildFloodsModule()))
@@ -511,19 +514,21 @@ try {
     const reader = fresh();
     reader.hiddenCategories = parseState({ available: false });
     reader.openCategoryMenu("Technology", { x: 0, y: 0 });
-    // Hide stays in the menu: an item that vanishes when the extension is absent
-    // reads as "this app cannot hide things", and the reason belongs in the note
-    // rather than in a missing row.
+    // Hide stays in the menu, and it is offered without an apology: a server
+    // with no extension is not a server where nothing can be hidden, it is a
+    // server where the set is kept here. See `hidden-local.mjs`.
     check(
-      "without the extension the menu still offers Hide, disabled",
-      reader.menuModel?.toggle?.disabled === true && reader.menuModel?.pin?.action.type === "pin",
+      "without the extension the menu offers a working Hide",
+      reader.menuModel?.toggle?.disabled === false && reader.menuModel?.note === null,
     );
     // Opening the menu asks the state once, to see whether the extension really
     // is absent or the app is holding a stale "unavailable".
     const afterOpen = calls.length;
     check("opening the menu re-checks the extension once", afterOpen === 1, String(afterOpen));
-    check("no write without the extension", (await reader.setCategoryHidden("Technology", true)) === null);
-    check("...and the failed write adds no request of its own", calls.length === afterOpen, String(calls.length));
+    check("the hide is kept on this device, not sent", (await reader.setCategoryHidden("Technology", true)) === null);
+    check("...as one label in the local set", reader.localHidden.categories.join(",") === "Technology");
+    check("...and no request of its own", calls.length === afterOpen, String(calls.length));
+    check("...and the row is gone", labels(reader.categories) === "Art", labels(reader.categories));
   }
 
   {

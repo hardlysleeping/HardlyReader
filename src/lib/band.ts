@@ -20,9 +20,13 @@
  * own. The state itself stays where it lives: `hiddenCount`/`hiddenLocked`/
  * `pinView` on the reader, the fold on `chrome`. This module only decides what is
  * drawn, for both the row and the strip.
+ *
+ * One authority answers at a time — the extension's store, or this device's own
+ * set when there is no extension — and `authority` rides in both models so the
+ * eye is never a dead control and the badge can name the one enforcing.
  */
 import type { HiddenView } from "../api/hardlyread";
-import { HIDDEN_VIEW_LABELS, nextHiddenView } from "../state/hidden";
+import { HIDDEN_VIEW_LABELS, nextHiddenView, type HiddenAuthority } from "../state/hidden";
 import { nextPinView, PIN_VIEW_LABELS, type PinView } from "../state/pins";
 
 export type BandState = "open" | "locked" | "collapsed";
@@ -42,8 +46,11 @@ export function bandState(collapsed: boolean, locked: boolean): BandState {
 export interface BandInput {
   collapsed: boolean;
   locked: boolean;
-  /** Whether Hidden Categories answers at all. */
+  /** Whether the extension answers. The eye answers either way — see
+   * `authority`, which says where the answer comes from. */
   available: boolean;
+  /** Who is enforcing: the extension, or this device's own set. */
+  authority: HiddenAuthority;
   view: HiddenView;
   pinnedCount: number;
   pinView: PinView;
@@ -58,8 +65,12 @@ export interface BandFacts {
    *
    * Locked it is null because the glyph is not drawn either: an eye sitting in a
    * locked band is itself a hint that something is being filtered out.
+   *
+   * `enabled` is true for either authority: without the extension the eye is not
+   * a dead control, it is the same three views with the set kept on this device.
+   * `authority` rides along so the word under it can say where the filter lives.
    */
-  hidden: { label: string; next: string; enabled: boolean } | null;
+  hidden: { label: string; next: string; enabled: boolean; authority: HiddenAuthority } | null;
   /** Always drawn, always counted: the one number a lock leaves standing. */
   pinnedCount: number;
   /** The pin's word under the glyph. Null while locked — labels drop away. */
@@ -81,7 +92,9 @@ export function bandFacts(input: BandInput): BandFacts {
       ? {
           label: HIDDEN_VIEW_LABELS[input.view],
           next: HIDDEN_VIEW_LABELS[nextHiddenView(input.view)],
-          enabled: input.available,
+          // Two answers, one control: the extension's store, or this device's.
+          enabled: input.available || input.authority === "local",
+          authority: input.authority,
         }
       : null,
     pinnedCount: input.pinnedCount,
@@ -98,17 +111,21 @@ export function bandFacts(input: BandInput): BandFacts {
 export interface StatusInput {
   locked: boolean;
   available: boolean;
+  /** Who is enforcing: the extension, or this device's own set. */
+  authority: HiddenAuthority;
   hiddenCount: number;
-  /** Whether the extension is enforcing the curtain right now. */
+  /** Whether the authority is enforcing the curtain right now. */
   enforced: boolean;
   pinnedCount: number;
 }
 
 export interface StatusFacts {
-  /** The count, or null when the curtain is down or there is no extension. */
+  /** The count, or null when the curtain is down or nothing answers. */
   hiddenCount: number | null;
   /** The badge. Never worn while locked. */
   enforced: boolean;
+  /** Which authority the badge would be naming, so the badge can say it. */
+  authority: HiddenAuthority;
   /** The one number a lock leaves standing. */
   pinnedCount: number;
 }
@@ -120,14 +137,21 @@ export interface StatusFacts {
  * Same rule as the band, one floor down: a lock takes the hidden half of the
  * strip with it — the count, the badge, and with them any hint that there is
  * hidden content to count — and leaves the pins, which say what to show.
+ *
+ * The count is the authority's own, whichever it is, and `authority` travels
+ * with the badge: ENFORCED by the server and ENFORCED by this device are the
+ * same promise about the sidebar and a different promise about every other
+ * device, so the badge says which one it is keeping.
  */
 export function statusFacts(input: StatusInput): StatusFacts {
   // The curtain is the lock, not the state of the row above: a folded band that
   // is also locked still may not print a count, it just draws no row either.
   const curtain = input.locked;
+  const answers = input.available || input.authority === "local";
   return {
-    hiddenCount: curtain || !input.available ? null : input.hiddenCount,
-    enforced: !curtain && input.available && input.enforced,
+    hiddenCount: curtain || !answers ? null : input.hiddenCount,
+    enforced: !curtain && answers && input.enforced,
+    authority: input.authority,
     pinnedCount: input.pinnedCount,
   };
 }

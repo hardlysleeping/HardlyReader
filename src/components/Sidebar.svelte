@@ -47,6 +47,7 @@
     statusFacts({
       locked: reader.hiddenLocked,
       available: reader.hiddenAvailable,
+      authority: reader.hiddenAuthority,
       hiddenCount: reader.hiddenCount,
       enforced: reader.hiddenEnforced,
       pinnedCount: reader.pinnedCount,
@@ -1162,7 +1163,14 @@
   <div class="status" aria-live="polite">
     {#if strip.hiddenCount !== null && strip.hiddenCount > 0}
       <span class="stat">Hidden <b>{strip.hiddenCount}</b></span>
-      {#if strip.enforced}<span class="badge">ENFORCED</span>{/if}
+      {#if strip.enforced}
+        <span
+          class="badge"
+          title={strip.authority === "local"
+            ? "Filtered on this device"
+            : "Filtered by the server"}
+        >ENFORCED</span>
+      {/if}
     {/if}
     {#if strip.pinnedCount > 0}
       <span class="stat">{words.count} <b>{strip.pinnedCount}</b></span>

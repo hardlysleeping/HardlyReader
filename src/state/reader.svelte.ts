@@ -83,7 +83,20 @@ import {
   withFavoritesView,
   type FavoritesWriteOutcome,
 } from "./favorites";
-import { effectiveView, enforcing, showsCategory, visibleGroups } from "./hidden";
+import {
+  effectiveView,
+  emptyHidden,
+  enforcing,
+  hiddenAuthority as authorityOf,
+  isLocallyHidden,
+  parseHidden,
+  resolveHidden,
+  showsCategory,
+  visibleGroups,
+  withHidden,
+  type HiddenAuthority,
+  type LocalHidden,
+} from "./hidden";
 import { filterByAuthor, filterItems } from "../lib/article-filter";
 import { reading } from "./reading.svelte";
 import { StreamCache, sameStreamPage } from "./stream-cache";
@@ -348,6 +361,18 @@ export class ReaderState {
   localPins = $state<LocalPins>(emptyPins());
 
   /**
+   * Hidden categories kept on this device: the whole feature on a server with
+   * no Hidden Categories extension, and nothing at all on one that has it.
+   *
+   * Same shape of thing as `localPins`, stored the same way — in this account's
+   * prefs blob, so two logins on one device never share a hidden set — and for
+   * the same reason: only the storage differs. It is never written while the
+   * extension answers, because the extension is then the store, and a copy here
+   * would be a second truth nothing reads (see `hiddenScope`).
+   */
+  localHidden = $state<LocalHidden>(emptyHidden());
+
+  /**
    * The order the user dragged the feeds into, as a flat list of stream ids.
    *
    * The render source, and per account on this device: the sidebar draws from
@@ -465,9 +490,10 @@ export class ReaderState {
     if (menu === null) return null;
     return menu.target.kind === "category"
       ? categoryMenu(
-          this.hiddenCategories,
+          this.hiddenScope,
           menu.target.label,
           this.isCategoryPinned(menu.target.label),
+          this.hiddenAuthority,
         )
       : feedMenu(
           menu.target.title,
@@ -476,13 +502,46 @@ export class ReaderState {
         );
   }
 
-  /** The view the extension is actually applying. */
+  /** The view the authority is actually applying. */
   get hiddenView(): HiddenView {
-    return effectiveView(this.hiddenCategories);
+    return effectiveView(this.hiddenScope);
   }
 
   get hiddenAvailable(): boolean {
     return this.hiddenCategories.available;
+  }
+
+  /** Who decides what is hidden: the extension when it answers, else this
+   * device. Never both — see `hiddenScope`. */
+  get hiddenAuthority(): HiddenAuthority {
+    return authorityOf(this.hiddenCategories);
+  }
+
+  /** The last resolved block, and the two things it was built from. */
+  private hiddenScopeMemo: {
+    server: HiddenCategoriesState;
+    local: LocalHidden;
+    value: HiddenCategoriesState;
+  } | null = null;
+
+  /**
+   * The block the sidebar, the count and the band are filtered by.
+   *
+   * One resolution, two sources, no merge: the extension's own state when it is
+   * there, this device's labels when it is not (`resolveHidden` is the rule).
+   * Memoised because it is read once per row while the sidebar draws, and the
+   * local block is built rather than stored — a new object per read would
+   * invalidate the sidebar's own memo on every paint and sort the whole tree
+   * again, which is exactly what `categories` exists to avoid.
+   */
+  get hiddenScope(): HiddenCategoriesState {
+    const server = this.hiddenCategories;
+    const local = this.localHidden;
+    const memo = this.hiddenScopeMemo;
+    if (memo !== null && memo.server === server && memo.local === local) return memo.value;
+    const value = resolveHidden(server, local);
+    this.hiddenScopeMemo = { server, local, value };
+    return value;
   }
 
   get favoritesAvailable(): boolean {
@@ -525,9 +584,9 @@ export class ReaderState {
     return id !== null && this.favorites.ids.includes(id);
   }
 
-  /** Whether this category is hidden, per the extension's own state. */
+  /** Whether this category is hidden, per whichever authority decides. */
   isCategoryHidden(label: string): boolean {
-    return isHiddenCategory(this.hiddenCategories, label);
+    return isHiddenCategory(this.hiddenScope, label);
   }
 
   /**
@@ -562,19 +621,22 @@ export class ReaderState {
       this.localPins.feeds.length;
   }
 
-  /** How many categories the extension hides. Never drawn while locked. */
+  /** How many categories the authority hides. Never drawn while locked. */
   get hiddenCount(): number {
-    return this.hiddenCategories.available ? this.hiddenCategories.hiddenIds.length : 0;
+    return this.hiddenScope.hiddenIds.length;
   }
 
   /**
    * Whether the curtain is being enforced right now — the strip's badge.
    *
-   * Locked counts as hidden content in every sense, but the badge is not drawn
-   * then: a lock that still said ENFORCED would be a lock that says something.
+   * Asked of the resolved block, so it is true for the extension's curtain and
+   * for this device's filter alike, and the badge then names the one that is
+   * doing the enforcing (`lib/band`). Locked counts as hidden content in every
+   * sense, but the badge is not drawn then: a lock that still said ENFORCED
+   * would be a lock that says something.
    */
   get hiddenEnforced(): boolean {
-    return enforcing(this.hiddenCategories);
+    return enforcing(this.hiddenScope);
   }
 
   get hiddenHasPasscode(): boolean {
@@ -826,6 +888,11 @@ export class ReaderState {
     this.savePrefs();
   }
 
+  private updateLocalHidden(change: Partial<LocalHidden>): void {
+    this.localHidden = { ...this.localHidden, ...change };
+    this.savePrefs();
+  }
+
   private loadPrefs(): void {
     const session = this.session;
     if (session === null || typeof localStorage === "undefined") return;
@@ -838,6 +905,10 @@ export class ReaderState {
         readAccountValue(localStorage, PREFS_BASE, session, legacyKey) ?? "null",
       ) as Record<string, unknown> | null;
       this.localPins = parsePins(raw?.pins);
+      // Hidden categories live in the same blob as the pins, for the same
+      // reason: one account, one key, and the extension absent is a normal
+      // install rather than a reason to forget what the user set.
+      this.localHidden = parseHidden(raw?.hidden);
       const order = raw?.order;
       this.feedOrder = Array.isArray(order)
         ? order.filter((entry): entry is string => typeof entry === "string")
@@ -866,6 +937,7 @@ export class ReaderState {
           : 0;
     } catch {
       this.localPins = emptyPins();
+      this.localHidden = emptyHidden();
       this.feedOrder = [];
       this.categoryOrder = [];
       this.positionsStamp = 0;
@@ -947,6 +1019,7 @@ export class ReaderState {
         session,
         JSON.stringify({
           pins: this.localPins,
+          hidden: this.localHidden,
           collapsed: this.collapsedCategories,
           indentPx: this.localIndentPx,
           indentLocal: this.indentLocalOnly,
@@ -1270,11 +1343,30 @@ export class ReaderState {
     }
   }
 
-  /** Hides or shows one category: drawn now, sent in order. */
+  /**
+   * Hides or shows one category: drawn now, stored in one place.
+   *
+   * With the extension, that place is the server (drawn optimistically, sent in
+   * order). Without it, that place is this device: the label goes into the
+   * local set, the prefs blob keeps it, and nothing is sent — there is no route
+   * to send to, and no failure to report. The rows themselves are never removed
+   * from `subscriptions`, so a reveal needs no repair work the way a Strict-mode
+   * reveal does: the same list is simply filtered through the new set.
+   */
   async setCategoryHidden(label: string, hidden: boolean): Promise<HiddenWriteOutcome | null> {
     const session = this.session;
+    if (session === null) return null;
+
+    if (this.hiddenAuthority === "local") {
+      // Already in that state: the extension's own path refuses the same way, so
+      // a second press costs nothing and, in particular, no storage write.
+      if (isLocallyHidden(this.localHidden, label) === hidden) return null;
+      this.updateLocalHidden({ categories: withHidden(this.localHidden.categories, label, hidden) });
+      return null;
+    }
+
     const id = this.categoryId(label);
-    if (session === null || id === null || !this.hiddenAvailable) return null;
+    if (id === null) return null;
 
     const previous = this.hiddenCategories;
     const optimistic = withCategoryHidden(previous, id, hidden);
@@ -1301,10 +1393,19 @@ export class ReaderState {
     });
   }
 
-  /** Switches the hidden-categories view: drawn now, sent in order. */
+  /** Switches the hidden-categories view: drawn now, stored in one place. */
   async setHiddenView(view: HiddenView): Promise<HiddenWriteOutcome | null> {
     const session = this.session;
-    if (session === null || !this.hiddenAvailable || this.hiddenCategories.locked) return null;
+    if (session === null) return null;
+
+    // The extension absent: the view is this device's to keep. There is nothing
+    // to queue and nothing to reconcile, so the eye answers on the press.
+    if (this.hiddenAuthority === "local") {
+      this.updateLocalHidden({ view });
+      return null;
+    }
+
+    if (!this.hiddenCategories.available || this.hiddenCategories.locked) return null;
 
     const previous = this.hiddenCategories;
     this.hiddenCategories = withView(previous, view);
@@ -1559,6 +1660,8 @@ export class ReaderState {
   /**
    * The sidebar's categories, with the hidden-categories view applied.
    *
+   * The filter reads `hiddenScope`, not the extension's block: with the
+   * extension absent that is this device's set, and the two are never merged.
    * Memoised on purpose: a getter is read once per row while the sidebar draws,
    * and rebuilding here is a full sort of every feed in every category. At a
    * real account's size that turned one paint into minutes of blocked main
@@ -1567,10 +1670,11 @@ export class ReaderState {
   get categories(): CategoryGroup[] {
     const base = this.allCategories;
     const memo = this.categoriesMemo;
+    const scope = this.hiddenScope;
     if (
       memo !== null &&
       memo.base === base &&
-      memo.hidden === this.hiddenCategories &&
+      memo.hidden === scope &&
       memo.view === this.pinView &&
       memo.pins === this.localPins &&
       memo.favorites === this.favorites &&
@@ -1580,7 +1684,7 @@ export class ReaderState {
       return memo.value;
     }
     const value = arrangeByPins(
-      visibleGroups(base, this.hiddenCategories),
+      visibleGroups(base, scope),
       this.pinView,
       (label) => this.isCategoryPinned(label),
       (id) => this.isFeedPinned(id),
@@ -1821,6 +1925,10 @@ export class ReaderState {
    * through is not a curtain. A passcode is what lifts the lock, so `locked` is
    * the whole condition — an account that has set one and unlocked it is not
    * locked, and its reveals are as instant as anyone's.
+   *
+   * Only the extension's reveal needs this: its Strict mode drops feeds from the
+   * list, where the device's own set (`resolveHidden`) never removed a row to
+   * begin with — so a local reveal is simply the filter, one frame later.
    */
   private revealRows(state: HiddenCategoriesState): void {
     const remembered = this.rememberedSidebar;
@@ -1874,6 +1982,7 @@ export class ReaderState {
     this.addFeedError = null;
     this.menu = null;
     this.localPins = emptyPins();
+    this.localHidden = emptyHidden();
     this.feedOrder = [];
     this.categoryOrder = [];
     this.positionsStamp = 0;

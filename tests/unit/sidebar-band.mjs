@@ -117,6 +117,7 @@ const input = (overrides = {}) => ({
   collapsed: false,
   locked: false,
   available: true,
+  authority: "extension",
   view: "hidden",
   pinnedCount: 2,
   pinView: "all",
@@ -196,6 +197,7 @@ const input = (overrides = {}) => ({
 const stripInput = (overrides = {}) => ({
   locked: false,
   available: true,
+  authority: "extension",
   hiddenCount: 1009,
   enforced: true,
   pinnedCount: 2,
@@ -263,7 +265,9 @@ const sidebar = readFileSync(join(ROOT, "src/components/Sidebar.svelte"), "utf8"
 {
   check("the sidebar strip uses the band's model", /statusFacts\(\{/.test(sidebar));
   check("...and not a rule of its own", !/hiddenCategories\.mode === "strict"/.test(sidebar));
-  check("the badge says ENFORCED", /class="badge">ENFORCED</.test(sidebar));
+  // The badge names the authority that is enforcing it (a title), so the class
+  // word is no longer immediately followed by the text.
+  check("the badge says ENFORCED", /class="badge"[^>]*>ENFORCED</.test(sidebar));
   check("the hidden half is drawn only when the model allows it", /strip\.hiddenCount !== null/.test(sidebar));
   check("the pinned count comes from the model too", /strip\.pinnedCount/.test(sidebar));
 }
@@ -292,6 +296,7 @@ try {
     `export const reader = {
   get hiddenLocked() { return globalThis.__band.locked; },
   get hiddenAvailable() { return globalThis.__band.available; },
+  get hiddenAuthority() { return globalThis.__band.authority ?? "extension"; },
   get hiddenView() { return globalThis.__band.view; },
   get hiddenHasPasscode() { return true; },
   get hiddenBusy() { return false; },
@@ -419,6 +424,16 @@ try {
     const body = draw({ available: false });
     check("no extension: the eye is drawn but disabled", body.includes('class="ctl hidden') && body.includes("disabled"));
     check("no extension: no badge", !body.includes("ENFORCED"));
+  }
+
+  // Without the extension the eye is not a dead control: this device's set is
+  // the whole store, so the same three views answer, and the title says where.
+  {
+    const body = draw({ available: false, authority: "local" });
+    const eye = /<button[^>]*class="ctl hidden[^"]*"[^>]*>/.exec(body)?.[0] ?? "";
+    check("no extension: the eye still answers, from this device", eye !== "" && !eye.includes("disabled"));
+    check("no extension: ...and says so", body.includes("Hidden on this device"));
+    check("no extension: the lock offers nothing to lock with", body.includes("disabled"));
   }
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });
