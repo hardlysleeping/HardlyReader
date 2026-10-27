@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { AuthError, userInfo } from "./api/freshrss";
   import type { Session } from "./api/freshrss";
   import { transport } from "./api/transport";
@@ -31,6 +31,20 @@
   });
 
   let checking = $state(true);
+
+  /**
+   * Whether the reader is being unveiled: the login screen stays drawn, over the
+   * reader, while it slides up out of the window.
+   *
+   * The switch to the reader is not delayed — the account is added, `Main` mounts
+   * underneath, and what the animation moves is a panel that is already a
+   * leftover. That way a slow first load is never hidden behind a spring.
+   */
+  let unveiling = $state(false);
+  let unveilTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Long enough to finish `veil-up` in `Login`'s stylesheet, with a margin. */
+  const UNVEIL_MS = 900;
   /**
    * The login screen opened from the account panel, rather than by having no
    * session. It signs another account in; the one in use is untouched until it
@@ -100,10 +114,21 @@
 
   /** Signed in from the login screen: the first account, or one more of them. */
   function handleConnected(next: Session) {
+    unveiling = true;
     accounts.add(next);
     adding = false;
     startupNote = "";
+
+    if (unveilTimer !== null) clearTimeout(unveilTimer);
+    unveilTimer = setTimeout(() => {
+      unveiling = false;
+      unveilTimer = null;
+    }, UNVEIL_MS);
   }
+
+  onDestroy(() => {
+    if (unveilTimer !== null) clearTimeout(unveilTimer);
+  });
 
   function addAccount() {
     startupNote = "";
@@ -131,24 +156,38 @@
       {/if}
       <p class="status-hint">Signing in with the session saved on this device.</p>
     </div>
-  {:else if session && !adding}
-    {#key session.token}
-      <Main
-        {session}
-        account={accounts.profile}
-        onsignout={disconnect}
-        onaddaccount={addAccount}
-      />
-    {/key}
   {:else}
-    <Login
-      {initialServerUrl}
-      notice={adding
-        ? "Signing in here adds an account. The one already on this device stays."
-        : startupNote}
-      onconnected={handleConnected}
-      oncancel={adding ? cancelAdd : undefined}
-    />
+    {#if session && !adding}
+      {#key session.token}
+        <Main
+          {session}
+          account={accounts.profile}
+          onsignout={disconnect}
+          onaddaccount={addAccount}
+        />
+      {/key}
+    {/if}
+
+    <!-- Drawn over the reader until the slide is over. The block stays rendered
+         across the switch — it is the same panel gaining a class — which is what
+         lets it animate out instead of disappearing. -->
+    {#if !(session && !adding) || unveiling}
+      <div
+        class="veil"
+        class:unveiling
+        inert={unveiling ? true : undefined}
+        aria-hidden={unveiling ? "true" : undefined}
+      >
+        <Login
+          {initialServerUrl}
+          notice={adding
+            ? "Signing in here adds an account. The one already on this device stays."
+            : startupNote}
+          onconnected={handleConnected}
+          oncancel={adding ? cancelAdd : undefined}
+        />
+      </div>
+    {/if}
   {/if}
 </main>
 
@@ -156,6 +195,60 @@
   .shell {
     height: 100%;
     min-height: 0;
+  }
+
+  /* The login screen is a layer of its own rather than a branch of this one, so
+     that it can leave over the reader instead of being swapped for it. */
+  .veil {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: var(--bg);
+    overflow: auto;
+  }
+
+  .veil.unveiling {
+    pointer-events: none;
+    animation: veil-up 820ms linear both;
+  }
+
+  /* Up, an elastic settle back, then out the top.
+   *
+   * A single ease would read as a wipe; the bounce is the part that says the
+   * panel had weight. Positions are the whole gesture: the timing functions
+   * only decide how each leg of it travels. */
+  @keyframes veil-up {
+    0% {
+      transform: translateY(0);
+      animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+    }
+    26% {
+      transform: translateY(-15%);
+      animation-timing-function: cubic-bezier(0.28, 1.7, 0.5, 1);
+    }
+    44% {
+      transform: translateY(-9%);
+      animation-timing-function: cubic-bezier(0.5, 0, 0.7, 0.6);
+    }
+    56% {
+      transform: translateY(-15%);
+      animation-timing-function: cubic-bezier(0.62, 0.02, 0.86, 0.42);
+    }
+    100% {
+      transform: translateY(-100%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .veil.unveiling {
+      animation: veil-fade 180ms ease both;
+    }
+
+    @keyframes veil-fade {
+      to {
+        opacity: 0;
+      }
+    }
   }
 
   /* Centred, because the middle of the window is where you look when you are
