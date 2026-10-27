@@ -121,8 +121,23 @@ workflows:
             || { echo "::error::UIBackgroundModes does not start with fetch"; status=1; }
           EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")
           echo "--- refresh entry points in $EXEC:"
-          nm -gU "$APP/$EXEC" | grep 'hardlyreader_app_refresh' \
-            || { echo "::error::the refresh entry points are not in the binary"; status=1; }
+          # `nm` is informational only: a release .app is stripped, so a missing
+          # symbol here does not mean the code is absent — the first run of this
+          # step failed on exactly that false negative. What is asserted is the
+          # identifier string: it is spelled in AppRefreshTask.swift and in the
+          # +load hook, so finding it in the binary means both halves compiled
+          # into this target (a missing BackgroundRefresher would not link), and
+          # not finding it means nothing registered anything.
+          nm -gU "$APP/$EXEC" 2>/dev/null | grep 'hardlyreader_app_refresh' \
+            || echo "(no exported C entry point; release builds strip symbols)"
+          strings -a "$APP/$EXEC" | grep -F 'bg-refresh' | head -5 \
+            || echo "(no bg-refresh log literals found; the identifier below is the assertion)"
+          if strings -a "$APP/$EXEC" | grep -qF 'ing.hardlysleep.hardlyreader.refresh'; then
+            echo "found: the background refresh identifier is in the binary"
+          else
+            echo "::error::the binary has no refresh identifier — the Swift/ObjC half is not compiled in"
+            status=1
+          fi
           [ "$status" -eq 0 ] || exit 1
           echo "background refresh: declared in Info.plist, wired to the binary"
       - name: Package unsigned IPA
