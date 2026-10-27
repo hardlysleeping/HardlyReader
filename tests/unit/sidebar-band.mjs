@@ -348,6 +348,7 @@ try {
     compiled.js.code
       .replaceAll('"../lib/band"', JSON.stringify(absolute("src/lib/band.ts")))
       .replaceAll('"../lib/pinpad"', JSON.stringify(absolute("src/lib/pinpad.ts")))
+      .replaceAll('"../lib/lock-title"', JSON.stringify(absolute("src/lib/lock-title.ts")))
       .replaceAll('"../state/hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
       .replaceAll('"../state/chrome.svelte"', JSON.stringify(chromeStub))
       .replaceAll('"../state/reader.svelte"', JSON.stringify(readerStub))

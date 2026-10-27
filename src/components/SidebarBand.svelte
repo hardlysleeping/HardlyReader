@@ -1,5 +1,6 @@
 <script lang="ts">
   import { bandFacts } from "../lib/band";
+  import { lockHint, lockOpensPanel, lockState, lockTitle } from "../lib/lock-title";
   import { appendDigit, backspace } from "../lib/pinpad";
   import { chrome } from "../state/chrome.svelte";
   import { nextHiddenView } from "../state/hidden";
@@ -108,6 +109,17 @@
   const locked = $derived(reader.hiddenLocked);
 
   /**
+   * What the lock can honestly say.
+   *
+   * `unknown` is a real answer here: a build served from another origin cannot
+   * read the adapter's state at all, and claiming "no passcode" in that case
+   * told the reader something false about their own server.
+   */
+  const lock = $derived(lockState(reader.hiddenAvailable, reader.hiddenHasPasscode, reader.session !== null));
+  const hint = $derived(lockHint(lock));
+  const lockTip = $derived(lockTitle(lock));
+
+  /**
    * The band with nothing engaged: no curtain, the eye on its own default view,
    * the pin on its own.
    *
@@ -164,7 +176,7 @@
       openPasscode();
       return;
     }
-    if (!reader.hiddenHasPasscode) {
+    if (lockOpensPanel(lock)) {
       openPasscode();
       // The panel offers a passcode this server may already have; re-reading is
       // how it stops offering one it does not.
@@ -348,9 +360,7 @@
           disabled={!reader.hiddenAvailable}
           aria-expanded={lockOpen}
           aria-controls={lockOpen ? "band-passcode" : undefined}
-          title={reader.hiddenHasPasscode
-            ? "Lock hidden categories"
-            : "Set a passcode first"}
+          title={lockTip}
           aria-label="Lock hidden categories"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -413,8 +423,8 @@
             <button type="button" class="cancel" onclick={() => closePasscode(true)}>Cancel</button>
           {/if}
         </form>
-        {#if !locked}
-          <p class="hint">Set a passcode to enable locking. One to six digits.</p>
+        {#if !locked && hint !== null}
+          <p class="hint">{hint}</p>
         {/if}
         {#if reader.lockNotice}
           <p class="notice" role="status">{reader.lockNotice}</p>
@@ -677,7 +687,10 @@
 
   .ctl.lock {
     --tone: var(--tone-lock-open);
-    min-width: 26px;
+    /* A shade wider than the eye seats beside it: the shackle is the narrowest
+       glyph in the band, and at 26px it read as a smaller button rather than the
+       same one with a different mark. */
+    min-width: 34px;
   }
 
   .ctl.lock.on {
