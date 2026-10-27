@@ -476,6 +476,26 @@
   }
 
   /**
+   * Whether the card in the middle has run out in the direction the wheel is
+   * going — its last pixels showing when the wheel is down, its first when up.
+   *
+   * A card taller than the pane is read by scrolling it, so the wheel belongs to
+   * the scroll until then. Past that it belongs to the step, the way the article
+   * pane's does at the end of a document. Without this the tall case had no pull
+   * at all: no fill, no step, just a scroll that ran into the next card — and one
+   * card per row makes a comic taller than the pane the normal case rather than
+   * the exception. The gesture, its effort setting and its filling line were
+   * simply unreachable there.
+   */
+  function atCardEnd(row: HTMLElement, direction: number): boolean {
+    const el = scrollPort();
+    if (!el) return false;
+    const card = row.getBoundingClientRect();
+    const port = el.getBoundingClientRect();
+    return direction > 0 ? card.bottom <= port.bottom + 2 : card.top >= port.top - 2;
+  }
+
+  /**
    * Whether the card in the middle is too tall for the pane.
    *
    * Snapping is a promise that letting go finishes the gesture: the card you
@@ -911,10 +931,12 @@
       return;
     }
     const row = currentCard();
+    const towards = event.deltaY > 0 ? 1 : -1;
     // A card that fits the pane is one you look at whole, so a wheel past it
-    // steps. A card taller than the pane is read by scrolling it, and there the
-    // wheel belongs to the scroll.
-    if (!row || !cardFits(row)) {
+    // steps. A card taller than the pane is read by scrolling it — but only
+    // until its end has run out; from there the rest of the gesture is the step,
+    // the same way the article pane turns a pull at the bottom of a document.
+    if (!row || (!cardFits(row) && !atCardEnd(row, towards))) {
       resetListPull();
       return;
     }
@@ -939,10 +961,10 @@
       listPullTimer = null;
     }, 700);
     if (!shouldAdvance(listPull, listThreshold)) return;
-    const direction = listPull > 0 ? 1 : -1;
+    const away = listPull > 0 ? 1 : -1;
     resetListPull();
     listSettleUntil = performance.now() + SETTLE_MS;
-    stepCard(direction);
+    stepCard(away);
   }
 
   /**

@@ -18,6 +18,13 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ### Fixed
 
+- **The pull works on a card taller than the pane.** One card per row made the
+  tall case the normal one, and the wheel belonged entirely to the scroll there:
+  no pull, no filling line, no step — the gesture and its effort setting were
+  unreachable on exactly the comics that are read in Cards. The card's own end
+  now hands the rest of the gesture to the step, as the article pane does at the
+  bottom of a document, so the line fills and one card moves.
+
 - **A panel strip asks for the full-size file, not the crop.** A card that
   flips through "Panel 1", "Panel 2" pictures took the publisher's URL exactly as
   the feed named it, while every other picture was sharpened out of its
