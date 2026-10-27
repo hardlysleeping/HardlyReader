@@ -1,0 +1,57 @@
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # The page is small; the API's replies are what matter.
+    client_max_body_size 8m;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+
+    # FreshRSS sends no CORS headers, so a browser cannot call it cross-origin
+    # and a static page served from anywhere cannot reach it at all. Both paths
+    # the app knows how to use are proxied here, which makes the API same-origin
+    # for the page. Enter this container's own URL as the server in the app.
+    location /api/ {
+        proxy_pass ${FRESHRSS_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $proxy_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_ssl_server_name on;
+        proxy_read_timeout 120s;
+    }
+
+    # The same API under the path the dev server uses (`/freshrss/...`), so a
+    # URL copied out of a `pnpm dev` session also works here.
+    location /freshrss/ {
+        rewrite ^/freshrss/(.*)$ /$1 break;
+        proxy_pass ${FRESHRSS_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $proxy_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_ssl_server_name on;
+        proxy_read_timeout 120s;
+    }
+
+    # Everything else is the app. It routes on its own, so an unknown path is a
+    # page, not a 404.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache" always;
+    }
+
+    # Built assets carry a content hash in the name.
+    location ~* \.(?:js|css|woff2?|png|jpe?g|gif|webp|svg|webm|ico)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable" always;
+        try_files $uri =404;
+    }
+}

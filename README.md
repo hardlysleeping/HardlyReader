@@ -1,144 +1,166 @@
 # HardlyReader
 
-A reader for FreshRSS that behaves like a reading app rather than a web page: three panes that fold to one, a keyboard that never needs the mouse, and no reflow while you scroll.
+A reading app for [FreshRSS](https://freshrss.org): three panes that fold to one,
+a keyboard that never needs the mouse, and no reflow while you scroll. Cards is
+built for reading comics one page after another — a page fills the pane at its
+own size, one push moves one post, and nothing is cropped.
 
-It is also built for reading comics one after another: a Cards view where a page fills the pane at its own size, a wheel or a thumb that moves one post at a time, and an article pane that fits a page whole instead of cropping or blowing it up.
-
-Svelte 5, TypeScript, Tauri 2. Linux desktop today; the same code is the browser build.
-
-Its sidebar controls come from three small FreshRSS extensions, every one of them optional: **[Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories)** (hide, reveal, and lock a category), **[Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories)** (pin a category and order the pins), and the **[Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead)** that exposes their state over the API. Without them the app runs: pins and hidden categories are kept on this device, so the sidebar behaves the same, and the one control that truly needs an extension says so instead of breaking.
+Svelte 5, TypeScript, Tauri 2. One codebase: a Linux desktop window, a browser
+build, and Android and iOS.
 
 ![Three panes: feeds, posts, article](docs/screenshots/three-panes.png)
 
+## Install
+
+### Docker (browser and phone)
+
+FreshRSS sends no CORS headers, so a page served from anywhere else cannot call
+it. This image is that page plus the proxy that makes the API same-origin — it
+is the whole install.
+
+```yaml
+# docker-compose.yml
+services:
+  hardlyreader:
+    image: ghcr.io/hardlysleeping/hardlyreader:latest
+    ports: ["8080:8080"]
+    environment:
+      FRESHRSS_URL: https://feeds.example.org   # origin only, no /api path
+    restart: unless-stopped
+```
+
+```sh
+docker compose up -d           # pulls ghcr.io/hardlysleeping/hardlyreader:latest
+docker compose up -d --build   # or build it here, no registry needed
+```
+
+No compose: `docker run -d -p 8080:8080 -e FRESHRSS_URL=https://feeds.example.org
+ghcr.io/hardlysleeping/hardlyreader:latest`
+
+Open `http://localhost:8080` and enter **`http://localhost:8080`** as the server —
+not the FreshRSS address. The container proxies `/api/` to `FRESHRSS_URL`, so the
+app talks to the origin it was loaded from. `FRESHRSS_URL` must be reachable from
+inside the container; on the same docker network a service name
+(`http://freshrss`) is enough. Serve the app over HTTPS if FreshRSS is HTTPS —
+a secure page cannot call plain `http:`.
+
+### Linux desktop
+
+Download `hardlyreader-<version>-linux-x86_64` from
+[Releases](https://github.com/hardlysleeping/HardlyReader/releases), then:
+
+```sh
+chmod +x hardlyreader-*-linux-x86_64
+./hardlyreader-*-linux-x86_64
+```
+
+Needs glibc 2.39 or newer and WebKitGTK 4.1 (`webkit2gtk4.1` on Fedora, Arch and
+openSUSE; `libwebkit2gtk-4.1-0` on Debian/Ubuntu). On some Wayland setups
+WebKitGTK paints nothing and the window stays one flat grey — start it with
+`WEBKIT_DISABLE_COMPOSITING_MODE=1` to take the non-compositing path.
+
+### Android and iOS
+
+Both from [Releases](https://github.com/hardlysleeping/HardlyReader/releases).
+
+**Android:** `hardlyreader-<version>-android-universal.apk` — sideload it (Allow
+from this source). Every release is signed with the same key, so it installs in
+place.
+
+**iOS:** `hardlyreader-<version>-ios-unsigned.ipa` — unsigned; there is no paid
+Apple developer account behind it. Install with [AltStore](https://altstore.io)
+or Sideloadly and a free Apple ID (7-day signing). Needs iOS 15 or newer.
+
+## Connect it to FreshRSS
+
+Every install asks for three things once:
+
+- **Server** — the base URL of your FreshRSS, e.g. `https://feeds.example.org`
+  (loopback works too: `http://127.0.0.1:8080`). For Docker, this is the
+  container's own URL, not the server's.
+- **User** — the account name you sign in with.
+- **API password** — from FreshRSS *Settings → Authentication → API*, **not**
+  the account password. Enable API access there first.
+
+An account whose web login asks for a captcha can be paired instead: the phone
+shows a code, and a device that is already signed in approves it under
+*Settings → Accounts → Pair a device*. The paired credential is separate from
+the password and either side can revoke it.
+
 ## What it does
 
-**Panes that fit the window.** One, two or three columns, chosen in the header or by width. The feeds pane can be folded away without losing the other two, and the widths you drag stay where you put them.
+- **Panes that fit the window.** One, two or three columns; the feeds pane folds
+  away without disturbing the other two, and dragged widths stay put.
+- **Four ways to list posts** — Regular, List, Cards, Grid — one row structure
+  behind all four, so every action works in every shape.
+- **Cards, for comics.** A page fills the pane's width at its own aspect ratio
+  and height: no cap, no crop, no letterbox. One wheel notch or flick moves one
+  post and centres it; multi-picture posts page sideways with dots underneath.
+  The fit button sizes the window to the whole card — buttons and all — with the
+  neighbouring cards showing above and below.
+- **The article pane fits a page whole** — by width, height and the file's own
+  pixels, whichever is smallest — with a multiplier from 50% to 200%.
+- **Keyboard first.** Next/previous post and feed, mark read, star, open in
+  browser, back; `?` lists them.
+- **Hidden, pinned and locked categories**, via optional extensions (below).
+  Hidden categories stay out of counts and screen readers; locked ones sit
+  behind a passcode.
+- **Search** across feed names, categories and — deeply — post text.
+- **Settings in three tabs**: colours (dark, light, automatic, every tone), layout
+  (panes, widths, row shape, corners), reading (measure, leading, alignment, type
+  scale, automatic read marking).
+- OPML import and export, feed icons with a drawn fallback, and a session and
+  reading position that survive a restart.
 
-| | |
+## Extensions (optional)
+
+| Extension | What it adds |
 |---|---|
-| ![Cards view](docs/screenshots/cards.png) | ![Grid view](docs/screenshots/grid.png) |
-| **Four ways to list posts** — Regular with thumbnails and a preview, List for density, Cards and Grid for pictures. One row structure behind all four, so every action works in every shape. | |
-| ![Feeds pane folded](docs/screenshots/two-panes-collapsed.png) | ![One pane](docs/screenshots/one-pane-feed.png) |
-| **Fold the feeds pane** and the posts keep their width. | **One column** on a narrow window, with a feed's posts unfolded in place. |
-| ![Locked](docs/screenshots/locked.png) | ![Search](docs/screenshots/search-categories.png) |
-| **Locked categories** sit behind a passcode; hidden ones do not leak into counts or screen readers. | **Search** matches feeds *and* categories, and keeps the category around the feeds it found. |
-| ![Light theme](docs/screenshots/theme-light.png) | ![Settings](docs/screenshots/settings-colours.png) |
-| **Dark, light or automatic**, with the accent and every tone configurable. | **Settings in three tabs** — colours, layout, reading — instead of one long column. |
-| ![Large type](docs/screenshots/type-large.png) | ![Reading settings](docs/screenshots/settings-reading.png) |
-| **Type and rows scale** independently, to 150% and 140%. | **Reading controls**: measure, leading, alignment, text advance and automatic read marking. |
+| [Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories) | Which categories are pinned, and their order |
+| [Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories) | Which categories are hidden, the eye state, and the passcode lock — shared between devices |
+| [Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead) | One request returning all of the above, plus the sidebar indent |
 
-**Small windows are not a degraded mode.** Two panes, the posts and the page, in about nine hundred pixels of window — and the page still arrives whole, at its own size, so nothing is cropped or blown up to fit the pane.
+The app runs without them: pins and hidden categories are kept on the device, so
+the sidebar behaves the same way, and the one control that genuinely needs an
+extension says so instead of breaking. The extensions themselves are separate
+repos and stay optional on the server.
 
-![Two panes in a narrow window](docs/screenshots/compact.png)
-
-**Scrolling a comics feed**, one page after another, each at its own size, with no reflow while it moves:
-
-![Scrolling a comics feed](docs/screenshots/comics-loop.gif)
-
-Full size as video: [comics-loop.webm](docs/screenshots/comics-loop.webm).
-
-**Hidden, then locked, then out of the way.** One loop, start to finish: the hidden categories and their feeds, hiding them, locking them, the lock tucking down to a single pin, the passcode that brings the list back, and the loop starting again.
-
-![Hidden categories: reveal, hide, lock, unlock](docs/screenshots/lock-loop.gif)
-
-The same loop as video, if you want it at full size: [lock-loop.webm](docs/screenshots/lock-loop.webm).
-
-### Reading
-
-- **Manual or automatic read marking.** Automatic marks a post read after it has been open for the delay you choose; manual leaves it alone until you say so.
-- **Keyboard first.** Next/previous post, next/previous feed, mark read, star, open in the browser, go back — every one is a single key, and `?` lists them.
-- **Pull down in the post list** to ask the feed for new posts; pull down in an article to leave it, or go to the previous post when advance-on-scroll is on.
-- **Scroll that does not jump** — the reader only moves when you ask it to.
-- **Article pictures** are fitted whole to the frame at the picture's own resolution, with a multiplier in the article toolbar to make one larger (up to 200%) or smaller (down to 50%) than that automatic fit. It is remembered for every post and across restarts. Row thumbnails have their own scale, and either can be turned off.
-
-### Comics
-
-Cards is the reading view for strips, and it is arranged around the things that actually go wrong when a page of comics meets a feed reader.
-
-- **A page is not cropped.** A card's picture fills the pane's width at its own aspect ratio and its own height — no height cap, no crop, no letterbox. A strip taller than the pane scrolls through it; a strip shorter than the pane is shown whole, with its neighbours peeking above and below.
-- **One push, one post.** A wheel notch past a card that fits steps to the next and centres it; a flick on a phone stops at the next card instead of sailing through three. The step is the same pull the article pane uses — the same effort setting and the same delay — and it never opens the post: a tap in the middle does that, and the edges of a card turn the page when it has more than one picture.
-- **Multi-picture posts** page by swipe (36px sideways to commit, 12px before it decides it is not a scroll), wrap at both ends, and show their pages as dots under the picture.
-- **Unread reads at a glance.** An unread row carries an accent hairline along the bottom that turns up its right edge over a filled corner; a read row steps back as a whole, artwork included.
-- **The article fits the page.** In the article pane a picture is fitted to the frame by width, by height and by its own pixel size — whichever is smallest — so a tall page arrives whole and a small file is not stretched into blur. The multiplier beside it goes past that when you want the picture bigger than the fit, or under it to give the text the room.
-
-### Feeds, categories and the extensions
-
-- Feeds, categories and posts all come from FreshRSS over the GReader API: read, unread, star, subscribe and unsubscribe happen server-side as they do on the website.
-- Categories can be **hidden** (with three eye states: hidden, revealed, only), **pinned**, and hidden categories can be **locked** behind a passcode. Hiding and pinning are done by two FreshRSS extensions, which stay optional: without them the app runs, with the controls that need them disabled rather than broken.
-- Hiding is optimistic — press the eye and the category is gone from the sidebar immediately, with the server catching up.
-- Feed pins are local to the device; category pins live on the server, so they follow you.
-
-### The rest
-
-- OPML import and export (folders included).
-- Feed icons from the server, with a drawn fallback when there is none.
-- A sync button that says what it is doing, and a quiet seam under the header that shows activity without a spinner.
-- Session survives a restart; so does where you were — the feed, the open post, the feed unfolded in place, and which categories were folded.
-
-## Requirements
-
-- FreshRSS with **API access enabled** (Settings → Authentication). The API password is what the app asks for, not the account password.
-- For the extension-backed features: **[Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories)** and/or **[Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories)**, plus the small **[Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead)** that exposes their state over the API.
-- To build: Node 20+, pnpm, Rust, and Tauri 2's Linux dependencies (WebKitGTK 4.1).
-
-## Running
+## Build from source
 
 ```sh
 pnpm install
-pnpm dev:window     # desktop window (see the note below)
 pnpm dev            # browser build on 127.0.0.1:1420
+pnpm dev:window     # desktop window (tauri dev, compositing disabled — see Notes)
+pnpm build          # static browser build in dist/
+pnpm tauri build    # desktop bundle
+pnpm check          # svelte-check
+pnpm test           # unit suites, headless: no browser, no server
 ```
 
-`pnpm dev:window` is `pnpm tauri dev` with `WEBKIT_DISABLE_COMPOSITING_MODE=1`
-exported. On some Wayland setups WebKitGTK's compositing path paints nothing: the
-page loads and runs (requests go out, the DOM is built), but the window shows only
-the shell's background colour, which reads as a blank app. If `pnpm tauri dev` gives
-you a grey window, use the script or set that variable yourself.
+Building needs Node 22+, pnpm, Rust and Tauri 2's Linux dependencies
+(WebKitGTK 4.1). A container needs none of that — see `Dockerfile`.
 
-Build a bundle:
+`pnpm dev` proxies `/freshrss` to `HARDLYREAD_SERVER` (default
+`http://127.0.0.1:18080`) because of the CORS gap described above; in the
+desktop app requests go through Tauri's http plugin and the proxy is idle.
 
-```sh
-pnpm tauri build    # .deb / .rpm / AppImage in src-tauri/target/release/bundle
-```
+## Notes
 
-On first launch, enter the base URL of your FreshRSS (e.g. `https://feeds.example.org`), the account email and the **API password**. Loopback addresses work too (`http://127.0.0.1:8080`).
-
-On a phone there is a second way in, for an account whose login asks for a captcha — the one thing a phone's HTTP client can never answer. The phone asks for a code, and the same screen shows it while it waits; on a device that can show the captcha, and is already signed in, **Settings → Accounts → Pair a device** lists the code and approves it. The phone then receives a credential of its own, which either side can revoke; clearing it is not the same as changing the account password. What the server has to support for this is written out in [`src/api/pairing.ts`](src/api/pairing.ts) and in the extension's README.
-
-## Extensions
-
-| Extension | What the app uses it for |
-|---|---|
-| [Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories) | Which categories are pinned, and their order |
-| [Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories) | Which categories are hidden, the view state, and the lock — between devices |
-| [Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead) | One request that returns all of the above, plus the sidebar indent |
-
-Every one of them is optional. The website keeps working the same way with or
-without the app, and the app keeps working with or without them: pins and hidden
-categories are kept on this device when the extension is not there, so the
-sidebar behaves the same either way — what an extension buys is that the same
-set is shared between devices (and, for Hidden Categories, a passcode lock). The
-one control that truly needs an extension says so instead of breaking.
-
-## Development
-
-```sh
-pnpm check    # svelte-check: 0 errors, 0 warnings is the bar
-pnpm test     # unit suites, headless, no browser and no server
-```
-
-The tests cover the parts that are easy to get quietly wrong: the GReader client, the pane maths, filters and ordering, the extension API's state and error shapes, the reading timer, the lock flows, search grouping, and the memory of where you were.
-
-The Tauri window runs under a Content-Security-Policy (`app.security.csp`). `docs/csp.md` says what each directive is there for, what the capability behind it still allows, and what only a built app can prove; `tests/unit/csp.mjs` keeps it from drifting.
-
-## Status
-
-0.2.0. The Linux desktop app is what is built and used; the same code runs as a browser build, and the phone layout is exercised but **not** tested on a device yet. There is no offline cache of article bodies or images — a server that is down is a server that is down. Releases are tagged source: no bundles are attached, because the 0.1.1 ones were built against a newer glibc than their targets and are not fit to ship.
-
-Screenshots are of a demo build with invented feeds — no real subscriptions appear in this repository.
+- The Tauri window runs under a Content-Security-Policy; [`docs/csp.md`](docs/csp.md)
+  explains each directive and what only a built app can prove.
+- [`docs/android.md`](docs/android.md) covers the Android build and signing.
+- No offline cache of article bodies or images: a server that is down is a
+  server that is down.
+- Screenshots use invented feeds; no real subscriptions appear in this repo.
 
 ## Licence
 
-[PolyForm Noncommercial 1.0.0](LICENSE): free for any **noncommercial** use — read it, run it, change it, share it, build on it. **Commercial use, and distribution through an app store or TestFlight, needs written permission from the author.** That includes selling it, bundling it into something sold, or shipping it to a store under your own name.
+[PolyForm Noncommercial 1.0.0](LICENSE): free for any **noncommercial** use —
+read it, run it, change it, share it, build on it. **Commercial use, and
+distribution through an app store or TestFlight, needs written permission from
+the author.** That includes selling it, bundling it into something sold, or
+shipping it to a store under your own name.
 
-This is deliberately not an open-source licence: GPL-3.0 and friends cannot carry a "no commercial use" condition, because GPL §7 forbids adding restrictions on anyone the code is passed to.
+This is deliberately not an open-source licence: GPL-3.0 and friends cannot carry
+a "no commercial use" condition, because GPL §7 forbids adding restrictions on
+anyone the code is passed to.
