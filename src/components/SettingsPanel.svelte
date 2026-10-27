@@ -21,6 +21,8 @@
    * working if this file's script never runs.
    */
   import AccountsBody from "./AccountsBody.svelte";
+  import IndentControl from "./IndentControl.svelte";
+  import PostListPanel from "./PostListPanel.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
   import ThemePanel from "./ThemePanel.svelte";
   import { exportFeedsOpml, importFeedsFile } from "../lib/feeds-io";
@@ -46,7 +48,7 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "feeds" | "appearance" | "reading" | "layout" | "sync" | "about";
+  type SectionId = "accounts" | "feeds" | "appearance" | "reading" | "list" | "layout" | "sync" | "about";
 
   /**
    * The sections, in the order someone looks for them: who I am, what is in the
@@ -54,18 +56,22 @@
    * from, and what version this is. Accounts first because it is the one that
    * has to be found when something is wrong.
    *
-   * `phone` marks a section only a phone draws. There is one: Feeds, which holds
-   * Import and Export for the sidebar's footer on a phone held upright, where
-   * that footer has no room for them (see `compressedFooter` in `Sidebar`). A
-   * desktop keeps those two controls in the sidebar, where they have always
-   * been, so the section is filtered out of the desktop's sheet entirely rather
-   * than drawn as a second home for a control that already has one.
+   * `phone` marks a section only a phone draws. There are two: Feeds, which
+   * holds Import and Export for the sidebar's footer on a phone held upright,
+   * where that footer has no room for them (see `compressedFooter` in `Sidebar`),
+   * and the feed indent the phone's sidebar gives up for the same reason; and
+   * Post list, which holds the four shape controls the phone's posts bar gives up
+   * (see `ArticleList`), where a one-column bar has no room beside the four
+   * views. A desktop keeps those controls where they have always been, so the
+   * sections are filtered out of its sheet entirely rather than drawn as a
+   * second home for a control that already has one.
    */
   const SECTIONS: { id: SectionId; label: string; note: string; phone?: boolean }[] = [
     { id: "accounts", label: "Accounts", note: "This account, this server" },
-    { id: "feeds", label: "Feeds", note: "Import and export OPML", phone: true },
+    { id: "feeds", label: "Feeds", note: "Indent, import and export", phone: true },
     { id: "appearance", label: "Appearance", note: "Colours, page, background" },
     { id: "reading", label: "Reading", note: "Text, pictures, read state" },
+    { id: "list", label: "Post list", note: "Row ends, corners, tiles", phone: true },
     { id: "layout", label: "Layout", note: "Pane widths and arrangement" },
     { id: "sync", label: "Sync", note: "Interval, and when it fetches" },
     { id: "about", label: "About", note: "Version" },
@@ -82,6 +88,7 @@
     feeds: false,
     appearance: false,
     reading: false,
+    list: false,
     layout: false,
     sync: false,
     about: false,
@@ -248,10 +255,17 @@
                    set written here. -->
               <ThemePanel part="colours" />
             {:else if section.id === "feeds"}
-              <!-- The two file actions the phone's footer gives up, drawn in the
-                   panel's own idiom: one row of two controls, then whatever the
-                   last file was. No new setting, and nothing that is not already
-                   in the sidebar on a desktop. -->
+              <!-- The feed indent the phone's sidebar gives up, and the two file
+                   actions its footer gives up, drawn in the panel's own idiom.
+                   The indent is `IndentControl` — the very input the sidebar's
+                   own row mounts — so this is a second home for one slider and
+                   never a second slider: same store, same write, same reason
+                   line. Nothing here is a new setting. -->
+              <div class="indent-row">
+                <span class="indent-key">Feed indent</span>
+                <IndentControl id="settings-indent" />
+                <span class="indent-px">{reader.sidebarIndent.px}</span>
+              </div>
               <div class="feeds">
                 <label
                   class="feeds-do"
@@ -281,6 +295,10 @@
               {/if}
             {:else if section.id === "reading"}
               <ReadingPanel />
+            {:else if section.id === "list"}
+              <!-- The phone's posts bar gives up its shape controls; these are
+                   the same stores the bar wrote, on rows with room for them. -->
+              <PostListPanel />
             {:else if section.id === "layout"}
               <!-- Pane widths, the one-pane width and the held-upright mode are
                    the layout tab, mounted whole: a phone now reaches the same
@@ -498,6 +516,28 @@
     color: var(--muted);
     font-size: 11px;
     line-height: 1.4;
+  }
+
+  /* The indent the sidebar gave up, as a named row: the slider takes the width
+     between its name and its number, and a thumb gets a 34px box for it. */
+  .indent-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0 8px;
+  }
+
+  .indent-key {
+    flex: 0 0 auto;
+    color: var(--text-dim);
+  }
+
+  .indent-px {
+    flex: 0 0 auto;
+    min-width: 1.6rem;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
   }
 
   /* The two file actions, as one row of two buttons: the sheet has the width a

@@ -156,7 +156,7 @@ try {
   // State first: the components import them by the names the compiler rewrites.
   // Libraries first: a `.ts` module Node loads in place cannot resolve its own
   // extensionless imports, so anything below them is built and rewritten too.
-  for (const lib of ["src/lib/article-filter.ts", "src/lib/version.ts"]) {
+  for (const lib of ["src/lib/article-filter.ts", "src/lib/version.ts", "src/lib/list-view.ts"]) {
     buildRunes(lib);
   }
 
@@ -183,6 +183,8 @@ try {
 
   // Then the components, children before the panel that mounts them.
   await buildComponent("src/components/AccountsBody.svelte");
+  await buildComponent("src/components/IndentControl.svelte");
+  await buildComponent("src/components/PostListPanel.svelte");
   await buildComponent("src/components/ReadingPanel.svelte");
   await buildComponent("src/components/ThemePanel.svelte");
   ({ default: SettingsPanel } = await import(await buildComponent("src/components/SettingsPanel.svelte")));
@@ -359,6 +361,36 @@ try {
     const phone = draw();
     check("a phone is, once", count(phone, 'aria-label="How a phone held upright shows its panes"') === 1);
     check("and both answers are there to press", phone.includes(">One pane</button>") && phone.includes(">Sliding</button>"));
+
+    // The two sections a phone's own chrome hands over: the sidebar's indent
+    // row, and the posts bar's four shape controls. Each is a second *home*, so
+    // every row in them is one the app already had — the same slider, the same
+    // `reading` writes.
+    const sectionsOn = (body) => (body.match(/<details[^>]*class="sec/g) ?? []).length;
+    check("a phone is offered both sections its chrome gives up", sectionsOn(phone) === 8, String(sectionsOn(phone)));
+
+    const feeds = section(phone, "Feeds");
+    check(
+      "Feeds holds the feed indent, the sidebar's own slider",
+      hasClass(feeds, "indent-row") && count(feeds, 'type="range"') === 1,
+    );
+    check("...beside the two file actions", /Import feeds/.test(feeds) && /Export feeds/.test(feeds));
+
+    const rows = section(phone, "Post list");
+    check(
+      "Post list holds how a row ends and how far it turns",
+      rows.includes(">Pill</button>") && rows.includes(">Foot</button>") && count(rows, 'type="range"') === 1,
+    );
+    check("...and the picture fill, because the view is Rows", /Picture fill/.test(rows));
+    check("...and no ruler, because Rows has no tiles to count", !/Tiles across/.test(rows));
+
+    // View for view, like the bar it replaces: the ruler is there in Grid.
+    const { reading } = await import(built.get(join(ROOT, "src/state/reading.svelte.ts")));
+    reading.listView = "grid";
+    const gridRows = section(draw(), "Post list");
+    check("in Grid the ruler is there instead", /Tiles across/.test(gridRows) && !/Picture fill/.test(gridRows));
+    reading.listView = "regular";
+
     layout.device = "desktop";
   }
 

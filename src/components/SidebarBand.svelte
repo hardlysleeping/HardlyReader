@@ -108,6 +108,26 @@
   const locked = $derived(reader.hiddenLocked);
 
   /**
+   * The band with nothing engaged: no curtain, the eye on its own default view,
+   * the pin on its own.
+   *
+   * That is the state a sidebar spends nearly all its time in, and on a phone it
+   * was still paying two rows — a fold handle above a labelled row — to say
+   * nothing had been asked of it. Idle, the handle joins the row and the two
+   * words go: "Hidden" and "Active" *are* the defaults (see `emptyHidden` in
+   * `state/hidden` and `PIN_VIEW_CYCLE` in `state/pins`), so on a phone they
+   * named nothing the glyphs and their pressed states do not.
+   *
+   * The seats, their presses and every spoken name stay exactly as they are; a
+   * press on either control leaves this state, and the labels come back with it.
+   * Read from the stores rather than kept here: the defaults are the app's, and a
+   * second copy of them would be a second answer to "what is untouched".
+   */
+  const idle = $derived(
+    !locked && reader.hiddenView === "hidden" && reader.pinView === "all",
+  );
+
+  /**
    * The eye's next view, in whichever store is keeping the set.
    *
    * A server without the extension is not a server without the feature: the
@@ -240,7 +260,7 @@
 <!-- One band above the stream list: eye on the left, lock in the middle, pin on
      the right. Each control is drawn from `facts`, so the three states are one
      model rather than three branches of markup that can drift apart. -->
-<div class="bandbox" class:collapsed={chrome.bandCollapsed}>
+<div class="bandbox" class:collapsed={chrome.bandCollapsed} class:idle>
   {#if pulse}
     <span
       class="pulse {pulse}"
@@ -511,6 +531,57 @@
      a target without pretending to be a full row. */
   .bandbox.collapsed .bar {
     height: 12px;
+  }
+
+  /* On a phone the band shares a row with the day / night switch (the rail in
+     `Sidebar`), so it takes the width that is left instead of a margin of its
+     own on the right: the rail's padding is what keeps the pair off the edge. */
+  :global(html[data-device="phone"]) .bandbox {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0 0 6px;
+  }
+
+  /* Idle on a phone: the fold handle moves to the end of the row, so the two
+     strips become one and the tree starts a row higher.
+
+     The handle keeps its place in the markup — it is still the way to fold the
+     band, and it still says which way a press will go — and it gains rather than
+     loses: a full row's height instead of the 8px line it used to be.
+     `:not(.collapsed)` is deliberate: a folded band is the handle on its own, and
+     there the full-width 12px strip is the target. */
+  :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 22px;
+    align-items: stretch;
+    column-gap: 2px;
+    margin-bottom: 4px;
+  }
+
+  :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .bar {
+    grid-column: 2;
+    grid-row: 1;
+    width: 22px;
+    height: auto;
+    min-height: 26px;
+    opacity: 0.6;
+  }
+
+  :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .reveal {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  /* The seats lose their labels and the padding that spaced them, never their
+     glyphs: three presses in a 26px row are still three 26px targets, which is
+     what the coarse-pointer rule below asks for everywhere else. */
+  :global(html[data-device="phone"]) .bandbox.idle .ctl {
+    min-height: 26px;
+    padding: 1px 4px;
+  }
+
+  :global(html[data-device="phone"]) .bandbox.idle .lbl {
+    display: none;
   }
 
   .bar:hover,

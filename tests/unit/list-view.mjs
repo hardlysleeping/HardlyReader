@@ -222,7 +222,7 @@ const sidebar = read("src/components/Sidebar.svelte");
 check("the one-pane posts are the real list", /<ArticleList nested \/>/.test(sidebar));
 check("and there is no second post row implementation", !/class="post-title"/.test(sidebar));
 check("the nested flag exists", /nested = false \}: \{ onOpen\?: \(\) => void; nested\?: boolean \}/.test(list));
-check("nesting drops the second title", /\{#if !nested\}[\s\S]{0,80}<h1>/.test(list));
+check("nesting drops the second title", /\{#if !nested[^}]*\}[\s\S]{0,80}<h1>/.test(list));
 check("and the nested block does not make its own scrollbar", /\.list\.nested \.items \{[\s\S]{0,80}overflow: visible/.test(list));
 check("touch gets a real target for the toggles", /@media \(pointer: coarse\)[\s\S]{0,120}width: 34px/.test(list));
 
@@ -286,11 +286,13 @@ check("the card sizes are three", CARD_SIZES.length === 3);
 // no fifth view pill for one.
 check("the views did not gain a masonry shape", LIST_VIEWS.length === 4, String(LIST_VIEWS.length));
 
-// The controls live in the bar and belong to one view each.
-check("the sizer is in the bar, not a panel", /class="bar"[\s\S]{0,6000}class="sizer"/.test(listSource));
+// The controls live in the bar and belong to one view each. The window is wide
+// enough to cross the bar's comments: what it proves is containment in the bar's
+// own markup, not adjacency.
+check("the sizer is in the bar, not a panel", /class="bar"[\s\S]{0,9000}class="sizer"/.test(listSource));
 check(
   "the grid's count is offered only in the grid",
-  /\{#if view === "grid"\}[\s\S]{0,1600}type="range"/.test(listSource),
+  /\{#if view === "grid"[^}]*\}[\s\S]{0,1600}type="range"/.test(listSource),
 );
 check(
   "and the range is bounded by the same two numbers the type allows",
