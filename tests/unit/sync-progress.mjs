@@ -280,6 +280,8 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"../lib/account-key"', absolute("src/lib/account-key.ts")],
   ['"../lib/add-feeds"', absolute("src/lib/add-feeds.ts")],
   ['"../lib/opml"', absolute("src/lib/opml.ts")],
+  ['"../lib/extract-ledger"', absolute("src/lib/extract-ledger.ts")],
+  ['"../lib/full-text"', absolute("src/lib/full-text.ts")],
 ]);
 
 const { ReaderState } = await import(readerModule);

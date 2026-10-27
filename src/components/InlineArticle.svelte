@@ -23,6 +23,7 @@
     type Extracted,
   } from "../lib/extract";
   import { ledger } from "../lib/extract-ledger";
+  import { looksTruncated, wantsFullText } from "../lib/full-text";
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { reader } from "../state/reader.svelte";
@@ -49,10 +50,28 @@
    */
   const choice = $derived(ledger.choice(item.id));
 
+  /** The feed's own answer, and Auto's verdict about it, are the feed's. */
+  const feedId = $derived(item.origin?.streamId ?? null);
+
   $effect(() => {
     const id = item.id;
     const url = link;
-    const wanted = (reading.extract || choice === "article") && choice !== "feed";
+    // The same rule the pane asks (`wantsFullText`), so a row opened in the
+    // posts column and the same post in the article column cannot disagree
+    // about which text the article is.
+    const wanted = wantsFullText({
+      post: choice,
+      feed: reader.feedExtract(feedId),
+      accountWide: reading.extract,
+      remembered: reader.feedTruncated(feedId),
+      html: feedBody,
+    });
+
+    // The row is the only surface on a phone reading in the list, so it writes
+    // Auto's verdict too. Idempotent: the ledger keeps one per feed.
+    if (wanted && reader.feedExtract(feedId) === "auto" && looksTruncated(feedBody)) {
+      reader.noteFeedTruncated(feedId);
+    }
 
     if (!wanted || url === "") {
       extracted = null;

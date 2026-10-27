@@ -1,7 +1,7 @@
 /**
  * What the extractor remembers between posts, and between launches.
  *
- * Two things are worth keeping, and neither is the article:
+ * Three things are worth keeping, and none is the article:
  *
  * 1. **A page that refused us.** A paywall, a 403, a cookie wall and a timeout
  *    all cost a request, and the same page costs it again on the next post, and
@@ -17,12 +17,21 @@
  *    entry — so it is stored by entry id, never in the reading preferences
  *    (those travel between devices; an entry id means nothing on another
  *    account's reader).
+ * 3. **What the reader decided about one feed, and what Auto found out about
+ *    it.** A feed is a publisher with a habit: either it sends the piece or it
+ *    sends two sentences and a link. So `feed`/`Full webpage` is stored against
+ *    the feed id, and Auto's own verdict — this feed cuts its posts short — is
+ *    stored beside it. Storing the verdict is what makes Auto a property of the
+ *    feed rather than a test repeated on every post, and it is why a feed known
+ *    to truncate is fetched for a post whose markup alone would not say so.
+ *    Only the truncating verdict is kept: one whole post does not prove the next
+ *    one is whole, so "complete" is never written down.
  *
- * The blob is device data with an account scope: entry ids are only unique
- * inside an account, so a second login on the same device must not inherit the
- * first one's choices. It is not synced and it is safe to lose — a lost ledger
- * costs one fetch per parked page, which is exactly what the app did before it
- * existed.
+ * The blob is device data with an account scope: entry ids and feed ids are only
+ * unique inside an account, so a second login on the same device must not
+ * inherit the first one's choices. It is not synced and it is safe to lose — a
+ * lost ledger costs one fetch per parked page and one re-detection per feed,
+ * which is exactly what the app did before it existed.
  */
 
 import {
@@ -71,6 +80,9 @@ const MAX_FAILURES = 200;
 /** Choices are tiny and are the reader's own decisions, so they get more room. */
 const MAX_CHOICES = 500;
 
+/** A subscription list is long, and these are the entries a reader acts on. */
+const MAX_FEEDS = 500;
+
 /** One parked page. `at` is when it failed; `retryAt` is when it may be asked again. */
 export interface Failure {
   kind: FailureKind;
@@ -83,10 +95,25 @@ interface StoredChoice {
   at: number;
 }
 
+/** A feed's own answer. Only `feed` and `article` are ever written. */
+interface StoredFeed {
+  choice: BodyChoice;
+  at: number;
+}
+
+/** What Auto saw: this feed sent a post with its text cut short, at `at`. */
+interface StoredTruncated {
+  at: number;
+}
+
 interface Stored {
   failures: Record<string, Failure>;
   /** Keyed by entry id: the choice is about one post, not about a feed. */
   choices: Record<string, StoredChoice>;
+  /** Keyed by feed id (`feed/<url>`), which both account kinds already use. */
+  feeds: Record<string, StoredFeed>;
+  /** Feed ids Auto has caught cutting a post short. */
+  truncated: Record<string, StoredTruncated>;
 }
 
 /**
@@ -124,6 +151,14 @@ export interface ExtractLedger {
   choice(entryId: string): BodyChoice | null;
   remember(entryId: string, choice: BodyChoice, now?: number): void;
   forget(entryId: string): void;
+  /** The feed's own answer, or null for Auto. */
+  feedChoice(feedId: string): BodyChoice | null;
+  /** Writes the feed's answer; `null` puts it back on Auto. */
+  rememberFeed(feedId: string, choice: BodyChoice | null, now?: number): void;
+  /** Whether Auto has already caught this feed cutting a post short. */
+  truncated(feedId: string): boolean;
+  /** Writes that verdict. Auto's own read, never the reader's choice. */
+  noteTruncated(feedId: string, now?: number): void;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -157,6 +192,29 @@ function scanChoices(value: unknown): Record<string, StoredChoice> {
   return out;
 }
 
+/** A feed's answer is one of the same two values, and Auto never stores its own. */
+function scanFeeds(value: unknown): Record<string, StoredFeed> {
+  const out: Record<string, StoredFeed> = {};
+  if (!isObject(value)) return out;
+  for (const [id, entry] of Object.entries(value)) {
+    if (!isObject(entry)) continue;
+    if (entry.choice !== "feed" && entry.choice !== "article") continue;
+    out[id] = { choice: entry.choice, at: typeof entry.at === "number" ? entry.at : 0 };
+  }
+  return out;
+}
+
+/** A verdict is only ever the fact plus when it was seen. */
+function scanTruncated(value: unknown): Record<string, StoredTruncated> {
+  const out: Record<string, StoredTruncated> = {};
+  if (!isObject(value)) return out;
+  for (const [id, entry] of Object.entries(value)) {
+    if (!isObject(entry) || typeof entry.at !== "number") continue;
+    out[id] = { at: entry.at };
+  }
+  return out;
+}
+
 /** The oldest entries go first, so a cap trims what is least likely to be needed. */
 function trim<T extends { at: number }>(entries: Record<string, T>, max: number): void {
   const keys = Object.keys(entries);
@@ -165,6 +223,11 @@ function trim<T extends { at: number }>(entries: Record<string, T>, max: number)
     .sort((a, b) => entries[a].at - entries[b].at)
     .slice(0, keys.length - max)
     .forEach((key) => delete entries[key]);
+}
+
+/** A ledger with nothing in it — the answer for no storage, no blob, no JSON. */
+function empty(): Stored {
+  return { failures: {}, choices: {}, feeds: {}, truncated: {} };
 }
 
 /**
@@ -186,14 +249,19 @@ export function createExtractLedger(options: LedgerOptions = {}): ExtractLedger 
 
   function read(storage: KeyStore): Stored {
     const raw = readAccountValue(storage, EXTRACT_LEDGER_KEY, who(storage));
-    if (raw === null) return { failures: {}, choices: {} };
+    if (raw === null) return empty();
     try {
       const parsed = JSON.parse(raw) as unknown;
-      if (!isObject(parsed)) return { failures: {}, choices: {} };
-      return { failures: scanFailures(parsed.failures), choices: scanChoices(parsed.choices) };
+      if (!isObject(parsed)) return empty();
+      return {
+        failures: scanFailures(parsed.failures),
+        choices: scanChoices(parsed.choices),
+        feeds: scanFeeds(parsed.feeds),
+        truncated: scanTruncated(parsed.truncated),
+      };
     } catch {
       // A corrupt blob is worth less than the defaults it replaces.
-      return { failures: {}, choices: {} };
+      return empty();
     }
   }
 
@@ -205,6 +273,8 @@ export function createExtractLedger(options: LedgerOptions = {}): ExtractLedger 
     }
     trim(data.failures, MAX_FAILURES);
     trim(data.choices, MAX_CHOICES);
+    trim(data.feeds, MAX_FEEDS);
+    trim(data.truncated, MAX_FEEDS);
     writeAccountValue(storage, EXTRACT_LEDGER_KEY, who(storage), JSON.stringify(data));
   }
 
@@ -254,6 +324,39 @@ export function createExtractLedger(options: LedgerOptions = {}): ExtractLedger 
       if (data.choices[entryId] === undefined) return;
       delete data.choices[entryId];
       write(storage, data, Date.now());
+    },
+
+    feedChoice(feedId) {
+      return read(store()).feeds[feedId]?.choice ?? null;
+    },
+
+    rememberFeed(feedId, choice, now = Date.now()) {
+      const storage = store();
+      const data = read(storage);
+      // Auto is the absence of an answer, so it is deleted rather than stored
+      // as a third value: an app version that never heard of Auto must read a
+      // feed it has no answer for as the automatic one.
+      if (choice === null) {
+        if (data.feeds[feedId] === undefined) return;
+        delete data.feeds[feedId];
+      } else {
+        data.feeds[feedId] = { choice, at: now };
+      }
+      write(storage, data, now);
+    },
+
+    truncated(feedId) {
+      return read(store()).truncated[feedId] !== undefined;
+    },
+
+    noteTruncated(feedId, now = Date.now()) {
+      const storage = store();
+      const data = read(storage);
+      // One verdict per feed, stamped when it was first seen: re-noting it on
+      // every post would keep rewriting the blob and never say anything new.
+      if (data.truncated[feedId] !== undefined) return;
+      data.truncated[feedId] = { at: now };
+      write(storage, data, now);
     },
   };
 }

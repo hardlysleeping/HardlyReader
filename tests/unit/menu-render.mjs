@@ -138,12 +138,40 @@ try {
     const asked = draw(feedMenu("Ars Technica", false));
     check("a feed menu is titled with the feed", asked.includes(">Ars Technica<"));
     check("...offering removal", asked.includes("Remove feed…"));
-    check("...with no views", count(asked, 'role="menuitemradio"') === 0);
-    check("...and no hide item", !asked.includes(">Hide<"));
+    // The three answers are radios in their own group: a feed is not a category,
+    // so there is still no hide/view item anywhere in this menu.
+    check("...and no view item", !asked.includes(">Hide<") && !asked.includes(">Show<"));
     check("...but a feed can be pinned", asked.includes(">Pin<"));
     // Indent is a sidebar setting with its own strip; it has no business in a
     // right-click menu, where a mis-drag would change every feed's indent.
     check("...and no indent control", !asked.includes("Indent") && !asked.includes('type="range"'));
+  }
+
+  {
+    // Where a feed's text comes from: three answers, all three drawn, the feed's
+    // own answer ticked, and the headings say what the group is.
+    const body = draw(feedMenu("Ars Technica", false, false, "auto"));
+    check("the full-text answers are three radios", count(body, 'role="menuitemradio"') === 3, String(count(body, 'role="menuitemradio"')));
+    check("...named in the order they are offered", body.indexOf(">Auto<") < body.indexOf(">Feed<") && body.indexOf(">Feed<") < body.indexOf(">Full webpage<"));
+    check("...grouped under their own name", body.includes('role="group" aria-label="Full text"') && body.includes(">Full text<"));
+    // Which of the three is ticked: the tick has to be the one on that label,
+    // so the assertions are positional rather than counted.
+    const ticked = body.indexOf('aria-checked="true"');
+    check("...with Auto ticked on a fresh feed", ticked > 0 && ticked < body.indexOf(">Auto<"));
+    check("...and the other two not", count(body, 'aria-checked="true"') === 1, String(count(body, 'aria-checked="true"')));
+
+    const article = draw(feedMenu("Ars Technica", false, false, "article"));
+    const tickedArticle = article.indexOf('aria-checked="true"');
+    check(
+      "a feed told Full webpage has that one ticked",
+      tickedArticle > article.indexOf(">Feed<") && tickedArticle < article.indexOf(">Full webpage<"),
+    );
+    check("...and Auto is not", article.indexOf('aria-checked="false"') < article.indexOf(">Auto<"));
+
+    // What Auto will do next is the one thing a list of three words cannot say,
+    // so it is carried as a tooltip on the item rather than as a fourth row.
+    check("Auto says what it will do for a feed that truncates", /title="This feed cuts its posts short/.test(draw(feedMenu("Ars Technica", false, false, "auto", true))));
+    check("...and for one that does not", /title="Fetch the page when the feed&#39;s text stops short"/.test(body) || /title="Fetch the page when the feed's text stops short"/.test(body));
   }
 
   {
@@ -152,6 +180,7 @@ try {
     check("...offering both answers", confirming.includes(">Remove feed<") && confirming.includes(">Cancel<"));
     check("...marking the destructive one", /class="item[^"]*danger[^"]*"[^>]*>Remove feed</.test(confirming));
     check("...saying what it costs", confirming.includes("removes the feed"));
+    check("...and asking nothing else while it is up", count(confirming, 'role="menuitemradio"') === 0);
   }
 
   {
