@@ -44,6 +44,10 @@ check("zero is a real indent, not an absence", resolveIndent(server(0, false), 0
 
 const reader = read("src/state/reader.svelte.ts");
 const sidebar = read("src/components/Sidebar.svelte");
+// The slider itself is one component now, mounted by the sidebar's row on a
+// window and by `Settings → Feeds` on a phone: the release handler and the
+// sentence about where the number lives moved with the input.
+const indent = read("src/components/IndentControl.svelte");
 
 check("the reader asks the rule instead of repeating it", /resolveIndent\(/.test(reader));
 check("a failed or unwritten value is kept on this device", /this\.localIndentPx = clamped;/.test(reader));
@@ -58,13 +62,13 @@ check("a state read retries it", /this\.retryUnsentIndent\(state\.sidebarIndent\
 check("and a value the server already has is not written again", /if \(unsent === serverPx\)/.test(reader));
 check("only one write is in flight", /if \(session === null \|\| this\.indentWriting\) return;/.test(reader));
 check("a server that cannot write is remembered, not rediscovered", /indentLocal: this\.indentLocalOnly/.test(reader) && /this\.indentLocalOnly = raw\?\.indentLocal === true/.test(reader));
-check("releasing the slider writes at once instead of waiting out the debounce", /onchange=\{\(event\) => reader\.setSidebarIndentPx\(Number\(event\.currentTarget\.value\), true\)\}/.test(sidebar));
+check("releasing the slider writes at once instead of waiting out the debounce", /onchange=\{\(event\) => reader\.setSidebarIndentPx\(Number\(event\.currentTarget\.value\), true\)\}/.test(indent));
 check("the release also stores this device's copy", /if \(flush\) this\.savePrefs\(\);/.test(reader));
 
 // Without the extension the number is still the reader's: the slider used to be
 // disabled there, which made "keep it on this device" impossible to reach.
-check("the slider works with no extension to store it", !/disabled=\{!reader\.sidebarIndent\.available\}/.test(sidebar));
-check("and it says where the number lives", /reader\.indentDeviceOnly/.test(sidebar));
+check("the slider works with no extension to store it", !/disabled=\{!reader\.sidebarIndent\.available\}/.test(indent));
+check("and it says where the number lives", /reader\.indentDeviceOnly/.test(indent));
 check("which is the extension's absence or its refusal", /this\.indentLocalOnly \|\| !this\.sidebarIndent\.available/.test(reader));
 
 console.log(`${checks - failures}/${checks} checks passed`);

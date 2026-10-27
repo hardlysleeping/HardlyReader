@@ -1,5 +1,6 @@
 <script lang="ts">
   import ArticleList from "./ArticleList.svelte";
+  import IndentControl from "./IndentControl.svelte";
   import SidebarBand from "./SidebarBand.svelte";
   import ThemeToggle from "./ThemeToggle.svelte";
   import { READING_LIST, STATE_STARRED, type Subscription } from "../api/freshrss";
@@ -69,6 +70,22 @@
    * the height for the full block and a desktop has always had it, file-name
    * line included. */
   const compressedFooter = $derived(layout.device === "phone" && layout.upright);
+
+  /**
+   * A phone's sidebar, which carries one row fewer than a window's.
+   *
+   * The `Indent` row — the label, its number and the slider under them — is a
+   * look-setting, not content, and it was permanent: two lines at the top of the
+   * one column a phone has. It lives in `Settings → Feeds` instead, where the
+   * same `IndentControl` sits on a row of its own, and the day / night switch
+   * moves beside the band rather than owning a row of its own.
+   *
+   * Nothing is dropped: the indent is the same slider and the same reader write
+   * on both surfaces, and the switch is the same `ThemeToggle`. Every other
+   * device keeps the row exactly where it was, which is why this is one gate and
+   * not a second layout.
+   */
+  const phoneSidebar = $derived(layout.device === "phone");
 
   /**
    * The field itself.
@@ -776,7 +793,15 @@
     >¶</button>
   </div>
 
-  <SidebarBand />
+  <!-- The band, and — on a phone — the day / night switch beside it. The rail is
+       `display: contents` everywhere else, so on a window the band's margins and
+       stacking are exactly what they were: the wrapper makes no box. -->
+  <div class="rail">
+    <SidebarBand />
+    {#if phoneSidebar}
+      <ThemeToggle />
+    {/if}
+  </div>
 
   {#if search.deep}
     <p class="find-note">
@@ -790,38 +815,31 @@
 
   <!-- Feed indent: the extension's own setting, not a lookalike. Disabled
        rather than hidden when the extension is absent, so the reason is
-       visible instead of the control silently doing nothing. -->
-  <div class="indent" class:open={chrome.indentOpen}>
-    <button
-      class="indent-label"
-      aria-expanded={chrome.indentOpen}
-      aria-controls="feed-indent-row"
-      title={chrome.indentOpen ? "Hide the indent slider" : "Show the indent slider"}
-      onclick={() => chrome.toggleIndentOpen()}
-    >
-      Indent
-      <span class="px">{reader.sidebarIndent.px}</span>
-      <svg class="caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5 8 10.5l4-4" /></svg>
-    </button>
-    {#if chrome.indentOpen}
-      <input
-        id="feed-indent-row"
-        type="range"
-        min="0"
-        max={reader.sidebarIndent.max}
-        step="1"
-        value={reader.sidebarIndent.px}
-        aria-label="Feed name indent"
-        title={reader.indentError ??
-          (reader.indentDeviceOnly
-            ? "Feed name indent, kept on this device — Sidebar Feed Indent is not storing it on the server"
-            : "Feed name indent, shared with the Sidebar Feed Indent extension")}
-        oninput={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value))}
-        onchange={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value), true)}
-      />
-    {/if}
-    <span class="right"><ThemeToggle /></span>
-  </div>
+       visible instead of the control silently doing nothing.
+
+       A phone does not draw this row at all: `IndentControl` is in
+       `Settings → Feeds` there, and it is the same slider — same store, same
+       write — so the tree starts that many pixels higher instead of the row
+       costing them. -->
+  {#if !phoneSidebar}
+    <div class="indent" class:open={chrome.indentOpen}>
+      <button
+        class="indent-label"
+        aria-expanded={chrome.indentOpen}
+        aria-controls="feed-indent-row"
+        title={chrome.indentOpen ? "Hide the indent slider" : "Show the indent slider"}
+        onclick={() => chrome.toggleIndentOpen()}
+      >
+        Indent
+        <span class="px">{reader.sidebarIndent.px}</span>
+        <svg class="caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5 8 10.5l4-4" /></svg>
+      </button>
+      {#if chrome.indentOpen}
+        <IndentControl />
+      {/if}
+      <span class="right"><ThemeToggle /></span>
+    </div>
+  {/if}
 
   <!-- Everything that can grow scrolls here and nowhere else: the search field,
        the band and the indent strip stay put above, the counts and the add/OPML
@@ -1936,98 +1954,28 @@
     display: inline-flex;
   }
 
-  /* A 2px track and a 9px thumb: the native 14px trough was the loudest thing
-     in the sidebar for a setting that is set once. */
-  .indent input[type="range"] {
-    flex: 1 1 auto;
-    min-width: 0;
-    height: 12px;
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    appearance: none;
-    -webkit-appearance: none;
-    cursor: pointer;
+  /* The rail: the band, and on a phone the day / night switch beside it.
+     `contents` on a window means the wrapper makes no box at all — the band's
+     own margins and the sidebar's stacking are the ones it always had — and a
+     phone turns it into the one row the two controls then share. */
+  .rail {
+    display: contents;
   }
 
-  .indent input[type="range"]:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 4px;
+  :global(html[data-device="phone"]) .rail {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    padding-right: 10px;
   }
 
-  .indent input[type="range"]::-webkit-slider-runnable-track {
-    height: 2px;
-    border-radius: 1px;
-    background: var(--border);
-  }
-
-  .indent input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 9px;
-    height: 9px;
-    margin-top: -3.5px;
-    border: 0;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-
-  .indent input[type="range"]:hover::-webkit-slider-thumb,
-  .indent input[type="range"]:focus-visible::-webkit-slider-thumb {
-    background: var(--accent);
-  }
-
-  .indent input[type="range"]::-moz-range-track {
-    height: 2px;
-    border-radius: 1px;
-    background: var(--border);
-  }
-
-  .indent input[type="range"]::-moz-range-thumb {
-    width: 9px;
-    height: 9px;
-    border: 0;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-
-  .indent input[type="range"]:disabled {
-    cursor: default;
-    opacity: 0.4;
-  }
-
-  /* A finger is not a mouse. The 2px track and 9px thumb above are a fine mouse
-     grip and a poor thumb grip: on a phone a touch that lands beside the thumb
-     only jumps the value there, and the drag that follows never becomes a drag,
-     so the slider could be tapped and not moved. On a coarse pointer the row
-     gets real height, the thumb grows to something a thumb can hold, and
-     `touch-action: none` stops the webview from claiming the gesture as a page
-     scroll and cancelling the range input underneath it. */
-  @media (pointer: coarse) {
-    .indent input[type="range"] {
-      height: 34px;
-      touch-action: none;
-    }
-
-    .indent input[type="range"]::-webkit-slider-runnable-track {
-      height: 3px;
-    }
-
-    .indent input[type="range"]::-webkit-slider-thumb {
-      width: 20px;
-      height: 20px;
-      /* (track 3px − thumb 20px) / 2, so the thumb stays centred on the track. */
-      margin-top: -8.5px;
-    }
-
-    .indent input[type="range"]::-moz-range-track {
-      height: 3px;
-    }
-
-    .indent input[type="range"]::-moz-range-thumb {
-      width: 20px;
-      height: 20px;
-    }
+  /* A thumb's target, drawn around a 20px glyph: the switch keeps its size and
+     its place, and the box a finger lands in grows to the band's own height. */
+  :global(html[data-device="phone"]) .rail > :global(.mode) {
+    align-self: center;
+    width: 34px;
+    height: 34px;
+    margin-bottom: 6px;
   }
 
   .count {

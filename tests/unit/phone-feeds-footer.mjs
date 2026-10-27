@@ -193,8 +193,13 @@ const app = read("src/app.css");
     /\{ id: "feeds", label: "Feeds", note: "[^"]*", phone: true \}/.test(panel),
   );
   check(
-    "it is the only phone-only section, so desktop's list is unchanged",
-    (panel.match(/phone: true/g) ?? []).length === 1,
+    "every phone-only section is filtered out, so a desktop's list is unchanged",
+    // Feeds (the indent and the two file actions) and Post list (the four shape
+    // controls) are the two surfaces a phone's own chrome gives up; every other
+    // section is drawn on both devices, exactly as before.
+    /phone: true \}/g.test(panel) && (panel.match(/phone: true \}/g) ?? []).length === 2 &&
+      /\{ id: "feeds", label: "Feeds", note: "[^"]*", phone: true \}/.test(panel) &&
+      /\{ id: "list", label: "Post list", note: "[^"]*", phone: true \}/.test(panel),
   );
   check(
     "...and it is filtered out by the device, not by a window width",

@@ -1124,7 +1124,11 @@
 <section class="list" data-pane="posts" class:nested aria-label={reader.activeTitle}>
   <header class="list-header">
     <div class="headline">
-      {#if !nested}
+      <!-- The bar above a phone already names this stream, one line up: drawing
+           the same words here as well cost a whole line of the column to say
+           nothing new. The count, the feed's own mark and the filter rows stay —
+           they are about this list, not about where you are. -->
+      {#if !nested && layout.device !== "phone"}
         <h1>{reader.activeTitle}</h1>
       {/if}
       {#if feed}
@@ -1232,6 +1236,12 @@
             </svg>
           </button>
           {/if}
+          <!-- Everything below is a shape you set once, and a phone's bar has no
+               room for it: row ends, their radius, and whether a picture fills
+               the end live in `Settings → Post list` there. The four shapes and
+               the filters stay on the bar, because they are what you use while
+               reading. -->
+          {#if layout.device !== "phone"}
           <!-- How the row ends: half a turn, or the pill. Both kept. -->
           <button
             class="viewicon end"
@@ -1267,14 +1277,18 @@
               </svg>
             </button>
           {/if}
+          {/if}
         {/if}
       </div>
 
       <!-- Sizing lives where the view is chosen, and only the view that has
            something to size shows it: the grid's tiles per row, the cards'
            picture height. `auto` is always the way it looked before, so the
-           default is the previous behaviour, not a new look. -->
-      {#if view === "grid"}
+           default is the previous behaviour, not a new look.
+
+           On a phone the ruler is in `Settings → Post list`: nine answers on a
+           240px bar left no room for the four shapes beside it. -->
+      {#if view === "grid" && layout.device !== "phone"}
         <!-- Four buttons became a ruler: two to eight is nine answers, and nine
              buttons do not fit in a 240px column beside the view icons and the
              filter pills. `auto` stays a button of its own, because it is not a

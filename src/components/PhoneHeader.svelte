@@ -187,7 +187,19 @@
       <span class="chev" aria-hidden="true">‹</span>
       <span class="back-to">{backTo}</span>
     </button>
-    <span class="where" title={title}>{title}</span>
+    <!-- The pane you are in, named — except for an article, which names itself.
+         A post's own headline is the first thing under this bar and the biggest
+         thing on the page; repeating it here cost a second full line of the
+         title for nothing, and left the words to fight the progress readout for
+         the width. The step out still says where back goes, so the bar still
+         answers "where am I" in the one word that is not already on screen.
+
+         A list has no headline of its own, so the stream's name stays here — and
+         the pane stops drawing it on a phone for the same reason, one line
+         down. -->
+    {#if depth !== 3}
+      <span class="where" title={title}>{title}</span>
+    {/if}
   {/if}
 
   <span class="spacer"></span>
