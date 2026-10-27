@@ -1,6 +1,6 @@
 [package]
 name = "hardlyreader"
-version = "0.6.3"
+version = "0.6.4"
 description = "HardlyReader - a FreshRSS reader"
 authors = ["hardlysleeping"]
 edition = "2024"

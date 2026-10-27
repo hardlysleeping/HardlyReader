@@ -4,6 +4,26 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] — 2026-10-26
+
+### Fixed
+
+- **Fit stops fighting the window.** The fit's own resize arrives back as a
+  window resize, and every arrival asked for another fit: scrolling a stream of
+  comics resized the window over and over, and the window jumped between two
+  sizes while the reader was only scrolling. A fit is now once per card, the size
+  it asked for is recognised and left alone, and three fits in a second stop the
+  argument instead of continuing it.
+- **Fit does something on a strip.** A press could only widen the window, so a
+  comic already narrower than the pane — a daily strip is short and wide — changed
+  nothing at all. A press now fits the page in both directions, and the window
+  never goes below the 480px height the shell itself allows, because asking for
+  less is asking for a clamp and then asking again.
+- **Fit measures the picture, not the pane.** A post that carries several pictures
+  draws one panel at a time, narrower than the pane so the pages share one zoom.
+  Fitting that panel's own pixels without knowing its share of the pane asked for
+  a window wider than it needed, and the strip did not change size.
+
 ## [0.6.3] — 2026-10-26
 
 The seam follows the pointer, hidden works without the extension, and a phone can
