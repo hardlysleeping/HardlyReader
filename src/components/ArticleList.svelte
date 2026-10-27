@@ -34,6 +34,8 @@
   import { tabbed, type Tabbed } from "../lib/date-tabs";
   import { pullDown } from "../lib/pull";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
+  import { articleQueue, candidateFor, wantsPage } from "../lib/extract-queue";
+  import { ledger } from "../lib/extract-ledger";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
@@ -355,6 +357,40 @@
   }
 
   const loadNow = (id: string): boolean => nearIds[id] === true || aheadIds[id] === true;
+
+  /**
+   * The posts a step ahead, prepared while the reader is still on this one.
+   *
+   * The list already warms the pictures of the next card or two; this is the same
+   * idea for the article itself. `extractFor()` remembers the page it fetched, so
+   * a post prepared here opens its article rather than the feed's summary — and
+   * nothing waits for it: the plan is set and the press that follows finds the
+   * page on hand, or fetches it exactly as it would have.
+   *
+   * It starts at the open post, or at the first post near the viewport when
+   * nothing is open, so scrolling the list does not leave three prepared posts a
+   * screenful behind. `wantsPage()` is the pane's own rule, and the queue never
+   * prepares the post being read — the pane is already fetching that one.
+   */
+  $effect(() => {
+    const items = reader.listItems;
+    const open =
+      reader.selectedId === null
+        ? -1
+        : items.findIndex((item) => item.id === reader.selectedId);
+    // Past the post in hand — the pane is already fetching that one — or at the
+    // first post on screen when nothing is open. A list too short to have
+    // measured anything yet starts at the top, which is what is on screen then.
+    const start = open >= 0 ? open + 1 : Math.max(0, items.findIndex((item) => nearIds[item.id] === true));
+    const extractOn = reading.extract;
+    articleQueue.prepare(
+      items.map((item) =>
+        candidateFor(item.id, item.alternate?.[0]?.href ?? item.canonical?.[0]?.href ?? ""),
+      ),
+      start,
+      (candidate) => wantsPage(ledger.choice(candidate.id), extractOn),
+    );
+  });
 
   /*
    * Files being fetched for a card that has not been scrolled to yet. The
