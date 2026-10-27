@@ -69,8 +69,12 @@ Two facts about the platform shape the work:
    load it, which iOS is not generous about.
 2. **The project is generated on a Mac.** `src-tauri/gen/apple` does not exist on
    Linux (the Linux Tauri CLI has no `ios` subcommand); it is produced by
-   `tauri ios init` on the cloud Mac that Codemagic uses. So the Swift side of
-   this cannot be written or compiled on this machine.
+   `tauri ios init` on the cloud Mac that Codemagic uses.
+
+Both are answered by porting *this* policy to Swift rather than inventing a
+second one: [`ios-background-refresh.md`](ios-background-refresh.md) is the
+native half — the same numbers, the same item ids, the same `hardlyreader.db`,
+driven by `BGAppRefreshTask`.
 
 What the native task must do, whichever way it is built:
 
@@ -78,8 +82,7 @@ What the native task must do, whichever way it is built:
   each run (`setTaskCompleted`), never at a fixed hour.
 - On the wake, fetch the feeds that are due by the same rule — the same
   `intervalMinutes`/`failures` arithmetic, read from the same SQLite file — and
-  write entries and validators back into that file. Reimplementing the policy in
-  Swift is acceptable; inventing a *second*, different policy is not.
+  write entries and validators back into that file.
 - Finish within the system's deadline and call `setTaskCompleted(success:)`
   either way.
 

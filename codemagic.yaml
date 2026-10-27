@@ -62,6 +62,15 @@ workflows:
           export PATH="$CM_BUILD_DIR/bin:$PATH"
           pnpm tauri ios init --ci
           ls -la src-tauri/gen/apple
+      - name: Wire the background refresh into the Xcode project
+        script: |-
+          set -euo pipefail
+          # The Swift and Objective-C halves live in src-tauri/ios, because this
+          # Linux host cannot run `tauri ios init`. They are copied into the
+          # generated project and it is regenerated before Xcode sees it; the
+          # Info.plist keys come from src-tauri/Info.ios.plist, which Tauri
+          # merges itself during `tauri ios build`.
+          bash scripts/ios-background-refresh.sh
       - name: Build unsigned .app
         script: |
           set -euo pipefail
@@ -74,6 +83,22 @@ workflows:
           pnpm tauri ios build --ci --no-sign
           echo "--- build products:"
           find src-tauri/gen/apple/build src-tauri/target -maxdepth 6 -name '*.app' 2>/dev/null || true
+      - name: Check the app declares its background task
+        script: |-
+          set -euo pipefail
+          # A build that compiles is not a build that refreshes: a launch handler
+          # registered under an identifier the plist does not permit is never
+          # called, and nothing anywhere reports it. So the keys are read back out
+          # of the built app, and the C entry point is looked for in the binary —
+          # both of which are only true if the wiring step actually landed.
+          APP=$(find src-tauri/gen/apple/build "$CM_BUILD_DIR/build" -maxdepth 6 -name '*.app' -print -quit 2>/dev/null || true)
+          [ -n "$APP" ] || { echo "no .app was produced"; exit 1; }
+          /usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers:0' "$APP/Info.plist" \
+            | grep -qx 'ing.hardlysleep.hardlyreader.refresh'
+          /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes:0' "$APP/Info.plist" | grep -qx 'fetch'
+          EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
+          nm -gU "$APP/$EXEC" | grep -q 'hardlyreader_app_refresh_handle'
+          echo "background refresh: declared in Info.plist, wired to the binary"
       - name: Package unsigned IPA
         script: |
           set -euo pipefail

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The keys the background refresh needs, merged into the generated iOS
+  Info.plist by Tauri (it reads src-tauri/Info.plist and src-tauri/Info.ios.plist
+  during `tauri ios build`), so this file stays the durable home for them:
+  src-tauri/gen/apple is generated and git-ignored.
+
+  - BGTaskSchedulerPermittedIdentifiers: without this, a launch handler
+    registered under an identifier the app does not declare is silently never
+    launched — no error, no wake, ever.
+  - UIBackgroundModes / fetch: what puts the app in Settings → General →
+    Background App Refresh at all.
+
+  The identifier is repeated in AppRefreshTask.swift and AppRefreshTaskHook.m;
+  tests/unit/ios-background-refresh.mjs fails if the three disagree.
+-->
+<plist version="1.0">
+<dict>
+  <key>BGTaskSchedulerPermittedIdentifiers</key>
+  <array>
+    <string>ing.hardlysleep.hardlyreader.refresh</string>
+  </array>
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>fetch</string>
+  </array>
+</dict>
+</plist>
