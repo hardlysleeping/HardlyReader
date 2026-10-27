@@ -55,6 +55,30 @@ interface SqlDatabase {
 }
 
 /**
+ * How the plugin is reached, given a file name.
+ *
+ * Injectable for one reason: the statements this driver writes are the ones the
+ * desktop build runs, and the only way to run them without launching the app is
+ * to hand the driver an engine that speaks the same three-method slice. The
+ * default is the plugin; a test passes something else and the SQL under test is
+ * still this file's.
+ */
+export type SqlConnector = (name: string) => Promise<SqlDatabase>;
+
+/** The real one: the Tauri SQL plugin, resolved at open time. */
+async function connectPlugin(name: string): Promise<SqlDatabase> {
+  let Database: typeof import("@tauri-apps/plugin-sql").default;
+  try {
+    Database = (await import("@tauri-apps/plugin-sql")).default;
+  } catch {
+    throw new LocalStorageError(
+      "The SQLite plugin is not available in this build, so the local library cannot be opened",
+    );
+  }
+  return (await Database.load(`sqlite:${name}`)) as unknown as SqlDatabase;
+}
+
+/**
  * The two statements a migration needs, so it can be run by a test against an
  * engine other than the plugin.
  *
@@ -123,18 +147,15 @@ export class SqliteDatabase implements LocalDatabase {
    * The plugin resolves `sqlite:hardlyreader.db` under the app's data
    * directory, which is where a library belongs: beside the account's own
    * preferences, not in a temporary folder the OS may clear.
+   *
+   * `connect` is the plugin by default; a test hands in its own engine so the
+   * `CREATE TABLE`, migration and write statements below are the ones that run.
    */
-  static async open(name: string = LOCAL_DATABASE_FILE): Promise<SqliteDatabase> {
-    let Database: typeof import("@tauri-apps/plugin-sql").default;
-    try {
-      Database = (await import("@tauri-apps/plugin-sql")).default;
-    } catch {
-      throw new LocalStorageError(
-        "The SQLite plugin is not available in this build, so the local library cannot be opened",
-      );
-    }
-
-    const db = (await Database.load(`sqlite:${name}`)) as unknown as SqlDatabase;
+  static async open(
+    name: string = LOCAL_DATABASE_FILE,
+    connect: SqlConnector = connectPlugin,
+  ): Promise<SqliteDatabase> {
+    const db = await connect(name);
     const opened = new SqliteDatabase(db);
     for (const table of tableNames()) {
       await db.execute(createTableSql(table));
