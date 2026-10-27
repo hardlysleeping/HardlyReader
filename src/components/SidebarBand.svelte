@@ -98,6 +98,7 @@
       collapsed: chrome.bandCollapsed,
       locked: reader.hiddenLocked,
       available: reader.hiddenAvailable,
+      authority: reader.hiddenAuthority,
       view: reader.hiddenView,
       pinnedCount: reader.pinnedCount,
       pinView: reader.pinView,
@@ -106,8 +107,15 @@
 
   const locked = $derived(reader.hiddenLocked);
 
+  /**
+   * The eye's next view, in whichever store is keeping the set.
+   *
+   * A server without the extension is not a server without the feature: the
+   * press goes to this device's set and lands on the same frame, so nothing here
+   * may be refused for want of an extension.
+   */
   async function cycleHidden(): Promise<void> {
-    if (locked || !reader.hiddenAvailable) return;
+    if (locked) return;
     const outcome = await reader.setHiddenView(nextHiddenView(reader.hiddenView));
     // The adapter answers a locked account with 423 rather than letting a view
     // write through. That answer opens this same surface — the passcode field
@@ -296,7 +304,7 @@
             onclick={cycleHidden}
             disabled={!facts.hidden.enabled}
             title={facts.hidden.enabled
-              ? `${facts.hidden.label} — click for ${facts.hidden.next}`
+              ? `${facts.hidden.label}${facts.hidden.authority === "local" ? " on this device" : ""} — click for ${facts.hidden.next}`
               : "Hidden Categories is not enabled on this server"}
             aria-label={`Hidden categories: ${facts.hidden.label}`}
           >
