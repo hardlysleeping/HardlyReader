@@ -16,6 +16,7 @@
  * doing geometry inside event handlers.
  */
 import { categoryIdForLabel, isHiddenCategory, type HiddenCategoriesState } from "../api/hardlyread";
+import type { HiddenAuthority } from "../state/hidden";
 import { pinWords } from "./theme";
 
 /* ---------------------------------------------------------------------------
@@ -226,24 +227,35 @@ export interface MenuModel {
  * Views are not here on purpose. Revealing hidden categories from a row menu
  * defeats the point of hiding them; the view lives on the sidebar band, next to
  * the lock.
+ *
+ * `state` is whichever block is deciding (see `resolveHidden`), and `authority`
+ * says which one that is. It matters for one word: with this device deciding,
+ * the item is offered with no note at all, because there is nothing wrong with
+ * the server — the hide simply lands here rather than there.
  */
 export function categoryMenu(
   state: HiddenCategoriesState,
   label: string,
   pinned: boolean,
+  authority: HiddenAuthority = "extension",
 ): MenuModel {
   const words = pinWords();
   const id = categoryIdForLabel(state, label);
   const hidden = isHiddenCategory(state, label);
-  const usable = state.available && id !== null;
+  const usable = authority === "local" || (state.available && id !== null);
 
   const notes: string[] = [];
-  if (!state.available) {
-    notes.push("The Hidden Categories extension is not answering, so nothing can be hidden right now.");
-  } else if (id === null) {
-    notes.push("This category has no id on the server, so it cannot be hidden.");
-  } else if (state.locked) {
-    notes.push("Hidden Categories is locked; the server will refuse changes.");
+  // With this device deciding there is nothing to note: hiding works, it simply
+  // stays here, and a note would read as an apology for a control that does
+  // exactly what it promises.
+  if (authority !== "local") {
+    if (!state.available) {
+      notes.push("The Hidden Categories extension is not answering, so nothing can be hidden right now.");
+    } else if (id === null) {
+      notes.push("This category has no id on the server, so it cannot be hidden.");
+    } else if (state.locked) {
+      notes.push("Hidden Categories is locked; the server will refuse changes.");
+    }
   }
 
   return {

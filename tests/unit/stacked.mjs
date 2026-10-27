@@ -381,7 +381,17 @@ check(
   "the gutter turns its own axis, measures its column and clamps in pixels",
   /const vertical = \$derived\(axis === "y"\)/.test(gutter) &&
     /getBoundingClientRect\(\)\.height/.test(gutter) &&
-    /clampShare\(startShare \+ \(y - startPos\) \/ room, track\)/.test(gutter),
+    /clampShare\(shareFromDrag\(startShare, y - startPos, track\), track\)/.test(gutter),
+);
+// The seam is drawn inside the 6px track it lives in, so measuring its *own*
+// parent measured those 6px: one pixel of travel became a whole share and the
+// handle slammed to 25% or 75% on the first move. The column is the grid, and
+// the grid is the slot's parent.
+check(
+  "the column it measures is the grid, not the 6px slot the seam is drawn in",
+  /\.closest<HTMLElement>\("\.slot"\)/.test(gutter) &&
+    /slot\.parentElement/.test(gutter) &&
+    !/\.closest<HTMLElement>\("\.seam"\)/.test(gutter),
 );
 check(
   "up and down resize a row, left and right a column",

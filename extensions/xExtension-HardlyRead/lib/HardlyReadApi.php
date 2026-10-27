@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/HardlyReadApiResponse.php';
 require_once __DIR__ . '/HardlyReadPositionStore.php';
+require_once __DIR__ . '/HardlyReadPreferenceStore.php';
 require_once __DIR__ . '/HardlyReadPins.php';
 
 /**
@@ -25,6 +26,12 @@ require_once __DIR__ . '/HardlyReadPins.php';
  * Order matters and is fixed: authenticate BEFORE routing, so an unauthenticated
  * caller cannot enumerate routes, and authenticate BEFORE anything reads
  * per-user state (the production collaborator calls initUser()).
+ *
+ * The one exception is named rather than implied: `POST /v1/pair/request` and
+ * `POST /v1/pair/redeem` are reachable without a credential, because the device
+ * that uses them is signing in and has none. They are matched by name before
+ * authentication (`isSignedOutRoute()`), so every other path — including the
+ * other three pairing routes — is still refused 401 before it is routed.
  */
 final class HardlyReadApi
 {
@@ -55,8 +62,23 @@ final class HardlyReadApi
 		'invalid_positions' => 'Positions must be lists of ids.',
 		'positions_unavailable' => 'Position storage is not available on this server.',
 		'stale_positions' => 'A newer arrangement is already stored: read it and try again.',
+		'invalid_preferences' => 'Preferences must be a map of namespaces to stamped values.',
+		'preferences_unavailable' => 'Preference storage is not available on this server.',
+		'stale_preferences' => 'Newer preferences are already stored: read them and try again.',
 		'invalid_pinned_value' => 'The "pinned" field must be a boolean.',
 		'pins_unavailable' => 'Category order is not available on this server.',
+		// Pairing. These are the app's own reasons (`PairingRefusal`), sent as
+		// `error.code` so both sides of the network share one vocabulary; the
+		// status only tells a log or a cache which kind of refusal it was.
+		'pairing_unavailable' => 'Pairing is not available on this server.',
+		'invalid_code' => 'A pairing code is eight digits.',
+		'wrong_code' => 'No device is waiting with that code.',
+		'expired' => 'That pairing code has expired.',
+		'used' => 'That pairing code has already been used.',
+		'revoked' => 'That pairing has been revoked.',
+		'wrong_account' => 'That pairing code belongs to another account.',
+		'not_approved' => 'That pairing code has not been approved yet.',
+		'already_approved' => 'That pairing code has already been approved.',
 	];
 
 	private Closure $authenticate;
@@ -73,6 +95,12 @@ final class HardlyReadApi
 	/** @var ?Closure(string, array{updatedAt: int, categories: string[], feeds: string[]}): bool */
 	private ?Closure $savePositions = null;
 
+	/** @var ?Closure(string): array{apiVersion: int, updatedAt: int, entries: array} */
+	private ?Closure $loadPreferences = null;
+
+	/** @var ?Closure(string, array{apiVersion: int, updatedAt: int, entries: array}): bool */
+	private ?Closure $savePreferences = null;
+
 	/**
 	 * The pin order's reader and writer, or null when nothing was wired.
 	 *
@@ -88,12 +116,25 @@ final class HardlyReadApi
 	private ?Closure $loadPeople = null;
 
 	/**
+	 * The pairing store, or null when nothing was wired.
+	 *
+	 * Null is what a router built by an extension.php from before pairing looks
+	 * like. Every pairing route then answers 503 rather than 404: the door is
+	 * there in this build, the install behind it is not, and a client can tell
+	 * "your server is older than this app" from "your server never had this".
+	 */
+	private ?Closure $loadPairing = null;
+
+	/**
 	 * @param callable(string): ?string $authenticate
 	 * @param callable(string): ?object $loadHiddenCategories
 	 * @param callable(string): ?object $loadFavorites
 	 * @param callable(string): ?object $loadSidebarIndent
 	 * @param (callable(): ?object)|null $loadPeople
 	 * @param (callable(string): ?object)|null $loadPins
+	 * @param (callable(string): array)|null $loadPreferences
+	 * @param (callable(string, array): bool)|null $savePreferences
+	 * @param (callable(): ?object)|null $loadPairing
 	 */
 	public function __construct(
 		callable $authenticate,
@@ -104,6 +145,9 @@ final class HardlyReadApi
 		?callable $savePositions = null,
 		?callable $loadPeople = null,
 		?callable $loadPins = null,
+		?callable $loadPreferences = null,
+		?callable $savePreferences = null,
+		?callable $loadPairing = null,
 	) {
 		$this->authenticate = Closure::fromCallable($authenticate);
 		$this->loadHiddenCategories = Closure::fromCallable($loadHiddenCategories);
@@ -113,6 +157,9 @@ final class HardlyReadApi
 		$this->savePositions = $savePositions === null ? null : Closure::fromCallable($savePositions);
 		$this->loadPeople = $loadPeople === null ? null : Closure::fromCallable($loadPeople);
 		$this->loadPins = $loadPins === null ? null : Closure::fromCallable($loadPins);
+		$this->loadPreferences = $loadPreferences === null ? null : Closure::fromCallable($loadPreferences);
+		$this->savePreferences = $savePreferences === null ? null : Closure::fromCallable($savePreferences);
+		$this->loadPairing = $loadPairing === null ? null : Closure::fromCallable($loadPairing);
 	}
 
 	/**
@@ -121,14 +168,25 @@ final class HardlyReadApi
 	 */
 	public function dispatch(string $method, string $path, string $authorization = '', array $body = [], array $query = []): HardlyReadApiResponse
 	{
-		$username = ($this->authenticate)($authorization);
-		if (!is_string($username) || $username === '') {
-			// Same hint the GReader API sends, so a client can tell a bad
-			// credential from a bad route.
-			return self::error(401, 'unauthorized', 'A valid GoogleLogin credential is required.', [], ['Google-Bad-Token' => 'true']);
+		// Two pairing routes are reachable without a credential — `request` and
+		// `redeem` — because a phone that is signing in has none: the code is
+		// the credential. They are named here, before authentication and before
+		// routing, so that nothing else becomes visible to an unauthenticated
+		// caller: every other path still answers 401 first, exactly as before.
+		$segments = self::segments($path);
+		$signedOut = self::isSignedOutRoute($segments);
+
+		$username = '';
+		if (!$signedOut) {
+			$authenticated = ($this->authenticate)($authorization);
+			if (!is_string($authenticated) || $authenticated === '') {
+				// Same hint the GReader API sends, so a client can tell a bad
+				// credential from a bad route.
+				return self::error(401, 'unauthorized', 'A valid GoogleLogin credential is required.', [], ['Google-Bad-Token' => 'true']);
+			}
+			$username = $authenticated;
 		}
 
-		$segments = self::segments($path);
 		if ($segments === []) {
 			return self::error(404, 'route_not_found', 'No route was requested.');
 		}
@@ -140,6 +198,22 @@ final class HardlyReadApi
 		}
 
 		$method = strtoupper(trim($method));
+
+		// Pairing a device that cannot answer the login captcha.
+		//
+		// Five routes, one state machine (`HardlyReadPairingStore`): a signed-out
+		// phone asks for a code, a signed-in device lists what is waiting and
+		// approves one, the phone redeems it once for a device token, and either
+		// side can withdraw what it gave. No captcha is solved anywhere here —
+		// the human check is the approve press, made by somebody who already got
+		// past one on that device.
+		if ($segments[0] === 'pair') {
+			if (count($segments) !== 2) {
+				return self::error(404, 'route_not_found', 'Unknown route.');
+			}
+
+			return $this->pairingRoute($segments[1], $method, $username, $authorization, $body);
+		}
 
 		// GET /v1/revision — one short token over the user's extension state.
 		//
@@ -229,6 +303,30 @@ final class HardlyReadApi
 					? $result['message']
 					: 'The request was not accepted.',
 			]);
+		}
+
+		// GET, PUT /v1/preferences — the settings the reader wants to carry.
+		//
+		// One document, one account: a map of client namespaces to a stamped
+		// value. This extension does not interpret the namespaces — a newer
+		// client may add one, and an older server must keep it rather than
+		// prune what it does not know. Last write wins by the stamp the client
+		// sends, and a stale write is refused with the document that won, so a
+		// device coming back from offline can merge instead of guessing.
+		if ($segments[0] === 'preferences') {
+			if (count($segments) !== 1) {
+				return self::error(404, 'route_not_found', 'Unknown route.');
+			}
+			if ($this->loadPreferences === null || $this->savePreferences === null) {
+				return self::error(503, 'preferences_unavailable', self::CONTRACT_MESSAGES['preferences_unavailable']);
+			}
+			if ($method === 'GET') {
+				return new HardlyReadApiResponse(200, $this->preferenceDocument($username));
+			}
+			if ($method === 'PUT') {
+				return $this->putPreferences($username, $body);
+			}
+			return self::methodNotAllowed('GET, PUT');
 		}
 
 		// GET, PUT /v1/positions — the sidebar arrangement the user dragged.
@@ -356,6 +454,375 @@ final class HardlyReadApi
 		}
 
 		return self::error(404, 'route_not_found', 'Unknown route.');
+	}
+
+	/* -----------------------------------------------------------------------
+	 * Pairing
+	 *
+	 * No captcha is solved or skipped here. The flow exists because a phone's
+	 * HTTP client cannot answer a login page, so the human does that once on a
+	 * device that can, and the phone receives a revocable credential instead of
+	 * a password. The human check is the approve press below.
+	 * -------------------------------------------------------------------- */
+
+	/**
+	 * The two pairing routes a signed-out device may reach.
+	 *
+	 * `request` asks for a code; `redeem` claims one. Both are deliberately
+	 * narrow: everything else, including the other three pairing routes, still
+	 * needs a credential and is still refused 401 before routing.
+	 *
+	 * @param list<string> $segments
+	 */
+	private static function isSignedOutRoute(array $segments): bool
+	{
+		return count($segments) === 3
+			&& $segments[0] === self::API_SEGMENT
+			&& $segments[1] === 'pair'
+			&& ($segments[2] === 'request' || $segments[2] === 'redeem');
+	}
+
+	/**
+	 * One pairing route.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function pairingRoute(string $verb, string $method, string $username, string $authorization, array $body): HardlyReadApiResponse
+	{
+		$pairing = $this->pairing();
+		if ($pairing === null) {
+			return self::error(503, 'pairing_unavailable', self::CONTRACT_MESSAGES['pairing_unavailable']);
+		}
+
+		// `request` and `redeem` were let through without a credential; the rest
+		// were not, but a defensive check here means a future change to
+		// `isSignedOutRoute()` cannot quietly open the approving side.
+		if ($verb !== 'request' && $verb !== 'redeem' && $username === '') {
+			return self::error(401, 'unauthorized', 'A valid GoogleLogin credential is required.', [], ['Google-Bad-Token' => 'true']);
+		}
+
+		switch ($verb) {
+			case 'request':
+				return $this->pairRequest($pairing, $method, $body);
+			case 'pending':
+				if ($method !== 'GET') {
+					return self::methodNotAllowed('GET');
+				}
+
+				return new HardlyReadApiResponse(200, [
+					'apiVersion' => self::API_VERSION,
+					'pairings' => array_map(static fn (array $row): array => [
+						'code' => (string) $row['code'],
+						'label' => (string) $row['label'],
+						'issuedAt' => self::millis((int) $row['issuedAt']),
+						'expiresAt' => self::millis((int) $row['expiresAt']),
+					], $pairing->pending()),
+				]);
+			case 'approve':
+				return $this->pairApprove($pairing, $method, $username, $body);
+			case 'redeem':
+				return $this->pairRedeem($pairing, $method, $body);
+			case 'revoke':
+				return $this->pairRevoke($pairing, $method, $username, $authorization);
+			default:
+				return self::error(404, 'route_not_found', 'Unknown route.');
+		}
+	}
+
+	/**
+	 * `POST /v1/pair/request` — a signed-out device asks for a code.
+	 *
+	 * The answer deliberately says nothing about who will approve it: at this
+	 * point nobody has. That is why a code is worth nothing until it is bound.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function pairRequest(object $pairing, string $method, array $body): HardlyReadApiResponse
+	{
+		if ($method !== 'POST') {
+			return self::methodNotAllowed('POST');
+		}
+
+		$label = $body['label'] ?? '';
+		$ticket = $pairing->issue(is_string($label) ? $label : '');
+
+		return new HardlyReadApiResponse(200, [
+			'apiVersion' => self::API_VERSION,
+			'code' => (string) $ticket['code'],
+			'label' => (string) $ticket['label'],
+			'expiresAt' => self::millis((int) $ticket['expiresAt']),
+		]);
+	}
+
+	/**
+	 * `POST /v1/pair/approve` — the human press, on a signed-in device.
+	 *
+	 * This is the step that binds a code to an account, and the only step in the
+	 * whole flow where a person decides anything. A press from a second account
+	 * is refused rather than allowed to re-bind the ticket.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function pairApprove(object $pairing, string $method, string $username, array $body): HardlyReadApiResponse
+	{
+		if ($method !== 'POST') {
+			return self::methodNotAllowed('POST');
+		}
+
+		$code = $body['code'] ?? null;
+		if (!is_string($code) || $code === '') {
+			return self::error(400, 'invalid_code', self::CONTRACT_MESSAGES['invalid_code']);
+		}
+
+		$result = $pairing->approve($code, $username);
+		if (($result['ok'] ?? false) === true) {
+			$ticket = is_array($result['pairing'] ?? null) ? $result['pairing'] : [];
+
+			return new HardlyReadApiResponse(200, [
+				'approved' => true,
+				'account' => $username,
+				'code' => is_string($ticket['code'] ?? null) ? $ticket['code'] : $code,
+				'expiresAt' => self::millis((int) ($ticket['expiresAt'] ?? 0)),
+			]);
+		}
+
+		return self::pairingRefusal((string) ($result['reason'] ?? ''));
+	}
+
+	/**
+	 * `POST /v1/pair/redeem` — the phone claims an approved code, once.
+	 *
+	 * The token in the answer is the only time it exists outside the phone: the
+	 * store keeps its hash. `account` is optional and is for a device that is
+	 * already signed in (it names the login it belongs to); the phone signing in
+	 * has none, and the ticket decides.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function pairRedeem(object $pairing, string $method, array $body): HardlyReadApiResponse
+	{
+		if ($method !== 'POST') {
+			return self::methodNotAllowed('POST');
+		}
+
+		$code = $body['code'] ?? null;
+		if (!is_string($code) || $code === '') {
+			return self::error(400, 'invalid_code', self::CONTRACT_MESSAGES['invalid_code']);
+		}
+
+		$label = $body['label'] ?? '';
+		$account = $body['account'] ?? null;
+		$result = $pairing->redeem(
+			$code,
+			is_string($account) && $account !== '' ? $account : null,
+			is_string($label) ? $label : '',
+		);
+
+		if (($result['ok'] ?? false) === true) {
+			return new HardlyReadApiResponse(200, [
+				'apiVersion' => self::API_VERSION,
+				'token' => (string) $result['token'],
+				'account' => (string) $result['account'],
+				'label' => (string) $result['label'],
+				'pairedAt' => self::millis((int) $result['pairedAt']),
+				'lastUsedAt' => self::millis((int) $result['lastUsedAt']),
+				'expiresAt' => self::millis((int) $result['expiresAt']),
+			]);
+		}
+
+		return self::pairingRefusal((string) ($result['reason'] ?? ''));
+	}
+
+	/**
+	 * `POST /v1/pair/revoke` — a device withdraws the credential it was given.
+	 *
+	 * Authenticated by that credential, so the account is known before the store
+	 * is asked and one device can never end another's sign-in.
+	 */
+	private function pairRevoke(object $pairing, string $method, string $username, string $authorization): HardlyReadApiResponse
+	{
+		if ($method !== 'POST') {
+			return self::methodNotAllowed('POST');
+		}
+
+		$token = self::credentialToken($authorization);
+		if ($token === '') {
+			return self::error(401, 'unauthorized', 'A device token is required.', [], ['Google-Bad-Token' => 'true']);
+		}
+
+		$result = $pairing->revoke($username, $token);
+		if (($result['ok'] ?? false) === true) {
+			return new HardlyReadApiResponse(200, ['revoked' => true]);
+		}
+		if (($result['reason'] ?? '') === 'unauthorized') {
+			return self::error(401, 'unauthorized', 'That device token is not valid.', [], ['Google-Bad-Token' => 'true']);
+		}
+
+		return self::pairingRefusal((string) ($result['reason'] ?? ''));
+	}
+
+	/**
+	 * A refusal, as the client reads it.
+	 *
+	 * The `error.code` is the app's own reason word (`wrong_code`, `expired`,
+	 * `not_approved`, …), so one vocabulary covers both sides; the status is the
+	 * same fact for anything that only understands statuses.
+	 */
+	private static function pairingRefusal(string $reason): HardlyReadApiResponse
+	{
+		$status = match ($reason) {
+			'invalid_code' => 400,
+			// A code that is not there and a code that is somebody else's are the
+			// same answer, so this route cannot be asked which codes exist.
+			'wrong_code' => 404,
+			'expired' => 410,
+			'used', 'not_approved', 'already_approved' => 409,
+			'revoked', 'wrong_account' => 403,
+			default => 503,
+		};
+		$code = $status === 503 ? 'pairing_unavailable' : $reason;
+
+		return self::error($status, $code, self::CONTRACT_MESSAGES[$code] ?? 'The pairing request was refused.');
+	}
+
+	/**
+	 * The token inside an `Authorization` header.
+	 *
+	 * Accepts either spelling the transport may hand over: the GReader one every
+	 * client already sends, and one naming this API. SAPI rewriting turns the
+	 * space into an underscore in some configurations, which is why both
+	 * `auth=` and `_auth=` survive the trip.
+	 */
+	private static function credentialToken(string $authorization): string
+	{
+		$normalised = str_replace(['GoogleLogin_', 'HardlyRead_'], ['GoogleLogin ', 'HardlyRead '], $authorization);
+		if (preg_match('/^(?:GoogleLogin|HardlyRead)\s+auth=(.+)$/i', trim($normalised), $matches) !== 1) {
+			return '';
+		}
+
+		$value = trim($matches[1]);
+		$slash = strpos($value, '/');
+
+		return $slash === false ? '' : trim(substr($value, $slash + 1));
+	}
+
+	/**
+	 * Seconds on disk, milliseconds on the wire.
+	 *
+	 * PHP counts in seconds and the client counts in `Date.now()`; the conversion
+	 * lives here so no route has to remember which unit it is holding, and a
+	 * countdown on a phone cannot be ten minutes out.
+	 */
+	private static function millis(int $seconds): int
+	{
+		return $seconds * 1000;
+	}
+
+	/** The pairing store, resolved per call like every other collaborator. */
+	private function pairing(): ?object
+	{
+		if ($this->loadPairing === null) {
+			return null;
+		}
+		$pairing = ($this->loadPairing)();
+
+		return is_object($pairing) ? $pairing : null;
+	}
+
+	/**
+	 * The stored settings document, in the wire shape.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function preferenceDocument(string $username): array
+	{
+		$stored = $this->loadPreferences === null ? null : ($this->loadPreferences)($username);
+		$stored = is_array($stored) ? HardlyReadPreferenceStore::sanitise($stored) : HardlyReadPreferenceStore::empty();
+
+		return $this->preferencesResponse($stored);
+	}
+
+	/**
+	 * A settings document as the client reads it.
+	 *
+	 * @param array<string, mixed> $document
+	 * @return array<string, mixed>
+	 */
+	private function preferencesResponse(array $document): array
+	{
+		return [
+			'apiVersion' => self::API_VERSION,
+			'updatedAt' => $document['updatedAt'],
+			// Always an object on the wire, even when empty: the client reads
+			// this as a map of namespaces, and `[]` would be a list there.
+			'entries' => $document['entries'] === [] ? new stdClass() : $document['entries'],
+		];
+	}
+
+	/**
+	 * Stores the settings document, namespace by namespace.
+	 *
+	 * Last write wins, decided by the client's stamps: the whole request is
+	 * refused when its newest entry is older than what is stored, so a device
+	 * coming back from a week offline cannot roll the account back. When it is
+	 * accepted, merge rather than replace — a client that knows fewer
+	 * namespaces than the account holds would otherwise prune the ones it did
+	 * not send, which is how an older build erases a newer one's settings.
+	 *
+	 * A stale write is answered with the winning document in the body, so the
+	 * client can merge the namespaces it actually holds newer instead of
+	 * retrying blindly or re-reading.
+	 *
+	 * @param array<string, mixed> $body
+	 */
+	private function putPreferences(string $username, array $body): HardlyReadApiResponse
+	{
+		if ($this->loadPreferences === null || $this->savePreferences === null) {
+			return self::error(503, 'preferences_unavailable', self::CONTRACT_MESSAGES['preferences_unavailable']);
+		}
+
+		// Required, not defaulted: a body without it would be a client bug, and
+		// reading it as "no namespaces" would wipe a good document.
+		if (!array_key_exists('entries', $body) || !is_array($body['entries'])) {
+			return self::error(400, 'invalid_preferences', self::CONTRACT_MESSAGES['invalid_preferences']);
+		}
+
+		$stored = ($this->loadPreferences)($username);
+		$stored = is_array($stored) ? HardlyReadPreferenceStore::sanitise($stored) : HardlyReadPreferenceStore::empty();
+
+		$incoming = HardlyReadPreferenceStore::sanitise($body);
+		if ($incoming['updatedAt'] === 0) {
+			// Nothing carryable in the request. Answer with what is stored
+			// rather than inventing a stamp the client never sent, which would
+			// refuse every honest write that follows.
+			return new HardlyReadApiResponse(200, $this->preferencesResponse($stored));
+		}
+
+		if ($stored['updatedAt'] > $incoming['updatedAt']) {
+			return self::error(
+				409,
+				'stale_preferences',
+				self::CONTRACT_MESSAGES['stale_preferences'],
+				['preferences' => $this->preferencesResponse($stored)],
+			);
+		}
+
+		$merged = $stored;
+		foreach ($incoming['entries'] as $name => $entry) {
+			$current = $merged['entries'][$name] ?? null;
+			// The same stamp replaces: a retry has to be idempotent, and the
+			// arriving value is the one the reader is looking at.
+			if (!is_array($current) || $entry['updatedAt'] >= $current['updatedAt']) {
+				$merged['entries'][$name] = $entry;
+			}
+		}
+		$merged = HardlyReadPreferenceStore::sanitise($merged);
+
+		if (!($this->savePreferences)($username, $merged)) {
+			return self::error(500, 'save_failed', 'Could not save the preferences.');
+		}
+
+		return new HardlyReadApiResponse(200, $this->preferencesResponse($merged));
 	}
 
 	/**

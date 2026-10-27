@@ -92,6 +92,19 @@ class SearchState {
     else this.cancel();
   }
 
+  /** Whether post text is searched. The only search setting that travels. */
+  snapshot(): Record<string, unknown> {
+    return { deep: this.deep };
+  }
+
+  /** Takes the account's copy, ignoring a value that is not a boolean. */
+  adopt(value: Record<string, unknown>): void {
+    if (typeof value.deep === "boolean" && value.deep !== this.deep) {
+      this.deep = value.deep;
+      this.save();
+    }
+  }
+
   private save(): void {
     if (typeof localStorage === "undefined") return;
     try {

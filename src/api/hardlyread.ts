@@ -19,6 +19,10 @@
  *   PUT /v1/positions                <- { updatedAt, categories[], feeds[] }
  *                                       an older stamp is refused `409 stale_positions`,
  *                                       carrying only the winning `updatedAt`
+ *   GET /v1/preferences              -> { apiVersion, updatedAt, entries }
+ *   PUT /v1/preferences              <- { apiVersion, updatedAt, entries }
+ *                                       an older stamp is refused `409 stale_preferences`,
+ *                                       carrying the winning document under `preferences`
  *   GET /v1/people?q=                -> { enabled, people: [{ name, added }] }
  *   POST /v1/people                  <- { "name": "…" }  (one write, never retried)
  *
@@ -35,6 +39,7 @@
 import { normalizeApiPath, normalizeServerUrl, type Session, type Transport } from "./freshrss";
 import { mergePositions, nextStamp, parsePositions, positionsBody, type Positions } from "../lib/positions";
 import { parseAddPerson, parsePeopleList, parsePeopleStatus, recordAvailability, type Person } from "../lib/people";
+import { parsePreferences, preferencesBody, type PrefsDoc } from "../lib/prefs-sync";
 
 /**
  * misc.php keys extensions by the metadata `name`, never the entrypoint, and
@@ -559,6 +564,72 @@ export async function reconcilePositions(
     return isRouteMissing(error) ? { kind: "missing" } : { kind: "failed", error };
   }
 }
+
+/**
+ * Reads the account's remembered settings.
+ *
+ * Throws like every other read: `404` is an adapter that predates the route,
+ * and the caller decides that means local-only. Nothing here interprets the
+ * document's namespaces — that is `lib/prefs-sync`'s business, and an older
+ * client must be able to read a newer document without understanding all of it.
+ */
+export async function getPreferences(transport: Transport, session: Session): Promise<PrefsDoc> {
+  return parsePreferences(await request(transport, session, "/preferences", { method: "GET" }));
+}
+
+/** What a preference write came to. */
+export type PreferencesWrite =
+  /** Accepted: `doc` is the document the server now holds. */
+  | { kind: "stored"; doc: PrefsDoc }
+  /**
+   * Refused because a newer document is stored. The refusal carries the whole
+   * winning document, so the caller can merge rather than re-read.
+   */
+  | { kind: "stale"; doc: PrefsDoc }
+  /** The adapter predates the route, or has no store: prefs stay on this device. */
+  | { kind: "missing" }
+  /**
+   * The session may read but not write (403/405/501/503). Not an error worth
+   * showing: the account simply cannot hold this, and local storage still does.
+   */
+  | { kind: "readOnly" };
+
+/**
+ * Stores the document, stamps and all.
+ *
+ * Same shape as `putPositions`: `404`, `409` and a read-only refusal come back
+ * as outcomes, because every one of them is an answer the client acts on
+ * quietly. Everything else still throws — a rejected token is not the same
+ * thing as a server that cannot keep preferences.
+ */
+export async function putPreferences(
+  transport: Transport,
+  session: Session,
+  doc: PrefsDoc,
+): Promise<PreferencesWrite> {
+  try {
+    const body = await request(transport, session, "/preferences", {
+      method: "PUT",
+      body: preferencesBody(doc),
+    });
+    // A 200 that still says `stale` (an older adapter's spelling) is the same
+    // answer as a 409: the stored copy is not ours.
+    if (body.stale === true || body.code === "stale_preferences") {
+      return { kind: "stale", doc: parsePreferences(body.preferences ?? body) };
+    }
+    return { kind: "stored", doc: parsePreferences(body.preferences ?? body) };
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.status === 409 && error.code === "stale_preferences") {
+        return { kind: "stale", doc: parsePreferences(error.body.preferences ?? error.body) };
+      }
+      if (isRouteMissing(error)) return { kind: "missing" };
+      if ([403, 405, 501, 503].includes(error.status)) return { kind: "readOnly" };
+    }
+    throw error;
+  }
+}
+
 
 /** Reads hidden state. Never 409s; 401 means the credential is dead. */
 export async function getState(transport: Transport, session: Session): Promise<HiddenCategoriesState> {

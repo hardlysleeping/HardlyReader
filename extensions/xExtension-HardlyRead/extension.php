@@ -81,8 +81,11 @@ class HardlyReadExtension extends Minz_Extension
 				loadSidebarIndent: fn (string $username): ?object => $this->loadUserExtension($username, self::INDENT_EXTENSION),
 				loadPositions: fn (string $username): array => $this->positions($username)->load(),
 				savePositions: fn (string $username, array $document): bool => $this->positions($username)->save($document),
+				loadPreferences: fn (string $username): array => $this->preferences($username)->load(),
+				savePreferences: fn (string $username, array $document): bool => $this->preferences($username)->save($document),
 				loadPeople: fn (): ?object => $this->loadPeople(),
 				loadPins: fn (string $username): ?object => $this->pins($username),
+				loadPairing: fn (): ?object => $this->pairing(),
 			);
 
 			$this->respond($api->dispatch($method, $path, $this->authorizationHeader(), $body, $_GET));
@@ -171,6 +174,12 @@ class HardlyReadExtension extends Minz_Extension
 	 * sha1(salt . user . apiPasswordHash). One FreshRSS API credential therefore
 	 * serves both the GReader API and this one; no second password exists.
 	 *
+	 * A paired device presents its own token in the same slot. That token carries
+	 * a prefix no sha1 can, so it is recognised before anything is hashed, and it
+	 * is checked *before* the API-password branch on purpose: an account whose
+	 * login asks for a captcha is exactly the account that has no API password
+	 * yet, which is why it needed pairing at all.
+	 *
 	 * initUser() happens here, before any collaborator reads per-user state:
 	 * mode(), view() and isLocked() are per-user and read the wrong (system)
 	 * context — silently — if they are touched first.
@@ -179,8 +188,8 @@ class HardlyReadExtension extends Minz_Extension
 	{
 		// Some SAPIs hand back "GoogleLogin_auth=..." because spaces in a
 		// parameter name become underscores; accept both spellings.
-		$normalised = str_replace('GoogleLogin_', 'GoogleLogin ', $authorization);
-		if (preg_match('/^GoogleLogin\s+auth=(.+)$/i', trim($normalised), $matches) !== 1) {
+		$normalised = str_replace(['GoogleLogin_', 'HardlyRead_'], ['GoogleLogin ', 'HardlyRead '], $authorization);
+		if (preg_match('/^(?:GoogleLogin|HardlyRead)\s+auth=(.+)$/i', trim($normalised), $matches) !== 1) {
 			return null;
 		}
 
@@ -204,6 +213,16 @@ class HardlyReadExtension extends Minz_Extension
 			return null;
 		}
 
+		// A paired device: its token is the credential, and the store decides
+		// whether it is still live. Revoking one takes effect on the next
+		// request, which is the whole reason the phone keeps a credential and
+		// not a copy of somebody's password. The store is loaded first because
+		// the prefix below is its own constant, not a copy of the string.
+		require_once __DIR__ . '/lib/HardlyReadPairingStore.php';
+		if (str_starts_with($token, HardlyReadPairingStore::TOKEN_PREFIX)) {
+			return $this->pairing()->authenticate($username, $token) ? $username : null;
+		}
+
 		$passwordHash = (string) FreshRSS_Context::userConf()->apiPasswordHash;
 		if ($passwordHash === '') {
 			return null;
@@ -225,6 +244,36 @@ class HardlyReadExtension extends Minz_Extension
 	private function positions(string $username): HardlyReadPositionStore
 	{
 		return new HardlyReadPositionStore(HardlyReadPositionStore::dirForUser($username));
+	}
+
+	/**
+	 * The remembered settings for one user.
+	 *
+	 * Same directory rules as the arrangement store: the login is in the path,
+	 * so one account's copy is invisible to another, and a login that cannot be
+	 * a path segment is refused inside the store rather than here.
+	 */
+	private function preferences(string $username): HardlyReadPreferenceStore
+	{
+		require_once __DIR__ . '/lib/HardlyReadPreferenceStore.php';
+
+		return new HardlyReadPreferenceStore(HardlyReadPreferenceStore::dirForUser($username));
+	}
+
+	/**
+	 * Pairing: the codes a phone asks for, and the credentials it keeps.
+	 *
+	 * One store for the whole server rather than one per user, because a ticket
+	 * exists before it has an owner — that is what makes a signed-out phone able
+	 * to ask for one. Everything it writes lives under DATA_PATH, in
+	 * `extensions/HardlyRead/pairing`, so no user configuration is touched and a
+	 * FreshRSS refresh cannot overwrite it.
+	 */
+	private function pairing(): HardlyReadPairingStore
+	{
+		require_once __DIR__ . '/lib/HardlyReadPairingStore.php';
+
+		return new HardlyReadPairingStore(HardlyReadPairingStore::rootForServer());
 	}
 
 	/**

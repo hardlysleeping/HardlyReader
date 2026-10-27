@@ -263,73 +263,101 @@ class ReadingState {
     try {
       const raw = readAccountValue(localStorage, STORAGE_KEY, storedAccount(localStorage));
       if (raw === null) return;
-      const saved = JSON.parse(raw) as {
-        advanceOnScroll?: unknown;
-        articleFilter?: unknown;
-        listView?: unknown;
-        readInPane?: unknown;
-        rowsEnd?: unknown;
-        curvePill?: unknown;
-        curveHalf?: unknown;
-        flushThumb?: unknown;
-        gridColumns?: unknown;
-        cardSize?: unknown;
-        markReadMode?: unknown;
-        autoMarkRead?: unknown;
-        autoMarkSeconds?: unknown;
-        scrollEffort?: unknown;
-        textScale?: unknown;
-        rowScale?: unknown;
-        leading?: unknown;
-        textAlign?: unknown;
-        thumbScale?: unknown;
-        imageScale?: unknown;
-        thumbSide?: unknown;
-        flipEdge?: unknown;
-        articleImage?: unknown;
-        stepPercent?: unknown;
-        extract?: unknown;
-      };
-      if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
-      if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
-      if (isListView(saved.listView)) this.listView = saved.listView;
-      if (typeof saved.readInPane === "boolean") this.readInPane = saved.readInPane;
-      if (isRowEnd(saved.rowsEnd)) this.rowsEnd = saved.rowsEnd;
-      // The pill's shipped radius came down from 24 to 10; a stored 24 is that
-      // old default, not a choice, so it moves with the new one.
-      if (saved.curvePill !== undefined) {
-        const pill = clampCurve(saved.curvePill);
-        this.curvePill = pill === CURVE_PILL_WAS ? CURVE_DEFAULT.pill : pill;
-      }
-      if (saved.curveHalf !== undefined) this.curveHalf = clampCurve(saved.curveHalf);
-      if (typeof saved.flushThumb === "boolean") this.flushThumb = saved.flushThumb;
-      if (isGridColumns(saved.gridColumns)) this.gridColumns = saved.gridColumns;
-      if (isCardSize(saved.cardSize)) this.cardSize = saved.cardSize;
-      // An explicit choice of mode is honoured; the old bare `autoMarkRead`
-      // boolean is not read at all. It was a single icon next to the star, and
-      // it stayed on without being meant to — automatic
-      // marking is now something you have to pick twice (the setting or the
-      // button), and manual is what a fresh install gets.
-      if (isMarkReadMode(saved.markReadMode)) this.autoMarkRead = saved.markReadMode === "auto";
-      if (saved.autoMarkSeconds !== undefined) this.autoMarkSeconds = clampDwellSeconds(saved.autoMarkSeconds);
-      if (saved.scrollEffort !== undefined) this.scrollEffort = clampEffort(saved.scrollEffort);
-      this.textScale = clampScale(saved.textScale, TEXT_SCALE);
-      this.rowScale = clampScale(saved.rowScale, ROW_SCALE);
-      if (isLeading(saved.leading)) this.leading = saved.leading;
-      if (isTextAlign(saved.textAlign)) this.textAlign = saved.textAlign;
-      this.thumbScale = clampScale(saved.thumbScale, THUMB_SCALE);
-      this.imageScale = clampScale(saved.imageScale, IMAGE_SCALE);
-      if (typeof saved.flipEdge === "number") this.flipEdge = clampFlipEdge(saved.flipEdge);
-      if (isThumbSide(saved.thumbSide)) this.thumbSide = saved.thumbSide;
-      if (typeof saved.articleImage === "boolean") this.articleImage = saved.articleImage;
-      if (isStepPercent(saved.stepPercent)) this.stepPercent = saved.stepPercent;
-      // Absent, or not a boolean, means off: a prefs blob written before this
-      // setting existed must not switch extraction on by accident.
-      if (typeof saved.extract === "boolean") this.extract = saved.extract;
+      this.applySaved(JSON.parse(raw) as Record<string, unknown>);
     } catch {
       // Same rule as the layout: a corrupt preference is not worth a dialog.
     }
   }
+
+  /**
+   * Every reading choice as one object.
+   *
+   * The same shape the local key holds, because it is also the shape that
+   * travels: one namespace, replaced whole. `save()` writes exactly this, so a
+   * preference cannot exist locally and be missing from the account's copy.
+   */
+  snapshot(): Record<string, unknown> {
+    return {
+      advanceOnScroll: this.advanceOnScroll,
+      articleFilter: this.articleFilter,
+      listView: this.listView,
+      readInPane: this.readInPane,
+      rowsEnd: this.rowsEnd,
+      curvePill: this.curvePill,
+      curveHalf: this.curveHalf,
+      flushThumb: this.flushThumb,
+      gridColumns: this.gridColumns,
+      cardSize: this.cardSize,
+      markReadMode: this.autoMarkRead ? "auto" : "manual",
+      autoMarkSeconds: this.autoMarkSeconds,
+      scrollEffort: this.scrollEffort,
+      textScale: this.textScale,
+      rowScale: this.rowScale,
+      leading: this.leading,
+      textAlign: this.textAlign,
+      thumbScale: this.thumbScale,
+      imageScale: this.imageScale,
+      thumbSide: this.thumbSide,
+      flipEdge: this.flipEdge,
+      articleImage: this.articleImage,
+      stepPercent: this.stepPercent,
+      extract: this.extract,
+    };
+  }
+
+  /**
+   * Takes the account's copy of this namespace.
+   *
+   * Back to the defaults first, then the value's own fields: the namespace is
+   * replaced whole, so a choice cleared on another device is cleared here too,
+   * instead of surviving as a field the newer copy happens not to mention.
+   */
+  adopt(value: Record<string, unknown>): void {
+    this.defaults();
+    this.applySaved(value);
+    this.save();
+  }
+
+  /** Validates and applies one saved blob. Shared by the local read and a pull. */
+  private applySaved(saved: Record<string, unknown>): void {
+    if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
+    if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
+    if (isListView(saved.listView)) this.listView = saved.listView;
+    if (typeof saved.readInPane === "boolean") this.readInPane = saved.readInPane;
+    if (isRowEnd(saved.rowsEnd)) this.rowsEnd = saved.rowsEnd;
+    // The pill's shipped radius came down from 24 to 10; a stored 24 is that
+    // old default, not a choice, so it moves with the new one.
+    if (saved.curvePill !== undefined) {
+      const pill = clampCurve(saved.curvePill);
+      this.curvePill = pill === CURVE_PILL_WAS ? CURVE_DEFAULT.pill : pill;
+    }
+    if (saved.curveHalf !== undefined) this.curveHalf = clampCurve(saved.curveHalf);
+    if (typeof saved.flushThumb === "boolean") this.flushThumb = saved.flushThumb;
+    if (isGridColumns(saved.gridColumns)) this.gridColumns = saved.gridColumns;
+    if (isCardSize(saved.cardSize)) this.cardSize = saved.cardSize;
+    // An explicit choice of mode is honoured; the old bare `autoMarkRead`
+    // boolean is not read at all. It was a single icon next to the star, and
+    // it stayed on without being meant to — automatic
+    // marking is now something you have to pick twice (the setting or the
+    // button), and manual is what a fresh install gets.
+    if (isMarkReadMode(saved.markReadMode)) this.autoMarkRead = saved.markReadMode === "auto";
+    if (saved.autoMarkSeconds !== undefined) this.autoMarkSeconds = clampDwellSeconds(saved.autoMarkSeconds);
+    if (saved.scrollEffort !== undefined) this.scrollEffort = clampEffort(saved.scrollEffort);
+    this.textScale = clampScale(saved.textScale, TEXT_SCALE);
+    this.rowScale = clampScale(saved.rowScale, ROW_SCALE);
+    if (isLeading(saved.leading)) this.leading = saved.leading;
+    if (isTextAlign(saved.textAlign)) this.textAlign = saved.textAlign;
+    this.thumbScale = clampScale(saved.thumbScale, THUMB_SCALE);
+    this.imageScale = clampScale(saved.imageScale, IMAGE_SCALE);
+    if (typeof saved.flipEdge === "number") this.flipEdge = clampFlipEdge(saved.flipEdge);
+    if (isThumbSide(saved.thumbSide)) this.thumbSide = saved.thumbSide;
+    if (typeof saved.articleImage === "boolean") this.articleImage = saved.articleImage;
+    if (isStepPercent(saved.stepPercent)) this.stepPercent = saved.stepPercent;
+    // Absent, or not a boolean, means off: a prefs blob written before this
+    // setting existed must not switch extraction on by accident.
+    if (typeof saved.extract === "boolean") this.extract = saved.extract;
+  }
+
 
   toggleAdvance(): void {
     this.advanceOnScroll = !this.advanceOnScroll;
@@ -551,32 +579,7 @@ class ReadingState {
         localStorage,
         STORAGE_KEY,
         storedAccount(localStorage),
-        JSON.stringify({
-          advanceOnScroll: this.advanceOnScroll,
-          articleFilter: this.articleFilter,
-          listView: this.listView,
-          readInPane: this.readInPane,
-          rowsEnd: this.rowsEnd,
-          curvePill: this.curvePill,
-          curveHalf: this.curveHalf,
-          flushThumb: this.flushThumb,
-          gridColumns: this.gridColumns,
-          cardSize: this.cardSize,
-          markReadMode: this.autoMarkRead ? "auto" : "manual",
-          autoMarkSeconds: this.autoMarkSeconds,
-          scrollEffort: this.scrollEffort,
-          textScale: this.textScale,
-          rowScale: this.rowScale,
-          leading: this.leading,
-          textAlign: this.textAlign,
-          thumbScale: this.thumbScale,
-          imageScale: this.imageScale,
-          thumbSide: this.thumbSide,
-          flipEdge: this.flipEdge,
-          articleImage: this.articleImage,
-          stepPercent: this.stepPercent,
-          extract: this.extract,
-        }),
+        JSON.stringify(this.snapshot()),
       );
     } catch {
       // Best effort: the setting still applies for this session.

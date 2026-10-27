@@ -207,7 +207,10 @@ try {
   function section(body, label) {
     const at = body.search(new RegExp(`<span class="label[^"]*">${label}</span>`));
     if (at < 0) return "";
-    const next = body.indexOf("<details", at);
+    // The next *section*, not the next `<details>`: a section's own content may
+    // hold a disclosure of its own (Accounts holds the pairing block), and
+    // cutting at that one truncated the section before its closing tag.
+    const next = body.indexOf('<details class="sec', at);
     return body.slice(at, next < 0 ? body.length : next);
   }
 
@@ -230,8 +233,13 @@ try {
   const SECTIONS = ["Accounts", "Appearance", "Reading", "Layout", "Sync", "About"];
   {
     const body = draw();
-    check("there are six sections", count(body, "<details") === 6, String(count(body, "<details")));
-    check("every one is a disclosure with a summary", count(body, "<summary") === 6, String(count(body, "<summary")));
+    // Sections carry `class="sec"`. Counted by that class, not by every
+    // `<details>` in the panel: a section's own content may hold a disclosure of
+    // its own (Accounts holds the pairing block), and the question here is how
+    // many *sections* there are.
+    const sections = (markup) => (markup.match(/<details[^>]*class="sec/g) ?? []).length;
+    check("there are six sections", sections(body) === 6, String(sections(body)));
+    check("every one is a disclosure with a summary", count(body, 'class="sum') === 6, String(count(body, 'class="sum')));
     check("every section is named", SECTIONS.every((label) => new RegExp(`<span class="label[^"]*">${label}</span>`).test(body)));
     check("and says what is in it", SECTIONS.every((label) => hasClass(section(body, label), "note")));
     // Native `<details>` is the mechanism: the content is inside the disclosure,

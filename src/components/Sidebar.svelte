@@ -25,6 +25,7 @@
   import { reading } from "../state/reading.svelte";
   import { reader, type CategoryGroup } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
+  import { statusFacts } from "../lib/band";
   import { groupHits, searchFeeds } from "../lib/search";
   import { authorPanel, peoplePanel, toggleSearch } from "../lib/people";
   import { search } from "../state/search.svelte";
@@ -33,27 +34,25 @@
   import { chrome } from "../state/chrome.svelte";
   import { layout } from "../state/layout.svelte";
 
-  let wasLocked = false;
+  const words = pinWords();
 
   /**
-   * A lock folds the band.
+   * The strip at the foot of the sidebar: the hidden count, the ENFORCED badge
+   * and the pinned count, in the band's own three-state rule.
    *
-   * Folding when the curtain goes down is the private choice: a locked band that
-   * is still open is a row of controls about hidden things, even if the controls
-   * are only "Unlock". Only the transition does this, so opening the band while
-   * locked is allowed to stay open — a later refresh that still reports "locked"
-   * must not slam it shut again. The stored preference is untouched: unlocking
-   * returns to the fold state the user actually chose.
+   * A lock empties the hidden half — the count and the badge both — so the only
+   * number left on screen is the one that says what to show, not what is hidden.
    */
-  $effect(() => {
-    const locked = reader.hiddenLocked;
-    if (locked === wasLocked) return;
-    wasLocked = locked;
-    if (locked) chrome.collapseBandForLock();
-    else chrome.restoreBand();
-  });
-
-  const words = pinWords();
+  const strip = $derived(
+    statusFacts({
+      locked: reader.hiddenLocked,
+      available: reader.hiddenAvailable,
+      authority: reader.hiddenAuthority,
+      hiddenCount: reader.hiddenCount,
+      enforced: reader.hiddenEnforced,
+      pinnedCount: reader.pinnedCount,
+    }),
+  );
 
   /** Something typed: the sidebar shows results instead of the tree. */
   const searching = $derived(search.query.trim() !== "");
@@ -1162,12 +1161,19 @@
   </div>
 
   <div class="status" aria-live="polite">
-    {#if reader.hiddenAvailable && !reader.hiddenLocked && reader.hiddenCount > 0}
-      <span class="stat">Hidden <b>{reader.hiddenCount}</b></span>
-      {#if reader.hiddenCategories.mode === "strict"}<span class="badge">Enforced</span>{/if}
+    {#if strip.hiddenCount !== null && strip.hiddenCount > 0}
+      <span class="stat">Hidden <b>{strip.hiddenCount}</b></span>
+      {#if strip.enforced}
+        <span
+          class="badge"
+          title={strip.authority === "local"
+            ? "Filtered on this device"
+            : "Filtered by the server"}
+        >ENFORCED</span>
+      {/if}
     {/if}
-    {#if reader.pinnedCount > 0}
-      <span class="stat">{words.count} <b>{reader.pinnedCount}</b></span>
+    {#if strip.pinnedCount > 0}
+      <span class="stat">{words.count} <b>{strip.pinnedCount}</b></span>
     {/if}
   </div>
 

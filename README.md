@@ -4,9 +4,9 @@ A reader for FreshRSS that behaves like a reading app rather than a web page: th
 
 It is also built for reading comics one after another: a Cards view where a page fills the pane at its own size, a wheel or a thumb that moves one post at a time, and an article pane that fits a page whole instead of cropping or blowing it up.
 
-Svelte 5, TypeScript, Tauri 2. One codebase: a Linux desktop app, Android and iOS builds of the same UI, and a browser build.
+Svelte 5, TypeScript, Tauri 2. Linux desktop today; the same code is the browser build.
 
-Its sidebar controls come from three small FreshRSS extensions, every one of them optional: **[Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories)** (hide, reveal, and lock a category), **[Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories)** (pin a category and order the pins), and the **[Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead)** that exposes their state over the API. Without them the app runs; the control that needs one says so instead of breaking.
+Its sidebar controls come from three small FreshRSS extensions, every one of them optional: **[Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories)** (hide, reveal, and lock a category), **[Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories)** (pin a category and order the pins), and the **[Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead)** that exposes their state over the API. Without them the app runs: pins and hidden categories are kept on this device, so the sidebar behaves the same, and the one control that truly needs an extension says so instead of breaking.
 
 ![Three panes: feeds, posts, article](docs/screenshots/three-panes.png)
 
@@ -79,7 +79,7 @@ Cards is the reading view for strips, and it is arranged around the things that 
 
 - FreshRSS with **API access enabled** (Settings → Authentication). The API password is what the app asks for, not the account password.
 - For the extension-backed features: **[Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories)** and/or **[Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories)**, plus the small **[Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead)** that exposes their state over the API.
-- To build: Node 22+, pnpm, Rust, and Tauri 2's Linux dependencies (WebKitGTK 4.1).
+- To build: Node 20+, pnpm, Rust, and Tauri 2's Linux dependencies (WebKitGTK 4.1).
 
 ## Running
 
@@ -103,15 +103,22 @@ pnpm tauri build    # .deb / .rpm / AppImage in src-tauri/target/release/bundle
 
 On first launch, enter the base URL of your FreshRSS (e.g. `https://feeds.example.org`), the account email and the **API password**. Loopback addresses work too (`http://127.0.0.1:8080`).
 
+On a phone there is a second way in, for an account whose login asks for a captcha — the one thing a phone's HTTP client can never answer. The phone asks for a code, and the same screen shows it while it waits; on a device that can show the captcha, and is already signed in, **Settings → Accounts → Pair a device** lists the code and approves it. The phone then receives a credential of its own, which either side can revoke; clearing it is not the same as changing the account password. What the server has to support for this is written out in [`src/api/pairing.ts`](src/api/pairing.ts) and in the extension's README.
+
 ## Extensions
 
 | Extension | What the app uses it for |
 |---|---|
 | [Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories) | Which categories are pinned, and their order |
-| [Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories) | Which categories are hidden, the view state, and the lock |
+| [Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories) | Which categories are hidden, the view state, and the lock — between devices |
 | [Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead) | One request that returns all of the above, plus the sidebar indent |
 
-Every one of them is optional. The website keeps working the same way with or without the app, and the app keeps working with or without them — it just says so, in the control that needs one.
+Every one of them is optional. The website keeps working the same way with or
+without the app, and the app keeps working with or without them: pins and hidden
+categories are kept on this device when the extension is not there, so the
+sidebar behaves the same either way — what an extension buys is that the same
+set is shared between devices (and, for Hidden Categories, a passcode lock). The
+one control that truly needs an extension says so instead of breaking.
 
 ## Development
 
@@ -122,16 +129,11 @@ pnpm test     # unit suites, headless, no browser and no server
 
 The tests cover the parts that are easy to get quietly wrong: the GReader client, the pane maths, filters and ordering, the extension API's state and error shapes, the reading timer, the lock flows, search grouping, and the memory of where you were.
 
+The Tauri window runs under a Content-Security-Policy (`app.security.csp`). `docs/csp.md` says what each directive is there for, what the capability behind it still allows, and what only a built app can prove; `tests/unit/csp.mjs` keeps it from drifting.
+
 ## Status
 
-0.5.1, and three builds come out of this one tree:
-
-- **Linux desktop** — a single binary, no bundle. This is what is built and used daily.
-- **Android** — a universal APK, signed with the same key as previous releases, so it installs as an update. Tablet-sized windows get the full layout; a phone gets the one-pane view, or the sliding stack if you choose it.
-- **iOS** — an unsigned IPA. It is not on the App Store: the phone build is compiled on a Mac (or a cloud Mac), and signing happens on the device with a sideloading tool. A free Apple ID means a seven-day certificate and re-signing every week.
-- **Browser** — `pnpm build` produces the same UI as a static site, pointed at your own server.
-
-What is not proven yet: the upright sliding panes and the per-account state have unit coverage, but neither has been run on a physical phone. There is no offline cache of article bodies or images — a server that is down is a server that is down.
+0.2.0. The Linux desktop app is what is built and used; the same code runs as a browser build, and the phone layout is exercised but **not** tested on a device yet. There is no offline cache of article bodies or images — a server that is down is a server that is down. Releases are tagged source: no bundles are attached, because the 0.1.1 ones were built against a newer glibc than their targets and are not fit to ship.
 
 Screenshots are of a demo build with invented feeds — no real subscriptions appear in this repository.
 

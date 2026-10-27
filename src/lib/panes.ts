@@ -74,6 +74,24 @@ export function stackNeeded(widths: PaneWidths, articleMin: number = MIN.article
  * too short for both floors the split becomes half, which is the least wrong
  * answer available.
  */
+/**
+ * Where a stacked drag puts the seam.
+ *
+ * `start` is the share the drag began at, `dy` the pixels the pointer has
+ * travelled, and `height` the column the rows are a percentage *of* — the same
+ * number `stackTemplate` divides, because the seam's top edge is drawn at
+ * `share × height`. That identity is the whole point: moving the pointer 1px
+ * moves the seam 1px, so the handle stays under the finger. Dividing by
+ * anything else (the seam's own track, the column less the gutter) makes the
+ * seam run away from the pointer or crawl behind it, which reads as a drag that
+ * cannot be controlled.
+ */
+export function shareFromDrag(start: number, dy: number, height: number): number {
+  if (!Number.isFinite(start)) return STACK_SHARE.fallback;
+  if (!Number.isFinite(height) || height <= 0 || !Number.isFinite(dy)) return start;
+  return start + dy / height;
+}
+
 export function clampShare(share: number, height: number, gutter = STACK_GUTTER): number {
   if (!Number.isFinite(share)) return STACK_SHARE.fallback;
   const bounded = (value: number): number =>
@@ -289,12 +307,11 @@ export const FLAT_ROWS = `${track(0)} 100% ${track(0)} ${track(0)}`;
  * Below these a pane stops being usable: labels truncate, titles wrap to four
  * lines.
  *
- * The sidebar's 240 is the band's own floor, measured rather than guessed: two
- * equal halves around a 44px lock, with 6px gaps and the band's 8px side
- * margins, leave each half 82px at 240 — and the longest word either half can
- * hold ("Unpinned") is 56px of 10px uppercase plus 20px of padding, 78px. At the
- * old 200 the halves were 62px and the labels were already giving up their ends,
- * which is what made the band look squeezed before the rest of the sidebar was.
+ * The sidebar's floor is the band's own. It was measured when the band was two
+ * die-cut halves around a 44px lock; the band is now one row — eye, lock, pin —
+ * whose longest label is the extension's own "HIDDEN FAVOURITES". That fits the
+ * reference's 295px sidebar and only starts to ellipsize here, so the floor did
+ * not move with the shape. Nothing narrower than this is a sidebar.
  */
 export const MIN: Record<"sidebar" | "list" | "article", number> = {
   sidebar: 240,

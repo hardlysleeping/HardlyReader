@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { STACK_GUTTER, STACK_SHARE, clampShare, type StackPane } from "../lib/panes";
+  import { STACK_GUTTER, STACK_SHARE, clampShare, shareFromDrag, type StackPane } from "../lib/panes";
   import { layout } from "../state/layout.svelte";
 
   /**
@@ -69,11 +69,16 @@
     startPos = vertical ? event.clientY : event.clientX;
     if (vertical) {
       startShare = layout.stackShare;
-      // The seam's wrapper is the grid child, so the column it splits is that
-      // wrapper's parent — and that is true in both states, because a tucked
-      // seam is still drawn inside the column it belongs to.
-      const host = (event.currentTarget as HTMLElement).closest<HTMLElement>(".seam")?.parentElement;
-      track = host === null || host === undefined ? 0 : host.getBoundingClientRect().height;
+      // The column the rows are a percentage of is the grid, and the grid is the
+      // *slot's* parent — not this seam's. `.seam` sits inside `.slot.seam-y`,
+      // which is the 6px track the seam is drawn in, so measuring its parent
+      // measured those 6px: a 1px drag then became a whole share, and the seam
+      // jumped to whichever end of the range it was nearest. The slot is the
+      // grid child in both states, because a tucked seam is still drawn inside
+      // the column it belongs to.
+      const slot = (event.currentTarget as HTMLElement).closest<HTMLElement>(".slot");
+      const host = slot === null || slot === undefined ? null : slot.parentElement;
+      track = host === null ? 0 : host.getBoundingClientRect().height;
     } else {
       startWidth = layout.width(which);
     }
@@ -84,8 +89,10 @@
   /** Where the pointer says the seam is now. */
   function apply(x: number, y: number): void {
     if (vertical) {
-      const room = Math.max(1, track - STACK_GUTTER);
-      layout.dragShare(clampShare(startShare + (y - startPos) / room, track));
+      // The seam's top is drawn at `share × track` (see `stackTemplate`), so the
+      // pointer's own travel is what the share follows: no gutter subtracted,
+      // nothing else measured, and the handle stays exactly under the finger.
+      layout.dragShare(clampShare(shareFromDrag(startShare, y - startPos, track), track));
       return;
     }
     layout.dragTo(which, startWidth + (x - startPos));

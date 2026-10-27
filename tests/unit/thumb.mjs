@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { cropVariant, firstImageIn, fullSize, imagesOf, panelsOf, resolveUrl, thumbnailOf } from "../../src/lib/thumb.ts";
 
 let passed = 0;
@@ -305,6 +306,92 @@ check("every picture of a multi-picture strip-shaped post is sharpened too", () 
   });
   assert.deepEqual(list, ["https://e.test/p/1.jpg", "https://e.test/p/2.jpg", "https://e.test/p/plain.jpg"]);
   assert.equal(cropVariant("https://e.test/p/2.jpg"), "https://e.test/p/2-300x200.jpg");
+});
+
+/* ------------------------------------------------------------------- Buni
+   The report this work came from, in its own URLs. Feed 215
+   (https://www.bunicomic.com/feed/) publishes one picture per post, a 150x150
+   WordPress crop (150x150, ~7KB); the page itself is at the same path without
+   the size suffix, 780x1054. Nothing below needs the network: it is the URL
+   rewriting the card depends on, checked against the real strings and against
+   the body WordPress actually publishes. */
+
+const BUNI_DIR = "https://www.bunicomic.com/wp-content/uploads/2026/10/";
+const BUNI_CROP = `${BUNI_DIR}2026-10-21-Buni-150x150.jpg`;
+const BUNI_PAGE = `${BUNI_DIR}2026-10-21-Buni.jpg`;
+
+check("the real Buni crop is asked for as the 780x1054 page", () => {
+  assert.equal(fullSize(BUNI_CROP), BUNI_PAGE);
+  // …and the page itself is not rewritten into a 404.
+  assert.equal(fullSize(BUNI_PAGE), null);
+});
+
+check("Buni's entry, as WordPress publishes it, draws the page rather than the crop", () => {
+  // The labelled crop beside the src, which is what WordPress writes for a
+  // thumbnail: `src` is the 150px square, `srcset` carries the 768-wide one.
+  const body =
+    '<p><a href="https://www.bunicomic.com/comic/buni-2018/" rel="noopener">' +
+    `<img loading="lazy" width="150" height="150" src="${BUNI_CROP}" ` +
+    `srcset="${BUNI_CROP} 150w, ${BUNI_DIR}2026-10-21-Buni-768x1024.jpg 768w" ` +
+    'sizes="(max-width: 150px) 100vw, 150px" class="attachment-thumbnail size-thumbnail wp-post-image" alt="">' +
+    "</a></p>\n";
+  const item = {
+    alternate: [{ href: "https://www.bunicomic.com/comic/buni-2018/" }],
+    content: { content: body },
+    summary: { content: body },
+  };
+  const thumb = thumbnailOf(item);
+  assert.equal(thumb.url, BUNI_PAGE);
+  assert.equal(thumb.kind, "inline");
+  // The widest srcset candidate is the crop to fall back to, not the 150px one:
+  // if the page is gone, the biggest file the feed named is the one to draw.
+  assert.equal(thumb.fallback, `${BUNI_DIR}2026-10-21-Buni-768x1024.jpg`);
+  assert.equal(cropVariant(BUNI_PAGE), `${BUNI_DIR}2026-10-21-Buni-768x1024.jpg`);
+});
+
+check("one picture is not a strip: Buni keeps the plain card Archie's post gets", () => {
+  // `pictures()` in ArticleList asks imagesOf for a list and draws a pager only
+  // when it comes back with more than one, so a single sharpened picture has to
+  // be a list of exactly one here — the markup and CSS stay as they were.
+  const list = imagesOf({
+    alternate: [{ href: "https://www.bunicomic.com/comic/buni-2018/" }],
+    content: { content: `<p><img src="${BUNI_CROP}" alt=""></p>` },
+  });
+  assert.deepEqual(list, [BUNI_PAGE]);
+  assert.deepEqual(panelsOf({ content: { content: `<img src="${BUNI_CROP}" alt="">` } }), []);
+});
+
+/* ------------------------------------------------------------------ the card
+   The other half of the joke: the card has to *ask* for the sharpened URL, and
+   when the full-size file is not there after all it has to go back to the crop
+   the feed named rather than leave a hole. Both are in ArticleList.svelte, so
+   they are read there — no DOM needed for "the markup binds the fallback". */
+
+const LIST_SRC = readFileSync(
+  new URL("../../src/components/ArticleList.svelte", import.meta.url),
+  "utf8",
+);
+
+check("the card draws the sharpened url, not the crop it read", () => {
+  // `shown()` is the one funnel every card picture goes through, and `refuse()`
+  // is what the `<img>` calls when it fails: it swaps in the crop and returns,
+  // so the broken file is not counted as a post with no picture.
+  assert.match(LIST_SRC, /function shown\(url: string\): string \{\s*return downgraded\[url\] \?\? url;/);
+  assert.match(LIST_SRC, /function refuse\(item: StreamItem, event: Event, url: string\): void \{/);
+  assert.match(LIST_SRC, /const crop = cropVariant\(url\);/);
+  assert.match(LIST_SRC, /downgraded = \{ \.\.\.downgraded, \[url\]: crop \};/);
+  // A card's single picture and the strip's pages both bind it.
+  assert.match(LIST_SRC, /src=\{shown\(picture \?\? ""\)\}/);
+  assert.match(LIST_SRC, /onerror=\{\(event\) => refuse\(item, event, picture \?\? ""\)\}/);
+  assert.match(LIST_SRC, /src=\{shown\(strip\[page\]\)\}/);
+  assert.match(LIST_SRC, /onerror=\{\(event\) => refuse\(item, event, strip\[page\]\)\}/);
+});
+
+check("a picture that fails twice is dropped, not left as a broken box", () => {
+  assert.match(
+    LIST_SRC,
+    /if \(event\.currentTarget instanceof HTMLImageElement\) event\.currentTarget\.src = "";\s*fail\(item\.id\);/,
+  );
 });
 
 console.log(`\n${passed}/${passed} checks passed`);

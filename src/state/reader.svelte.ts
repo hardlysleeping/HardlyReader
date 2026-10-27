@@ -6,6 +6,9 @@ import { landingItem, step } from "../lib/reading-order";
 import { stepIndex } from "../lib/list-view";
 import { isNoopDrop, moveInOrder, sortByOrder } from "../lib/feed-order";
 import { attemptOrder } from "../lib/stream-cycle";
+import { StreamLoads } from "../lib/stream-loads";
+import { StreamPerf, type StreamSource } from "../lib/stream-perf";
+import { StreamScroll } from "../lib/stream-scroll";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
 import { SYNC_IDLE, createSyncTracker, type SyncReport, type SyncState } from "../lib/sync-progress";
 import { EMPTY_PLACE, readPlace as readStoredPlace, writePlace as writeStoredPlace, type Place } from "../lib/place";
@@ -26,7 +29,9 @@ import {
   moveFeed as moveFeedOnServer,
   subscribe,
   unsubscribe,
+  type RequestTiming,
   type Session,
+  type StreamContents,
   type StreamItem,
   type Subscription,
   type Tag,
@@ -78,10 +83,23 @@ import {
   withFavoritesView,
   type FavoritesWriteOutcome,
 } from "./favorites";
-import { effectiveView, showsCategory, visibleGroups } from "./hidden";
+import {
+  effectiveView,
+  emptyHidden,
+  enforcing,
+  hiddenAuthority as authorityOf,
+  isLocallyHidden,
+  parseHidden,
+  resolveHidden,
+  showsCategory,
+  visibleGroups,
+  withHidden,
+  type HiddenAuthority,
+  type LocalHidden,
+} from "./hidden";
 import { filterByAuthor, filterItems } from "../lib/article-filter";
 import { reading } from "./reading.svelte";
-import { StreamCache } from "./stream-cache";
+import { StreamCache, sameStreamPage } from "./stream-cache";
 import {
   arrangeByPins,
   emptyPins,
@@ -101,6 +119,12 @@ const STREAM_CACHE_TTL_MS = 60_000;
 const STREAM_CACHE_MAX = 20;
 /** Speculative fetches never exceed this many concurrent requests. */
 const PREFETCH_MAX_INFLIGHT = 2;
+/** How many streams keep a scroll position, so going back lands where it was. */
+const STREAM_SCROLL_MAX = 40;
+/** A guess older than this is not worth waiting on when its feed is opened. */
+const PREFETCH_USE_MS = 10_000;
+/** A guess that has not answered by now is abandoned, so its slot is free. */
+const PREFETCH_TIMEOUT_MS = 15_000;
 /** Past this many feeds, categories start folded so the sidebar draws quickly. */
 const LARGE_SIDEBAR_FEEDS = 150;
 
@@ -337,6 +361,18 @@ export class ReaderState {
   localPins = $state<LocalPins>(emptyPins());
 
   /**
+   * Hidden categories kept on this device: the whole feature on a server with
+   * no Hidden Categories extension, and nothing at all on one that has it.
+   *
+   * Same shape of thing as `localPins`, stored the same way — in this account's
+   * prefs blob, so two logins on one device never share a hidden set — and for
+   * the same reason: only the storage differs. It is never written while the
+   * extension answers, because the extension is then the store, and a copy here
+   * would be a second truth nothing reads (see `hiddenScope`).
+   */
+  localHidden = $state<LocalHidden>(emptyHidden());
+
+  /**
    * The order the user dragged the feeds into, as a flat list of stream ids.
    *
    * The render source, and per account on this device: the sidebar draws from
@@ -454,9 +490,10 @@ export class ReaderState {
     if (menu === null) return null;
     return menu.target.kind === "category"
       ? categoryMenu(
-          this.hiddenCategories,
+          this.hiddenScope,
           menu.target.label,
           this.isCategoryPinned(menu.target.label),
+          this.hiddenAuthority,
         )
       : feedMenu(
           menu.target.title,
@@ -465,13 +502,46 @@ export class ReaderState {
         );
   }
 
-  /** The view the extension is actually applying. */
+  /** The view the authority is actually applying. */
   get hiddenView(): HiddenView {
-    return effectiveView(this.hiddenCategories);
+    return effectiveView(this.hiddenScope);
   }
 
   get hiddenAvailable(): boolean {
     return this.hiddenCategories.available;
+  }
+
+  /** Who decides what is hidden: the extension when it answers, else this
+   * device. Never both — see `hiddenScope`. */
+  get hiddenAuthority(): HiddenAuthority {
+    return authorityOf(this.hiddenCategories);
+  }
+
+  /** The last resolved block, and the two things it was built from. */
+  private hiddenScopeMemo: {
+    server: HiddenCategoriesState;
+    local: LocalHidden;
+    value: HiddenCategoriesState;
+  } | null = null;
+
+  /**
+   * The block the sidebar, the count and the band are filtered by.
+   *
+   * One resolution, two sources, no merge: the extension's own state when it is
+   * there, this device's labels when it is not (`resolveHidden` is the rule).
+   * Memoised because it is read once per row while the sidebar draws, and the
+   * local block is built rather than stored — a new object per read would
+   * invalidate the sidebar's own memo on every paint and sort the whole tree
+   * again, which is exactly what `categories` exists to avoid.
+   */
+  get hiddenScope(): HiddenCategoriesState {
+    const server = this.hiddenCategories;
+    const local = this.localHidden;
+    const memo = this.hiddenScopeMemo;
+    if (memo !== null && memo.server === server && memo.local === local) return memo.value;
+    const value = resolveHidden(server, local);
+    this.hiddenScopeMemo = { server, local, value };
+    return value;
   }
 
   get favoritesAvailable(): boolean {
@@ -514,9 +584,9 @@ export class ReaderState {
     return id !== null && this.favorites.ids.includes(id);
   }
 
-  /** Whether this category is hidden, per the extension's own state. */
+  /** Whether this category is hidden, per whichever authority decides. */
   isCategoryHidden(label: string): boolean {
-    return isHiddenCategory(this.hiddenCategories, label);
+    return isHiddenCategory(this.hiddenScope, label);
   }
 
   /**
@@ -551,9 +621,22 @@ export class ReaderState {
       this.localPins.feeds.length;
   }
 
-  /** How many categories the extension hides. Never drawn while locked. */
+  /** How many categories the authority hides. Never drawn while locked. */
   get hiddenCount(): number {
-    return this.hiddenCategories.available ? this.hiddenCategories.hiddenIds.length : 0;
+    return this.hiddenScope.hiddenIds.length;
+  }
+
+  /**
+   * Whether the curtain is being enforced right now — the strip's badge.
+   *
+   * Asked of the resolved block, so it is true for the extension's curtain and
+   * for this device's filter alike, and the badge then names the one that is
+   * doing the enforcing (`lib/band`). Locked counts as hidden content in every
+   * sense, but the badge is not drawn then: a lock that still said ENFORCED
+   * would be a lock that says something.
+   */
+  get hiddenEnforced(): boolean {
+    return enforcing(this.hiddenScope);
   }
 
   get hiddenHasPasscode(): boolean {
@@ -762,8 +845,16 @@ export class ReaderState {
   }
 
   toggleCategory(id: string): void {
-    this.collapsedCategories = { ...this.collapsedCategories, [id]: !this.isCategoryCollapsed(id) };
+    const collapsing = !this.isCategoryCollapsed(id);
+    this.collapsedCategories = { ...this.collapsedCategories, [id]: collapsing };
     this.savePrefs();
+    // Unfolding puts this category's feeds on screen, and the first couple are
+    // what the pointer reaches next: fetch them while it is still moving. The
+    // cap lives in `prefetchStream`, so a second unfold waits rather than
+    // stacking requests.
+    if (collapsing) return;
+    const feeds = this.categories.find((group) => group.id === id)?.feeds ?? [];
+    for (const feed of feeds.slice(0, PREFETCH_MAX_INFLIGHT)) this.prefetchStream(feed.id);
   }
 
   /**
@@ -797,6 +888,11 @@ export class ReaderState {
     this.savePrefs();
   }
 
+  private updateLocalHidden(change: Partial<LocalHidden>): void {
+    this.localHidden = { ...this.localHidden, ...change };
+    this.savePrefs();
+  }
+
   private loadPrefs(): void {
     const session = this.session;
     if (session === null || typeof localStorage === "undefined") return;
@@ -809,6 +905,10 @@ export class ReaderState {
         readAccountValue(localStorage, PREFS_BASE, session, legacyKey) ?? "null",
       ) as Record<string, unknown> | null;
       this.localPins = parsePins(raw?.pins);
+      // Hidden categories live in the same blob as the pins, for the same
+      // reason: one account, one key, and the extension absent is a normal
+      // install rather than a reason to forget what the user set.
+      this.localHidden = parseHidden(raw?.hidden);
       const order = raw?.order;
       this.feedOrder = Array.isArray(order)
         ? order.filter((entry): entry is string => typeof entry === "string")
@@ -837,6 +937,7 @@ export class ReaderState {
           : 0;
     } catch {
       this.localPins = emptyPins();
+      this.localHidden = emptyHidden();
       this.feedOrder = [];
       this.categoryOrder = [];
       this.positionsStamp = 0;
@@ -918,6 +1019,7 @@ export class ReaderState {
         session,
         JSON.stringify({
           pins: this.localPins,
+          hidden: this.localHidden,
           collapsed: this.collapsedCategories,
           indentPx: this.localIndentPx,
           indentLocal: this.indentLocalOnly,
@@ -1241,11 +1343,30 @@ export class ReaderState {
     }
   }
 
-  /** Hides or shows one category: drawn now, sent in order. */
+  /**
+   * Hides or shows one category: drawn now, stored in one place.
+   *
+   * With the extension, that place is the server (drawn optimistically, sent in
+   * order). Without it, that place is this device: the label goes into the
+   * local set, the prefs blob keeps it, and nothing is sent — there is no route
+   * to send to, and no failure to report. The rows themselves are never removed
+   * from `subscriptions`, so a reveal needs no repair work the way a Strict-mode
+   * reveal does: the same list is simply filtered through the new set.
+   */
   async setCategoryHidden(label: string, hidden: boolean): Promise<HiddenWriteOutcome | null> {
     const session = this.session;
+    if (session === null) return null;
+
+    if (this.hiddenAuthority === "local") {
+      // Already in that state: the extension's own path refuses the same way, so
+      // a second press costs nothing and, in particular, no storage write.
+      if (isLocallyHidden(this.localHidden, label) === hidden) return null;
+      this.updateLocalHidden({ categories: withHidden(this.localHidden.categories, label, hidden) });
+      return null;
+    }
+
     const id = this.categoryId(label);
-    if (session === null || id === null || !this.hiddenAvailable) return null;
+    if (id === null) return null;
 
     const previous = this.hiddenCategories;
     const optimistic = withCategoryHidden(previous, id, hidden);
@@ -1272,10 +1393,19 @@ export class ReaderState {
     });
   }
 
-  /** Switches the hidden-categories view: drawn now, sent in order. */
+  /** Switches the hidden-categories view: drawn now, stored in one place. */
   async setHiddenView(view: HiddenView): Promise<HiddenWriteOutcome | null> {
     const session = this.session;
-    if (session === null || !this.hiddenAvailable || this.hiddenCategories.locked) return null;
+    if (session === null) return null;
+
+    // The extension absent: the view is this device's to keep. There is nothing
+    // to queue and nothing to reconcile, so the eye answers on the press.
+    if (this.hiddenAuthority === "local") {
+      this.updateLocalHidden({ view });
+      return null;
+    }
+
+    if (!this.hiddenCategories.available || this.hiddenCategories.locked) return null;
 
     const previous = this.hiddenCategories;
     this.hiddenCategories = withView(previous, view);
@@ -1530,6 +1660,8 @@ export class ReaderState {
   /**
    * The sidebar's categories, with the hidden-categories view applied.
    *
+   * The filter reads `hiddenScope`, not the extension's block: with the
+   * extension absent that is this device's set, and the two are never merged.
    * Memoised on purpose: a getter is read once per row while the sidebar draws,
    * and rebuilding here is a full sort of every feed in every category. At a
    * real account's size that turned one paint into minutes of blocked main
@@ -1538,10 +1670,11 @@ export class ReaderState {
   get categories(): CategoryGroup[] {
     const base = this.allCategories;
     const memo = this.categoriesMemo;
+    const scope = this.hiddenScope;
     if (
       memo !== null &&
       memo.base === base &&
-      memo.hidden === this.hiddenCategories &&
+      memo.hidden === scope &&
       memo.view === this.pinView &&
       memo.pins === this.localPins &&
       memo.favorites === this.favorites &&
@@ -1551,7 +1684,7 @@ export class ReaderState {
       return memo.value;
     }
     const value = arrangeByPins(
-      visibleGroups(base, this.hiddenCategories),
+      visibleGroups(base, scope),
       this.pinView,
       (label) => this.isCategoryPinned(label),
       (id) => this.isFeedPinned(id),
@@ -1625,6 +1758,11 @@ export class ReaderState {
     this.listScrollRestore = null;
     this.liveScroll.article = 0;
     this.liveScroll.list = 0;
+    // Requests signed with the previous token have no business landing after
+    // the switch, and neither do guesses about the previous account's feeds.
+    this.loads.abandonAll();
+    this.prefetches.clear();
+    this.streamScroll.clear();
   }
 
   async start(session: Session): Promise<void> {
@@ -1787,6 +1925,10 @@ export class ReaderState {
    * through is not a curtain. A passcode is what lifts the lock, so `locked` is
    * the whole condition — an account that has set one and unlocked it is not
    * locked, and its reveals are as instant as anyone's.
+   *
+   * Only the extension's reveal needs this: its Strict mode drops feeds from the
+   * list, where the device's own set (`resolveHidden`) never removed a row to
+   * begin with — so a local reveal is simply the filter, one frame later.
    */
   private revealRows(state: HiddenCategoriesState): void {
     const remembered = this.rememberedSidebar;
@@ -1840,6 +1982,7 @@ export class ReaderState {
     this.addFeedError = null;
     this.menu = null;
     this.localPins = emptyPins();
+    this.localHidden = emptyHidden();
     this.feedOrder = [];
     this.categoryOrder = [];
     this.positionsStamp = 0;
@@ -2236,9 +2379,29 @@ export class ReaderState {
    * revalidated in the background, so the common case costs nothing.
    */
   private streamCache = new StreamCache(STREAM_CACHE_TTL_MS, STREAM_CACHE_MAX);
-  /** Only the newest load may paint; older responses are dropped. */
-  private streamToken = 0;
-  private inFlight = new Map<string, AbortController>();
+  /**
+   * Which load is allowed to paint.
+   *
+   * A switch starts a load and aborts the one it replaces; a response whose
+   * load is no longer current is dropped on arrival, so a slow answer can never
+   * paint over a newer one. The same bookkeeping caps speculative fetches.
+   */
+  private loads = new StreamLoads(PREFETCH_MAX_INFLIGHT);
+  /**
+   * Guesses already on their way, by stream.
+   *
+   * The promise is kept, not just the fact of the fetch: clicking a feed the
+   * pointer was resting on rides this request instead of paying for a second
+   * one, which is the whole point of hovering it in the first place.
+   */
+  private prefetches = new Map<
+    string,
+    { controller: AbortController; page: Promise<StreamContents>; at: number }
+  >();
+  /** Where each stream was left scrolled to, for the length of the session. */
+  private streamScroll = new StreamScroll(STREAM_SCROLL_MAX);
+  /** Marks and p50/p95 for the phases of a switch. */
+  private perf = new StreamPerf();
 
   /** Measured, not guessed: the last stream load, and where it came from. */
   lastStreamMs = $state(0);
@@ -2260,23 +2423,66 @@ export class ReaderState {
   /**
    * Warm a stream before it is opened. Best effort: never throws, never more than
    * a couple of requests in flight.
+   *
+   * The fetched page is remembered as well as held: a hover that the reader then
+   * clicks should leave the stream in the cache, not just in a promise.
    */
   prefetchStream(streamId: string): void {
-    if (!this.session || streamId === "" || streamId === this.activeStream) return;
-    if (this.inFlight.size >= PREFETCH_MAX_INFLIGHT) return;
-    if (this.streamCache.fresh(streamId) !== undefined) return;
-    if (this.inFlight.has(streamId)) return;
     const session = this.session;
-    const controller = new AbortController();
-    this.inFlight.set(streamId, controller);
-    void getStreamContents(transport, session, streamId, { count: PAGE_SIZE, signal: controller.signal })
-      .then((page) => this.rememberStream(streamId, page.items, page.continuation))
+    if (session === null || streamId === "" || streamId === this.activeStream) return;
+    if (this.streamCache.fresh(streamId) !== undefined) return;
+    if (this.prefetches.has(streamId)) return;
+    const controller = this.loads.startPrefetch(streamId);
+    if (controller === null) return;
+    const page = getStreamContents(transport, session, streamId, {
+      count: PAGE_SIZE,
+      signal: controller.signal,
+      timing: (timing) => this.recordTiming(timing, "prefetch"),
+    }).then((contents) => {
+      this.rememberStream(streamId, contents.items, contents.continuation);
+      return contents;
+    });
+    this.prefetches.set(streamId, { controller, page, at: performance.now() });
+    // An abandoned guess must give its slot back, or a dead connection would
+    // quietly stop every future prefetch.
+    const giveUp = setTimeout(() => controller.abort(), PREFETCH_TIMEOUT_MS);
+    void page
       .catch(() => {
         /* prefetch is speculative: a failure is not worth showing anyone */
       })
       .finally(() => {
-        if (this.inFlight.get(streamId) === controller) this.inFlight.delete(streamId);
+        clearTimeout(giveUp);
+        if (this.prefetches.get(streamId)?.controller === controller) {
+          this.prefetches.delete(streamId);
+        }
+        this.loads.finishPrefetch(streamId, controller);
       });
+  }
+
+  /**
+   * How long the visible update took.
+   *
+   * Started at the assignment and ended on the frame that draws it, which is the
+   * closest a script can get to "when the reader saw it": the compositor is the
+   * browser's business, the frame it was handed is this one's.
+   */
+  private measurePaint(source: StreamSource): void {
+    const end = this.perf.span("paint", source);
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => end());
+    else end();
+  }
+
+  /** Where a request's time went, reported by the request layer itself. */
+  private recordTiming(timing: RequestTiming, source: StreamSource): void {
+    this.perf.record("fetch", source, timing.fetch);
+    this.perf.record("parse", source, timing.parse);
+  }
+
+  /** The switch just made, and the p50/p95 it belongs to. */
+  private reportSwitch(): void {
+    console.debug(
+      `[stream] ${this.activeStream} ${this.lastStreamSource} ${this.lastStreamMs}ms · ${this.perf.line()}`,
+    );
   }
 
   /**
@@ -2376,11 +2582,23 @@ export class ReaderState {
       this.activeTitle = title;
       return;
     }
+    // Where the stream being left was scrolled to, read before the list under
+    // it is replaced.
+    if (this.activeStream !== streamId) {
+      this.streamScroll.remember(this.activeStream, this.liveScroll.list);
+    }
     this.activeStream = streamId;
     this.activeTitle = title;
     this.selectedId = null;
-    this.liveScroll.list = 0;
-    this.listScrollRestore = null;
+    // Back to a stream this session has shown: where it was left. A stream it
+    // has not shown starts at the top, which is also what a launch does before
+    // the stored place arrives.
+    const left = this.streamScroll.recall(streamId);
+    this.liveScroll.list = left ?? 0;
+    // Zero, not null: the port keeps its offset when its rows are swapped in one
+    // frame, so a stream that has no position of its own must be put back at the
+    // top explicitly.
+    this.listScrollRestore = left ?? 0;
     this.savePlace();
     await this.reloadStream();
   }
@@ -2390,7 +2608,9 @@ export class ReaderState {
   ): Promise<void> {
     if (!this.session) return;
     const stream = this.activeStream;
-    const token = ++this.streamToken;
+    // The newest load for this stream wins. The one it replaces is aborted
+    // here, and would be dropped on arrival even if the abort lost the race.
+    const load = this.loads.begin(stream);
 
     let cached = this.streamCache.peek(stream);
     if (cached === undefined) {
@@ -2404,14 +2624,20 @@ export class ReaderState {
       // Not in memory this session: the disk may still have it from last time.
       const key = this.diskKey(`stream:${stream}`);
       const disk = key === null ? undefined : await readCached<DiskStream>(key);
-      if (token !== this.streamToken || this.activeStream !== stream) return;
+      if (!this.loads.current(load) || this.activeStream !== stream) {
+        this.loads.settle(load);
+        return;
+      }
       if (disk !== undefined) {
         this.streamCache.set(stream, disk.value.items, disk.value.continuation);
         // Seeded from disk: paint now, but always revalidate.
         cached = { ...disk.value, at: 0 };
       }
     }
-    const fresh = this.streamCache.fresh(stream) !== undefined && cached?.at !== 0;
+    // A disk seed is a prediction of a minute ago, not this session's answer, so
+    // it is painted but never trusted: only an entry fetched now can end a
+    // switch without asking the server.
+    const fresh = cached !== undefined && cached.at !== 0 && this.streamCache.fresh(stream) !== undefined;
     if (cached !== undefined) {
       this.items = cached.items;
       this.continuation = cached.continuation;
@@ -2436,42 +2662,71 @@ export class ReaderState {
       this.loadingList = false;
       this.error = null;
       this.lastStreamSource = "cache";
+      this.lastStreamMs = 0;
+      // A cache hit is a paint and nothing else: no request, no wait, no spinner.
+      this.measurePaint("cache");
       settle("land");
+      this.reportSwitch();
+      this.loads.settle(load);
       return;
     }
 
     // A cached stream revalidates silently; only a cold one shows the spinner.
     this.loadingList = cached === undefined;
     this.error = null;
-    this.inFlight.get(stream)?.abort();
-    const controller = new AbortController();
-    this.inFlight.set(stream, controller);
     const started = performance.now();
+    // A hover or an unfolded category may have started this exact request
+    // already: ride it instead of paying for the same round trip twice. A forced
+    // load is a request for the server's own answer, so it asks itself; and a
+    // guess that has gone old (or is hanging on a dead connection) must not hold
+    // the click hostage.
+    const guess = options.force === true ? undefined : this.prefetches.get(stream);
+    const guessed =
+      guess !== undefined && performance.now() - guess.at < PREFETCH_USE_MS ? guess : undefined;
     options.report?.start("posts");
     try {
-      const page = await getStreamContents(transport, this.session, stream, {
-        count: PAGE_SIZE,
-        signal: controller.signal,
-      });
+      const page =
+        guessed !== undefined
+          ? await guessed.page
+          : await getStreamContents(transport, this.session, stream, {
+              count: PAGE_SIZE,
+              signal: load.controller.signal,
+              timing: (timing) => this.recordTiming(timing, "network"),
+            });
       // The fetch delivered: the step is done even if a later stream change
       // means this page is not the one drawn.
       settle("land");
-      if (token !== this.streamToken || this.activeStream !== stream) return;
-      this.items = page.items;
-      this.continuation = page.continuation;
-      this.rememberStream(stream, page.items, page.continuation);
+      // Superseded while out: a newer load owns the answer, so this one must not
+      // write over it.
+      if (!this.loads.current(load)) return;
+      // The page is this stream's newest, and worth keeping even when the reader
+      // has moved on: coming back to it should be a cache hit, not a round trip.
+      if (guessed === undefined) this.rememberStream(stream, page.items, page.continuation);
+      if (this.activeStream !== stream) return;
       this.lastStreamSource = "network";
       this.lastStreamMs = Math.round(performance.now() - started);
+      // Only a payload that says something different is worth a repaint: the
+      // rows are keyed, but re-running all of them costs a frame and the scroll
+      // anchor for a picture that would come out identical.
+      if (!sameStreamPage({ items: this.items, continuation: this.continuation }, page)) {
+        this.items = page.items;
+        this.continuation = page.continuation;
+        this.measurePaint("network");
+      }
+      this.reportSwitch();
     } catch (error) {
       // Whatever the reason — a dead server or a stream the user moved on from —
       // this step did not deliver, so it does not count as done.
       settle("fail");
-      if (token !== this.streamToken || aborted(error)) return;
+      if (!this.loads.current(load) || aborted(error)) return;
       this.error = message(error);
       if (cached === undefined) this.items = [];
     } finally {
-      if (this.inFlight.get(stream) === controller) this.inFlight.delete(stream);
-      if (token === this.streamToken) this.loadingList = false;
+      const current = this.loads.current(load);
+      this.loads.settle(load);
+      // Only this stream's own load may take its spinner down: a stream left
+      // behind finishing later would otherwise uncover the next one's skeleton.
+      if (current && this.activeStream === stream) this.loadingList = false;
     }
   }
 

@@ -53,5 +53,17 @@ check("and it can be retried", /class="retry"[\s\S]{0,200}loadFullArticle\(\)/.t
 // The building blocks it reuses are the extractor's, not new ones.
 check("the extractor still owns the policy", /export function chooseBody/.test(extract) && /export async function extractFor/.test(extract));
 
+// The star in the article's toolbar is the one mark drawn smaller than its own
+// box: ★ at the row's 13px reads as a speck beside ● and ⇣. It gets a bigger
+// glyph and a wider box, and the row's height does not move with it.
+{
+  const star = /\.star \{[^}]*\}/.exec(pane)?.[0] ?? "";
+  const icon = /\.icon \{[^}]*\}/.exec(pane)?.[0] ?? "";
+  const size = (rule) => Number(/(?:^|;|\s)font-size: (\d+)px/.exec(rule)?.[1] ?? 0);
+  check("the star is drawn larger than the toolbar's own type", size(star) > size(icon) && size(star) >= 17, `${size(star)} against ${size(icon)}`);
+  check("its box is wider than the 28px the other marks get", /min-width: 32px/.test(star) && /\.icon \{[^}]*min-width: 28px/.test(icon));
+  check("and the row's height is not its business", !/height:/.test(star), star);
+}
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
