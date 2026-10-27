@@ -57,7 +57,8 @@ function buildReadingModule() {
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
     .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
     .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
-    .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")));
+    .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
+    .replaceAll('"../lib/feed-move"', JSON.stringify(absolute("src/lib/feed-move.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
   const out = join(GEN_DIR, "reading.mjs");
   writeFileSync(out, code);

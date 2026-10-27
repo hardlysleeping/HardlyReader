@@ -78,3 +78,18 @@ export function isNoopDrop(
   else target.splice(at, 0, moving);
   return order.length === target.length && order.every((id, index) => id === target[index]);
 }
+
+/**
+ * What a finished category move says.
+ *
+ * A move is drawn before it is written, so the sidebar shows the new folder the
+ * instant the drag ends — the one fact it cannot show is whether the account
+ * took it, which is why this line says "synced" and not just "moved". A null
+ * target is Uncategorized, because that is the absence of a label rather than a
+ * label with that name.
+ */
+export function moveNotice(title: string, to: string | null): string {
+  const name = title.trim() === "" ? "Feed" : title.trim();
+  const where = to === null || to.trim() === "" ? "Uncategorized" : to.trim();
+  return `Moved ${name} to ${where} — synced`;
+}

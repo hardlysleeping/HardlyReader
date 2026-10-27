@@ -127,6 +127,7 @@ function buildReaderModule() {
     .replaceAll('"../lib/api-snapshot"', JSON.stringify(absolute("src/lib/api-snapshot.ts")))
     .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
+    .replaceAll('"../lib/feed-move"', JSON.stringify(absolute("src/lib/feed-move.ts")))
     .replaceAll('"../lib/opml"', JSON.stringify(absolute("src/lib/opml.ts")))
     .replaceAll('"../lib/extract-ledger"', JSON.stringify(absolute("src/lib/extract-ledger.ts")))
     .replaceAll('"../lib/full-text"', JSON.stringify(absolute("src/lib/full-text.ts")));

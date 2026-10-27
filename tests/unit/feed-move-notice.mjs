@@ -10,7 +10,7 @@
  * out of one (Uncategorized is the absence of a label), and a feed whose title
  * is missing or blank.
  */
-import { moveNotice } from "../../src/lib/feed-move.ts";
+import { moveNotice } from "../../src/lib/feed-order.ts";
 
 const cases = [];
 function check(name, actual, expected) {
