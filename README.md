@@ -10,6 +10,11 @@ build, and Android and iOS.
 
 ![Three panes: feeds, posts, article](docs/screenshots/three-panes.png)
 
+When three columns will not fit, the same three panes stack: feeds beside the post
+list, the article underneath, nothing dropped.
+
+![Three panes stacked: feeds beside the post list, the article below](docs/screenshots/three-panes-stacked.png)
+
 ## Install
 
 ### Docker (browser, and phone over the LAN)
