@@ -26,11 +26,12 @@ export default defineConfig({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
-    // Development only. FreshRSS sends no CORS headers, so a plain browser
-    // cannot call it cross-origin. Proxying through the dev server makes the
-    // API same-origin for `pnpm dev`, so the real UI can be exercised without
-    // the Tauri shell. In the packaged app the request goes through the http
-    // plugin and this proxy plays no part.
+    // Development only, and only a convenience: FreshRSS answers the GReader API
+    // with `Access-Control-Allow-Origin: *` and allows the Authorization header,
+    // so a browser build calls a server on another origin unaided. The proxy
+    // exists so `pnpm dev` can point at a local instance by path alone, which is
+    // handy when the address changes; it is not what makes the browser build
+    // work, and in the packaged app the request goes through the http plugin anyway.
     proxy: {
       "/freshrss": {
         target: process.env.HARDLYREAD_SERVER ?? "http://127.0.0.1:18080",
