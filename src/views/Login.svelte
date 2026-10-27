@@ -631,6 +631,26 @@
     color: var(--text);
   }
 
+  /* A finger is not a mouse: on a touch screen the eye inside the password box
+     needs Apple's 44pt hit target, and the fields themselves must not sit a
+     pixel under it. `pointer: coarse` keeps this inert on the desktop. */
+  @media (pointer: coarse) {
+    input.text {
+      min-height: 44px;
+    }
+
+    .field input.text {
+      padding-right: 3.1rem;
+    }
+
+    .reveal {
+      right: 0;
+      width: 44px;
+      height: 44px;
+      border-radius: 9px;
+    }
+  }
+
   .error {
     margin: 0;
     padding: 7px 9px;
