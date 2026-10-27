@@ -4,6 +4,17 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] — 2026-10-26
+
+### Changed
+
+- **Fit the window to the comic is a button, not a mode.** It used to be a lit
+  control that followed the stream, and a lit control had to answer whenever the
+  stream moved under it — every answer was a window resize the reader did not
+  ask for, and the resize that answered it asked for another. A press now
+  measures the card in the middle and fits once. With nothing watching the
+  stream or the window, scrolling cannot resize anything.
+
 ## [0.6.4] — 2026-10-26
 
 ### Fixed
