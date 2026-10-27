@@ -241,7 +241,14 @@ export function panelsOf(item: ThumbSource): string[] {
       const url = usable(candidate ?? null);
       if (url === null) continue;
       const resolved = resolveUrl(url, base);
-      if (resolved !== null && !found.includes(resolved)) found.push(resolved);
+      if (resolved === null) continue;
+      // A panel is drawn across the whole card, so a crop is upscaled into mush
+      // exactly as a thumbnail's would be: the same sharpening, and the same
+      // remembered crop to fall back to when the publisher has no full-size file.
+      const sharp = fullSize(resolved);
+      if (sharp !== null) cropOf.set(sharp, resolved);
+      const use = sharp ?? resolved;
+      if (!found.includes(use)) found.push(use);
     }
     if (found.length > 0) break;
   }

@@ -6,6 +6,15 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A panel strip asks for the full-size file, not the crop.** A card that
+  flips through "Panel 1", "Panel 2" pictures took the publisher's URL exactly as
+  the feed named it, while every other picture was sharpened out of its
+  `-600x200` crop first. With one card per row the panel is drawn across the
+  whole pane, so the crop was upscaled into mush; panels are sharpened the same
+  way as thumbnails, with the same remembered crop to fall back to.
+
 ### Removed
 
 - **Cards are one per row, and the columns are gone.** The view offered a
