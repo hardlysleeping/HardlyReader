@@ -21,6 +21,7 @@
    * working if this file's script never runs.
    */
   import AccountsBody from "./AccountsBody.svelte";
+  import OfflinePanel from "./OfflinePanel.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
   import ThemePanel from "./ThemePanel.svelte";
   import { exportFeedsOpml, importFeedsFile } from "../lib/feeds-io";
@@ -46,7 +47,15 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "feeds" | "appearance" | "reading" | "layout" | "sync" | "about";
+  type SectionId =
+    | "accounts"
+    | "feeds"
+    | "appearance"
+    | "reading"
+    | "layout"
+    | "sync"
+    | "offline"
+    | "about";
 
   /**
    * The sections, in the order someone looks for them: who I am, what is in the
@@ -68,6 +77,7 @@
     { id: "reading", label: "Reading", note: "Text, pictures, read state" },
     { id: "layout", label: "Layout", note: "Pane widths and arrangement" },
     { id: "sync", label: "Sync", note: "Interval, and when it fetches" },
+    { id: "offline", label: "Offline", note: "Cache, storage, pictures" },
     { id: "about", label: "About", note: "Version" },
   ];
 
@@ -84,6 +94,7 @@
     reading: false,
     layout: false,
     sync: false,
+    offline: false,
     about: false,
   });
 
@@ -291,6 +302,11 @@
               <!-- Sign out is not repeated here: it is the account's one action,
                    and it is drawn once, in Accounts. -->
               <p class="hint">Signing out is in Accounts.</p>
+            {:else if section.id === "offline"}
+              <!-- What the device keeps: the policy, the size, and the one way to
+                   empty it. A section rather than a second copy of the controls,
+                   because there is no other surface that owns them. -->
+              <OfflinePanel />
             {:else}
               <div class="row">
                 <span class="key">Version</span>

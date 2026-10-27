@@ -22,6 +22,17 @@
  * - **Ids are the item id the UI holds.** Entries are keyed by it, so a flag
  *   written for an id is a flag the next page will show.
  */
+import {
+  CACHE_POLICY_DEFAULT,
+  measureCache,
+  planClear,
+  planEviction,
+  type CachePolicy,
+  type CacheReport,
+  type CacheTables,
+  type CacheUsage,
+  type EvictionPlan,
+} from "./cache";
 import { LocalStorageError, type LocalDatabase, type WriteOperation } from "./driver";
 import type {
   EntryRow,
@@ -596,6 +607,95 @@ export class LocalStore {
       counts.set(row.feed, current);
     }
     return [...counts.values()];
+  }
+
+  /* -------------------------------------------------------------------------
+   * The cache: what this library is holding, and what it may let go
+   *
+   * A local library is both the reader's list and its copies: a subscription
+   * and a title are things the reader made and expects to find, while a stored
+   * body is a copy of something that lives somewhere else and can be fetched
+   * again. Only the second kind is cache, and only the second kind is ever
+   * evicted here — see `cache.ts` for the policy and why it is shaped that way.
+   * ----------------------------------------------------------------------- */
+
+  /** Every table a cache question reads, in one pass. */
+  private async cacheTables(): Promise<CacheTables> {
+    const [feeds, entries, extractions, folders, positions] = await Promise.all([
+      this.db.all<FeedRow>("feeds"),
+      this.db.all<EntryRow>("entries"),
+      this.db.all<ExtractionRow>("extractions"),
+      this.db.all<FolderRow>("folders"),
+      this.db.all<PositionRow>("positions"),
+    ]);
+    return { feeds, entries, extractions, folders, positions };
+  }
+
+  /**
+   * What the library occupies, and how much of that is cache.
+   *
+   * A read, not a write: the settings panel asks on open and after a clear, and
+   * a number that cost a write would be a number nobody asks for twice.
+   */
+  async cacheUsage(): Promise<CacheUsage> {
+    return measureCache(await this.cacheTables());
+  }
+
+  /**
+   * Applies the cache policy, dropping the copies it does not keep.
+   *
+   * `pinnedFeeds` are the feed URLs behind the reader's pinned stream ids; they
+   * are passed in rather than read from a pins table because pins live beside
+   * the reader (local storage and the extension), not in the library, and this
+   * store must not grow a second answer to what is pinned.
+   *
+   * Safe to call at any time and safe to call again: a plan that drops nothing
+   * writes nothing.
+   */
+  async pruneCache(
+    policy: CachePolicy = CACHE_POLICY_DEFAULT,
+    options: { pinnedFeeds?: readonly string[] } = {},
+  ): Promise<CacheReport> {
+    const tables = await this.cacheTables();
+    return this.applyEviction(tables, planEviction(tables, policy, options.pinnedFeeds ?? []));
+  }
+
+  /**
+   * Drops every cached copy: bodies and extracted text, and nothing else.
+   *
+   * Subscriptions, titles, summaries, read marks and stars stay, which is what
+   * makes this a cache wipe rather than a data loss. What goes comes back the
+   * next time the feed is polled or the article is opened.
+   */
+  async clearCache(): Promise<CacheReport> {
+    const tables = await this.cacheTables();
+    return this.applyEviction(tables, planClear(tables));
+  }
+
+  /** Writes one eviction plan as a single transaction, or not at all. */
+  private async applyEviction(tables: CacheTables, plan: EvictionPlan): Promise<CacheReport> {
+    const bodies = new Set(plan.bodies);
+    const extractions = new Set(plan.extractions);
+    const operations: WriteOperation[] = [];
+
+    for (const row of tables.entries) {
+      if (!bodies.has(row.key)) continue;
+      operations.push({ type: "put", table: "entries", row: { ...row, content: null } });
+    }
+    for (const row of tables.extractions) {
+      if (!extractions.has(row.key)) continue;
+      operations.push({ type: "delete", table: "extractions", key: row.key });
+    }
+
+    if (operations.length > 0) await this.db.write(operations);
+
+    return {
+      bodies: plan.bodies.length,
+      extractions: plan.extractions.length,
+      bytesBefore: plan.beforeBytes,
+      bytesAfter: plan.afterBytes,
+      overLimit: plan.overLimit,
+    };
   }
 
   /* -------------------------------------------------------------------------
