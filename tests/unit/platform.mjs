@@ -41,14 +41,27 @@ check("a phone has no window to fit, even in the app", phone.windowFit === false
 check("desktop keeps reader view", capabilitiesFor("desktop", true).articleExtract);
 check("phone keeps reader view", phone.articleExtract);
 
+// Sharing belongs to the phone: the desktop window is the finished layout, and a
+// fourth act in every row would change the shape the owner signed off. The flag
+// is the shape's, not the API's — a phone with no Web Share still gets the copy
+// fallback — so both phone hosts answer the same.
+check("a phone offers the share sheet", phone.share);
+check("a phone in a browser tab offers it too", capabilitiesFor("phone", false).share);
+check("desktop does not", capabilitiesFor("desktop", true).share === false);
+check("nor does a desktop browser tab", capabilitiesFor("desktop", false).share === false);
+
 // Every flag is about the shape or the host, never about a preference, so the
 // same inputs must always give the same answer.
 const a = JSON.stringify(capabilitiesFor("phone", false));
 const b = JSON.stringify(capabilitiesFor("phone", false));
 check("capabilities are stable", a === b);
 check(
-  "the phone set is exactly one true flag",
-  Object.values(capabilitiesFor("phone", false)).filter(Boolean).length === 1,
+  "the phone set is exactly the two flags a phone has",
+  JSON.stringify(
+    Object.entries(capabilitiesFor("phone", false))
+      .filter(([, on]) => on)
+      .map(([name]) => name),
+  ) === JSON.stringify(["articleExtract", "share"]),
 );
 
 // The app is a layout, not a document: a pinch zoomed the header and the panes

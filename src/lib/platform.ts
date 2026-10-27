@@ -32,6 +32,17 @@ export interface Capabilities {
    * platform which forbids outbound fetches has somewhere to say so.
    */
   articleExtract: boolean;
+  /**
+   * Offering a post through the device's share sheet.
+   *
+   * A phone, and only a phone. The desktop window is the finished layout: a
+   * fourth act in every row would change the shape the owner signed off, and
+   * sharing is a thing done away from the desk. The flag is about the *shape*
+   * rather than about the API being present, so the control does not appear and
+   * vanish between two phones — the one without Web Share still falls back to
+   * copying the link, which is the same press.
+   */
+  share: boolean;
 }
 
 /**
@@ -50,6 +61,7 @@ export function capabilitiesFor(shape: DeviceShape, tauri: boolean): Capabilitie
     paneThresholds: desktop,
     windowFit: desktop && tauri,
     articleExtract: true,
+    share: !desktop,
   };
 }
 
