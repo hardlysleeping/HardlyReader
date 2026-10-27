@@ -389,7 +389,7 @@ check(
     );
     const body = rule.slice(0, rule.indexOf("\n  }"));
     return (
-      /margin-right: 9px;/.test(body) &&
+      /margin-right: 3px;/.test(body) &&
       !/overflow: hidden;/.test(body) &&
       // Held against the edge the end reads as a cut-off corner, or asks for the
       // two corners the turn leaves to be filled in — and a filled gap between
@@ -402,7 +402,7 @@ check(
       )
     );
   })(),
-  "9px of air at the edge, and no fill between one end and the next",
+  "3px of air inside the scrollbar, and no fill between one end and the next",
 );
 
 check(
@@ -427,7 +427,7 @@ check(
     // Flat: a shadow dropped to the right, not an inner light or a bevel. The row
     // stays a 2D shape with a curve; the shadow is the only relief it gets.
     return (
-      /box-shadow: 3px 2px 7px -4px rgba\(0, 0, 0, 0\.55\);/.test(body) &&
+      /box-shadow: 3px 2px 6px -4px rgba\(0, 0, 0, 0\.55\);/.test(body) &&
       !/inset/.test(body)
     );
   })(),
@@ -698,7 +698,7 @@ check(
    content clears the new left edge by the 11px the actions clear the right.
    The right-hand numbers are asserted above and are not restated here. */
 check(
-  "both ends of the foot are the same: one thickness on three sides, 9px in from the pane, 12px of clearance",
+  "both ends of the foot are the same: one thickness on three sides, 9px in on the left, 12px of clearance",
   /\.items\.half-end[^{]*\.row \{[^}]*margin-left: 9px;/.test(listSource) &&
     /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
       listSource,
@@ -706,8 +706,8 @@ check(
     /\.items\.half-end[^{]*\.item \{[^}]*padding: calc\(4px \* var\(--row-scale, 1\)\) 6px calc\(4px \* var\(--row-scale, 1\)\) 12px;/.test(
       listSource,
     ) &&
-    // The right side keeps its own 9px: the left is a copy, not a replacement.
-    /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,1600}?margin-right: 9px;/.test(
+    // The right side keeps its own margin: the left is a copy, not a replacement.
+    /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,1600}?margin-right: 3px;/.test(
       listSource,
     ),
 );

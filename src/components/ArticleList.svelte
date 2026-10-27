@@ -2087,12 +2087,15 @@
        inner light, no bevel — the end stays a 2D shape with a curve, and the
        shadow is what gives it a little relief against the column. It needs the
        9px of margin below to have anywhere to fall. */
-    box-shadow: 3px 2px 7px -4px rgba(0, 0, 0, 0.55);
+    box-shadow: 3px 2px 6px -4px rgba(0, 0, 0, 0.55);
     /* Away from the pane's edge, so the turn has room to be seen as a turn. Held
        against the edge it either looks like a cut-off corner or asks for the two
        corners it leaves to be filled in, and a filled gap between two pills reads
-       as a rail down the column rather than as a row ending. */
-    margin-right: 9px;
+       as a rail down the column rather than as a row ending.
+       3px, not 9: the dropped shadow reaches about 2px past the row (3px offset,
+       6px blur, -4px spread), so the row's edge and its shadow both stay clear
+       of the scrollbar, which is 5px of its own and sits beyond this margin. */
+    margin-right: 3px;
   }
 
   /* Unread is the accent of that turn, filled: 5px along the right edge and 1px

@@ -189,15 +189,26 @@ body {
 
 /* Slim, quiet scrollbars: they appear where there is more content, not as a
    column of chrome down the side of every panel. A short thumb is honest about a
-   long list; the track stays out of the way. */
+   long list; the track stays out of the way.
+
+   5px, and drawn as light rather than as a bar: the thumb is brightest against
+   the pane's edge and fades to nothing a few pixels in, so what a pane shows is
+   a glow coming off its margin instead of a grey capsule laid down it. That is
+   also why the row can end 3px from it without either looking crowded — there is
+   no hard edge on the scrollbar's side to collide with. */
 * {
+  /* `thin`, and it is the standard property that decides the width here:
+     measured in this Chromium, dropping it hands the bar back to the default
+     15px and the ::-webkit-scrollbar rules below are ignored. So the 5px is a
+     ceiling for an engine that honours it, and `thin` is what keeps the bar from
+     being a column of chrome where it does not. */
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--muted) 42%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--muted) 30%, transparent) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 5px;
+  height: 5px;
 }
 
 *::-webkit-scrollbar-track {
@@ -205,12 +216,22 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  border-radius: 999px;
+  background: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--muted) 46%, transparent) 0%,
+    color-mix(in srgb, var(--muted) 16%, transparent) 62%,
+    transparent 100%
+  );
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--muted) 65%, transparent);
+  background: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--muted) 62%, transparent) 0%,
+    color-mix(in srgb, var(--muted) 22%, transparent) 62%,
+    transparent 100%
+  );
 }
 
 /* The pull gesture's feedback: one line at the top of the window, saying what
