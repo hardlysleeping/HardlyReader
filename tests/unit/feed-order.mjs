@@ -91,8 +91,6 @@ check("dropping to the end of the list is a move when it is not last", !isNoopDr
   );
 }
 
-console.log(`\n${checks} checks, ${failures} failure(s)`);
-process.exit(failures === 0 ? 0 : 1);
 
 // ---- categories: the same drag, one list up ----
 
@@ -133,3 +131,6 @@ check(
     ["Gamma", "Alpha", "Beta", "Delta"],
   ),
 );
+
+console.log(`\n${checks} checks, ${failures} failure(s)`);
+process.exit(failures === 0 ? 0 : 1);
