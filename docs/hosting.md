@@ -3,6 +3,32 @@
 The same `dist/` can be served two ways. Both give an installable app; they differ
 in who is talking to whom when the app calls the API.
 
+## 0. The API proxy: why the page and the API must share an origin
+
+`scripts/serve-pwa.py` forwards anything under `/api/` to the FreshRSS host
+(`HARDLYREAD_UPSTREAM`, default `https://cenvalweb.tail900410.ts.net:8449`).
+That exists because of a measured difference between the two APIs the app uses:
+
+| request from the PWA's origin | before | with the proxy |
+|---|---|---|
+| `/api/greader.php/accounts/ClientLogin` | readable (the API sends `access-control-allow-origin: *`) | readable |
+| `/api/misc.php/Hardly%20Read/v1/state` | `TypeError: Failed to fetch` — CORS refusal | `401` (auth required), readable |
+
+The adapter's routes send no CORS headers, so cross-origin the app could never
+read the extension state — which is where the passcode count, the hidden
+categories and the pins live. The visible symptom was the lock claiming it had
+not been told whether a passcode was set, on an account that had one.
+
+With the proxy in place, **sign in with this app's own address as the server
+URL** (for example `https://<host>.<tailnet>.ts.net:8457`), not the FreshRSS
+host. `/api/greader.php` answers through the proxy exactly as it does there, and
+because the page and the API are one origin the browser has nothing to check.
+An account already saved against the FreshRSS host will keep hitting the CORS
+wall until its server URL is changed.
+
+The alternative is the same-origin deployment below, which removes the question
+for the same reason: one origin, no CORS.
+
 ## 1. From this workstation, over the tailnet (default)
 
 ```
