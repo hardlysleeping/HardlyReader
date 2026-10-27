@@ -295,6 +295,27 @@
     return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
+  /**
+   * The article pane takes the keyboard.
+   *
+   * `tabindex="-1"` on the scroller makes it focusable without putting it in the
+   * tab order, so this is the only way in — which is right: Right walked there.
+   * Focusing the scroll container is what makes Up/Down the page's own scroll,
+   * because `lib/keys.ts` stops claiming those keys once focus is inside it.
+   */
+  function focusArticle(): void {
+    const el = document.querySelector<HTMLElement>('[data-scroll="article"]');
+    if (el === null) return;
+    el.focus({ preventScroll: true });
+  }
+
+  /** Whether the key event came from inside the article pane. */
+  function inArticlePane(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null;
+    if (el === null || typeof el.closest !== "function") return false;
+    return el.closest('[data-scroll="article"]') !== null;
+  }
+
   function pageArticle(direction: -1 | 1): void {
     const el = document.querySelector<HTMLElement>('[data-scroll="article"]');
     if (el === null) return;
@@ -317,6 +338,7 @@
       hasArticle: reader.selectedId !== null,
       atArticleStart: reader.articleAtStart,
       atArticleEnd: reader.articleAtEnd,
+      inArticle: inArticlePane(event.target),
     };
     const intent = event.shiftKey
       ? resolveShiftKey(event.key, context)
@@ -347,6 +369,14 @@
         return;
       case "enter":
         event.preventDefault();
+        // Right is the whole tree: feeds, posts, article. With a post already
+        // open, the third press hands the keyboard to the article pane itself
+        // instead of doing nothing — that pane is where reading happens, and a
+        // key with no answer at the end of the walk reads as a dead key.
+        if (reader.selectedId !== null) {
+          focusArticle();
+          return;
+        }
         void reader.enter();
         return;
       case "back":

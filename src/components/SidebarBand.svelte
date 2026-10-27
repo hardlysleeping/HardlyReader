@@ -411,9 +411,14 @@
      reference. Written as a mix of the theme's own surface and ink, so the light
      theme gets greys that belong to it instead of a dark slab. */
   .bandbox {
-    --band-face: color-mix(in srgb, var(--surface-solid) 88%, var(--text) 12%);
-    --band-face-quiet: color-mix(in srgb, var(--surface-solid) 94%, var(--text) 6%);
-    --band-edge: color-mix(in srgb, var(--border) 85%, transparent);
+    /* No fill at all behind the three controls. Any tint read as a grey slab
+       laid over the sidebar, so the band is only a hairline and a light: the
+       buttons sit on the sidebar's own colour, and the glass is what is left
+       when there is nothing to see. */
+    --band-face: transparent;
+    --band-face-quiet: transparent;
+    --band-edge: color-mix(in srgb, var(--text) 12%, transparent);
+    --band-light: color-mix(in srgb, #fff 8%, transparent);
     position: relative;
     margin: 0 8px 6px;
   }
@@ -526,16 +531,22 @@
 
   /* Three seats, one row: eye, lock, pin. The lock sits in the middle because
      its column is sized to the glyph, so the two halves either side are equal at
-     every sidebar width and the labels give up their ends evenly. */
+     every sidebar width and the labels give up their ends evenly.
+     One border for the whole band, and the seats sit flush inside it: no gap, no
+     padding, and each seat's radius is the band's minus its own border, so the
+     outline the eye sees and the shape the seat paints are the same curve. */
   .band {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: stretch;
-    gap: 1px;
-    padding: 1px;
+    gap: 0;
+    padding: 0;
     border: 1px solid var(--band-edge);
-    border-radius: 8px;
+    border-radius: 9px;
     background: var(--band-face);
+    box-shadow:
+      inset 0 1px 0 var(--band-light),
+      inset 0 -1px 0 color-mix(in srgb, #000 10%, transparent);
   }
 
   /* Locked: the same row, quieter. No border of its own — the glyphs carry the
@@ -543,6 +554,7 @@
   .band.compact {
     border-color: transparent;
     background: var(--band-face-quiet);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
   }
 
   .ctl {
@@ -553,17 +565,14 @@
     justify-content: center;
     gap: 1px;
     min-width: 0;
-    min-height: 24px;
-    padding: 1px 5px;
+    min-height: 26px;
+    padding: 2px 6px;
     border: 0;
-    border-radius: 6px;
+    /* 9px band radius minus its 1px border: the seat's edge follows the band's
+       curve instead of cutting a second, smaller one across it. */
+    border-radius: 8px;
     background: transparent;
     color: var(--tone);
-    /* The seat's outline is its own tone, so eye, lock and pin read as three
-       coloured controls rather than three grey ones with coloured glyphs. Inset
-       box-shadow, not `border`, because a border would change the seat's box and
-       the band's height with it. */
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 30%, transparent);
     font: inherit;
     cursor: pointer;
     transition:
@@ -571,6 +580,16 @@
       color 0.12s ease,
       box-shadow 0.12s ease,
       transform 0.08s ease;
+  }
+
+  /* The ends are the band's ends, so only they take the full curve — a middle
+     seat with 8px corners would show as a gap against the band's edge. */
+  .ctl:first-child {
+    border-radius: 8px 6px 6px 8px;
+  }
+
+  .ctl:last-child {
+    border-radius: 6px 8px 8px 6px;
   }
 
   .ctl.hidden.on {
@@ -585,29 +604,26 @@
 
   .ctl.lock {
     --tone: var(--tone-lock-open);
-    min-width: 24px;
+    min-width: 26px;
   }
 
   .ctl.lock.on {
     --tone: var(--tone-lock-closed);
   }
 
-  /* Hover lifts a seat in its OWN tone instead of washing it to text grey: the
-     eye and the pin stay legible as themselves under the pointer, one step
-     lighter than the idle colour, with the outline following. */
+  /* Hover lifts a seat in its OWN tone: a soft wash of it, no ring, so the glass
+     stays glass and only the light in it changes. */
   .ctl:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--tone) 18%, transparent);
+    background: color-mix(in srgb, var(--tone) 20%, transparent);
     color: color-mix(in srgb, var(--tone) 62%, #fff);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 58%, transparent);
   }
 
   /* Pressed: the seat takes the tone, so the click is answered on the frame the
      pointer goes down. */
   .ctl:active:not(:disabled) {
     transform: scale(0.97);
-    background: color-mix(in srgb, var(--tone) 32%, transparent);
+    background: color-mix(in srgb, var(--tone) 34%, transparent);
     color: color-mix(in srgb, var(--tone) 40%, #fff);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 78%, transparent);
   }
 
   .ctl:disabled {
