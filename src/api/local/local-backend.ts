@@ -37,7 +37,9 @@ import {
   type UnreadCount,
   type UserInfo,
 } from "../freshrss";
+import { transport } from "../transport";
 import { LocalStorageError } from "./driver";
+import { refreshDueFeeds, type FeedFetcher, type RefreshReport, type WakeReason } from "./refresh";
 import type { EntryRow, FeedRow } from "./schema";
 import type { EntryQuery, LocalStore } from "./store";
 import type { MoveFeedRequest, ReaderBackend, SubscribeRequest } from "../backend";
@@ -49,6 +51,14 @@ const LABEL_PREFIX = "user/-/label/";
 export interface LocalBackendOptions {
   /** What to call this device in the account panel. */
   deviceName?: string;
+  /**
+   * How to reach a feed over the network.
+   *
+   * The same transport the GReader client uses, which means the plugin's HTTP
+   * inside the app (no CORS, and the phone's own radio) and plain `fetch` in a
+   * browser tab. Injected so a suite can answer without a network.
+   */
+  fetch?: FeedFetcher;
 }
 
 /** The cancellation error name the rest of the app already knows. */
@@ -123,10 +133,30 @@ export class LocalBackend implements ReaderBackend {
 
   private readonly store: LocalStore;
   private readonly deviceName: string;
+  private readonly fetcher: FeedFetcher;
 
   constructor(store: LocalStore, options: LocalBackendOptions = {}) {
     this.store = store;
     this.deviceName = options.deviceName ?? "On this device";
+    this.fetcher = options.fetch ?? (transport as unknown as FeedFetcher);
+  }
+
+  /**
+   * Polls every feed that is due and keeps what it finds.
+   *
+   * This is what a server does on its own: there is no crawler behind a library
+   * on this device, so opening the app (or pressing sync) is the crawl. The
+   * report is returned rather than swallowed so a caller can say how many
+   * articles arrived, and a feed that failed stays a per-feed line instead of
+   * taking the whole wake down.
+   */
+  async fetchNew(options: { wake?: WakeReason; signal?: AbortSignal } = {}): Promise<RefreshReport> {
+    return refreshDueFeeds({
+      store: this.store,
+      fetch: this.fetcher,
+      wake: options.wake ?? "manual",
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
   }
 
   /**

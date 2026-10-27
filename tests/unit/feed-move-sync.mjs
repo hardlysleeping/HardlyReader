@@ -227,12 +227,12 @@ const bodyOf = (call) => new URLSearchParams(call.body ?? "");
 
   check(
     "arrangeFeed hands the move the same to/from it always did",
-    /await moveFeedOnServer\(transport, session, streamId, targetLabel, currentLabel\)/.test(flat),
+    /await backend\.moveFeed\(\{ streamId, to: targetLabel, from: currentLabel \}\)/.test(flat),
   );
   check(
-    "the server move is made once, from one place",
-    state.match(/moveFeedOnServer\(/g)?.length === 1,
-    `${state.match(/moveFeedOnServer\(/g)?.length}`,
+    "the move is made once, from one place",
+    state.match(/\.moveFeed\(/g)?.length === 1,
+    `${state.match(/\.moveFeed\(/g)?.length}`,
   );
   check(
     "a failed move still restores the categories the feed had",

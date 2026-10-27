@@ -87,6 +87,19 @@ export interface ReaderBackend {
   subscribe(request: SubscribeRequest): Promise<void>;
   unsubscribe(streamId: string): Promise<void>;
   moveFeed(request: MoveFeedRequest): Promise<void>;
+
+  /**
+   * Fetches whatever has been published since this backend last looked.
+   *
+   * Optional because a server crawls on its own: a FreshRSS backend has nothing
+   * to fetch, and pretending otherwise would make every client poll on behalf of
+   * a crawler that is already doing it. A local library has no crawler behind
+   * it, so it is the crawler, and this is the call that runs it.
+   */
+  fetchNew?(options?: {
+    wake?: "launch" | "resume" | "background" | "manual";
+    signal?: AbortSignal;
+  }): Promise<unknown>;
 }
 
 /** The items a stream page carries, for callers that only want those. */

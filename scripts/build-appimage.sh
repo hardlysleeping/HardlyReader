@@ -12,15 +12,19 @@ sudo apt-get install -y -qq \
   libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
   librsvg2-dev patchelf fakeroot >/dev/null
 
+# Node comes from the host's PATH through the container's home mount, and sudo
+# drops that PATH, so nothing here goes through sudo.
 if ! command -v node >/dev/null 2>&1; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - >/dev/null
   sudo apt-get install -y -qq nodejs >/dev/null
 fi
 
-# nodesource's node does not carry corepack, so pnpm comes from npm.
 if ! command -v pnpm >/dev/null 2>&1; then
-  sudo npm install -g pnpm@latest >/dev/null
+  npm install -g pnpm@9 --prefix "$HOME/.local" >/dev/null
+  export PATH="$HOME/.local/bin:$PATH"
 fi
+command -v pnpm >/dev/null || { echo "no pnpm"; exit 1; }
+echo "node $(node --version), pnpm $(pnpm --version)" 
 
 export PATH="$HOME/.cargo/bin:$PATH"
 if ! command -v cargo >/dev/null 2>&1; then

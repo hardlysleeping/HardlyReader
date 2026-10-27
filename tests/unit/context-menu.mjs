@@ -360,9 +360,9 @@ function state(overrides = {}) {
   const source = readFileSync(join(root, "src/state/reader.svelte.ts"), "utf8");
   const removeFeed = source.slice(source.indexOf("async removeFeed("));
   check(
-    "removing a feed is a GReader call, not an extension one",
-    /unsubscribe\(transport, session/.test(removeFeed.slice(0, 900)),
-    "removeFeed should hand the stream id to the GReader transport",
+    "removing a feed is a library call, not an extension one",
+    /backend\.unsubscribe\(streamId\)/.test(removeFeed.slice(0, 900)),
+    "removeFeed should hand the stream id to the library backend",
   );
   check(
     "removing a feed is not routed through the adapter",

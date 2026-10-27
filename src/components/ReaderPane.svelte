@@ -789,6 +789,7 @@
          of the reader and back to the list it came from. -->
     <article
       bind:this={scroller}
+      tabindex="-1"
       style:--page-width={pageWidth > 0 ? `${pageWidth}px` : null}
       style:--page-height={pageHeight > 0 ? `${pageHeight}px` : null}
       data-scroll="article"

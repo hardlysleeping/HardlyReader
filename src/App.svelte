@@ -7,6 +7,13 @@
   import { layout } from "./state/layout.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
+  import {
+    openLocalProfile,
+    syncProfile,
+    type LocalProfile,
+    type ReaderProfile,
+    type SyncProfile,
+  } from "./api/profile";
 
   /**
    * The device shape, published where CSS can see it.
@@ -31,6 +38,15 @@
   });
 
   let checking = $state(true);
+
+  /**
+   * The library on this device.
+   *
+   * Opened on every launch, not only on the first: it is what the app shows
+   * when there is no account, and opening an empty SQLite file costs less than
+   * a server probe costs in latency. Nothing about it talks to the network.
+   */
+  let local = $state<LocalProfile | null>(null);
 
   /**
    * Whether the reader is being unveiled: the login screen stays drawn, over the
@@ -66,6 +82,25 @@
   const session = $derived(accounts.active);
 
   /**
+   * The profile `Main` is mounted with.
+   *
+   * A signed-in account wins over the local library, because someone who
+   * connected a service meant it. The sync profile is built once per token
+   * rather than on every read: a new object each render would re-run every
+   * effect in the reader that takes the profile as a dependency.
+   */
+  let syncCache: SyncProfile | null = null;
+  let syncCacheToken = "";
+  const profile: ReaderProfile | null = $derived.by(() => {
+    if (session === null) return local;
+    if (syncCache === null || syncCacheToken !== session.token) {
+      syncCache = syncProfile(session);
+      syncCacheToken = session.token;
+    }
+    return syncCache;
+  });
+
+  /**
    * How long the stored session gets before the app gives the window back.
    *
    * Waiting forever is what a blank window is made of: a cold WebKit start plus
@@ -78,7 +113,16 @@
   onMount(async () => {
     const stored = accounts.active;
     if (stored === null) {
-      checking = false;
+      // No account on this device: that is not an error and not a reason to
+      // ask for a server URL. The reader opens on the empty local library, and
+      // connecting a service stays one optional step away.
+      try {
+        local = await openLocalProfile();
+      } catch (cause) {
+        startupNote = `The library on this device could not be opened: ${String(cause)}`;
+      } finally {
+        checking = false;
+      }
       return;
     }
 
@@ -157,13 +201,14 @@
       <p class="status-hint">Signing in with the session saved on this device.</p>
     </div>
   {:else}
-    {#if session && !adding}
-      {#key session.token}
+    {#if profile && !adding}
+      {#key profile.slug + (session?.token ?? "")}
         <Main
-          {session}
+          {profile}
           account={accounts.profile}
           onsignout={disconnect}
           onaddaccount={addAccount}
+          onconnect={addAccount}
         />
       {/key}
     {/if}
@@ -171,7 +216,7 @@
     <!-- Drawn over the reader until the slide is over. The block stays rendered
          across the switch — it is the same panel gaining a class — which is what
          lets it animate out instead of disappearing. -->
-    {#if !(session && !adding) || unveiling}
+    {#if !(profile && !adding) || unveiling}
       <div
         class="veil"
         class:unveiling

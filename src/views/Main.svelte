@@ -28,20 +28,33 @@
   import { prefs } from "../state/prefs.svelte";
   import { reading } from "../state/reading.svelte";
   import { reader } from "../state/reader.svelte";
+  import type { ReaderProfile } from "../api/profile";
 
   let {
-    session,
+    profile,
     account,
     onsignout,
     onaddaccount,
+    onconnect,
   }: {
-    session: Session;
+    profile: ReaderProfile;
     account: UserInfo | null;
     /** Sign out of every account on this device. */
     onsignout?: () => void;
     /** Sign a second account in without touching the one in use. */
     onaddaccount?: () => void;
+    /** Open the connect-a-service screen from inside the reader. */
+    onconnect?: () => void;
   } = $props();
+
+  /**
+   * The server session, when there is a server.
+   *
+   * `null` for a library on this device. Everything server-only — the extension
+   * state, change-watch, prefs sync, pairing — reads this and does nothing when
+   * it is null, instead of the reader refusing to open.
+   */
+  const session = $derived(profile.session);
 
   /**
    * Automatic sync: starts when the setting says so and stops when it stops.
@@ -60,8 +73,10 @@
    * or a pin on the website show up here on its own.
    */
   $effect(() => {
+    const server = session;
+    if (server === null) return;
     const watch = startChangeWatch({
-      read: () => getRevision(transport, session),
+      read: () => getRevision(transport, server),
       // Only the extension state: that is what the website's buttons write, and
       // every visible consequence of it (which categories are pinned, hidden,
       // locked, indented) is derived from it. The feed list and unread counts
@@ -238,8 +253,8 @@
     // paint. It is started here rather than in `reader.start` because it spans
     // stores the reader does not own — the theme, the cards, the search toggle —
     // and this view is mounted once per session, so the switch is the moment.
-    prefs.start(session);
-    void reader.start(session).finally(() => (launched = true));
+    if (session !== null) prefs.start(session);
+    void reader.start(profile).finally(() => (launched = true));
 
     // The mode is drawn from the real container width rather than from an
     // `innerWidth` guess, and the observer has one job: report that width.
@@ -988,15 +1003,16 @@
        A tablet stays `desktop` (see `detectShape()`), so it keeps the toolbar. -->
   {#if layout.device === "phone"}
     <PhoneHeader
-      subtitle={account?.userName ?? session.email}
-      server={session.serverUrl}
+      subtitle={account?.userName ?? profile.label}
+      server={profile.session?.serverUrl ?? "On this device"}
       {onsignout}
       {onaddaccount}
+      {onconnect}
     />
   {:else}
     <Header
-      subtitle={account?.userName ?? session.email}
-      server={session.serverUrl}
+      subtitle={account?.userName ?? profile.label}
+      server={profile.session?.serverUrl ?? "On this device"}
       controls={layoutSwitch}
       {onsignout}
       {onaddaccount}

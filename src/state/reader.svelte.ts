@@ -67,7 +67,10 @@ import {
   type SidebarIndentState,
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
-import { readAccountValue, writeAccountValue } from "../lib/account-key";
+import type { ReaderBackend } from "../api/backend";
+import { GReaderBackend } from "../api/greader-backend";
+import { scopeIdentity, syncProfile, type ReaderProfile } from "../api/profile";
+import { readAccountValue, writeAccountValue, type AccountIdentity } from "../lib/account-key";
 import {
   clearApiSnapshot,
   readApiSnapshot,
@@ -235,6 +238,58 @@ export function lockFailure(error: unknown): string {
 
 export class ReaderState {
   session = $state<Session | null>(null);
+
+  /**
+   * Who is reading, and the backend that answers them.
+   *
+   * `session` stays for the code that genuinely needs a server — the FreshRSS
+   * extension routes, pairing, change-watch — and is `null` for a library on
+   * this device. Every read and write of an article, a stream or a subscription
+   * goes through `backend` instead, so the same store drives both.
+   */
+  profile = $state<ReaderProfile | null>(null);
+  backend = $state<ReaderBackend | null>(null);
+
+  /**
+   * Whose device keys these are: the signed-in account's, or the device's own.
+   *
+   * The session is the fallback rather than the rule: a caller that set only a
+   * session (the account switcher's tests do) is still reading one account, and
+   * its identity is already in there.
+   */
+  private get scope(): AccountIdentity | null {
+    return scopeIdentity(this.profile) ?? this.session;
+  }
+
+  /**
+   * The library that answers reads and writes.
+   *
+   * A method rather than a null check at every call site: there are thirteen of
+   * them, and a store with no backend is a bug in the caller (it opened a
+   * profile and did not start the reader), not a state the reading UI has to
+   * draw. Throwing here names that bug instead of silently doing nothing.
+   */
+  /**
+   * Whether there is anywhere to read from yet.
+   *
+   * Either a backend, or a session a backend can be built from — a caller that
+   * set only a session is still signed in, and the operations below work for it.
+   */
+  private get canRead(): boolean {
+    return this.backend !== null || this.session !== null;
+  }
+
+  private source(): ReaderBackend {
+    const backend = this.backend;
+    if (backend !== null) return backend;
+    // A session without a profile is still a signed-in account: the backend it
+    // always implied is built here, once, and kept.
+    const session = this.session;
+    if (session === null) throw new Error("No library is open");
+    const built = new GReaderBackend(transport, session);
+    this.backend = built;
+    return built;
+  }
 
   subscriptions = $state<Subscription[]>([]);
   tags = $state<Tag[]>([]);
@@ -958,15 +1013,15 @@ export class ReaderState {
   }
 
   private loadPrefs(): void {
-    const session = this.session;
-    if (session === null || typeof localStorage === "undefined") return;
+    const scope = this.scope;
+    if (scope === null || typeof localStorage === "undefined") return;
     try {
       // The pre-scoping key named the account outright, so the account that finds
       // it is the account it belongs to — no claiming needed, and the old blob is
       // left in place for a downgrade.
-      const legacyKey = `hardlyreader:prefs:${session.serverUrl}|${session.email}`;
+      const legacyKey = `hardlyreader:prefs:${scope.serverUrl}|${scope.email}`;
       const raw = JSON.parse(
-        readAccountValue(localStorage, PREFS_BASE, session, legacyKey) ?? "null",
+        readAccountValue(localStorage, PREFS_BASE, scope, legacyKey) ?? "null",
       ) as Record<string, unknown> | null;
       this.localPins = parsePins(raw?.pins);
       // Hidden categories live in the same blob as the pins, for the same
@@ -1074,13 +1129,13 @@ export class ReaderState {
   }
 
   private savePrefs(): void {
-    const session = this.session;
-    if (session === null || typeof localStorage === "undefined") return;
+    const scope = this.scope;
+    if (scope === null || typeof localStorage === "undefined") return;
     try {
       writeAccountValue(
         localStorage,
         PREFS_BASE,
-        session,
+        scope,
         JSON.stringify({
           pins: this.localPins,
           hidden: this.localHidden,
@@ -1848,9 +1903,20 @@ export class ReaderState {
     this.streamScroll.clear();
   }
 
-  async start(session: Session): Promise<void> {
+  /**
+   * Starts reading, from a profile or from a session.
+   *
+   * A bare `Session` is still accepted because a signed-in account *is* a
+   * profile with one more field: `syncProfile` supplies the GReader backend the
+   * session always implied, so a caller holding only a session — the account
+   * switcher, a test — does not have to build the profile itself.
+   */
+  async start(input: ReaderProfile | Session): Promise<void> {
+    const profile: ReaderProfile = "kind" in input ? input : syncProfile(input);
     this.resetForAccount();
-    this.session = session;
+    this.profile = profile;
+    this.backend = profile.backend;
+    this.session = profile.session;
     this.error = null;
     this.loadPrefs();
     // The account's copy is read once, behind the first paint: the prefs above
@@ -1870,6 +1936,10 @@ export class ReaderState {
     // when both landed — a failed launch leaves this at zero, which is how auto
     // sync knows to retry at once instead of waiting out an interval.
     if (sidebarLanded && this.error === null) this.lastSyncAt = Date.now();
+    // A library on this device has no crawler behind it, so this is the crawl.
+    // Started after the stored articles are drawn rather than before: what the
+    // reader already had is worth seeing without waiting for the network.
+    if (this.backend?.fetchNew !== undefined) void this.fetchNewInto("launch");
     if (place.streamId !== null && this.error !== null) {
       // The feed has been deleted or renamed since: land somewhere real rather
       // than leaving a dead stream and an error on screen at sign-in.
@@ -1896,7 +1966,7 @@ export class ReaderState {
   /** Where this account was last time, or nowhere. */
   private readPlace(): Place {
     if (typeof localStorage === "undefined") return { ...EMPTY_PLACE };
-    return readStoredPlace(localStorage, this.session);
+    return readStoredPlace(localStorage, this.scope);
   }
 
   /**
@@ -1906,7 +1976,7 @@ export class ReaderState {
    */
   private savePlace(): void {
     if (typeof localStorage === "undefined") return;
-    writeStoredPlace(localStorage, this.session, {
+    writeStoredPlace(localStorage, this.scope, {
       streamId: this.activeStream,
       streamTitle: this.activeTitle,
       articleId: this.selectedId,
@@ -1917,8 +1987,8 @@ export class ReaderState {
   }
 
   private diskKey(name: string): string | null {
-    const session = this.session;
-    return session === null ? null : scopeKey(session, name);
+    const scope = this.scope;
+    return scope === null ? null : scopeKey(scope, name);
   }
 
   private async hydrateSidebar(): Promise<void> {
@@ -2078,8 +2148,8 @@ export class ReaderState {
   }
 
   async loadSidebar(report?: SyncReport): Promise<boolean> {
-    if (!this.session) return false;
-    const session = this.session;
+    if (!this.canRead) return false;
+    const backend = this.source();
     // Captured before the four reads: the answer is only this account's.
     const sidebarKey = this.diskKey("sidebar");
     const fetchStep = <T>(id: "feeds" | "tags" | "counts", fetchOne: () => Promise<T>): Promise<T> => {
@@ -2097,9 +2167,9 @@ export class ReaderState {
     };
 
     const [feeds, tags, counts] = await Promise.allSettled([
-      fetchStep("feeds", () => listSubscriptions(transport, session)),
-      fetchStep("tags", () => listTags(transport, session)),
-      fetchStep("counts", () => getUnreadCounts(transport, session)),
+      fetchStep("feeds", () => backend.subscriptions()),
+      fetchStep("tags", () => backend.tags()),
+      fetchStep("counts", () => backend.unreadCounts()),
       // Reports itself: a missing extension is not an error, a failed read is a
       // step that did not land.
       this.loadApiState(report),
@@ -2258,8 +2328,7 @@ export class ReaderState {
    * without re-entering the rest.
    */
   async addFeeds(input: string): Promise<AddFeedsResult> {
-    const session = this.session;
-    if (session === null || this.feedBusy) return { added: [], failed: [] };
+    if (!this.canRead || this.feedBusy) return { added: [], failed: [] };
 
     const urls = parseFeedUrls(input);
     if (urls.length === 0) {
@@ -2267,7 +2336,7 @@ export class ReaderState {
       return { added: [], failed: [] };
     }
 
-    return this.subscribeEach(session, urls.map((url) => ({ url })));
+    return this.subscribeEach(urls.map((url) => ({ url })));
   }
 
   /**
@@ -2279,35 +2348,48 @@ export class ReaderState {
    * on the subscribe itself, so a feed is never briefly uncategorised.
    */
   async importOpml(feeds: readonly OpmlFeed[]): Promise<AddFeedsResult> {
-    const session = this.session;
-    if (session === null || this.feedBusy) return { added: [], failed: [] };
+    if (!this.canRead || this.feedBusy) return { added: [], failed: [] };
     if (feeds.length === 0) {
       this.addFeedError = "That file has no feeds in it.";
       return { added: [], failed: [] };
     }
-    return this.subscribeEach(session, feeds);
+    return this.subscribeEach(feeds);
   }
 
   /** The loop both entry points share. */
   private async subscribeEach(
-    session: Session,
     entries: readonly { url: string; title?: string; category?: string }[],
   ): Promise<AddFeedsResult> {
     this.feedBusy = true;
     this.addFeedError = null;
     this.feedProgress = { done: 0, total: entries.length };
     const result: AddFeedsResult = { added: [], failed: [] };
+    const backend = this.source();
     try {
       for (const entry of entries) {
         try {
-          await subscribe(transport, session, entry.url, entry.title, entry.category);
+          await backend.subscribe({ feedUrl: entry.url, title: entry.title, category: entry.category });
           result.added.push(entry.url);
         } catch (error) {
           result.failed.push({ url: entry.url, error: message(error) });
         }
         this.feedProgress = { done: result.added.length + result.failed.length, total: entries.length };
       }
-      if (result.added.length > 0) await this.loadSidebar();
+      if (result.added.length > 0) {
+        // A subscription on a local library starts empty: fetch it now, or the
+        // first thing a new feed shows is "no articles" and a sync button.
+        if (backend.fetchNew !== undefined) {
+          try {
+            await backend.fetchNew({ wake: "manual" });
+          } catch {
+            /* the feed is subscribed; a failed first fetch is the poll's to report */
+          }
+        }
+        await this.loadSidebar();
+        // The open stream is where the new articles belong, and it was drawn
+        // before they existed.
+        await this.reloadStream({ force: true });
+      }
       this.addFeedError = addFeedsMessage(result);
       return result;
     } finally {
@@ -2329,12 +2411,12 @@ export class ReaderState {
    * produce an error banner on the next reload.
    */
   async removeFeed(streamId: string): Promise<boolean> {
-    const session = this.session;
-    if (session === null || this.feedBusy) return false;
+    if (!this.canRead || this.feedBusy) return false;
+    const backend = this.source();
 
     this.feedBusy = true;
     try {
-      await unsubscribe(transport, session, streamId);
+      await backend.unsubscribe(streamId);
       await this.loadSidebar();
       if (this.activeStream === streamId) {
         await this.openStream(READING_LIST, "Reading list");
@@ -2364,7 +2446,8 @@ export class ReaderState {
    */
   async arrangeFeed(streamId: string, category: string, before: string | null): Promise<boolean> {
     const feed = this.subscriptions.find((candidate) => candidate.id === streamId);
-    if (feed === undefined || this.feedBusy) return false;
+    if (feed === undefined || this.feedBusy || !this.canRead) return false;
+    const backend = this.source();
 
     const currentLabel =
       feed.categories?.find((entry) => entry.id.startsWith(LABEL_PREFIX))?.label ?? null;
@@ -2409,7 +2492,7 @@ export class ReaderState {
 
     this.feedBusy = true;
     try {
-      await moveFeedOnServer(transport, session, streamId, targetLabel, currentLabel);
+      await backend.moveFeed({ streamId, to: targetLabel, from: currentLabel });
       // The account took it, and that is the one fact the sidebar cannot show:
       // the drag already drew the new folder before this request was made.
       this.flashNotice(moveNotice(feed.title, targetLabel));
@@ -2520,11 +2603,13 @@ export class ReaderState {
     if (this.prefetches.has(streamId)) return;
     const controller = this.loads.startPrefetch(streamId);
     if (controller === null) return;
-    const page = getStreamContents(transport, session, streamId, {
-      count: PAGE_SIZE,
-      signal: controller.signal,
-      timing: (timing) => this.recordTiming(timing, "prefetch"),
-    }).then((contents) => {
+    const page = this.source()
+      .stream(streamId, {
+        count: PAGE_SIZE,
+        signal: controller.signal,
+        timing: (timing) => this.recordTiming(timing, "prefetch"),
+      })
+      .then((contents) => {
       this.rememberStream(streamId, contents.items, contents.continuation);
       return contents;
     });
@@ -2603,10 +2688,33 @@ export class ReaderState {
    */
   lastSyncAt = $state(0);
 
+  /**
+   * Fetches new articles, then re-reads what the library now holds.
+   *
+   * Only a backend that fetches has anything to do here; a server-side crawler
+   * answers with its own schedule, and asking would just re-read the same rows.
+   */
+  private async fetchNewInto(wake: "launch" | "resume" | "background" | "manual"): Promise<void> {
+    const backend = this.backend;
+    if (backend?.fetchNew === undefined) return;
+    try {
+      await backend.fetchNew({ wake });
+    } catch (error) {
+      this.error = message(error);
+      return;
+    }
+    await this.loadSidebar();
+    await this.reloadStream();
+  }
+
   async refresh(): Promise<void> {
-    if (!this.session) return;
+    if (!this.canRead) return;
     this.sync = this.syncTracker.begin();
     try {
+      // Fetch first: on a local library the stream below would otherwise answer
+      // from rows written before this press.
+      const fetcher = this.source().fetchNew;
+      if (fetcher !== undefined) await fetcher.call(this.source(), { wake: "manual" });
       // Forced: the stream cache is good for a minute, and a sync answered from
       // it would look like nothing happened while the bar still ran to the end.
       // Pressing sync is a request for the server's answer, not this window's.
@@ -2692,7 +2800,7 @@ export class ReaderState {
   async reloadStream(
     options: { force?: boolean; report?: SyncReport } = {},
   ): Promise<void> {
-    if (!this.session) return;
+    if (!this.canRead) return;
     const stream = this.activeStream;
     // The newest load for this stream wins. The one it replaces is aborted
     // here, and would be dropped on arrival even if the abort lost the race.
@@ -2774,7 +2882,7 @@ export class ReaderState {
       const page =
         guessed !== undefined
           ? await guessed.page
-          : await getStreamContents(transport, this.session, stream, {
+          : await this.source().stream(stream, {
               count: PAGE_SIZE,
               signal: load.controller.signal,
               timing: (timing) => this.recordTiming(timing, "network"),
@@ -2817,11 +2925,11 @@ export class ReaderState {
   }
 
   async loadMore(): Promise<void> {
-    if (!this.session || !this.continuation || this.loadingMore) return;
+    if (!this.canRead || !this.continuation || this.loadingMore) return;
     this.loadingMore = true;
     const requested = this.activeStream;
     try {
-      const page = await getStreamContents(transport, this.session, requested, {
+      const page = await this.source().stream(requested, {
         count: PAGE_SIZE,
         continuation: this.continuation,
       });
@@ -3165,7 +3273,7 @@ export class ReaderState {
    * server is the only source of truth for unread counts.
    */
   async setRead(item: StreamItem, read: boolean): Promise<void> {
-    if (!this.session || this.busyItems.get(item.id)) return;
+    if (!this.canRead || this.busyItems.get(item.id)) return;
     const wasRead = isRead(item);
     if (wasRead === read) return;
 
@@ -3179,11 +3287,7 @@ export class ReaderState {
     this.adjustUnread(item, read ? -1 : 1);
 
     try {
-      await editTag(transport, this.session, {
-        itemIds: [item.id],
-        add: read ? [STATE_READ] : [],
-        remove: read ? [] : [STATE_READ],
-      });
+      await this.source().setRead([item.id], read);
     } catch (error) {
       item.categories = previous;
       this.adjustUnread(item, read ? 1 : -1);
@@ -3194,7 +3298,7 @@ export class ReaderState {
   }
 
   async toggleStar(item: StreamItem): Promise<void> {
-    if (!this.session || this.busyItems.get(item.id)) return;
+    if (!this.canRead || this.busyItems.get(item.id)) return;
     const starred = isStarred(item);
     const previous = item.categories ?? [];
     const next = starred
@@ -3205,11 +3309,7 @@ export class ReaderState {
     item.categories = next;
 
     try {
-      await editTag(transport, this.session, {
-        itemIds: [item.id],
-        add: starred ? [] : [STATE_STARRED],
-        remove: starred ? [STATE_STARRED] : [],
-      });
+      await this.source().setStarred([item.id], !starred);
       if (starred && this.activeStream === STATE_STARRED) {
         this.items = this.items.filter((entry) => entry.id !== item.id);
         this.cacheActiveStream();
