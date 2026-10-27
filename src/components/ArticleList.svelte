@@ -304,8 +304,8 @@
   }
 
   /**
-   * What the list draws: the posts, with a month, a week and a day tab before
-   * the runs they cover.
+   * What the list draws: the posts, with a month and a week tab before the runs
+   * they cover.
    *
    * Only the list view folds its dates — the regular rows, the cards and the
    * grid are read by the shape of what is in them, and a tab between two cards
@@ -1339,7 +1339,7 @@
       {#if entry.kind === "tab"}
         <!-- A folder tab: its top corners are rounded and its bottom edge is not,
              so it reads as the front of a thing the posts are filed inside. months
-             sit at the left edge, weeks a step in, days a step further. -->
+             sit at the left edge, weeks a step in. -->
         <button
           class="tab"
           class:closed={entry.closed}

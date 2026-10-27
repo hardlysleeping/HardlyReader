@@ -1,11 +1,13 @@
 /**
- * The list view's tabs: months, the weeks inside them, the days inside those.
+ * The list view's tabs: months, and the weeks inside them.
  *
  * A feed list read straight down is one wall of headlines; the same list with its
- * dates folded is a shelf — a month you can put away, the week inside it, the day
- * inside that. The grouping is a pure function over the items in the order the
- * reader has them, so the tabs follow the list's own order rather than imposing
- * one, and a closed tab simply stops emitting what is under it.
+ * dates folded is a shelf — a month you can put away, the week inside it. Two
+ * folds and no third: a day is a handful of posts, and a tab per day turned the
+ * shelf into a ladder of one-line headings. The grouping is a pure function over
+ * the items in the order the reader has them, so the tabs follow the list's own
+ * order rather than imposing one, and a closed tab simply stops emitting what is
+ * under it.
  */
 
 export interface DateItem {
@@ -13,10 +15,10 @@ export interface DateItem {
   published?: number;
 }
 
-/** A tab, and how deep it sits: a month at the left, a week inside it, a day. */
+/** A tab, and how deep it sits: a month at the left, a week inside it. */
 export interface DateTab {
   key: string;
-  level: 0 | 1 | 2;
+  level: 0 | 1;
   label: string;
   /** Posts under this tab, counting the ones under its closed children. */
   count: number;
@@ -49,10 +51,6 @@ function pad(value: number): string {
   return value < 10 ? `0${value}` : String(value);
 }
 
-export function dayKey(day: Date): string {
-  return `d:${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
-}
-
 /** The key of the week a day is in. Any day of it will do; it finds the Monday. */
 export function weekKey(day: Date): string {
   const monday = weekOf(day);
@@ -73,26 +71,11 @@ function weekLabel(monday: Date): string {
   return `${short(monday)} – ${short(sunday)}`;
 }
 
-function dayLabel(day: Date): string {
-  // Composed by hand rather than as one locale string: the locale's own order
-  // puts a comma in, and a tab is three short words wide.
-  const weekday = day.toLocaleDateString(undefined, { weekday: "short" });
-  const month = day.toLocaleDateString(undefined, { month: "short" });
-  return `${weekday} ${day.getDate()} ${month}`;
-}
-
-interface DayBucket<T> {
-  key: string;
-  label: string;
-  count: number;
-  items: T[];
-}
-
 interface WeekBucket<T> {
   key: string;
   label: string;
   count: number;
-  days: DayBucket<T>[];
+  items: T[];
 }
 
 interface MonthBucket<T> {
@@ -114,30 +97,22 @@ export function tabbed<T extends DateItem>(items: readonly T[], closed: Readonly
   const months: MonthBucket<T>[] = [];
   let month: MonthBucket<T> | null = null;
   let week: WeekBucket<T> | null = null;
-  let day: DayBucket<T> | null = null;
 
   for (const item of items) {
-    const date = dayOf(millisOf(item));
-    const monday = weekOf(date);
+    const monday = weekOf(dayOf(millisOf(item)));
 
-    if (month === null || month.key !== monthKey(date)) {
-      month = { key: monthKey(date), label: monthLabel(date), count: 0, weeks: [] };
+    if (month === null || month.key !== monthKey(monday)) {
+      month = { key: monthKey(monday), label: monthLabel(monday), count: 0, weeks: [] };
       months.push(month);
       week = null;
     }
     if (week === null || week.key !== weekKey(monday)) {
-      week = { key: weekKey(monday), label: weekLabel(monday), count: 0, days: [] };
+      week = { key: weekKey(monday), label: weekLabel(monday), count: 0, items: [] };
       month.weeks.push(week);
-      day = null;
     }
-    if (day === null || day.key !== dayKey(date)) {
-      day = { key: dayKey(date), label: dayLabel(date), count: 0, items: [] };
-      week.days.push(day);
-    }
-    day.count += 1;
     week.count += 1;
     month.count += 1;
-    day.items.push(item);
+    week.items.push(item);
   }
 
   const out: Tabbed<T>[] = [];
@@ -149,12 +124,7 @@ export function tabbed<T extends DateItem>(items: readonly T[], closed: Readonly
       const weekClosed = closed.has(week.key);
       out.push({ kind: "tab", tab: { key: week.key, level: 1, label: week.label, count: week.count }, closed: weekClosed });
       if (weekClosed) continue;
-      for (const day of week.days) {
-        const dayClosed = closed.has(day.key);
-        out.push({ kind: "tab", tab: { key: day.key, level: 2, label: day.label, count: day.count }, closed: dayClosed });
-        if (dayClosed) continue;
-        for (const item of day.items) out.push({ kind: "post", item });
-      }
+      for (const item of week.items) out.push({ kind: "post", item });
     }
   }
   return out;
