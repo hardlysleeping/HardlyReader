@@ -1,6 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod files;
 mod lan;
+mod share;
 mod sync;
 
 use tauri::Manager;
@@ -29,7 +30,12 @@ pub fn run() {
             sync::sync_read,
             sync::sync_write,
             // The OPML export: the dialog picks the path, this writes the bytes.
-            files::save_text
+            files::save_text,
+
+            // The phone's own share sheet. Registered on every platform so the
+            // page has one name to call; it answers "no sheet here" everywhere
+            // but iOS, where `src/lib/share.ts` never asks it in the first place.
+            share::share_sheet
         ])
         // A window that is gone is not a server: closing the reader stops the
         // share rather than leaving a socket open behind a closed window.
