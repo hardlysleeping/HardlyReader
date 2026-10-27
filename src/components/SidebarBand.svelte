@@ -687,10 +687,17 @@
 
   .ctl.lock {
     --tone: var(--tone-lock-open);
-    /* A shade wider than the eye seats beside it: the shackle is the narrowest
-       glyph in the band, and at 26px it read as a smaller button rather than the
-       same one with a different mark. */
-    min-width: 34px;
+    /* Two of the band's three seats carry a word and take 85–137px; the lock has
+       only a shackle. 26px read as a sliver, and 44 still looked like the odd one
+       out beside them, so it takes a third of the band's own width instead: a
+       square-ish seat the size of the thing it sits between. Measured at 56px
+       with the band at 223px (desktop) and 317px (phone), no overflow. */
+    min-width: 56px;
+  }
+
+  .ctl.lock svg {
+    width: 18px;
+    height: 18px;
   }
 
   .ctl.lock.on {
