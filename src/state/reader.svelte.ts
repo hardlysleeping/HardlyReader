@@ -1708,6 +1708,17 @@ export class ReaderState {
     return this.counts.get(id) ?? 0;
   }
 
+  /**
+   * The count, if the server gave one.
+   *
+   * `unread-count` answers per label and per feed, and omits the starred stream
+   * entirely — so `countFor` there reports a zero nobody said. A row that would
+   * print that zero prints nothing instead; a zero is a claim.
+   */
+  countIfKnown(id: string): number | null {
+    return this.counts.get(id) ?? null;
+  }
+
   /** FreshRSS reports unread totals per stream id in one call. */
   private setCounts(entries: { id: string; count: number }[]): void {
     for (const entry of entries) {

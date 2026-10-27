@@ -36,7 +36,6 @@ import {
   type PreferencesWrite,
 } from "../api/hardlyread";
 import { scopedKey } from "../lib/account-key";
-import { cardLayout } from "../lib/card-layout.svelte";
 import {
   PREFS_NAMESPACES,
   PrefsQueue,
@@ -77,7 +76,6 @@ interface PrefsStore {
 
 const STORES: Record<PrefsNamespace, PrefsStore> = {
   reading: { snapshot: () => reading.snapshot(), adopt: (value) => reading.adopt(value) },
-  cards: { snapshot: () => cardLayout.snapshot(), adopt: (value) => cardLayout.adopt(value) },
   theme: { snapshot: () => theme.snapshot(), adopt: (value) => theme.adopt(value) },
   search: { snapshot: () => search.snapshot(), adopt: (value) => search.adopt(value) },
 };

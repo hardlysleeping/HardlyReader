@@ -209,6 +209,38 @@ check("panel urls resolve against the post and are not repeated", () => {
 
 check("panel extraction tolerates missing fields", () => {
   assert.deepEqual(panelsOf({}), []);
+});
+
+// A panel is drawn across the whole card, so the crop a publisher names is
+// upscaled into mush there exactly as a thumbnail's would be. Same sharpening,
+// and the same remembered crop to fall back to.
+check("a panel asks for the full-size file, not the crop the feed named", () => {
+  const panels = panelsOf({
+    content: {
+      content:
+        '<img src="https://cdn.example.com/zits-600x200.jpg" alt="Zits - Panel 1">' +
+        '<img src="https://cdn.example.com/zits-2-600x200.jpg" alt="Zits - Panel 2">',
+    },
+  });
+  assert.deepEqual(panels, [
+    "https://cdn.example.com/zits.jpg",
+    "https://cdn.example.com/zits-2.jpg",
+  ]);
+  assert.equal(cropVariant("https://cdn.example.com/zits.jpg"), "https://cdn.example.com/zits-600x200.jpg");
+});
+
+check("and a panel with no size suffix is left exactly as it is", () => {
+  assert.deepEqual(
+    panelsOf({
+      content: {
+        content:
+          '<img src="https://cdn.example.com/p1.png" alt="Comic - Panel 1">' +
+          '<img src="https://cdn.example.com/p2.png" alt="Comic - Panel 2">',
+      },
+    }),
+    ["https://cdn.example.com/p1.png", "https://cdn.example.com/p2.png"],
+  );
+  assert.equal(cropVariant("https://cdn.example.com/p1.png"), null);
   assert.deepEqual(panelsOf({ content: null, summary: null }), []);
 });
 

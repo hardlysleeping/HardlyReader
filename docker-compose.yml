@@ -1,0 +1,19 @@
+# The browser build, in a container.
+#
+#   FRESHRSS_URL=https://feeds.example.org docker compose up -d
+#
+# Then open http://localhost:8080 and enter that same URL — http://localhost:8080
+# — as the server. The container proxies /api/ to FRESHRSS_URL, which is what
+# makes the whole thing work in a plain browser: FreshRSS sends no CORS headers,
+# so the page cannot call it directly.
+services:
+  hardlyreader:
+    image: ghcr.io/hardlysleeping/hardlyreader:latest
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Where your FreshRSS lives, origin only (no /api path), reachable from
+      # this container — a hostname on the same docker network works too.
+      FRESHRSS_URL: ${FRESHRSS_URL:-http://freshrss:80}
+    restart: unless-stopped

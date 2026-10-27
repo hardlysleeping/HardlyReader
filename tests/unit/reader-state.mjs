@@ -618,6 +618,22 @@ try {
 
   reader.stop();
   check("stop() resets hidden state", reader.hiddenAvailable === false && reader.hiddenError === null);
+
+  // FreshRSS answers unread-count per label and per feed, and leaves the starred
+  // stream out. A row that prints `countFor` there prints a zero nobody said.
+  {
+    const counts = new ReaderState();
+    counts.setCounts([
+      { id: "user/-/state/com.google/reading-list", count: 20 },
+      { id: "user/-/label/Uncategorized", count: 20 },
+    ]);
+    check("a reported count is the count", counts.countFor("user/-/state/com.google/reading-list") === 20);
+    check(
+      "the starred count is not reported, so it is null and not zero",
+      counts.countIfKnown("user/-/state/com.google/starred") === null,
+    );
+    check("a reported count is known", counts.countIfKnown("user/-/label/Uncategorized") === 20);
+  }
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });
 }

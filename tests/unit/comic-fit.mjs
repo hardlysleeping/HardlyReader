@@ -213,9 +213,8 @@ check(
   "and no rule that reaches one caps its height in rows mode",
   !rules.some(
     (rule) =>
-      /\.cards\b/.test(rule.selector) &&
+      /.cards\b/.test(rule.selector) &&
       /\.lead\b/.test(rule.selector) &&
-      !/masonry/.test(rule.selector) &&
       /(?:^|[\s;])max-height:\s*(?!none)/.test(rule.body),
   ),
 );
@@ -245,11 +244,6 @@ check(
   ),
 );
 check("the only space in the column is the gap between cards", px(decl(cards, "gap")) === 10, decl(cards, "gap") ?? "missing");
-check(
-  "and a masonry column keeps the same 10px between its columns",
-  px(decl(body(".cards.masonry"), "column-gap")) === 10,
-  decl(body(".cards.masonry"), "column-gap") ?? "missing",
-);
 
 /* ---------------------------------------------------------------- the numbers
    From the sheet to the picture, per shape and per width.
@@ -318,10 +312,9 @@ check(
   `900 wide → ${Math.round(900 * (1054 / 780))}px against a ${PANE}px pane`,
 );
 check(
-  "the one cap in the sheet is masonry's, and it is not the rows rule",
-  decl(body(".cards.masonry .lead img"), "max-height") === "50cqh" &&
-    decl(body(".cards .lead img"), "max-height") === null,
-  `masonry ${decl(body(".cards.masonry .lead img"), "max-height") ?? "missing"}, rows ${decl(body(".cards .lead img"), "max-height") ?? "none"}`,
+  "the sheet has no picture cap left to shorten a page",
+  decl(body(".cards .lead img"), "max-height") === null,
+  decl(body(".cards .lead img"), "max-height") ?? "none",
 );
 check(
   "a cap on the rows picture would leave trees of bars down the sides — the guard bites",

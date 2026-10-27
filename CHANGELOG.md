@@ -4,6 +4,35 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] — 2026-10-26
+
+### Changed
+
+- **A fit shows the whole card, with its neighbours showing too.** The window
+  was sized to the card exactly, which reads as the end of the stream; it is now
+  the card's picture *and* its star, mark-read, headline and byline, plus 24px
+  above and below so the cards on either side are visible. Those slivers fade
+  into the pane over the same 24px, so a fitted card sits just past its own fade
+  and nothing is cut off square. A real blur would need a strip pinned outside
+  the scroller; the fade does the job with paint alone.
+
+### Fixed
+
+- **A panel strip asks for the full-size file, not the crop.** A card that
+  flips through "Panel 1", "Panel 2" pictures took the publisher's URL exactly as
+  the feed named it, while every other picture was sharpened out of its
+  `-600x200` crop first. With one card per row the panel is drawn across the
+  whole pane, so the crop was upscaled into mush; panels are sharpened the same
+  way as thumbnails, with the same remembered crop to fall back to.
+
+### Removed
+
+- **Cards are one per row, and the columns are gone.** The view offered a
+  masonry arrangement — a pick in the bar, then 2, 3 or 4 columns — with a store,
+  a storage key and a preferences namespace behind it. One card per row is the
+  shape: the pick, the column CSS, the model and its key are removed, and a
+  stored choice is simply no longer read.
+
 ## [0.6.5] — 2026-10-26
 
 ### Changed

@@ -46,7 +46,7 @@ export const PREFS_API_VERSION = 1;
  * and never written back, so a round trip through an older build cannot erase
  * them on the server — it simply does not understand them.
  */
-export const PREFS_NAMESPACES = ["reading", "cards", "theme", "search"] as const;
+export const PREFS_NAMESPACES = ["reading", "theme", "search"] as const;
 
 export type PrefsNamespace = (typeof PREFS_NAMESPACES)[number];
 

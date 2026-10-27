@@ -9,7 +9,6 @@
   import InlineArticle from "./InlineArticle.svelte";
   import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
   import {
-    CARD_LAYOUT_TITLES,
     CARD_WINDOW,
     CARD_SIZE_LABELS,
     CARD_SIZE_TITLES,
@@ -21,16 +20,13 @@
     LIST_VIEWS,
     LIST_VIEW_LABELS,
     LIST_VIEW_TITLES,
-    MASONRY_COLUMN_CHOICES,
     gridIsSquare,
     gridTemplate,
     isListView,
-  masonryTrack,
     picturePlacement,
     showsPreview,
     type ListView,
   } from "../lib/list-view";
-  import { cardLayout } from "../lib/card-layout.svelte";
   import { near } from "../lib/near-view";
   import { canFitWindow, fitWindowTo, screenSize } from "../lib/window-fit";
   import { openExternal } from "../lib/open-external";
@@ -304,8 +300,8 @@
   }
 
   /**
-   * What the list draws: the posts, with a month, a week and a day tab before
-   * the runs they cover.
+   * What the list draws: the posts, with a month and a week tab before the runs
+   * they cover.
    *
    * Only the list view folds its dates — the regular rows, the cards and the
    * grid are read by the shape of what is in them, and a tab between two cards
@@ -522,6 +518,16 @@
    * once per card, and the resize that answered it asked for another. One press,
    * one answer, and nothing moves the window but the reader.
    */
+  /**
+   * The sliver of the card above and below the one being fitted.
+   *
+   * A window sized to the card exactly says "this is the whole stream"; the
+   * reader then has no way to tell whether that was the last post or the
+   * hundredth. Room for the neighbours — the same number the sheet fades by —
+   * says there is more in both directions, and the card still fits whole.
+   */
+  const CARD_PEEK = 24;
+
   async function fitToComic(): Promise<void> {
     if (fitting || view !== "cards") return;
     const el = itemsEl;
@@ -567,13 +573,16 @@
       const room = Math.min(availH * natural, img.naturalWidth / share, availW);
       const paneNext = Math.round(Math.min(room, availW));
       const pictureH = Math.round((paneNext * share) / natural);
-      // Never taller than the picture needs, never shorter than a window may be:
-      // asking for less than the shell's own floor gets clamped, and a clamp is a
-      // size the fit did not ask for and will ask for again.
-      // Never taller than the picture needs, never shorter than a window may be:
-      // asking for less than the shell's own floor gets clamped, and a clamped
-      // window is not the window that was asked for.
-      const height = Math.min(screen.height, Math.max(FIT_FLOOR_H, chrome + pictureH));
+      // The whole card: its picture, and the furniture under it — star, read,
+      // headline, byline — which `chrome` already counts. Plus the two slivers,
+      // so the neighbours are visible at the pane's edges and the card does not
+      // look like the only post there is. Never taller than the screen; never
+      // shorter than the shell's own floor, because asking for less gets clamped
+      // and a clamped window is not the window that was asked for.
+      const height = Math.min(
+        screen.height,
+        Math.max(FIT_FLOOR_H, chrome + pictureH + 2 * CARD_PEEK),
+      );
       if (
         Math.abs(paneNext - el.clientWidth) < 1 &&
         Math.abs(height - window.innerHeight) < 1
@@ -1222,61 +1231,25 @@
           </label>
         </div>
       {:else if view === "cards"}
-        <!-- Cards have one pick, and only in the view it applies to: the
-             masonry button, and the column count once it is on. There is no
-             picture-size setting: every card is drawn at the one window (a page
-             and a half of its own width). A height setting can only shorten a
-             picture that is taller than it — it cannot give a wide strip more
-             room — so the three shapes did nothing for the case they were
-             named after. -->
-        <div
-          class="sizer"
-          role="group"
-          aria-label="Masonry columns"
-        >
-          <button
-            class="sizebtn masonry"
-            class:on={cardLayout.masonry}
-            aria-pressed={cardLayout.masonry}
-            aria-label="Masonry"
-            title={CARD_LAYOUT_TITLES[cardLayout.mode]}
-            onclick={() => cardLayout.toggleMasonry()}
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true"
-              ><rect x="2.4" y="2.4" width="3.1" height="7" rx="1" /><rect
-                x="6.45"
-                y="2.4"
-                width="3.1"
-                height="11.2"
-                rx="1"
-              /><rect x="10.5" y="2.4" width="3.1" height="5" rx="1" /></svg
-            >
-          </button>
-          {#if cardLayout.masonry}
-            {#each MASONRY_COLUMN_CHOICES as count (count)}
-              <button
-                class="sizebtn"
-                class:on={cardLayout.columns === count}
-                aria-pressed={cardLayout.columns === count}
-                aria-label={`${count} columns`}
-                title={`${count} columns: pictures at their own height`}
-                onclick={() => cardLayout.setColumns(count)}
-              >{count}</button
-              >
-            {/each}
-          {/if}
+        <!-- One card per row, always: the cards are a column, and the only
+             control here asks the window for a size. There is no picture-size
+             setting either — every card is drawn at the one window (a page and
+             a half of its own width), because a height setting can only shorten
+             a picture that is taller than it, and cannot give a wide strip more
+             room. -->
+        {#if canFitWindow()}
           <!-- Only where a window can be asked for a size: a browser tab and a
                phone cannot, and a control that is drawn where it cannot act reads
                as a control that is broken. -->
-          {#if canFitWindow()}
+          <div class="sizer" role="group" aria-label="Cards">
             <button
               class="sizebtn fit"
               aria-label="Fit the window to the comic"
               title="Fit the window to the comic: the whole picture, at its own shape"
               onclick={() => void fitToComic()}
             >fit</button>
-          {/if}
-        </div>
+          </div>
+        {/if}
       {/if}
       <div class="filters" role="group" aria-label="Show posts">
         {#each ARTICLE_FILTERS as filter (filter)}
@@ -1302,7 +1275,6 @@
     bind:this={itemsEl}
     class:compact={view === "list"}
     class:cards={view === "cards"}
-    class:masonry={view === "cards" && cardLayout.masonry}
     data-tallcard={tallCard ? "true" : undefined}
     onscroll={onCardsScroll}
     onwheel={dropResume}
@@ -1314,7 +1286,6 @@
     style:--row-turn={`${rowTurn}px`}
     style:--grid-template={gridTemplate(reading.gridColumns)}
     style:--card-window={`${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
-    style:--masonry-columns={masonryTrack(cardLayout.columns)}
     use:cardWheel
     use:cardResize
     use:pullDown={{
@@ -1339,7 +1310,7 @@
       {#if entry.kind === "tab"}
         <!-- A folder tab: its top corners are rounded and its bottom edge is not,
              so it reads as the front of a thing the posts are filed inside. months
-             sit at the left edge, weeks a step in, days a step further. -->
+             sit at the left edge, weeks a step in. -->
         <button
           class="tab"
           class:closed={entry.closed}
@@ -1726,22 +1697,6 @@
      not a count in force, so it reads as a hint rather than a setting. */
   .ruler .count.auto {
     color: var(--muted);
-  }
-
-  /* The masonry pick, at the left of the same group: three staggered bars, the
-     shape of the thing it switches to. It carries no text, so it is the one
-     control in the sizer that has to be reachable by its aria-label. */
-  .sizebtn.masonry {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 3px;
-  }
-
-  .sizebtn.masonry svg {
-    width: 11px;
-    height: 11px;
-    fill: currentColor;
   }
 
   .views {
@@ -2759,6 +2714,27 @@
        still has to be scrolled through by hand, and a mandatory snap would keep
        dragging it back to its own middle. */
     scroll-snap-type: y proximity;
+    /* The cards' edges fade into the pane instead of being cut off by it: the
+       sliver of the card above and below reads as more of the stream rather than
+       as a card that is somehow broken. The same length the fit leaves for those
+       slivers, so a fitted card sits exactly past its own fade and stays crisp.
+       A backdrop blur would need a strip pinned outside the scroller, which this
+       component does not have; a fade says the same thing with paint only. */
+    --card-peek: 24px;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--card-peek),
+      #000 calc(100% - var(--card-peek)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--card-peek),
+      #000 calc(100% - var(--card-peek)),
+      transparent 100%
+    );
     /* A card is the pane: no gutter down the sides, and none above the first or
        below the last, so its four edges sit on the same margin. The gap between
        cards is the only space in the column, which is why stepping one card puts
@@ -3099,111 +3075,6 @@
     align-items: center;
     gap: 8px;
     padding: 2px 28px 2px 0;
-  }
-
-  /* A masonry column is a wall of cards, not a strip of them: each one is a
-     snap point a few tens of pixels from the next, and snapping would stop the
-     scroll every inch. It sits with the masonry rules, after the card rules it
-     overrides. */
-  .cards.masonry {
-    scroll-snap-type: none;
-  }
-
-  /* ------------------------------------------------------------- masonry --
-     Pinterest columns inside Cards: the same card — picture, headline,
-     byline, star and read — arranged so each picture keeps its own height,
-     which is what makes the columns interlock instead of ending level.
-
-     This is a pick inside Cards, not a fifth view. Rows mode is untouched
-     above: the one comic-page window, at the size the S/M/L control sets.
-
-     CSS multi-column flows *column-major*: post 2 sits under post 1 rather than
-     beside it. That is how Pinterest reads, and keyboard stepping is unaffected
-     because it walks `reader.items` order — but "next post" can land at the top
-     of the next column. A row-major masonry needs `grid-template-rows:
-     masonry`, which WebKit does not ship, so this is the honest trade. */
-  .cards.masonry {
-    /* Multi-column does not apply to a flex container, and the column count
-       replaces the picture height as the thing this view is sizing. The gap
-       between columns is the same 10px the rows were separated by. */
-    display: block;
-    columns: var(--masonry-columns, 2);
-    column-gap: 10px;
-  }
-
-  .cards.masonry .row {
-    /* A card split across a column break loses its picture from its own text;
-       and the vertical gap that `gap` used to give comes from each card now. */
-    break-inside: avoid;
-    margin-bottom: 10px;
-  }
-
-  /* The picture at its own aspect: the column's width, and whatever height the
-     file is. No `aspect-ratio`, no cap, no crop — a crop would take away the
-     only thing that makes the columns ragged, and the fixed comic window above
-     would letterbox a page instead of staggering it. */
-  .cards.masonry .lead {
-    width: 100%;
-    aspect-ratio: auto;
-    max-height: none;
-  }
-
-  .cards.masonry .lead img,
-  .cards.masonry .lead .panel {
-    height: auto;
-    max-height: 50cqh;
-    object-fit: contain;
-    object-position: center;
-  }
-
-  /* Half the visible column, at most.
-     Without this a page's card is taller than the pane it is in, so the next
-     row is only reachable by scrolling — or by shrinking the columns until the
-     pictures happen to fit, which is not a way to browse. A picture may take
-     half the port; the rest of the column shows the cards underneath it. */
-  .cards.masonry .lead img {
-    height: auto;
-    max-height: 50cqh;
-  }
-
-
-  /* In a column the picture is at its own aspect either way, so a page and a
-     photograph already sit right; `contain` above is what keeps the page whole. */
-
-  /* Load more spans the columns rather than sitting in the shortest one. */
-  .cards.masonry .more {
-    column-span: all;
-  }
-
-  /* Where columns are not implemented, the cards are the rows they have always
-     been: the comic window, one under the next. Better a plain Cards view than a
-     single 300px column of unsized pictures. */
-  @supports not (columns: 2) {
-    .cards.masonry {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .cards.masonry .row {
-      margin-bottom: 0;
-    }
-
-    .cards.masonry .lead {
-      /* No column support: the card picture as the cards view draws it, capped
-         at a page's height rather than set to a fixed box. */
-      width: 100%;
-      container-type: inline-size;
-      margin-inline: auto;
-    }
-
-    .cards.masonry .lead img {
-      height: 100%;
-    }
-
-    .cards.masonry .more {
-      column-span: none;
-    }
   }
 
   /* ---------------------------------------------------------------- grid --

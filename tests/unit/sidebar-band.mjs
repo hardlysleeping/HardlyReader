@@ -435,6 +435,16 @@ try {
     check("no extension: ...and says so", body.includes("Hidden on this device"));
     check("no extension: the lock offers nothing to lock with", body.includes("disabled"));
   }
+
+  // The starred row is fed by a stream the server's unread-count never mentions,
+  // so the number is drawn only when there is one to draw.
+  {
+    const sidebar = readFileSync(join(ROOT, "src/components/Sidebar.svelte"), "utf8");
+    check(
+      "the Starred row prints no count the server did not report",
+      sidebar.includes("{#if reader.countIfKnown(STATE_STARRED) !== null}"),
+    );
+  }
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });
 }
