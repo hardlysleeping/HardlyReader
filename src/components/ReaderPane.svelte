@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
+
   import { isRead, isStarred } from "../api/freshrss";
   import {
     bodyFor,
@@ -33,8 +35,16 @@
   import { IMAGE_SCALE, scalePercent } from "../lib/reading-layout";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { pullDown } from "../lib/pull";
+  import { shareArticle } from "../lib/share";
+  import { layout } from "../state/layout.svelte";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
+
+  /**
+   * How long "Link copied" stays in the byline: long enough to read once, short
+   * enough that it never becomes part of the article's furniture.
+   */
+  const SHARE_NOTE_MS = 2400;
 
   /**
    * `onLock` is the curtain in one press: the caller sends you home and locks,
@@ -440,6 +450,55 @@
   const link = $derived(item?.alternate?.[0]?.href ?? item?.canonical?.[0]?.href ?? "");
 
   /**
+   * The link a share can carry: the post's own address, if the feed gave one.
+   *
+   * Same rule as "open at source" — an external http(s) URL, never a relative
+   * one and never something the feed invented. Without it there is nothing to
+   * share, so the control is not drawn at all rather than drawn dead.
+   */
+  const shareUrl = $derived(isExternalHttp(link) ? link : "");
+
+  /**
+   * What the share press has to say for itself.
+   *
+   * The sheet needs no announcement — it is on screen and it is the answer — but
+   * a copy lands silently, so it gets a word. It clears itself, because a line
+   * about a press three minutes ago is clutter in a byline.
+   */
+  let shareNote = $state<string | null>(null);
+  let shareNoteTimer: number | null = null;
+
+  function noteShare(text: string): void {
+    if (shareNoteTimer !== null) clearTimeout(shareNoteTimer);
+    shareNote = text;
+    shareNoteTimer = null;
+    if (typeof window === "undefined") return;
+    shareNoteTimer = window.setTimeout(() => {
+      shareNote = null;
+      shareNoteTimer = null;
+    }, SHARE_NOTE_MS);
+  }
+
+  /**
+   * Offer this post to the device, and say so only when copying had to stand in.
+   *
+   * Called straight from the press with nothing awaited before the sheet: Web
+   * Share is checked against the click's own activation, so a fetch or a state
+   * write first would spend it and the sheet would refuse to open.
+   */
+  async function shareThis(): Promise<void> {
+    const current = item;
+    if (current === null || shareUrl === "") return;
+    const outcome = await shareArticle({ title: current.title ?? "", url: shareUrl });
+    if (outcome === "copied") noteShare("Link copied");
+    else if (outcome === "failed") noteShare("Couldn't copy the link");
+  }
+
+  onDestroy(() => {
+    if (shareNoteTimer !== null) clearTimeout(shareNoteTimer);
+  });
+
+  /**
    * The feed's own HTML, always available and always the fallback.
    *
    * Kept separate from `body` because extraction is an addition to this, not a
@@ -805,6 +864,18 @@
         <span>{item.origin?.title ?? ""}</span>
         {#if item.author}<span>· {item.author}</span>{/if}
         <span>· {absoluteTime(item.timestampUsec, item.published)}</span>
+        {#if layout.caps.share && shareUrl !== ""}
+          <!-- The phone's way out: the post's own title and link, through the
+               device's sheet. In the byline rather than the toolbar, which is
+               already at the width of a 375px screen, and next to the words it
+               is sharing. -->
+          <span class="share">
+            · <button class="inline" onclick={() => void shareThis()}>Share</button>
+            {#if shareNote}
+              <span class="share-note" role="status">{shareNote}</span>
+            {/if}
+          </span>
+        {/if}
         {#if refused}
           <span class="retry" role="status">
             · no full article
@@ -1112,6 +1183,18 @@
   .retry {
     white-space: nowrap;
     opacity: 0.85;
+  }
+
+  /* The share press and its answer, kept on the byline's own line so a copy
+     that had to stand in for a sheet does not move the article under the thumb
+     that just pressed it. */
+  .share {
+    white-space: nowrap;
+  }
+
+  .share-note {
+    margin-left: 6px;
+    color: var(--accent-text);
   }
 
   .content {
