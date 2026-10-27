@@ -15,6 +15,20 @@
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { fittedWidth } from "../lib/image-fit";
+  import {
+    atRest,
+    doubleTap,
+    drag,
+    fitInto,
+    midpoint,
+    pinch,
+    restZoom,
+    span,
+    transformOf,
+    type Point,
+    type Size,
+    type Zoom,
+  } from "../lib/picture-zoom";
   import { IMAGE_SCALE, scalePercent } from "../lib/reading-layout";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { pullDown } from "../lib/pull";
@@ -119,9 +133,126 @@
         // The natural size is not known until the file has decoded, and every
         // measurement above is taken from it.
         img.addEventListener("load", () => paintPicture(img));
+        // A tap opens the picture itself, where it can be pinched. On a pointer
+        // device the tap means nothing: a mouse has no pinch, and hijacking the
+        // click would break the link an image is often wrapped in.
+        if (touching) img.addEventListener("click", (event) => openPicture(img, event));
       }
       paintPicture(img);
     }
+  }
+
+  /**
+   * Whether a finger is what presses things here.
+   *
+   * Asked once, at load: a phone that reports a coarse pointer is the surface
+   * this viewer exists for, and the same page in a browser tab keeps its clicks.
+   */
+  const touching =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches;
+
+  /** The picture on its own layer, and where the fingers have put it. */
+  let opened = $state<{ src: string; alt: string; natural: Size } | null>(null);
+  let zoom = $state<Zoom>(restZoom());
+  let layer = $state<HTMLElement | null>(null);
+  let frame = $state<Size>({ width: 0, height: 0 });
+
+  /** The size the picture is drawn at before zoom, recomputed when the frame moves. */
+  const drawing = $derived(
+    opened === null ? { width: 0, height: 0 } : fitInto(opened.natural, frame),
+  );
+
+  /** Fingers currently down on the layer, in the layer's own coordinates. */
+  const fingers = new Map<number, Point>();
+  let gesture: { start: Zoom; from: number; centre: Point; travel: number } | null = null;
+  let lastTapAt = 0;
+
+  function openPicture(img: HTMLImageElement, event: Event): void {
+    const src = img.currentSrc || img.src;
+    if (!src) return;
+    event.preventDefault();
+    event.stopPropagation();
+    opened = {
+      src,
+      alt: img.alt || "",
+      natural: { width: img.naturalWidth, height: img.naturalHeight },
+    };
+    zoom = restZoom();
+    fingers.clear();
+    gesture = null;
+  }
+
+  function closePicture(): void {
+    opened = null;
+    fingers.clear();
+    gesture = null;
+  }
+
+  function pointOf(event: PointerEvent): Point {
+    const box = layer?.getBoundingClientRect();
+    return {
+      x: event.clientX - (box?.left ?? 0),
+      y: event.clientY - (box?.top ?? 0),
+    };
+  }
+
+  function onPointerDown(event: PointerEvent): void {
+    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+    fingers.set(event.pointerId, pointOf(event));
+    if (fingers.size === 2) {
+      const [a, b] = [...fingers.values()];
+      gesture = { start: zoom, from: span(a, b), centre: midpoint(a, b), travel: 0 };
+    } else if (fingers.size === 1) {
+      gesture = { start: zoom, from: 0, centre: pointOf(event), travel: 0 };
+    }
+  }
+
+  function onPointerMove(event: PointerEvent): void {
+    if (!fingers.has(event.pointerId)) return;
+    const before = fingers.get(event.pointerId);
+    const next = pointOf(event);
+    fingers.set(event.pointerId, next);
+    if (gesture === null) return;
+    gesture.travel += Math.hypot(next.x - (before?.x ?? next.x), next.y - (before?.y ?? next.y));
+
+    if (fingers.size >= 2 && opened !== null) {
+      const [a, b] = [...fingers.values()];
+      zoom = pinch(gesture.start, gesture.from, span(a, b), midpoint(a, b), frame, drawing);
+    } else if (fingers.size === 1 && opened !== null) {
+      zoom = drag(
+        gesture.start,
+        { x: next.x - gesture.centre.x, y: next.y - gesture.centre.y },
+        drawing,
+        frame,
+      );
+    }
+  }
+
+  function onPointerUp(event: PointerEvent): void {
+    if (!fingers.has(event.pointerId)) return;
+    fingers.delete(event.pointerId);
+    if (fingers.size > 0) {
+      // A finger lifted from a pinch: the remaining one starts dragging from
+      // where it is now, not from where the pinch began.
+      const [only] = [...fingers.values()];
+      gesture = { start: zoom, from: 0, centre: only, travel: 0 };
+      return;
+    }
+    const travelled = gesture?.travel ?? 0;
+    gesture = null;
+    if (travelled > 10) return;
+
+    const now = Date.now();
+    const at = pointOf(event);
+    if (now - lastTapAt < 320) {
+      lastTapAt = 0;
+      zoom = doubleTap(zoom, at, frame, drawing);
+      return;
+    }
+    lastTapAt = now;
+    if (atRest(zoom)) closePicture();
   }
 
   // A new article, a bigger or smaller picture setting, or a frame that changed
@@ -646,6 +777,34 @@
   {#if reader.traversalEnded}
     <p class="ended" role="status">That is every post in this view.</p>
   {/if}
+  {#if opened}
+    <!-- The picture on its own layer: one finger drags, two pinch, a tap on an
+         unzoomed picture closes it. `touch-action: none` is what lets the layer
+         see the gestures instead of the browser scrolling the article under it. -->
+    <div
+      class="zoombox"
+      role="dialog"
+      aria-modal="true"
+      aria-label={opened.alt || "Picture"}
+      bind:this={layer}
+      bind:clientWidth={frame.width}
+      bind:clientHeight={frame.height}
+      onpointerdown={onPointerDown}
+      onpointermove={onPointerMove}
+      onpointerup={onPointerUp}
+      onpointercancel={onPointerUp}
+    >
+      <img
+        src={opened.src}
+        alt={opened.alt}
+        draggable="false"
+        style:width={`${drawing.width}px`}
+        style:height={`${drawing.height}px`}
+        style:transform={transformOf(zoom)}
+      />
+      <button class="zoomclose" onclick={closePicture} aria-label="Close picture">✕</button>
+    </div>
+  {/if}
   <div
     class="pull"
     class:visible={pull !== 0}
@@ -664,6 +823,50 @@
     height: 100%;
     overflow: hidden;
     background: var(--bg);
+  }
+
+  /* The tapped picture, over everything the pane draws. `touch-action: none` is
+     load-bearing: without it the webview scrolls the article under the fingers
+     and a pinch never becomes a pinch. */
+  .zoombox {
+    position: fixed;
+    inset: 0;
+    z-index: 400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #000000e0;
+    touch-action: none;
+    overscroll-behavior: contain;
+  }
+
+  .zoombox img {
+    max-width: none;
+    max-height: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    will-change: transform;
+    touch-action: none;
+  }
+
+  .zoomclose {
+    position: absolute;
+    top: max(10px, env(safe-area-inset-top));
+    right: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid #ffffff3d;
+    border-radius: 999px;
+    background: #000000a6;
+    color: #fff;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
   }
 
   /* The feedback for the pull: fills left to right as the next article gets
