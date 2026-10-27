@@ -12,37 +12,23 @@ build, and Android and iOS.
 
 ## Install
 
-### Docker (browser and phone)
-
-FreshRSS sends no CORS headers, so a page served from anywhere else cannot call
-it. This image is that page plus the proxy that makes the API same-origin — it
-is the whole install.
-
-```yaml
-# docker-compose.yml
-services:
-  hardlyreader:
-    image: ghcr.io/hardlysleeping/hardlyreader:latest
-    ports: ["8080:8080"]
-    environment:
-      FRESHRSS_URL: https://feeds.example.org   # origin only, no /api path
-    restart: unless-stopped
-```
+### Docker (browser, and phone over the LAN)
 
 ```sh
-docker compose up -d           # pulls ghcr.io/hardlysleeping/hardlyreader:latest
-docker compose up -d --build   # or build it here, no registry needed
+docker run -d --name hardlyreader -p 8080:8080 \
+  ghcr.io/hardlysleeping/hardlyreader:latest
 ```
 
-No compose: `docker run -d -p 8080:8080 -e FRESHRSS_URL=https://feeds.example.org
-ghcr.io/hardlysleeping/hardlyreader:latest`
+Open `http://localhost:8080` and enter your FreshRSS address on the connect
+screen — the same one field the desktop app asks for. There is nothing to
+configure in the container.
 
-Open `http://localhost:8080` and enter **`http://localhost:8080`** as the server —
-not the FreshRSS address. The container proxies `/api/` to `FRESHRSS_URL`, so the
-app talks to the origin it was loaded from. `FRESHRSS_URL` must be reachable from
-inside the container; on the same docker network a service name
-(`http://freshrss`) is enough. Serve the app over HTTPS if FreshRSS is HTTPS —
-a secure page cannot call plain `http:`.
+From a clone, `docker compose up -d --build` does the same thing.
+
+One catch that is the browser's, not the app's: a page served over **https** can
+only call a server over https. If FreshRSS already has a certificate, put this
+page behind one too (any reverse proxy will do); over plain http on a LAN it just
+works.
 
 ### Linux desktop
 
@@ -140,9 +126,10 @@ pnpm test           # unit suites, headless: no browser, no server
 Building needs Node 22+, pnpm, Rust and Tauri 2's Linux dependencies
 (WebKitGTK 4.1). A container needs none of that — see `Dockerfile`.
 
-`pnpm dev` proxies `/freshrss` to `HARDLYREAD_SERVER` (default
-`http://127.0.0.1:18080`) because of the CORS gap described above; in the
-desktop app requests go through Tauri's http plugin and the proxy is idle.
+`pnpm dev` also proxies `/freshrss` to `HARDLYREAD_SERVER` (default
+`http://127.0.0.1:18080`) as a convenience when testing against a local
+instance; it is not required, and in the desktop app requests go through Tauri's
+http plugin regardless.
 
 ## Notes
 
