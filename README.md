@@ -103,6 +103,8 @@ pnpm tauri build    # .deb / .rpm / AppImage in src-tauri/target/release/bundle
 
 On first launch, enter the base URL of your FreshRSS (e.g. `https://feeds.example.org`), the account email and the **API password**. Loopback addresses work too (`http://127.0.0.1:8080`).
 
+On a phone there is a second way in, for an account whose login asks for a captcha — the one thing a phone's HTTP client can never answer. The phone asks for a code, and the same screen shows it while it waits; on a device that can show the captcha, and is already signed in, **Settings → Accounts → Pair a device** lists the code and approves it. The phone then receives a credential of its own, which either side can revoke; clearing it is not the same as changing the account password. What the server has to support for this is written out in [`src/api/pairing.ts`](src/api/pairing.ts) and in the extension's README.
+
 ## Extensions
 
 | Extension | What the app uses it for |

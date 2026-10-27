@@ -63,6 +63,25 @@ Errors carry a status and a stable code, and the codes are mapped from what the 
 
 The optional `/v1/people` routes exist only on an install that also carries the people provider; everywhere else they are plain unknown routes, because an empty list would read as "no such person" — a different truth from "this install cannot do that".
 
+### Pairing a phone
+
+An account whose login asks for a captcha cannot sign a phone in: the phone's HTTP client will never answer that captcha, and nothing here tries to. Instead the code moves the human check to a device that can show the page:
+
+| Method | Route | Who may call it |
+|---|---|---|
+| POST | `/v1/pair/request` | **signed out** — body `{label}`; answers `{code, expiresAt, label}` |
+| GET | `/v1/pair/pending` | signed in — the codes waiting for this account to approve |
+| POST | `/v1/pair/approve` | signed in — body `{code}`; binds the code to this account |
+| POST | `/v1/pair/redeem` | **signed out** — body `{code, label}`; answers `{token, account, label, expiresAt}` |
+| POST | `/v1/pair/revoke` | either side — `{token}`, or nothing for the caller's own |
+
+`request` and `redeem` are the only two routes reachable without a `GoogleLogin` credential, and they are named one by one in `HardlyReadApi::isSignedOutRoute()` so that adding a route cannot quietly widen that set. Everything else — including `pending`, `approve`, and any pairing route that does not exist — is `401` first, so an unauthenticated caller still cannot enumerate the router.
+
+The approve press *is* the human check: whoever presses it is already past the captcha on a device that rendered it. A code is eight digits, single use, five minutes, and worthless until approved; it belongs to no account until then, which is why the store is server-wide (`lib/HardlyReadPairingStore.php`, under `DATA_PATH/extensions/HardlyRead/pairing/`) rather than a per-user file. Codes are stored as displayed — they are not a secret kept from the server — while device tokens are stored only as SHA-256, so the file cannot be turned back into credentials. Authenticating a paired device is a lookup of that hash plus a revoked flag, so revoking takes effect on the next request rather than whenever a token would have expired.
+
+What the server must still do, and this extension cannot: **GReader has to accept a device token too.** The extension's own authenticator accepts `hrd_…` tokens (see `HardlyReadExtension::authenticateGoogleLogin`), so a paired phone can use `/v1/*`; but feeds are read through `/api/greader.php`, which only knows `user/sha1(apiPasswordHash)`. Until a device token is also installed as a per-device API password for the account, a paired phone signs in and its feed requests are `401`. That is a server-side piece: a core patch, or a proxy in front of GReader that swaps a device token for the account's credential. Likewise rate limiting on `/pair/redeem` belongs at the web server — eight digits is only 10^8, and the extension cannot see the client address through most proxies.
+
+
 ## Layout
 
 | File | What it is |
@@ -73,6 +92,7 @@ The optional `/v1/people` routes exist only on an install that also carries the 
 | `lib/HardlyReadPositionStore.php` | the per-user `positions.json` |
 | `lib/HardlyReadPreferenceStore.php` | the per-user `preferences.json` |
 | `lib/HardlyReadPeople.php` | the optional people provider |
+| `lib/HardlyReadPairingStore.php` | pairing tickets and paired-device credentials, server-wide |
 
 ## Tests
 
@@ -83,6 +103,14 @@ vendor/bin/phpunit -c extensions/xExtension-HardlyRead/phpunit.xml
 ```
 
 The fakes under `tests/Fakes/` stand in for the state-owning extensions, so the suite runs without them installed.
+
+The pairing store and routes have a plain-PHP check next to the others, which needs no database and no FreshRSS boot:
+
+```sh
+php extensions/xExtension-HardlyRead/tests/pairing.php
+```
+
+It walks a ticket through issue → approve → redeem → revoke with an injected clock, and asserts the two things that are easiest to get wrong: that a code signs one device in once, and that the device token is only ever written as a hash.
 
 ## Licence
 
