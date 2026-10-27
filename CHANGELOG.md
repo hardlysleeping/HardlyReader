@@ -6,6 +6,16 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [0.6.7] — 2026-10-26
 
+### Packaging
+
+- **0.6.7 ships on all four platforms.** The AppImage and the Flatpak are both
+  built from a binary compiled in Ubuntu 22.04, because an Arch build needs a
+  newer glibc than either package can guarantee; the Flatpak carries no libraries
+  of its own and takes GTK and WebKitGTK from `org.gnome.Platform//46`. The APK is
+  signed with the key 0.6.0–0.6.6 used, versionCode 6007, so it upgrades in place.
+  The IPA is unsigned, as every release here is, and installs through AltStore or
+  Sideloadly.
+
 ### Changed
 
 - **The connect screen is a card, and it leaves upwards.** The first screen was a

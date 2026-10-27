@@ -1,0 +1,37 @@
+# A Flatpak of HardlyReader built around the binary the AppImage build makes.
+#
+# The runtime is the point: org.gnome.Platform carries GTK 3 and WebKitGTK 4.1,
+# which is the whole of what the app links against, so nothing is bundled twice.
+# The binary is compiled in Ubuntu 22.04 for the same reason the AppImage is —
+# an Arch build needs a glibc newer than any runtime ships.
+id: ing.hardlysleep.hardlyreader
+runtime: org.gnome.Platform
+runtime-version: '46'
+sdk: org.gnome.Sdk
+command: hardlyreader
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=xdg-download
+
+modules:
+  - name: hardlyreader
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 hardlyreader /app/bin/hardlyreader
+      - install -Dm644 ing.hardlysleep.hardlyreader.desktop /app/share/applications/ing.hardlysleep.hardlyreader.desktop
+      - install -Dm644 ing.hardlysleep.hardlyreader.metainfo.xml /app/share/metainfo/ing.hardlysleep.hardlyreader.metainfo.xml
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/ing.hardlysleep.hardlyreader.png
+    sources:
+      - type: file
+        path: hardlyreader
+      - type: file
+        path: ing.hardlysleep.hardlyreader.desktop
+      - type: file
+        path: ing.hardlysleep.hardlyreader.metainfo.xml
+      - type: file
+        path: icon.png

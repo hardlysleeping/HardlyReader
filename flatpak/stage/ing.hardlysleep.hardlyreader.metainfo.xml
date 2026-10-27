@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>ing.hardlysleep.hardlyreader</id>
+  <name>HardlyReader</name>
+  <summary>Read your feeds</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-PolyForm-Noncommercial-1.0.0</project_license>
+  <description>
+    <p>
+      A reader for RSS and Atom feeds, for a FreshRSS or any GReader-compatible
+      server, or for itself on a phone.
+    </p>
+  </description>
+  <launchable type="desktop-id">ing.hardlysleep.hardlyreader.desktop</launchable>
+  <provides>
+    <binary>hardlyreader</binary>
+  </provides>
+  <categories>
+    <category>Network</category>
+    <category>News</category>
+  </categories>
+  <content_rating type="oars-1.1" />
+</component>

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=HardlyReader
+Comment=Read your feeds
+Exec=hardlyreader
+Icon=ing.hardlysleep.hardlyreader
+Terminal=false
+Type=Application
+Categories=Network;News;
+Keywords=rss;atom;feeds;reader;
+StartupWMClass=hardlyreader
