@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod lan;
+mod share;
 
 use tauri::Manager;
 
@@ -12,7 +13,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             lan::lan_start,
             lan::lan_stop,
-            lan::lan_status
+            lan::lan_status,
+            // The phone's own share sheet. Registered on every platform so the
+            // page has one name to call; it answers "no sheet here" everywhere
+            // but iOS, where `src/lib/share.ts` never asks it in the first place.
+            share::share_sheet
         ])
         // A window that is gone is not a server: closing the reader stops the
         // share rather than leaving a socket open behind a closed window.

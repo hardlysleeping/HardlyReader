@@ -21,16 +21,27 @@
  * even on a phone. The copy fallback therefore has a second route —
  * `document.execCommand("copy")`, which predates the secure-context rule — so a
  * link can still be put on the clipboard inside the app. Nothing here invents a
- * share sheet of its own: an in-app menu dressed as one would be a drawing, and
- * the point of this file is the real sheet, or an honest copy.
+ * sheet of its own: an in-app menu dressed as one would be a drawing, and the
+ * point of this file is the real sheet, or an honest copy.
  */
 
-/** What an article says about itself, in the two fields a share needs. */
+import { nativeShareAvailable } from "./platform";
+
+/** What an article says about itself, in the fields a share can carry. */
 export interface ShareTarget {
   /** The article's headline; may be empty on a feed that sends none. */
   title: string;
   /** Where the post lives — already checked as an external http(s) link. */
   url: string;
+  /**
+   * The lead image's own address, when the feed declared one.
+   *
+   * Only the native sheet uses it: `navigator.share` with a URL is a link, and
+   * attaching a file to a Web Share call is a different contract (a `File`, a
+   * `canShare` check, a permission prompt on some browsers) that this press does
+   * not need. The phone app can hand UIKit the picture directly.
+   */
+  image?: string;
 }
 
 /**
@@ -44,6 +55,17 @@ export type ShareOutcome = "shared" | "cancelled" | "copied" | "failed";
 
 /** The two capabilities this file reaches for, injected so the chain is testable. */
 export interface ShareHost {
+  /**
+   * The app's own sheet — `UIActivityViewController` through the `share_sheet`
+   * command. `null` everywhere else, including the iOS browser tab, which has
+   * Web Share and does not need a bridge.
+   *
+   * It resolves once the sheet is on its way rather than when it closes, so it
+   * says nothing about what the reader picked. Every other outcome — a system
+   * that cannot present it, a link UIKit refuses — rejects, and the copy below
+   * is what happens then.
+   */
+  native: ((data: SharePayload) => Promise<void>) | null;
   /** `navigator.share`, or `null` where the context has none. */
   share: ((data: SharePayload) => Promise<void>) | null;
   /** Puts text on the clipboard; `false` when it could not. */
@@ -54,6 +76,8 @@ export interface ShareHost {
 export interface SharePayload {
   title?: string;
   url: string;
+  /** The lead image, for the native sheet. Never sent to `navigator.share`. */
+  image?: string;
 }
 
 /**
@@ -65,7 +89,11 @@ export interface SharePayload {
  */
 export function sharePayload(target: ShareTarget): SharePayload {
   const title = target.title.trim();
-  return title === "" ? { url: target.url } : { title, url: target.url };
+  const image = target.image?.trim() ?? "";
+  const payload: SharePayload = title === "" ? { url: target.url } : { title, url: target.url };
+  // Blank is absent: a sheet with an empty picture item is a placeholder image.
+  if (image !== "") payload.image = image;
+  return payload;
 }
 
 /**
@@ -84,22 +112,43 @@ export function isDismissal(error: unknown): boolean {
 }
 
 /**
- * Share one article: the sheet if this context has one, the link on the
+ * Share one article: the system sheet if this host has one, the link on the
  * clipboard otherwise.
  *
- * The ordering is the whole design. `navigator.share` is not awaited through
- * anything that could lose the gesture, and a cancellation ends the attempt
- * instead of continuing into the fallback.
+ * The ordering is the whole design, and there are two shapes of "the sheet":
+ *
+ * - **In the app on iOS**, Web Share is not there at all — `tauri://localhost`
+ *   is not a secure context — so the sheet is presented by UIKit through the
+ *   `share_sheet` command, and that is tried first.
+ * - **Anywhere else**, `navigator.share` is the sheet, and it is not awaited
+ *   through anything that could lose the click's activation.
+ *
+ * The two are exclusive rather than chained: on the one host that has the native
+ * command, an `await` on the IPC round trip has already spent the activation, so
+ * a Web Share call afterwards could only fail. A bridge that refuses falls to
+ * the copy — the same landing the web path uses — and a cancellation, where the
+ * platform reports one, ends the attempt instead of continuing into it.
  */
 export async function shareArticle(
   target: ShareTarget,
   host: ShareHost = shareHost(),
 ): Promise<ShareOutcome> {
   if (target.url.trim() === "") return "failed";
+  const payload = sharePayload(target);
+
+  if (host.native !== null) {
+    try {
+      await host.native(payload);
+      return "shared";
+    } catch {
+      // No window to present on, or a link UIKit would not take: copy instead.
+      return (await host.copy(target.url)) ? "copied" : "failed";
+    }
+  }
 
   if (host.share !== null) {
     try {
-      await host.share(sharePayload(target));
+      await host.share(payload);
       return "shared";
     } catch (error) {
       if (isDismissal(error)) return "cancelled";
@@ -191,7 +240,31 @@ export function legacyCopy(text: string): boolean {
 export function shareHost(): ShareHost {
   const share =
     typeof navigator !== "undefined" && typeof navigator.share === "function"
-      ? (data: SharePayload) => navigator.share(data)
+      ? (data: SharePayload) =>
+          // Only the two members Web Share defines: an image is the native
+          // sheet's business, and a stray field is a payload the platform may
+          // refuse rather than ignore.
+          navigator.share({ ...(data.title ? { title: data.title } : {}), url: data.url })
       : null;
-  return { share, copy: (text) => copyText(text) };
+  return { native: nativeShare(), share, copy: (text) => copyText(text) };
+}
+
+/**
+ * The app's own sheet, when this build has it.
+ *
+ * The import is deferred and lives inside the function: the web build never
+ * loads Tauri's IPC module, and a desktop press never even reaches here. The
+ * command name matches `share_sheet` in `src-tauri/src/share.rs`; the argument
+ * keys are camel-cased by Tauri's own deserializer.
+ */
+export function nativeShare(): ((data: SharePayload) => Promise<void>) | null {
+  if (!nativeShareAvailable()) return null;
+  return async (data) => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("share_sheet", {
+      title: data.title ?? "",
+      url: data.url,
+      image: data.image ?? null,
+    });
+  };
 }

@@ -62,6 +62,44 @@ workflows:
           export PATH="$CM_BUILD_DIR/bin:$PATH"
           pnpm tauri ios init --ci
           ls -la src-tauri/gen/apple
+      - name: Add the native share bridge
+        script: |-
+          set -euo pipefail
+          # The share sheet is half Swift: `src-tauri/ios/ShareSheet.swift` is the
+          # half that cannot be written in Rust. It is committed outside the Xcode
+          # project because that project is a build product — `tauri ios init`
+          # above regenerates it from the template on every run.
+          #
+          # So: find the directory the template compiles Swift from, copy the file
+          # in, and re-run XcodeGen so it is in the app target rather than merely
+          # on disk. A Swift file that is in no target's compile sources compiles
+          # nowhere and fails silently, which is why the generated pbxproj is
+          # grepped at the end of this step — and why the packaged binary is
+          # grepped again after the build.
+          cat src-tauri/gen/apple/project.yml
+          ls -la src-tauri/ios
+          EXISTING=$(find src-tauri/gen/apple -name '*.swift' -not -path '*/build/*' -print -quit)
+          if [ -n "$EXISTING" ]; then
+            SOURCES=$(dirname "$EXISTING")
+          else
+            SOURCES=src-tauri/gen/apple/Sources
+          fi
+          [ -d "$SOURCES" ] || { echo "no Swift source directory in gen/apple"; exit 1; }
+          echo "swift sources: $SOURCES"
+          cp -v src-tauri/ios/*.swift "$SOURCES/"
+          cd src-tauri/gen/apple
+          set -- *.xcodeproj
+          PROJ="$1"
+          [ -d "$PROJ" ] || { echo "no .xcodeproj was generated"; exit 1; }
+          echo "project: $PROJ"
+          XCODEGEN=$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)
+          "$XCODEGEN" generate --spec project.yml
+          grep -q 'ShareSheet.swift in Sources' "$PROJ/project.pbxproj" || {
+            echo "ShareSheet.swift is not in the app target's compile sources"
+            grep -n 'ShareSheet' "$PROJ/project.pbxproj" || true
+            exit 1
+          }
+          echo "the share bridge is in the app target"
       - name: Build unsigned .app
         script: |
           set -euo pipefail
@@ -90,5 +128,24 @@ workflows:
           unzip -l "$CM_BUILD_DIR/build/HardlyReader-unsigned.ipa" | head -20
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
+          # The card this workflow serves is not done until the IPA *contains* the
+          # bridge, and a static lib plus a Swift file that never got linked looks
+          # exactly like a successful build. Ask the binary itself: the Swift
+          # marker (logged on every presentation) and the command name the webview
+          # invokes both have to be in there.
+          BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          echo "binary: $BIN"
+          # Write the strings out first: `strings ... | grep -q` would have grep
+          # exit on its first match, close the pipe, and turn a match into a
+          # SIGPIPE failure under pipefail.
+          strings -a "$BIN" > "$CM_BUILD_DIR/build/binary-strings.txt"
+          for symbol in hardlyreader-share-sheet-1 share_sheet; do
+            if grep -q -- "$symbol" "$CM_BUILD_DIR/build/binary-strings.txt"; then
+              echo "found in the binary: $symbol"
+            else
+              echo "MISSING from the binary: $symbol — the share bridge was not linked"
+              exit 1
+            fi
+          done
     artifacts:
       - build/HardlyReader-unsigned.ipa

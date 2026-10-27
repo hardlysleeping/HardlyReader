@@ -17,6 +17,13 @@
  *      can be missing where the app actually runs. `document.execCommand` is
  *      the route that does not care, and the fake document below proves it
  *      selects the field, runs, and removes the field whatever happens.
+ *
+ *   3. the app's own sheet. On iOS the same missing secure context takes Web
+ *      Share with it, so the packaged app presents `UIActivityViewController`
+ *      through the `share_sheet` command instead. The last block stands a stub
+ *      of Tauri's IPC in place and proves the page sends that command, with the
+ *      title, the link and the lead picture — and only on the iOS app, never on
+ *      the desktop window.
  */
 import {
   copyHost,
@@ -38,11 +45,18 @@ function check(name, ok, detail = "") {
 }
 
 /** A host that records what it was asked to do. */
-function fakeHost({ share = null, copy = async () => true } = {}) {
-  const calls = { shared: [], copied: [] };
+function fakeHost({ native = null, share = null, copy = async () => true } = {}) {
+  const calls = { native: [], shared: [], copied: [] };
   return {
     calls,
     host: {
+      native:
+        native === null
+          ? null
+          : async (data) => {
+              calls.native.push(data);
+              return native(data);
+            },
       share:
         share === null
           ? null
@@ -130,6 +144,132 @@ check("only AbortError counts as a dismissal", isDismissal(named("AbortError")))
 check("a plain error does not", !isDismissal(named("NotAllowedError")));
 check("nor does a string", !isDismissal("AbortError"));
 check("nor null", !isDismissal(null));
+
+// ---------------------------------------------------------------------------
+// The app's own sheet
+// ---------------------------------------------------------------------------
+
+const ONE_POST = { title: "Post", url: "https://site.test/a" };
+const WITH_PICTURE = { ...ONE_POST, image: "https://site.test/a.jpg" };
+
+// The packaged iOS app is served from `tauri://localhost`, which is not a secure
+// context, so Web Share is absent there and the UIKit bridge is the sheet.
+const nativeSheet = fakeHost({ native: async () => {} });
+run = await shareArticle(WITH_PICTURE, nativeSheet.host);
+check("the app's own sheet is used when the build has one", run === "shared");
+check("it is handed the headline, the link and the picture", (() => {
+  const sent = nativeSheet.calls.native[0];
+  return sent && sent.title === "Post" && sent.url === "https://site.test/a" && sent.image === "https://site.test/a.jpg";
+})());
+check(
+  "and neither Web Share nor the copy is touched",
+  nativeSheet.calls.shared.length === 0 && nativeSheet.calls.copied.length === 0,
+);
+
+// Both at once cannot happen on a device, and if it ever does the native sheet
+// wins: it is the one that works without a secure context.
+const bothSheets = fakeHost({ native: async () => {}, share: async () => {} });
+run = await shareArticle(ONE_POST, bothSheets.host);
+check("the native sheet wins when both are offered", bothSheets.calls.native.length === 1 && bothSheets.calls.shared.length === 0);
+
+// A bridge that refuses — no window to present on, a link UIKit would not take
+// — leaves the copy, and does not then try Web Share, whose activation the IPC
+// round trip has already spent.
+const nativeRefused = fakeHost({
+  native: async () => {
+    throw named("NoWindow");
+  },
+  share: async () => {},
+});
+run = await shareArticle(ONE_POST, nativeRefused.host);
+check("a refusing bridge falls back to the copy", run === "copied");
+check("with the link", nativeRefused.calls.copied[0] === "https://site.test/a");
+check("and Web Share is not attempted after it", nativeRefused.calls.shared.length === 0);
+
+const nativeNowhere = fakeHost({
+  native: async () => {
+    throw named("NoWindow");
+  },
+  copy: async () => false,
+});
+check("a refusing bridge with no clipboard is a failure", (await shareArticle(ONE_POST, nativeNowhere.host)) === "failed");
+
+// The payload: a picture is an extra, so an absent one is absent, not empty.
+check("a blank picture is left out of the payload", !("image" in sharePayload({ ...ONE_POST, image: "   " })));
+check("a picture is carried whole", sharePayload({ ...ONE_POST, image: " https://site.test/i.jpg " }).image === "https://site.test/i.jpg");
+check("an untitled post keeps its picture", sharePayload({ title: "", url: "https://s.test/x", image: "https://s.test/i.jpg" }).image === "https://s.test/i.jpg");
+
+// ---------------------------------------------------------------------------
+// The bridge, against a stub of Tauri's IPC
+// ---------------------------------------------------------------------------
+//
+// This is the only place the command's name and its argument shape are checked
+// from the page's side: `share_sheet` must match `src-tauri/src/share.rs`, and
+// a rename on one side only would compile and do nothing.
+
+const IOS_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+const realNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+const realWindowValue = globalThis.window;
+const realInternals = globalThis.__TAURI_INTERNALS__;
+
+/** Pretend to be a webview: a user agent, and Tauri's injected object. */
+function become({ ua, tauri }) {
+  Object.defineProperty(globalThis, "navigator", {
+    // A browser on the phone has Web Share; the app's webview does not, because
+    // its own scheme is not a secure context.
+    value: { userAgent: ua, maxTouchPoints: 5, share: tauri ? undefined : async () => {} },
+    configurable: true,
+    writable: true,
+  });
+  if (tauri) {
+    const calls = [];
+    const internals = {
+      invoke: async (cmd, args) => {
+        calls.push({ cmd, args });
+        return null;
+      },
+    };
+    globalThis.__TAURI_INTERNALS__ = internals;
+    globalThis.window = { __TAURI_INTERNALS__: internals, isSecureContext: false };
+    return calls;
+  }
+  delete globalThis.__TAURI_INTERNALS__;
+  globalThis.window = { isSecureContext: false };
+  return null;
+}
+
+try {
+  // An iPhone in a browser tab: Web Share, and no bridge to call.
+  become({ ua: IOS_UA, tauri: false });
+  const browserHost = shareHost();
+  check("an iPhone browser tab has no native sheet", browserHost.native === null);
+  check("and keeps Web Share", browserHost.share !== null);
+
+  // The packed app on the same phone: the bridge, and the command's shape.
+  const sent = become({ ua: IOS_UA, tauri: true });
+  const appHost = shareHost();
+  check("the iOS app has the native sheet", appHost.native !== null);
+  await appHost.native({ title: "Post", url: "https://site.test/a", image: "https://site.test/a.jpg" });
+  check("it calls share_sheet", sent[0]?.cmd === "share_sheet");
+  check("with the title", sent[0]?.args.title === "Post");
+  check("with the link", sent[0]?.args.url === "https://site.test/a");
+  check("with the picture", sent[0]?.args.image === "https://site.test/a.jpg");
+  await appHost.native({ url: "https://site.test/b" });
+  check("a post with no picture sends an explicit null", sent[1]?.args.image === null);
+  check("and an empty title, never undefined", sent[1]?.args.title === "");
+
+  // A desktop window: no bridge, even though Tauri is there.
+  const desktopSent = become({ ua: "Mozilla/5.0 (X11; Linux x86_64) Firefox/141.0", tauri: true });
+  check("the desktop window has no native sheet", shareHost().native === null);
+  check("and calls nothing", desktopSent.length === 0);
+} finally {
+  if (realNavigator === undefined) delete globalThis.navigator;
+  else Object.defineProperty(globalThis, "navigator", realNavigator);
+  if (realWindowValue === undefined) delete globalThis.window;
+  else globalThis.window = realWindowValue;
+  if (realInternals === undefined) delete globalThis.__TAURI_INTERNALS__;
+  else globalThis.__TAURI_INTERNALS__ = realInternals;
+}
 
 // ---------------------------------------------------------------------------
 // The clipboard
