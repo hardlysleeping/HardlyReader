@@ -173,8 +173,14 @@ workflows:
           if [ -f "$IPA" ]; then
             SHIP="$(mktemp -d)"
             trap 'rm -rf "$STRINGS" "$SHIP"' EXIT
-            unzip -q "$IPA" 'Payload/*/Info.plist' -d "$SHIP"
-            SHIPPED="$(find "$SHIP" -name Info.plist -print -quit)"
+            # `Payload/*/Info.plist` also matches the ones nested inside
+            # LaunchScreen.storyboardc and Assets — the first match was a
+            # storyboard, and the check reported the app as missing its keys.
+            # Name the .app and read the plist that belongs to it.
+            unzip -q "$IPA" 'Payload/*.app/Info.plist' -d "$SHIP"
+            SHIPPED=""
+            for f in "$SHIP"/Payload/*.app/Info.plist; do SHIPPED="$f"; break; done
+            [ -f "$SHIPPED" ] || { echo "::error::no app Info.plist inside the IPA"; exit 1; }
             echo "--- the shipped IPA's $SHIPPED:"
             /usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers' "$SHIPPED" || true
             /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$SHIPPED" || true
