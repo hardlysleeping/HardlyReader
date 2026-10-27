@@ -62,7 +62,8 @@ export class MemoryDatabase implements LocalDatabase {
     // itself behind — the promise the SQLite and IndexedDB drivers keep with a
     // transaction, kept here by looking first.
     for (const operation of operations) {
-      if (operation.type === "put" && (typeof operation.row.key !== "string" || operation.row.key === "")) {
+      if (operation.type !== "put") continue;
+      if (typeof operation.row.key !== "string" || operation.row.key === "") {
         throw new LocalStorageError(`A row in "${operation.table}" was written without a key`);
       }
     }

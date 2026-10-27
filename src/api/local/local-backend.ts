@@ -230,6 +230,8 @@ export class LocalBackend implements ReaderBackend {
     const feeds = new Map((await this.store.feeds()).map((feed) => [feed.key, feed]));
     const contents: StreamContents = {
       id: streamId,
+      // GReader stamps a stream with when it was assembled. There is nothing to
+      // ask here, so it is now — the one honest answer available.
       updated: Math.floor(Date.now() / 1000),
       items: page.entries.map((row) => toStreamItem(row, feeds.get(row.feed))),
     };

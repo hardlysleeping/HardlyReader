@@ -133,7 +133,10 @@ export function localItemId(feedUrl: string, guid: string): string {
 }
 
 /** Newest first, with the id breaking ties so a page boundary cannot repeat. */
-function newestFirst(a: { published: number; key: string }, b: { published: number; key: string }): number {
+function newestFirst(
+  a: { published: number; key: string },
+  b: { published: number; key: string },
+): number {
   if (a.published !== b.published) return b.published - a.published;
   return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
 }

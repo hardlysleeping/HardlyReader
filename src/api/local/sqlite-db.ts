@@ -56,7 +56,7 @@ interface SqlDatabase {
 /** SQLite's default limit on bound parameters, with room left for the rest. */
 const KEY_CHUNK = 400;
 
-function quoted(table: TableName, columns: readonly string[]): string {
+function quoted(columns: readonly string[]): string {
   return columns.map((column) => `"${column}"`).join(", ");
 }
 
@@ -165,7 +165,7 @@ export class SqliteDatabase implements LocalDatabase {
       .map((column) => `"${column.name}" = excluded."${column.name}"`)
       .join(", ");
     await this.db.execute(
-      `INSERT INTO "${table}" (${quoted(table, columns)}) VALUES (${placeholders}) ` +
+      `INSERT INTO "${table}" (${quoted(columns)}) VALUES (${placeholders}) ` +
         `ON CONFLICT("key") DO UPDATE SET ${updates}`,
       [row.key, ...columnValues(table, row)],
     );
