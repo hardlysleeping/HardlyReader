@@ -94,5 +94,8 @@ export function buildReaderModule() {
     .replaceAll('"./stream-cache"', JSON.stringify(absolute("src/state/stream-cache.ts")))
     .replaceAll('"./pins"', JSON.stringify(absolute("src/state/pins.ts")))
     .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")))
-    .replaceAll('"../lib/api-snapshot"', JSON.stringify(absolute("src/lib/api-snapshot.ts")));
+    .replaceAll('"../lib/api-snapshot"', JSON.stringify(absolute("src/lib/api-snapshot.ts")))
+    .replaceAll('"../lib/stream-loads"', JSON.stringify(absolute("src/lib/stream-loads.ts")))
+    .replaceAll('"../lib/stream-perf"', JSON.stringify(absolute("src/lib/stream-perf.ts")))
+    .replaceAll('"../lib/stream-scroll"', JSON.stringify(absolute("src/lib/stream-scroll.ts")));
 }
