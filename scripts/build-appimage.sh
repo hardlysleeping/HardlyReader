@@ -17,9 +17,9 @@ if ! command -v node >/dev/null 2>&1; then
   sudo apt-get install -y -qq nodejs >/dev/null
 fi
 
+# nodesource's node does not carry corepack, so pnpm comes from npm.
 if ! command -v pnpm >/dev/null 2>&1; then
-  sudo corepack enable
-  corepack prepare pnpm@latest --activate
+  sudo npm install -g pnpm@latest >/dev/null
 fi
 
 export PATH="$HOME/.cargo/bin:$PATH"
