@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod lan;
+mod sync;
 
 use tauri::Manager;
 
@@ -17,7 +18,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             lan::lan_start,
             lan::lan_stop,
-            lan::lan_status
+            lan::lan_status,
+            // The device-sync document: one file, in a folder the reader
+            // chose. The page names the folder; `sync.rs` names the file.
+            sync::sync_read,
+            sync::sync_write
         ])
         // A window that is gone is not a server: closing the reader stops the
         // share rather than leaving a socket open behind a closed window.

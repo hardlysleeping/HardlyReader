@@ -281,6 +281,64 @@ export class LocalStore {
   }
 
   /**
+   * Renames a feed, with where the name came from.
+   *
+   * A title that arrives from another device is not a new subscription, so
+   * `subscribe` — which refuses a feed it already holds — is the wrong door, and
+   * `recordFetch` deliberately will not rename a feed the reader has already
+   * named. Sync needs the third case: this row's name is now the one both
+   * devices agreed on, and the source travels with it so a placeholder title is
+   * still replaceable by the feed itself.
+   */
+  async renameFeed(feedUrl: string, title: string, titleSource: string): Promise<boolean> {
+    const url = this.feedUrl(feedUrl);
+    const feed = await this.db.get<FeedRow>("feeds", url);
+    if (feed === null) return false;
+    const name = title.trim();
+    if (name === "") return false;
+    await this.db.write([
+      { type: "put", table: "feeds", row: { ...feed, title: name, title_source: titleSource } },
+    ]);
+    return true;
+  }
+
+  /**
+   * Makes a folder exist, touching nothing if it already does.
+   *
+   * The one caller today is device sync: a folder the reader made on another
+   * device arrives before any feed in it does, and an empty folder is a thing
+   * they made rather than something to be inferred from its contents. Returns
+   * whether it created one, which is what the report counts.
+   */
+  async ensureFolder(name: string): Promise<boolean> {
+    const folder = name.trim();
+    if (folder === "") {
+      throw new LocalStorageError("A folder needs a name");
+    }
+    if ((await this.db.get<FolderRow>("folders", folder)) !== null) return false;
+    await this.db.write([{ type: "put", table: "folders", row: { key: folder, created_at: seconds() } }]);
+    return true;
+  }
+
+  /**
+   * Forgets a folder that holds no feeds.
+   *
+   * A folder with a feed in it is not an empty folder, and deleting the row
+   * under a subscription would leave the feed filed under a name the sidebar
+   * cannot draw. So a folder that is not empty is left alone and the answer is
+   * false; removing the feeds first is the caller's business.
+   */
+  async forgetFolder(name: string): Promise<boolean> {
+    const folder = name.trim();
+    if (folder === "") return false;
+    if ((await this.db.get<FolderRow>("folders", folder)) === null) return false;
+    const occupied = (await this.db.all<FeedRow>("feeds")).some((feed) => feed.folder === folder);
+    if (occupied) return false;
+    await this.db.write([{ type: "delete", table: "folders", key: folder }]);
+    return true;
+  }
+
+  /**
    * Adds a feed.
    *
    * Nothing here fetches the URL — that is a poller's job, and pretending a
@@ -573,6 +631,24 @@ export class LocalStore {
         row: { ...row, [column]: value ? 1 : 0 },
       })),
     );
+  }
+
+  /**
+   * The two flags of every stored article, in one pass.
+   *
+   * Device sync asks a question about the whole library at once — which marks
+   * have changed since the last agreement — and answering it a page at a time
+   * would mean reading the same column once per page of a library that is
+   * thousands of rows. Nothing else here needs every row's flags, so this is the
+   * only query that returns them without the articles around them.
+   */
+  async entryFlags(): Promise<Pick<EntryRow, "key" | "read" | "starred" | "stored_at">[]> {
+    return (await this.db.all<EntryRow>("entries")).map((row) => ({
+      key: row.key,
+      read: row.read,
+      starred: row.starred,
+      stored_at: row.stored_at,
+    }));
   }
 
   /**

@@ -25,6 +25,21 @@ export { openLocalDatabase, preferredEngine } from "./open";
 export { LocalStorageError } from "./driver";
 export { MemoryDatabase } from "./memory-db";
 export {
+  MARK_RETENTION_SECONDS,
+  SYNC_FILE_NAME,
+  SYNC_VERSION,
+  TOMBSTONE_SECONDS,
+  applySnapshot,
+  buildSnapshot,
+  emptySnapshot,
+  mergeSnapshots,
+  parseSyncSnapshot,
+  pruneSnapshot,
+  serializeSnapshot,
+  syncOnce,
+} from "./sync";
+export { MemorySyncFolder, NativeSyncFolder, foldersAvailable, syncFolderAt } from "./sync-folder";
+export {
   REFRESH_POLICY,
   createRefresher,
   dueFeeds,
@@ -35,6 +50,21 @@ export {
 } from "./refresh";
 export type { LocalDatabaseOptions } from "./open";
 export type { LocalBackendOptions } from "./local-backend";
+export type {
+  ApplyReport,
+  BuildSnapshotOptions,
+  SnapshotMerge,
+  SnapshotRows,
+  SyncConflict,
+  SyncPrefs,
+  SyncRun,
+  SyncRunOptions,
+  SyncSnapshot,
+  SyncedFeed,
+  SyncedFolder,
+  SyncedMark,
+} from "./sync";
+export type { SyncFolder } from "./sync-folder";
 export type {
   FeedFetcher,
   FeedRequest,
