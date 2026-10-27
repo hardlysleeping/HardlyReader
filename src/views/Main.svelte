@@ -1018,6 +1018,16 @@
     </div>
   {/if}
 
+  <!-- A landed action, said once. It sits where the error banner sits and takes
+       the same height, so confirming a move does not make the panes jump, and it
+       clears itself rather than asking to be dismissed. -->
+  {#if reader.notice}
+    <div class="notice" role="status">
+      <span>{reader.notice}</span>
+      <button onclick={() => reader.dismissNotice()} aria-label="Dismiss">×</button>
+    </div>
+  {/if}
+
   <!-- The crumb strip belongs only to levels that have a level behind them: on
        the feeds surface back and home both go nowhere, so it was two dead
        buttons taking 34px off a column with none to spare. It sits outside the
@@ -1792,6 +1802,45 @@
   .error span {
     flex: 1;
     overflow-wrap: anywhere;
+  }
+
+  /* The confirmation half of the banner: the same box in the account's own green
+     rather than the alarm's red, so it reads as one system saying two things. */
+  .notice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    font-size: 12.5px;
+    color: color-mix(in srgb, var(--tone-unlock, #3fbf6f) 30%, #fff);
+    background: color-mix(in srgb, var(--tone-unlock, #3fbf6f) 22%, var(--bg));
+    animation: notice-in 140ms ease-out both;
+  }
+
+  .notice span {
+    flex: 1;
+    overflow-wrap: anywhere;
+  }
+
+  .notice button {
+    border: 0;
+    background: none;
+    color: inherit;
+    font-size: 16px;
+    cursor: pointer;
+  }
+
+  @keyframes notice-in {
+    from {
+      opacity: 0;
+      transform: translateY(-3px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .notice {
+      animation: none;
+    }
   }
 
   .error button {

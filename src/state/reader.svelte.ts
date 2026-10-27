@@ -5,6 +5,7 @@ import { addFeedsMessage, parseFeedUrls, type AddFeedsResult } from "../lib/add-
 import { landingItem, step } from "../lib/reading-order";
 import { stepIndex } from "../lib/list-view";
 import { isNoopDrop, moveInOrder, sortByOrder } from "../lib/feed-order";
+import { moveNotice } from "../lib/feed-move";
 import { attemptOrder } from "../lib/stream-cycle";
 import { StreamLoads } from "../lib/stream-loads";
 import { StreamPerf, type StreamSource } from "../lib/stream-perf";
@@ -119,6 +120,8 @@ export const PAGE_SIZE = 50;
 /** Cached streams stay usable for a minute; after that they revalidate on open. */
 const STREAM_CACHE_TTL_MS = 60_000;
 const STREAM_CACHE_MAX = 20;
+/** How long a confirmation of a landed action stays on screen. */
+const NOTICE_MS = 2800;
 /** Speculative fetches never exceed this many concurrent requests. */
 const PREFETCH_MAX_INFLIGHT = 2;
 /** How many streams keep a scroll position, so going back lands where it was. */
@@ -278,6 +281,17 @@ export class ReaderState {
   loadingMore = $state(false);
   busyItems = new SvelteMap<string, boolean>();
   error = $state<string | null>(null);
+
+  /**
+   * An action that landed, said once and then gone.
+   *
+   * The error banner is the failure half of the same idea; this is the half that
+   * confirms a change the account now agrees with. It is a separate field so a
+   * notice can never overwrite an error, and it clears itself — a confirmation
+   * that needs dismissing is a second job for the reader.
+   */
+  notice = $state<string | null>(null);
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Hidden Categories state from the HardlyRead v1 API.
@@ -2397,6 +2411,9 @@ export class ReaderState {
     this.feedBusy = true;
     try {
       await moveFeedOnServer(transport, session, streamId, targetLabel, currentLabel);
+      // The account took it, and that is the one fact the sidebar cannot show:
+      // the drag already drew the new folder before this request was made.
+      this.flashNotice(moveNotice(feed.title, targetLabel));
       // The feed is filed where the drag put it, so the arrangement that goes
       // with it can follow. The rollback path below sends nothing: the account
       // is never given an order the sidebar is not showing.
@@ -3222,6 +3239,28 @@ export class ReaderState {
 
   dismissError(): void {
     this.error = null;
+  }
+
+  /**
+   * Says one landed action, then takes it back.
+   *
+   * The timer is restarted rather than stacked, so a second move inside the life
+   * of the first replaces the line instead of leaving an older one to clear a
+   * newer one.
+   */
+  flashNotice(text: string): void {
+    this.notice = text;
+    if (this.noticeTimer !== null) clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => {
+      this.notice = null;
+      this.noticeTimer = null;
+    }, NOTICE_MS);
+  }
+
+  dismissNotice(): void {
+    if (this.noticeTimer !== null) clearTimeout(this.noticeTimer);
+    this.noticeTimer = null;
+    this.notice = null;
   }
 }
 
