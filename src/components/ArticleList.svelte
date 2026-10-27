@@ -518,6 +518,16 @@
    * once per card, and the resize that answered it asked for another. One press,
    * one answer, and nothing moves the window but the reader.
    */
+  /**
+   * The sliver of the card above and below the one being fitted.
+   *
+   * A window sized to the card exactly says "this is the whole stream"; the
+   * reader then has no way to tell whether that was the last post or the
+   * hundredth. Room for the neighbours — the same number the sheet fades by —
+   * says there is more in both directions, and the card still fits whole.
+   */
+  const CARD_PEEK = 24;
+
   async function fitToComic(): Promise<void> {
     if (fitting || view !== "cards") return;
     const el = itemsEl;
@@ -563,13 +573,16 @@
       const room = Math.min(availH * natural, img.naturalWidth / share, availW);
       const paneNext = Math.round(Math.min(room, availW));
       const pictureH = Math.round((paneNext * share) / natural);
-      // Never taller than the picture needs, never shorter than a window may be:
-      // asking for less than the shell's own floor gets clamped, and a clamp is a
-      // size the fit did not ask for and will ask for again.
-      // Never taller than the picture needs, never shorter than a window may be:
-      // asking for less than the shell's own floor gets clamped, and a clamped
-      // window is not the window that was asked for.
-      const height = Math.min(screen.height, Math.max(FIT_FLOOR_H, chrome + pictureH));
+      // The whole card: its picture, and the furniture under it — star, read,
+      // headline, byline — which `chrome` already counts. Plus the two slivers,
+      // so the neighbours are visible at the pane's edges and the card does not
+      // look like the only post there is. Never taller than the screen; never
+      // shorter than the shell's own floor, because asking for less gets clamped
+      // and a clamped window is not the window that was asked for.
+      const height = Math.min(
+        screen.height,
+        Math.max(FIT_FLOOR_H, chrome + pictureH + 2 * CARD_PEEK),
+      );
       if (
         Math.abs(paneNext - el.clientWidth) < 1 &&
         Math.abs(height - window.innerHeight) < 1
@@ -2701,6 +2714,27 @@
        still has to be scrolled through by hand, and a mandatory snap would keep
        dragging it back to its own middle. */
     scroll-snap-type: y proximity;
+    /* The cards' edges fade into the pane instead of being cut off by it: the
+       sliver of the card above and below reads as more of the stream rather than
+       as a card that is somehow broken. The same length the fit leaves for those
+       slivers, so a fitted card sits exactly past its own fade and stays crisp.
+       A backdrop blur would need a strip pinned outside the scroller, which this
+       component does not have; a fade says the same thing with paint only. */
+    --card-peek: 24px;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--card-peek),
+      #000 calc(100% - var(--card-peek)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--card-peek),
+      #000 calc(100% - var(--card-peek)),
+      transparent 100%
+    );
     /* A card is the pane: no gutter down the sides, and none above the first or
        below the last, so its four edges sit on the same margin. The gap between
        cards is the only space in the column, which is why stepping one card puts

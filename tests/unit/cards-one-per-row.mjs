@@ -200,15 +200,67 @@ check(
     return (
       Number.isFinite(min) &&
       declared === min &&
-      /Math\.min\(screen\.height, Math\.max\(FIT_FLOOR_H, chrome \+ pictureH\)\)/.test(list) &&
+      /const height = Math\.min\(\s*screen\.height,\s*Math\.max\(FIT_FLOOR_H, chrome \+ pictureH \+ 2 \* CARD_PEEK\),\s*\);/.test(list) &&
       // the height asked for is the page's, not whatever the window happens to
       // be: a fit that kept the current height could not fit a short strip
       (() => {
-        const line = list.slice(list.indexOf("const height = Math.min(screen.height"), list.indexOf(";", list.indexOf("const height = Math.min(screen.height")));
+        const at = list.indexOf("const height = Math.min(");
+        const line = list.slice(at, list.indexOf(";", at));
         return !/innerHeight/.test(line) && !/\b240\b/.test(line);
       })()
     );
   })(),
+);
+
+// ------------------------------------------------------ the whole card fits --
+
+// A window sized to the picture alone leaves the card's own furniture — star,
+// read, headline, byline — under the window's edge, so the reader fits a comic
+// and then cannot star it. The card is what the fit has to show whole.
+check(
+  "the fit sizes the window to the whole card, not the picture",
+  (() => {
+    const fn = list.slice(list.indexOf("async function fitToComic"), list.indexOf("function syncSnap"));
+    return (
+      /const chrome =\s*card\.offsetHeight - Math\.round\(img\.getBoundingClientRect\(\)\.height\) \+\s*\(header \? Math\.round\(header\.getBoundingClientRect\(\)\.height\) : 0\)/.test(fn) &&
+      // …and it is `chrome` the height is built from, not the picture alone
+      /chrome \+ pictureH/.test(fn)
+    );
+  })(),
+);
+
+// A window that ends exactly on the card's edges says the stream ends there. Room
+// for the neighbours says it does not — and the sheet fades them by the same
+// length, so a fitted card sits just past its own fade and stays crisp.
+check(
+  "and it leaves the sliver of the card above and below",
+  (() => {
+    const declared = Number(/const CARD_PEEK = (\d+);/.exec(list)?.[1]);
+    const faded = Number(/\.cards \{[\s\S]{0,1600}?--card-peek: (\d+)px;/.exec(list)?.[1]);
+    return (
+      declared === 24 &&
+      faded === declared &&
+      /chrome \+ pictureH \+ 2 \* CARD_PEEK/.test(list)
+    );
+  })(),
+  `fit ${/const CARD_PEEK = (\d+);/.exec(list)?.[1]}, sheet ${/\.cards \{[\s\S]{0,1600}?--card-peek: (\d+)px;/.exec(list)?.[1]}`,
+);
+
+check(
+  "the edges of the cards' column fade into the pane",
+  (() => {
+    const block = list.slice(list.indexOf("  .cards {"), list.indexOf("  .cards::-webkit-scrollbar"));
+    const fades = (block.match(/#000 calc\(100% - var\(--card-peek\)\)/g) ?? []).length;
+    const ends = (block.match(/transparent 100%/g) ?? []).length;
+    return (
+      // both edges, both spelled for WebKitGTK and for Chromium: two of each
+      fades === 2 &&
+      ends === 2 &&
+      /mask-image: linear-gradient\(/.test(block) &&
+      /-webkit-mask-image: linear-gradient\(/.test(block)
+    );
+  })(),
+  "fades/ends",
 );
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

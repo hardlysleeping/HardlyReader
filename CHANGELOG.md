@@ -6,6 +6,16 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **A fit shows the whole card, with its neighbours showing too.** The window
+  was sized to the card exactly, which reads as the end of the stream; it is now
+  the card's picture *and* its star, mark-read, headline and byline, plus 24px
+  above and below so the cards on either side are visible. Those slivers fade
+  into the pane over the same 24px, so a fitted card sits just past its own fade
+  and nothing is cut off square. A real blur would need a strip pinned outside
+  the scroller; the fade does the job with paint alone.
+
 ### Fixed
 
 - **A panel strip asks for the full-size file, not the crop.** A card that
