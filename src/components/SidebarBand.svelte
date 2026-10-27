@@ -571,7 +571,9 @@
     --tone: var(--tone-hidden);
   }
 
-  .ctl.pin.on {
+  /* The pin keeps its tone in EVERY view. "Active" is one of the three working
+     states, not an idle one, so a grey seat would read as a disabled control. */
+  .ctl.pin {
     --tone: var(--tone-pinned);
   }
 
@@ -584,16 +586,20 @@
     --tone: var(--tone-lock-closed);
   }
 
+  /* Hover lifts a seat in its OWN tone instead of washing it to text grey: the
+     eye and the pin stay legible as themselves under the pointer, one step
+     lighter than the idle colour. */
   .ctl:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--text) 9%, transparent);
-    color: var(--text);
+    background: color-mix(in srgb, var(--tone) 18%, transparent);
+    color: color-mix(in srgb, var(--tone) 62%, #fff);
   }
 
   /* Pressed: the seat takes the tone, so the click is answered on the frame the
      pointer goes down. */
   .ctl:active:not(:disabled) {
     transform: scale(0.97);
-    background: color-mix(in srgb, var(--tone) 20%, transparent);
+    background: color-mix(in srgb, var(--tone) 32%, transparent);
+    color: color-mix(in srgb, var(--tone) 40%, #fff);
   }
 
   .ctl:disabled {

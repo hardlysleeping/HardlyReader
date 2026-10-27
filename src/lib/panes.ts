@@ -309,9 +309,10 @@ export const FLAT_ROWS = `${track(0)} 100% ${track(0)} ${track(0)}`;
  *
  * The sidebar's floor is the band's own. It was measured when the band was two
  * die-cut halves around a 44px lock; the band is now one row — eye, lock, pin —
- * whose longest label is the extension's own "HIDDEN FAVOURITES". That fits the
- * reference's 295px sidebar and only starts to ellipsize here, so the floor did
- * not move with the shape. Nothing narrower than this is a sidebar.
+ * whose longest label was the extension's own "HIDDEN FAVOURITES". The labels
+ * are now the short ones (Hidden / Active / Only), so this floor carries slack
+ * rather than being the exact fit it was measured as. Nothing narrower than this
+ * is a sidebar.
  */
 export const MIN: Record<"sidebar" | "list" | "article", number> = {
   sidebar: 240,

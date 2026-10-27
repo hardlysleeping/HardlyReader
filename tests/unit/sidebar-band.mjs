@@ -87,8 +87,8 @@ const CURTAIN_WORDS = /hidden|reveal|enforced/i;
     HIDDEN_VIEW_LABELS.hidden === "Hidden" && HIDDEN_VIEW_LABELS.revealed === "Revealed" && HIDDEN_VIEW_LABELS.only === "Only",
   );
   check(
-    "the pin cycles Mixed -> Favourites -> Hidden favourites",
-    PIN_VIEW_LABELS.all === "Mixed" && PIN_VIEW_LABELS.only === "Favourites" && PIN_VIEW_LABELS.without === "Hidden favourites",
+    "the pin cycles Active -> Only -> Hidden",
+    PIN_VIEW_LABELS.all === "Active" && PIN_VIEW_LABELS.only === "Only" && PIN_VIEW_LABELS.without === "Hidden",
   );
   check("...in that order", nextPinView("all") === "only" && nextPinView("only") === "without" && nextPinView("without") === "all");
   check(
@@ -132,8 +132,8 @@ const input = (overrides = {}) => ({
   check("the open band draws its row", facts.row === true && facts.state === "open");
   check("with the eye and its word", facts.hidden?.label === "Hidden" && facts.hidden?.enabled === true);
   check("saying what a press asks for", facts.hidden?.next === "Revealed");
-  check("and the pin's word from the extension", facts.pinLabel === "Mixed" && facts.pinNext === "Favourites");
-  check("the pin is named by its view", facts.pinName === "Mixed");
+  check("and the pin's word from the extension", facts.pinLabel === "Active" && facts.pinNext === "Only");
+  check("the pin is named by its view", facts.pinName === "Active");
   check("the pinned count is known to the band", facts.pinnedCount === 2);
 }
 
@@ -374,8 +374,8 @@ try {
     check("open: ...on the left", body.indexOf('class="ctl hidden') !== -1);
     check("open: the lock is next", body.indexOf('class="ctl lock') > body.indexOf('class="ctl hidden'));
     check("open: ...and the pin on the right", body.indexOf('class="ctl pin') > body.indexOf('class="ctl lock'));
-    check("open: the words are drawn", body.includes(">Hidden<") && body.includes(">Mixed<"));
-    check("open: the pin is named by its view", body.includes('aria-label="Pinned: Mixed"'));
+    check("open: the words are drawn", body.includes(">Hidden<") && body.includes(">Active<"));
+    check("open: the pin is named by its view", body.includes('aria-label="Pinned: Active"'));
     check("open: the lock offers to lock", body.includes('aria-label="Lock hidden categories"'));
   }
 
