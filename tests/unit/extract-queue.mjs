@@ -9,7 +9,6 @@ import {
   ExtractionQueue,
   candidateFor,
   planQueue,
-  wantsPage,
 } from "../../src/lib/extract-queue.ts";
 
 let failures = 0;
@@ -38,13 +37,6 @@ const wish = (overrides = {}) => ({
   parked: () => false,
   ...overrides,
 });
-
-// --- what the pane would fetch ---------------------------------------------
-check("the switch means every post", wantsPage(null, true));
-check("a per-post ask fetches with the switch off", wantsPage("article", false));
-check("no ask and the switch off fetches nothing", !wantsPage(null, false));
-check("a per-post refusal outranks the switch", !wantsPage("feed", true));
-check("and outranks its own absence", !wantsPage("feed", false));
 
 // --- only a page is a candidate --------------------------------------------
 check("https is a page", candidateFor("e1", "https://example.com/a").url !== "");

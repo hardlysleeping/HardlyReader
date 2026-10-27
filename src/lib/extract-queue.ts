@@ -19,10 +19,12 @@
  *    scrolling a page down would leave three prepared posts a screenful behind.
  *    The caller decides where it starts, because only the list knows its
  *    viewport.
- * 3. **On at all.** A post is prepared only when the pane would fetch it —
- *    `wantsPage()`: the account switch, or a per-post "article" choice, and
- *    never a per-post "feed" choice. Extraction that is off fetches nothing,
- *    which is the whole reason it is off.
+ * 3. **On at all.** A post is prepared only when the pane would fetch it, and
+ *    that decision is not this module's: the caller hands over the same answer
+ *    the pane uses (`wantsFullText()` in `full-text.ts` — the post's own ¶
+ *    press, the feed's Auto / Feed / Full webpage, then Auto's read). A second
+ *    copy of the rule here would drift from the pane and spend a request on a
+ *    page the reader would never be shown.
  *
  * And two things it must never do: hold up a stream load, and pay a publisher
  * twice. The first is why nothing here is awaited from a paint — a plan is set
@@ -37,7 +39,7 @@
  */
 
 import { canExtract, extractFor, rememberedExtraction, type Extracted } from "./extract";
-import { ledger, type BodyChoice } from "./extract-ledger";
+import { ledger } from "./extract-ledger";
 
 /**
  * How far ahead of the reader the queue looks.
@@ -89,20 +91,6 @@ export interface PrepWish {
   readonly ready: (candidate: PrepCandidate) => boolean;
   /** Whether the ledger has parked this page. */
   readonly parked: (candidate: PrepCandidate) => boolean;
-}
-
-/**
- * Whether a post's page is worth fetching, given what the reader asked for.
- *
- * The pane's own rule, written once so the queue cannot disagree with it: the
- * account switch means every post, a per-post "article" means this one, and a
- * per-post "feed" means never — not even when the switch is on, because the
- * reader has already said this particular extraction is worse than the feed.
- *
- * When the setting grows a per-feed answer, it grows here first.
- */
-export function wantsPage(choice: BodyChoice | null, extractOn: boolean): boolean {
-  return (extractOn || choice === "article") && choice !== "feed";
 }
 
 /**
