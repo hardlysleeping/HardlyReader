@@ -501,81 +501,39 @@
    */
   let heldId = $state<string | null>(null);
 
-  /**
-   * Fit the window to the comic on screen.
-   *
-   * Experimental, and deliberately simple. A card draws its picture across the
-   * pane at the picture's own shape, so the pane's width is the only thing that
-   * decides how big a page is: this asks for the width at which the page's
-   * height fills the screen, capped by the picture's natural size and by what
-   * the monitor has, and then for the height that width needs. Two rules keep it
-   * from being a takeover — the window never grows past the current pane, so a
-   * comic that already fits changes nothing, and the feeds pane's width is
-   * subtracted, never touched.
-   */
-  let fitComic = $state(false);
-  /** Set while a fit is landing: the resize it causes must not ask for another. */
+  /** Set while a fit is landing, so a double press is one resize. */
   let fitting = false;
-  /** The window size the last fit asked the shell for, so its own resize is known. */
-  let fitAsked = { width: 0, height: 0 };
-  /**
-   * Cards already fitted since the reader last acted.
-   *
-   * Scrolling is not a request for a resize: moving through a stream of comics
-   * used to size the window once per card, and a card whose shape differed from
-   * the last one moved it again — the window appeared to thrash while the
-   * reader was only scrolling. One fit per card, and no card twice.
-   */
-  const fittedCards = new Set<string>();
-  /** When fits landed, so a shell that cannot honour a size cannot be argued with. */
-  const fitStamps: number[] = [];
   /** The shortest window the app is allowed to be — `minHeight` in tauri.conf. */
   const FIT_FLOOR_H = 480;
 
-  function toggleFitComic(): void {
-    fitComic = !fitComic;
-    fittedCards.clear();
-    fitStamps.length = 0;
-    // A press is the reader asking for the page's own size, so it may narrow the
-    // window as well as widen it. Scrolling never narrows: the window is the
-    // reader's, and taking it away while they move through a stream would be a
-    // control arguing with them.
-    if (fitComic) void fitToComic(true);
-  }
-
   /**
-   * Fit the window to the comic on screen, at the size the reader has it.
+   * Fit the window to the comic on screen — a press, not a mode.
    *
-   * `shrink` is off while the reader is only moving through the stream: there,
-   * a fit may grow the window to hold a page but must not take it away from a
-   * reader who set it. It is on when the reader is the one resizing — then the
-   * window they make is the window they mean, and a fit that refused to narrow
-   * would be a fit that stopped fitting the moment the picture got taller than
-   * the screen.
+   * A card draws its picture across the pane at the picture's own shape, so the
+   * pane's width is the only thing that decides how big a page is: this asks for
+   * the width at which the page's height fills the screen, capped by the
+   * picture's own pixels (scaled by the share of the pane it is drawn across)
+   * and by the room the monitor has, and then for the height that width needs.
+   * The feeds pane's width is subtracted, never touched.
+   *
+   * It is a button rather than a lit control because a lit one had to decide
+   * what to do when the stream moved under it, and every answer was a window
+   * resize the reader did not ask for: a stream of comics resized the window
+   * once per card, and the resize that answered it asked for another. One press,
+   * one answer, and nothing moves the window but the reader.
    */
-  async function fitToComic(shrink = false): Promise<void> {
-    if (!fitComic || fitting || view !== "cards") return;
+  async function fitToComic(): Promise<void> {
+    if (fitting || view !== "cards") return;
     const el = itemsEl;
     const card = currentCard();
     if (!el || !card) return;
-    const id = card.dataset.id ?? "";
     const img = card.querySelector<HTMLImageElement>(".lead img");
     if (!img) return;
     if (img.naturalWidth === 0 || img.naturalHeight === 0) {
       // Its shape is not known until it lands; ask again then.
-      img.addEventListener("load", () => void fitToComic(shrink), { once: true });
+      img.addEventListener("load", () => void fitToComic(), { once: true });
       return;
     }
-    // Once per card. A resize is only the answer to "this page is the wrong
-    // size", and a card that has had its answer keeps it while it stays under
-    // the port.
-    if (fittedCards.has(id)) return;
-    const now = Date.now();
-    while (fitStamps.length > 0 && now - fitStamps[0] > 1200) fitStamps.shift();
-    // A shell that clamps what it was asked for keeps reporting a new size; a
-    // handful of tries is a fit that has been answered as far as it can be.
-    if (fitStamps.length >= 3) return;
-    fittedCards.add(id);
     fitting = true;
     try {
       const screen = await screenSize();
@@ -607,24 +565,22 @@
       // go — a fit that shrank the window would be a fit the reader did not ask
       // for.
       const room = Math.min(availH * natural, img.naturalWidth / share, availW);
-      const paneNext = Math.round(Math.min(shrink ? room : Math.max(pane2, room), availW));
+      const paneNext = Math.round(Math.min(room, availW));
       const pictureH = Math.round((paneNext * share) / natural);
       // Never taller than the picture needs, never shorter than a window may be:
       // asking for less than the shell's own floor gets clamped, and a clamp is a
       // size the fit did not ask for and will ask for again.
-      const height = Math.min(
-        screen.height,
-        Math.max(shrink ? FIT_FLOOR_H : window.innerHeight, chrome + pictureH),
-      );
+      // Never taller than the picture needs, never shorter than a window may be:
+      // asking for less than the shell's own floor gets clamped, and a clamped
+      // window is not the window that was asked for.
+      const height = Math.min(screen.height, Math.max(FIT_FLOOR_H, chrome + pictureH));
       if (
         Math.abs(paneNext - el.clientWidth) < 1 &&
         Math.abs(height - window.innerHeight) < 1
       ) {
         return;
       }
-      fitAsked = { width: pane1 + rest + paneNext, height };
-      fitStamps.push(Date.now());
-      await fitWindowTo(fitAsked.width, fitAsked.height);
+      await fitWindowTo(pane1 + rest + paneNext, height);
     } finally {
       // A resize moves the cards under the port, which is a scroll away from
       // asking for the same fit again. One fit per settling is enough.
@@ -646,7 +602,6 @@
     const next = card?.dataset.id ?? null;
     if (next === heldId) return;
     heldId = next;
-    if (fitComic) void fitToComic();
   }
 
   function onCardsScroll(): void {
@@ -752,27 +707,9 @@
     // The window is the reader's own hand, so a fit follows it in both
     // directions. The splitter is not: a fit that undid the drag would be a
     // control arguing with the reader.
-    const onWindowResize = () => {
-      // The resize the fit itself asked for arrives here as a `resize` too.
-      // Answering it with another fit is the fit arguing with itself: every
-      // answer moves the cards, which asks again, and the window jumps between
-      // sizes while the reader is only scrolling. A size we asked for is not a
-      // size the reader made.
-      if (
-        Math.abs(window.innerWidth - fitAsked.width) < 2 &&
-        Math.abs(window.innerHeight - fitAsked.height) < 2
-      ) {
-        return;
-      }
-      fittedCards.clear();
-      fitStamps.length = 0;
-      if (view === "cards" && fitComic) void fitToComic(true);
-    };
-    window.addEventListener("resize", onWindowResize);
     return {
       destroy() {
         observer.disconnect();
-        window.removeEventListener("resize", onWindowResize);
         if (resizeTimer !== null) clearTimeout(resizeTimer);
         cancelAnimationFrame(resizeFrame);
       },
@@ -1334,11 +1271,9 @@
           {#if canFitWindow()}
             <button
               class="sizebtn fit"
-              class:on={fitComic}
-              aria-pressed={fitComic}
               aria-label="Fit the window to the comic"
               title="Fit the window to the comic: the whole picture, at its own shape"
-              onclick={toggleFitComic}
+              onclick={() => void fitToComic()}
             >fit</button>
           {/if}
         </div>
