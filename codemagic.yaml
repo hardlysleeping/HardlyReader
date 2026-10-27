@@ -70,6 +70,12 @@ workflows:
           # generated project and it is regenerated before Xcode sees it; the
           # Info.plist keys come from src-tauri/Info.ios.plist, which Tauri
           # merges itself during `tauri ios build`.
+          #
+          # XcodeGen is not part of the stock image, and the script refuses to
+          # run without it (a copied file that no target compiles is a feature
+          # that silently never runs), so install it here.
+          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen --version
           bash scripts/ios-background-refresh.sh
       - name: Build unsigned .app
         script: |
