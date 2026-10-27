@@ -4,6 +4,20 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The connect screen is a card, and it leaves upwards.** The first screen was a
+  form stretched across the window: three boxes, one of them shorter than the
+  others because a "Show" button sat inside it. It is now one panel on the
+  window's own background — equal boxes, an eye inside the password field, a
+  Connect button that lifts and casts an accent-coloured shadow on hover, and the
+  instructions split into what to type and what else works. Connecting adds the
+  account first and slides the panel up over the reader that is already there:
+  up, a short elastic settle back, then out of the window. Nothing about the
+  reader waits for the animation, and `prefers-reduced-motion` gets a fade.
+
 ## [0.6.6] — 2026-10-26
 
 ### Changed

@@ -275,8 +275,10 @@
     <form onsubmit={submit}>
       <h1>Connect to your reader</h1>
       <p class="hint">
-        FreshRSS: use the API password from your profile, not your account password.
-        Miniflux, Tiny Tiny RSS, The Old Reader and Inoreader work too — paste the
+        Use the API password from your FreshRSS profile — not your account password.
+      </p>
+      <p class="hint sub">
+        Miniflux, Tiny Tiny RSS, The Old Reader and Inoreader work too. Paste the
         server URL, and the API path if you know it.
       </p>
       {#if notice}
@@ -287,6 +289,7 @@
         <span>Server URL</span>
         <input
           type="url"
+          class="text"
           bind:value={serverUrl}
           placeholder="https://example.com"
           autocomplete="url"
@@ -296,7 +299,14 @@
 
       <label>
         <span>Username</span>
-        <input type="text" bind:value={email} autocomplete="username" required />
+        <input
+          type="text"
+          class="text"
+          bind:value={email}
+          placeholder="your username"
+          autocomplete="username"
+          required
+        />
       </label>
 
       <label>
@@ -304,18 +314,37 @@
         <div class="field">
           <input
             type={showPassword ? "text" : "password"}
+            class="text"
             bind:value={apiPassword}
+            placeholder="your API password"
             autocomplete="current-password"
             required
           />
+          <!-- The toggle sits inside the box as an eye, so the three fields stay
+               three boxes that line up, rather than two boxes and a box with a
+               word stuck to its edge. -->
           <button
             type="button"
             class="reveal"
             aria-pressed={showPassword}
             aria-label={showPassword ? "Hide API password" : "Show API password"}
+            title={showPassword ? "Hide API password" : "Show API password"}
             onclick={() => (showPassword = !showPassword)}
           >
-            {showPassword ? "Hide" : "Show"}
+            {#if showPassword}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2.6 12s3.5-6.4 9.4-6.4S21.4 12 21.4 12s-3.5 6.4-9.4 6.4S2.6 12 2.6 12Z" />
+                <circle cx="12" cy="12" r="2.6" />
+                <path d="M4.2 4.2l15.6 15.6" />
+              </svg>
+            {:else}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2.6 12s3.5-6.4 9.4-6.4S21.4 12 21.4 12s-3.5 6.4-9.4 6.4S2.6 12 2.6 12Z" />
+                <circle cx="12" cy="12" r="2.6" />
+              </svg>
+            {/if}
           </button>
         </div>
       </label>
@@ -352,22 +381,32 @@
   {/if}
 </div>
 
+
 <style>
+  /* One panel, centred: the window's own background shows around it, so the
+     screen reads as a card that was placed there rather than a form stretched
+     across the window. */
   .login {
     height: 100%;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1rem;
+    padding: 1.25rem;
+    overflow: auto;
   }
 
   form,
   .pairing {
-    width: 100%;
-    max-width: 26rem;
+    margin: auto;
+    width: min(26rem, 100%);
     display: flex;
     flex-direction: column;
-    gap: 0.85rem;
+    gap: 0.7rem;
+    padding: 1.4rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface-solid);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.05),
+      0 22px 48px -32px rgba(0, 0, 0, 0.5);
   }
 
   .pairing {
@@ -375,30 +414,57 @@
     align-items: center;
   }
 
+  @media (max-width: 26rem) {
+    .login {
+      padding: 0.75rem;
+    }
+
+    form,
+    .pairing {
+      padding: 1.15rem 1rem 1.05rem;
+      border-radius: 12px;
+    }
+  }
+
   h1 {
-    font-size: 1.15rem;
-    margin: 0;
+    margin: 0 0 0.1rem;
+    font-size: 1.22rem;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
   }
 
-  .notice {
-    margin: 0;
-    padding: 6px 8px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--surface);
-    color: var(--text-dim);
-    font-size: 11.5px;
-  }
-
+  /* Two short paragraphs instead of one long one: the first says what to type,
+     the second says what else works. Same information, without the wall. */
   .hint {
     margin: 0;
     color: var(--muted);
-    font-size: 0.85rem;
+    font-size: 0.86rem;
+    line-height: 1.45;
+    text-wrap: pretty;
+  }
+
+  .hint.sub {
+    color: var(--text-dim);
+    font-size: 0.79rem;
+    line-height: 1.4;
   }
 
   .hint.small {
     font-size: 0.78rem;
-    line-height: 1.35;
+    line-height: 1.4;
+    color: var(--text-dim);
+  }
+
+  .notice {
+    margin: 0;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--bg-alt);
+    color: var(--text-dim);
+    font-size: 0.79rem;
+    line-height: 1.4;
   }
 
   /* Eight digits read off this screen and typed into another: the largest type
@@ -454,13 +520,6 @@
     }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .dot {
-      animation: none;
-      opacity: 1;
-    }
-  }
-
   .verbs {
     display: flex;
     gap: 0.5rem;
@@ -477,45 +536,169 @@
   label {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
-    font-size: 0.85rem;
-    color: var(--muted);
+    gap: 0.32rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--text-dim);
   }
 
-  input {
+  /* All three boxes are one length because each one is a full-width box with
+     its padding inside its own border; nothing about the eye button is allowed
+     to make the password box a different size. */
+  .field,
+  input.text {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .field {
+    position: relative;
+    display: block;
+  }
+
+  input.text {
     font: inherit;
+    font-weight: 400;
+    font-size: 0.9rem;
+    letter-spacing: normal;
     color: var(--text);
     background: var(--bg-alt);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.5rem 0.6rem;
+    border: 1px solid color-mix(in srgb, var(--muted) 46%, var(--border));
+    border-radius: 9px;
+    padding: 0.62rem 0.7rem;
+    transition:
+      border-color 120ms ease,
+      box-shadow 140ms ease,
+      background 120ms ease;
   }
 
-  input:focus {
+  input.text:hover:not(:focus) {
+    border-color: var(--muted);
+  }
+
+  input.text:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface-solid);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  input.text::placeholder {
+    color: var(--muted);
+    opacity: 0.75;
+  }
+
+  .field input.text {
+    padding-right: 2.5rem;
+  }
+
+  .reveal {
+    position: absolute;
+    top: 50%;
+    right: 0.28rem;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      background 120ms ease;
+  }
+
+  .reveal svg {
+    display: block;
+    width: 17px;
+    height: 17px;
+  }
+
+  .reveal:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--muted) 24%, transparent);
+  }
+
+  .reveal:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
+    color: var(--text);
   }
 
   .error {
     margin: 0;
+    padding: 7px 9px;
+    border-radius: 9px;
+    background: color-mix(in srgb, #c0392b 9%, transparent);
     color: #c0392b;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
   }
 
   button {
     font: inherit;
-    font-weight: 600;
-    padding: 0.55rem 0.75rem;
+  }
+
+  /* The one filled button on the screen, and the only one that lifts: a shadow
+     tuned to the accent rather than grey, so the hover is a change in light,
+     not a change in size. */
+  button[type="submit"] {
+    width: 100%;
+    margin-top: 0.3rem;
+    padding: 0.7rem 0.9rem;
     border: 0;
-    border-radius: 6px;
-    background: var(--accent);
+    border-radius: 10px;
+    font-weight: 650;
+    font-size: 0.92rem;
+    letter-spacing: 0.01em;
     color: #fff;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 84%, #fff) 0%,
+      var(--accent) 58%
+    );
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 6px 16px -11px var(--accent);
     cursor: pointer;
+    transition:
+      transform 130ms cubic-bezier(0.2, 0.9, 0.3, 1),
+      box-shadow 160ms ease,
+      filter 160ms ease;
+  }
+
+  button[type="submit"]:hover:not(:disabled) {
+    transform: translateY(-1.5px);
+    filter: brightness(1.05) saturate(1.03);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      0 14px 26px -12px var(--accent);
+  }
+
+  button[type="submit"]:active:not(:disabled) {
+    transform: translateY(1px) scale(0.994);
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.2);
+    transition-duration: 60ms;
+  }
+
+  button[type="submit"]:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: 2px;
   }
 
   button:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+
+  button[type="submit"]:disabled {
+    filter: saturate(0.75);
   }
 
   /* The way back is a quiet verb, not a second way to connect: it reads as the
@@ -527,31 +710,45 @@
     color: var(--muted);
     font-weight: 400;
     font-size: 0.85rem;
+    border: 0;
+    border-radius: 7px;
+    cursor: pointer;
   }
 
   .back:hover,
   .quiet:hover:not(:disabled) {
     color: var(--text);
+    background: var(--bg-alt);
   }
 
   /* Pairing is an alternative, not the primary: an outline, so the one filled
      button on the screen is still Connect. */
   .pair {
-    background: none;
+    width: 100%;
+    padding: 0.62rem 0.8rem;
     border: 1px solid var(--border);
+    border-radius: 9px;
+    background: none;
     color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background 140ms ease,
+      border-color 140ms ease;
   }
 
   .pair:hover:not(:disabled) {
-    background: var(--hover);
+    background: var(--bg-alt);
+    border-color: var(--muted);
   }
 
   .or {
     display: flex;
     align-items: center;
     gap: 0.6rem;
+    margin: 0.15rem 0;
     color: var(--muted);
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
@@ -564,31 +761,17 @@
     background: var(--border-soft, var(--border));
   }
 
-  .field {
-    position: relative;
-  }
+  /* Nobody asked for motion, and the pivot between two screens is exactly where
+     an unwanted slide is worst. */
+  @media (prefers-reduced-motion: reduce) {
+    .dot {
+      animation: none;
+      opacity: 1;
+    }
 
-  .field input {
-    padding-right: 3.75rem;
-  }
-
-  .reveal {
-    position: absolute;
-    top: 50%;
-    right: 0.35rem;
-    transform: translateY(-50%);
-    padding: 0.25rem 0.4rem;
-    border: 0;
-    background: none;
-    color: inherit;
-    font: inherit;
-    font-size: 0.78rem;
-    opacity: 0.65;
-    cursor: pointer;
-  }
-
-  .reveal:hover,
-  .reveal:focus-visible {
-    opacity: 1;
+    button[type="submit"]:hover:not(:disabled),
+    button[type="submit"]:active:not(:disabled) {
+      transform: none;
+    }
   }
 </style>
