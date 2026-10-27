@@ -137,27 +137,57 @@ workflows:
             || { echo "::error::UIBackgroundModes does not start with fetch"; status=1; }
           EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")
           echo "--- refresh entry points in $EXEC:"
+          # One `strings` pass, into a file, and grep the file. Reading the
+          # binary through a pipe into `grep -q` fails the other way round:
+          # grep exits on the first match, `strings` dies of SIGPIPE, and
+          # `set -o pipefail` turns a successful match into exit 141. That
+          # false negative is what made this step red on a build that did
+          # contain the string — the string is there, the pipe was the bug.
+          STRINGS="$(mktemp)"
+          trap 'rm -f "$STRINGS"' EXIT
+          strings -a "$APP/$EXEC" > "$STRINGS"
+          echo "binary strings: $(wc -l < "$STRINGS")"
           # `nm` is informational only: a release .app is stripped, so a missing
-          # symbol here does not mean the code is absent — the first run of this
-          # step failed on exactly that false negative. What is asserted is the
+          # symbol here does not mean the code is absent. What is asserted is the
           # identifier string: it is spelled in AppRefreshTask.swift and in the
           # +load hook, so finding it in the binary means both halves compiled
           # into this target (a missing BackgroundRefresher would not link), and
           # not finding it means nothing registered anything.
-          nm -gU "$APP/$EXEC" 2>/dev/null | grep 'hardlyreader_app_refresh' \
+          grep 'hardlyreader_app_refresh' "$STRINGS" \
             || echo "(no exported C entry point; release builds strip symbols)"
-          strings -a "$APP/$EXEC" | grep -F 'bg-refresh' | head -5 \
+          grep -m5 -F 'bg-refresh' "$STRINGS" \
             || echo "(no bg-refresh log literals found; the identifier below is the assertion)"
           echo "--- identity strings in the binary:"
-          strings -a "$APP/$EXEC" | grep -i 'hardlysleep\|hardlyreader' | sort -u | head -10 \
+          grep -i 'hardlysleep\|hardlyreader' "$STRINGS" | sort -u | head -10 \
             || true
-          if strings -a "$APP/$EXEC" | grep -qF 'ing.hardlysleep.hardlyreader.refresh'; then
+          if grep -qF 'ing.hardlysleep.hardlyreader.refresh' "$STRINGS"; then
             echo "found: the background refresh identifier is in the binary"
           else
             echo "::error::the binary has no refresh identifier — the Swift/ObjC half is not compiled in"
             status=1
           fi
+          # The archive above is what the compiler produced; the IPA is what
+          # ships. Read the keys back out of the packaged file as well, so a
+          # packaging step that dropped the merged plist cannot pass this.
+          IPA="$CM_BUILD_DIR/build/HardlyReader-unsigned.ipa"
+          if [ -f "$IPA" ]; then
+            SHIP="$(mktemp -d)"
+            trap 'rm -rf "$STRINGS" "$SHIP"' EXIT
+            unzip -q "$IPA" 'Payload/*/Info.plist' -d "$SHIP"
+            SHIPPED="$(find "$SHIP" -name Info.plist -print -quit)"
+            echo "--- the shipped IPA's $SHIPPED:"
+            /usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers' "$SHIPPED" || true
+            /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$SHIPPED" || true
+            /usr/libexec/PlistBuddy -c 'Print :BGTaskSchedulerPermittedIdentifiers:0' "$SHIPPED" 2>/dev/null \
+              | grep -qx 'ing.hardlysleep.hardlyreader.refresh' \
+              || { echo "::error::the shipped IPA does not permit the refresh identifier"; status=1; }
+            /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes:0' "$SHIPPED" 2>/dev/null \
+              | grep -qx 'fetch' \
+              || { echo "::error::the shipped IPA does not declare fetch"; status=1; }
+          else
+            echo "::warning::no IPA to read back; only the archive was checked"
+          fi
           [ "$status" -eq 0 ] || exit 1
-          echo "background refresh: declared in Info.plist, wired to the binary"
+          echo "background refresh: declared in the built Info.plist, wired to the binary"
     artifacts:
       - build/HardlyReader-unsigned.ipa
