@@ -459,6 +459,16 @@
   const shareUrl = $derived(isExternalHttp(link) ? link : "");
 
   /**
+   * The picture a share can carry: the lead image the feed itself named.
+   *
+   * Read here rather than from the `lead` below, which is the picture the
+   * article pane *draws* — that one honours the reader's image preference and
+   * hides a duplicate, and neither is a reason to send a link without its
+   * photograph. A feed with no picture answers empty, which the payload drops.
+   */
+  const shareImage = $derived(item ? thumbnailOf(item as ThumbSource).url : "");
+
+  /**
    * What the share press has to say for itself.
    *
    * The sheet needs no announcement — it is on screen and it is the answer — but
@@ -487,9 +497,18 @@
    * write first would spend it and the sheet would refuse to open.
    */
   async function shareThis(): Promise<void> {
+    // Read once into locals: the derived values are read through Svelte's own
+    // accessors, and a value checked for null and then read again is not the
+    // same binding to the type checker.
     const current = item;
-    if (current === null || shareUrl === "") return;
-    const outcome = await shareArticle({ title: current.title ?? "", url: shareUrl });
+    const url = shareUrl ?? "";
+    const image = shareImage ?? "";
+    if (current === null || url === "") return;
+    const outcome = await shareArticle({
+      title: current.title ?? "",
+      url,
+      image,
+    });
     if (outcome === "copied") noteShare("Link copied");
     else if (outcome === "failed") noteShare("Couldn't copy the link");
   }

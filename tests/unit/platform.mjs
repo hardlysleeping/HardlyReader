@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { capabilitiesFor } from "../../src/lib/platform.ts";
+import { capabilitiesFor, iosHost } from "../../src/lib/platform.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -49,6 +49,24 @@ check("a phone offers the share sheet", phone.share);
 check("a phone in a browser tab offers it too", capabilitiesFor("phone", false).share);
 check("desktop does not", capabilitiesFor("desktop", true).share === false);
 check("nor does a desktop browser tab", capabilitiesFor("desktop", false).share === false);
+
+// iOS is the one host with a native sheet to call, and the app is the one place
+// it can be called from: the packaged app's page is served from a custom scheme,
+// which takes Web Share away. The rule reads the user agent, so it is provable
+// here — iPhone, iPad, and iPadOS's desktop user agent, which only the touch
+// points give away.
+const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+const IPAD = "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+const IPAD_DESKTOP_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+const APPLE_LAPTOP = IPAD_DESKTOP_UA;
+const ANDROID = "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Mobile Safari/537.36";
+
+check("an iPhone is iOS", iosHost(IPHONE));
+check("an iPad is iOS", iosHost(IPAD));
+check("an iPad reporting a Mac user agent is iOS when it has touch points", iosHost(IPAD_DESKTOP_UA, 5));
+check("and a Mac is not", iosHost(APPLE_LAPTOP, 0) === false);
+check("an Android phone is not", iosHost(ANDROID, 5) === false);
+check("nor is a desktop browser", iosHost("Mozilla/5.0 (X11; Linux x86_64) Firefox/141.0") === false);
 
 // Every flag is about the shape or the host, never about a preference, so the
 // same inputs must always give the same answer.
