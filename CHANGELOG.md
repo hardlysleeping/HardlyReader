@@ -4,6 +4,62 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] — 2026-10-26
+
+The seam follows the pointer, hidden works without the extension, and a phone can
+sign in by pairing.
+
+### Added
+
+- **Pairing a phone that cannot answer a captcha.** On a phone, “Pair this device”
+  asks the server for a one-time eight-digit code; on a desktop,
+  `Settings → Accounts → Pair a device` lists what is waiting, with a countdown,
+  and approving it is what signs the phone in. The code is single-use and expires
+  in five minutes, the credential it buys is revocable from either end, and the
+  payload never carries a session token. With no pairing routes on the server the
+  phone offers nothing and the desktop says "not offered here".
+- **Hidden categories work with no extension at all.** Without the extension the
+  app used to no-op and a server silently lost the feature. Hidden is now
+  device-local per account — the same storage shape pins already used — with the
+  same three-state eye, the same instant toggle, and the same filtering: the
+  extension answers when it is there, and the local set is never written then and
+  never merged with it.
+- **The band says who is enforcing.** The ENFORCED badge names its authority, and
+  the eye reads "on this device" when the local set is what is doing the work.
+- **Preferences travel with the account.** Reading, cards, theme and deep search
+  are stored per account through the extension's `/v1/preferences`, last writer
+  wins by entry stamp, per-namespace merge so an older client cannot prune what it
+  does not know. Session tokens, passwords, the server address and the theme's
+  background picture never leave the device, and a server that cannot hold any of
+  it degrades to local-only in silence.
+- **Stream switching is fast.** A generation counter and an AbortController per
+  stream, so a slow answer cannot paint over a newer one; a 60-second, 20-stream
+  cache that draws a revisit in the frame the switch happens and revalidates
+  behind it; prefetch on hover and on category expand, capped at two in flight,
+  where a click rides the guess instead of aborting it; per-stream scroll
+  restoration; and performance marks so the numbers are measurable.
+- **The Cards fit is pinned.** A WordPress square crop is upgraded to the
+  full-size picture at the same path (the crop kept as the 404 fallback), a new
+  suite holds the shapes that make comics fit against the real stylesheet, and it
+  is proved to bite: a `max-height` or a `cover` in that rule fails it with the
+  side bars named.
+
+### Fixed
+
+- **The stacked seam follows the pointer.** It measured the 6px track it is drawn
+  in rather than the column it splits, so one pixel of travel was a whole share
+  and every drag jumped to 25% or 75%. It measures the column now, and the share
+  moves by the pointer's own travel over it.
+- **Cards snap on touch** — one card at a time, centred, with the snapport made to
+  equal the scroll port so a snap lands where the wheel's centring puts a card. A
+  card taller than the pane still scrolls within itself.
+- **The star in the article's toolbar** is an 18px glyph in a 32px box instead of a
+  13px speck beside ● and ⇣.
+- **The test harness names its own gap.** Six suites each carry a copy of the
+  import-rewrite list that lets the reader store compile under node; a new import
+  in that store used to fail ten suites with a message about a generated file.
+  `harness-imports.mjs` now reports the specifier and the file missing it.
+
 ## [0.6.2] — 2026-10-26
 
 The phone gets its own chrome, its own proportions, and a reveal that does not
