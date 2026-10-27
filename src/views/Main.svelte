@@ -204,7 +204,14 @@
     const now = layout.mode;
     if (now === drawn) return;
     drawn = now;
-    if (now === 1 || now === 2) reader.closeReader();
+    if (now !== 1 && now !== 2) return;
+    // A phone turned back upright lands on one column too, and it must not pay
+    // the same price: the sliding stack draws the post that is open in front of
+    // the list, so a rotation is not a request to leave what you were reading —
+    // and turning the phone is not a collapse into the walk. The walk still
+    // starts from the top, because a walk has nowhere else to start.
+    if (now === 1 && slideStack) return;
+    reader.closeReader();
   });
   const menu = $derived.by(() => {
     const point = reader.menu;
