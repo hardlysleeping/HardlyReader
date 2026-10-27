@@ -559,11 +559,17 @@
     border-radius: 6px;
     background: transparent;
     color: var(--tone);
+    /* The seat's outline is its own tone, so eye, lock and pin read as three
+       coloured controls rather than three grey ones with coloured glyphs. Inset
+       box-shadow, not `border`, because a border would change the seat's box and
+       the band's height with it. */
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 30%, transparent);
     font: inherit;
     cursor: pointer;
     transition:
       background-color 0.12s ease,
       color 0.12s ease,
+      box-shadow 0.12s ease,
       transform 0.08s ease;
   }
 
@@ -588,10 +594,11 @@
 
   /* Hover lifts a seat in its OWN tone instead of washing it to text grey: the
      eye and the pin stay legible as themselves under the pointer, one step
-     lighter than the idle colour. */
+     lighter than the idle colour, with the outline following. */
   .ctl:hover:not(:disabled) {
     background: color-mix(in srgb, var(--tone) 18%, transparent);
     color: color-mix(in srgb, var(--tone) 62%, #fff);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 58%, transparent);
   }
 
   /* Pressed: the seat takes the tone, so the click is answered on the frame the
@@ -600,6 +607,7 @@
     transform: scale(0.97);
     background: color-mix(in srgb, var(--tone) 32%, transparent);
     color: color-mix(in srgb, var(--tone) 40%, #fff);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 78%, transparent);
   }
 
   .ctl:disabled {
