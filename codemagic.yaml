@@ -155,6 +155,18 @@ workflows:
           # not finding it means nothing registered anything.
           grep 'hardlyreader_app_refresh' "$STRINGS" \
             || echo "(no exported C entry point; release builds strip symbols)"
+          # The mangled spelling survives dead-stripping (measured on the
+          # shipped binary: "..._handleyySvF"), so both entry points are
+          # asserted, not merely printed. A build that compiled the refresher
+          # but dropped the hook fails here instead of never waking.
+          for entry in hardlyreader_app_refresh_handle hardlyreader_app_refresh_schedule; do
+            if grep -q "$entry" "$STRINGS"; then
+              echo "found: $entry"
+            else
+              echo "::error::$entry is not in the binary — half the wiring did not compile in"
+              status=1
+            fi
+          done
           grep -m5 -F 'bg-refresh' "$STRINGS" \
             || echo "(no bg-refresh log literals found; the identifier below is the assertion)"
           echo "--- identity strings in the binary:"
