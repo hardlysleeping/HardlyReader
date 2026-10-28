@@ -46,6 +46,28 @@ that has not published since last time; it moves `attempted_at`, clears the
 failure count and writes no articles. Measured against live feeds: xkcd and
 Lobsters both answered `304` on the second wake, `added: 0`.
 
+## A feed that answers somewhere else
+
+A feed's key is the address it **finally answers at**, not the one it was typed
+in as: `response.url` is compared with the row's key, and a difference in origin
+or path moves the subscription rather than adding one. The row keeps the address
+it resolved to in `resolved_url`, its articles are re-minted under the new key so
+their read and starred marks move with them, and the old address is left in
+`redirects` so the other device follows instead of subscribing a second copy.
+`src/api/local/store.ts` does the rewrite in one transaction; the poller only
+tells it where the answer came from.
+
+Three parts of that are deliberate:
+
+- **Only after the body is a feed.** A redirect that lands on a login page or an
+  error page is not a move, and moving a subscription because a site had a bad
+  afternoon would be worse than leaving it where the reader put it.
+- **A trailing slash is not a move.** `https://example.com/feed/` and
+  `https://example.com/feed` are one address spelled two ways; a different host
+  is not.
+- **A redirect back is not a move.** The recorded move answers the loop, so a
+  feed that answers one way and then the other is not rewritten on every poll.
+
 ## Failures belong to the feed, not to the wake
 
 A network error, a `500`, an HTML page where the feed should be, a body that will

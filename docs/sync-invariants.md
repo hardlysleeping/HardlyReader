@@ -5,8 +5,9 @@ The owner's list of traps, each checked against the code rather than assumed. St
 needs the owner's call before it is code.
 
 The five things that must be solid before a provider exists: per-feature authority, canonical data,
-conflict and tombstone rules, identity and entitlement, and the provider interface. Four of the five
-are in place; the fifth (identity for feeds and articles across redirects) is the newest gap.
+conflict and tombstone rules, identity and entitlement, and the provider interface. All five are in
+place: a feed is identified by the address it finally answers at, with the address it was subscribed
+at kept as a redirect, so a move cannot become a second subscription.
 
 | # | trap | status | where |
 |---|---|---|---|
@@ -20,8 +21,8 @@ are in place; the fifth (identity for feeds and articles across redirects) is th
 | 8 | provider token expiring into a silent failure | **card** `t_af52a063` (folded in) | must degrade to *Reconnect Google Drive*, not "sync failed" forever |
 | 9 | iCloud promised where it cannot work | **held** | `docs/accounts-and-entitlements.md` platform matrix; UI wording card `t_63abddf5` |
 | 10 | quotas and rate limits | **held** | the document is small by design: no article bodies, no images, no extraction results; `docs/local-sync.md` |
-| 11 | the same feed under a redirected URL | **card** `t_3321cf69` | `localItemId(feedUrl, guid)` keys on the URL as given, so a redirect makes a second feed |
-| 12 | messy GUIDs rebuilt differently per device | **held, one gap** | `localItemId` is one derivation shared by both devices; the gap is feeds whose GUID *is* the link (see #11) |
+| 11 | the same feed under a redirected URL | **held** | `LocalStore.followRedirect` moves the key, the articles and their marks; `redirects` carries the old address so the other device follows; `followRedirects` re-keys the document. `tests/unit/feed-identity.mjs` |
+| 12 | messy GUIDs rebuilt differently per device | **held** | `localItemId` is one derivation shared by both devices, over the feed's canonical key; a feed that changes its guid scheme has the old row marked `superseded_by` rather than stored twice, and the marks move to the new row |
 | 13 | hard-coding "Miniflux supports X" | **held** | `ReaderBackend.capabilities`, declared per backend; undeclared means plain GReader |
 | 14 | an old extension supporting a part of the state | **held, one gap** | `ADAPTER_ROUTES` in `src/lib/capabilities.ts`: `apiVersion` on `/v1/state` decides which extended routes exist, so an adapter that reports no version claims nothing instead of answering `404` later; `capabilitiesFromState`. The gap: `API_VERSION` was never bumped when the arrangement and preferences routes arrived, so a v1 copy from before them and a v1 copy with them look identical |
 | 15 | local → FreshRSS silently merging libraries | **decision** `t_e43fdb0e` | two profiles, explicit import, never a silent merge |
@@ -41,8 +42,9 @@ are in place; the fifth (identity for feeds and articles across redirects) is th
    purpose; bodies and images never travel.
 3. **Conflict and tombstones** — three-way merge against a remembered base, separate read/star
    registers, whole-record ordering, tombstones with a retention window.
-4. **Identity and entitlement** — `supabase/schema.sql` for who may claim sync; `localItemId` for
-   what an article is. The second half is where #11 and #19 bite.
+4. **Identity and entitlement** — `supabase/schema.sql` for who may claim sync; the feed's canonical
+   key and `localItemId` for what an article is, with a move kept as a redirect rather than a second
+   subscription. The second half is where #11 and #19 bite.
 5. **Provider interface** — `SyncProvider` (read/write/describe). A provider is storage; it must
    never see a feature, a rule, or an entitlement.
 

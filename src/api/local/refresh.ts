@@ -44,6 +44,12 @@ export interface FeedResponse {
   status: number;
   headers: { get(name: string): string | null };
   text(): Promise<string>;
+  /**
+   * The address the answer finally came from, which a real `Response` always
+   * carries and a redirect changes. Absent means "this transport cannot say",
+   * and then the feed keeps the address it was subscribed at.
+   */
+  url?: string;
 }
 
 export interface FeedRequest {
@@ -394,8 +400,11 @@ async function attempt(
 
   if (response.status === 304) {
     // The validators did their job: the feed is current as of now, and nothing
-    // needs to be parsed or stored.
-    await options.store.recordFetch(url, {
+    // needs to be parsed or stored. A `304` that arrived through a redirect
+    // still says where the feed lives, so the address is followed here too —
+    // the validators are the same resource's, and they travel with the row.
+    const key = await options.store.followRedirect(feed.key, response.url ?? null);
+    await options.store.recordFetch(key, {
       at,
       etag: feed.etag,
       lastModified: feed.last_modified,
@@ -427,10 +436,18 @@ async function attempt(
     return { kind: "failed", failure };
   }
 
-  const parsed = parseFeed(body, url);
+  // A feed that answers somewhere else keeps one identity: the row's key and
+  // every article id it minted follow the address it finally answered at, and
+  // the old address is left as a redirect for the other device to follow.
+  // Done only now, because a redirect that lands on a page which is not a feed
+  // is not a move.
+  const key = await options.store.followRedirect(feed.key, response.url ?? null);
+  const address = response.url ?? url;
+
+  const parsed = parseFeed(body, address);
   const written = await options.store.putEntries(
     parsed.entries.map((entry) => ({
-      feedUrl: url,
+      feedUrl: key,
       guid: entry.id,
       title: entry.title === "" ? null : entry.title,
       link: entry.url === "" ? null : entry.url,
@@ -445,7 +462,7 @@ async function attempt(
     })),
   );
 
-  await options.store.recordFetch(url, {
+  await options.store.recordFetch(key, {
     at,
     etag: response.headers.get("etag"),
     lastModified: response.headers.get("last-modified"),

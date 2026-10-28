@@ -29,6 +29,7 @@ import type {
   FeedRow,
   FolderRow,
   PositionRow,
+  RedirectRow,
 } from "./schema";
 import {
   planBodyEviction,
@@ -158,6 +159,12 @@ function seconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+/** The later of two optional seconds, or null when neither is set. */
+function newestOf(a: number | null | undefined, b: number | null | undefined): number | null {
+  const later = Math.max(a ?? 0, b ?? 0);
+  return later === 0 ? null : later;
+}
+
 /**
  * What a string costs on disk: UTF-8 bytes, not characters.
  *
@@ -192,9 +199,69 @@ function base64Url(input: string): string {
  * derived rather than counted because a local library has no server to hand out
  * numbers — and an id that changed between runs would be a different article
  * every time the app opened.
+ *
+ * The feed half is the feed's *canonical* key — the address it finally answers
+ * at, not the one it was typed in as. That is what makes a mark follow a feed
+ * that moves instead of staying behind on an article id nothing can reach any
+ * more.
  */
 export function localItemId(feedUrl: string, guid: string): string {
-  return `local/${base64Url(feedUrl)}/${guid}`;
+  return `${localItemPrefix(feedUrl)}${guid}`;
+}
+
+/**
+ * The part of an item id that names the feed.
+ *
+ * Exported because the sync document has to move every id a feed minted without
+ * decoding one: a guid may contain slashes, so the feed's half is the only part
+ * that can be found by prefix.
+ */
+export function localItemPrefix(feedUrl: string): string {
+  return `local/${base64Url(feedUrl)}/`;
+}
+
+/**
+ * The address a feed is compared on: origin, path and query, with no fragment
+ * and no trailing slash.
+ *
+ * A feed subscribed at `https://example.com/feed/` that answers at
+ * `https://example.com/feed` has not moved — that is the same address spelled
+ * differently. A different host has, which is exactly the
+ * `example.com` → `www.example.com` case this identity exists for.
+ */
+export function feedAddress(url: string): string {
+  try {
+    const parsed = new URL(url.trim());
+    const path = parsed.pathname.replace(/\/+$/, "");
+    return `${parsed.origin.toLowerCase()}${path}${parsed.search}`;
+  } catch {
+    return url.trim();
+  }
+}
+
+/** True when two URLs are the same feed, spelled differently. */
+export function sameFeedAddress(a: string, b: string): boolean {
+  return feedAddress(a) === feedAddress(b);
+}
+
+/**
+ * Where a chain of moves ends.
+ *
+ * A feed may move twice — `a` → `b`, then `b` → `c` — and both hops are facts
+ * worth keeping, so a lookup follows them rather than requiring the table to be
+ * rewritten every time a site moves again. A cycle is not resolvable and
+ * answers with the address it was asked about, which is what keeps a feed that
+ * answers a redirect one way and then the other from moving on every poll.
+ */
+export function redirectTarget(known: Record<string, { to: string }>, url: string): string {
+  let current = url;
+  const seen = new Set<string>();
+  for (;;) {
+    const hop = known[current];
+    if (hop === undefined || hop.to === current || seen.has(current)) return current;
+    seen.add(current);
+    current = hop.to;
+  }
 }
 
 /** Newest first, with the id breaking ties so a page boundary cannot repeat. */
@@ -324,6 +391,188 @@ export class LocalStore {
     return row;
   }
 
+  /* -------------------------------------------------------------------------
+   * One feed, one identity
+   * ----------------------------------------------------------------------- */
+
+  /**
+   * The moves this device knows: the address a feed was subscribed at, and
+   * where it answers now.
+   *
+   * A separate table from `feeds` because the feed's row has *become* the new
+   * address — the old one is a fact about the past, and it has to outlive the
+   * subscription so the other device can follow it instead of subscribing a
+   * second copy.
+   */
+  async redirects(): Promise<Record<string, { to: string; at: number }>> {
+    const known: Record<string, { to: string; at: number }> = {};
+    for (const row of await this.db.all<RedirectRow>("redirects")) {
+      known[row.key] = { to: row.to, at: row.at };
+    }
+    return known;
+  }
+
+  /**
+   * Keeps one feed one feed when the address it answers at differs from the
+   * address it was subscribed at.
+   *
+   * The poller calls this with `response.url` once the body has been read and
+   * found to be a feed. That order is deliberate: a redirect that lands on a
+   * login page or an error page is not a move, and moving a subscription
+   * because a site was having a bad afternoon would be worse than leaving it
+   * where the reader put it.
+   *
+   * The row's key follows the resolved address, its articles are re-minted
+   * under that key so their marks move with them, and the old address is left
+   * as a redirect row so the other device follows instead of duplicating.
+   *
+   * Returns the key the feed now has — which is what the caller writes its
+   * articles and its fetch outcome against.
+   */
+  async followRedirect(feedUrl: string, resolvedUrl: string | null): Promise<string> {
+    const from = this.feedUrl(feedUrl);
+    const answered = resolvedUrl?.trim() ?? "";
+    if (answered === "") return from;
+
+    let to: string;
+    try {
+      to = this.feedUrl(answered);
+    } catch {
+      // An address this library cannot be keyed by is not a move: the feed
+      // stays where it is and the poll itself is unaffected.
+      return from;
+    }
+
+    const target = redirectTarget(await this.redirects(), to);
+    // A move we already know about, in the other direction: no.
+    if (target === from) return from;
+
+    if (sameFeedAddress(from, target)) {
+      // The same address spelled differently. Nothing moved, but the row now
+      // says where the feed answers, which is the pair the identity is made of.
+      const row = await this.db.get<FeedRow>("feeds", from);
+      if (row !== null && (row.resolved_url ?? null) !== target) {
+        await this.db.write([
+          { type: "put", table: "feeds", row: { ...row, resolved_url: target } },
+        ]);
+      }
+      return from;
+    }
+
+    // The row may have moved already: a second poll in flight, or this device
+    // having followed the document's redirect before it fetched anything.
+    if ((await this.db.get<FeedRow>("feeds", from)) === null) {
+      return (await this.db.get<FeedRow>("feeds", target)) === null ? from : target;
+    }
+
+    await this.rewriteFeedKey(from, target);
+    return target;
+  }
+
+  /**
+   * Moves a subscription to another address, with everything that belongs to it.
+   *
+   * One write, because this is the rewrite where half of it would be worse than
+   * none of it: a feed row at the new address whose articles are still keyed by
+   * the old one is a feed whose marks have vanished from the list.
+   *
+   * When the new address is already subscribed — a device that added the feed
+   * twice, under both spellings — the two are folded into one row: the survivor
+   * keeps the name the reader chose and the newer poll memory, and two rows that
+   * turn out to be the same post keep the union of their marks. Nothing is
+   * deleted that is not also written back under the surviving key.
+   */
+  private async rewriteFeedKey(from: string, to: string): Promise<void> {
+    const row = await this.db.get<FeedRow>("feeds", from);
+    if (row === null) return;
+    const target = await this.db.get<FeedRow>("feeds", to);
+    const at = seconds();
+
+    const entries = await this.db.all<EntryRow>("entries");
+    const byKey = new Map(entries.map((entry) => [entry.key, entry]));
+    const bodyOf = new Map((await this.db.all<ExtractionRow>("extractions")).map((body) => [body.key, body]));
+
+    const operations: WriteOperation[] = [];
+    const moved = new Map<string, string>();
+
+    for (const entry of entries) {
+      if (entry.feed !== from) continue;
+      const key = localItemId(to, entry.guid);
+      moved.set(entry.key, key);
+      const existing = byKey.get(key);
+      const body = bodyOf.get(entry.key);
+
+      operations.push({
+        type: "put",
+        table: "entries",
+        row:
+          existing === undefined
+            ? { ...entry, key, feed: to }
+            : {
+                ...existing,
+                // The same post under two keys: the marks are the reader's, and
+                // the union is the only answer that loses nothing.
+                read: Math.max(existing.read, entry.read),
+                starred: Math.max(existing.starred, entry.starred),
+                stored_at: Math.min(existing.stored_at, entry.stored_at),
+                superseded_by: existing.superseded_by ?? entry.superseded_by ?? null,
+              },
+      });
+      if (body !== undefined && !bodyOf.has(key)) {
+        operations.push({ type: "put", table: "extractions", row: { ...body, key } });
+      }
+      operations.push({ type: "delete", table: "entries", key: entry.key });
+      if (body !== undefined) operations.push({ type: "delete", table: "extractions", key: entry.key });
+    }
+
+    // The reading place follows too, or the next visit to the feed's own stream
+    // resumes at an article id this library no longer holds.
+    const fromStream = `feed/${from}`;
+    const toStream = `feed/${to}`;
+    const position = await this.db.get<PositionRow>("positions", fromStream);
+    if (position !== null) {
+      if ((await this.db.get<PositionRow>("positions", toStream)) === null) {
+        operations.push({
+          type: "put",
+          table: "positions",
+          row: {
+            ...position,
+            key: toStream,
+            item_id: moved.get(position.item_id) ?? position.item_id,
+          },
+        });
+      }
+      operations.push({ type: "delete", table: "positions", key: fromStream });
+    }
+
+    const survivor: FeedRow =
+      target === null
+        ? { ...row, key: to, resolved_url: to }
+        : {
+            ...target,
+            // The name the reader chose beats a placeholder; a placeholder does
+            // not beat anything.
+            title: target.title_source === "url" ? row.title : target.title,
+            title_source: target.title_source === "url" ? row.title_source : target.title_source,
+            folder: target.folder ?? row.folder,
+            html_url: target.html_url ?? row.html_url,
+            icon_url: target.icon_url ?? row.icon_url,
+            added_at: Math.min(target.added_at, row.added_at),
+            fetched_at: newestOf(target.fetched_at, row.fetched_at),
+            attempted_at: newestOf(target.attempted_at, row.attempted_at),
+            etag: target.etag ?? row.etag,
+            last_modified: target.last_modified ?? row.last_modified,
+            failures: target.failures ?? row.failures ?? 0,
+            last_error: target.last_error ?? row.last_error,
+            resolved_url: to,
+          };
+
+    operations.push({ type: "put", table: "feeds", row: survivor });
+    operations.push({ type: "delete", table: "feeds", key: from });
+    operations.push({ type: "put", table: "redirects", row: { key: from, to, at } });
+    await this.db.write(operations);
+  }
+
   async folders(): Promise<FolderRow[]> {
     const rows = await this.db.all<FolderRow>("folders");
     return rows.sort(
@@ -423,6 +672,9 @@ export class LocalStore {
       last_modified: null,
       failures: 0,
       last_error: null,
+      // Nothing has answered yet, so there is no address to record beyond the
+      // one it was subscribed at.
+      resolved_url: null,
     };
 
     await this.db.write([
@@ -534,6 +786,13 @@ export class LocalStore {
    * deliberately does not touch `read` and `starred`: refreshing a feed must not
    * undo a mark, and `stored_at` keeps the first time the post was seen rather
    * than the last time it was re-fetched.
+   *
+   * A feed that changes how it spells its ids re-delivers the *same* articles
+   * under new ones, which would be a second copy of every post. `link` is the
+   * one thing both ids agree on, so a live row of the same feed with the same
+   * link is the article under its old id: it is marked `superseded_by` the row
+   * that replaced it — kept, with its body, but no longer the article — and its
+   * marks are carried to the new row rather than lost with the old one.
    */
   async putEntries(inputs: readonly EntryInput[]): Promise<{ stored: number; added: number }> {
     if (inputs.length === 0) return { stored: 0, added: 0 };
@@ -566,6 +825,7 @@ export class LocalStore {
         read: 0,
         starred: 0,
         stored_at: now,
+        superseded_by: null,
       });
     }
 
@@ -573,25 +833,89 @@ export class LocalStore {
       (await this.db.getMany<EntryRow>("entries", [...rows.keys()])).map((row) => [row.key, row]),
     );
 
-    const operations = [...rows.values()].map((row) => {
-      const prior = before.get(row.key);
-      return {
-        type: "put" as const,
-        table: "entries" as const,
+    const replaced = await this.supersededByLink(rows, now);
+    const operations: WriteOperation[] = [];
+
+    for (const [key, row] of rows) {
+      const prior = before.get(key);
+      const older = replaced.get(key);
+      operations.push({
+        type: "put",
+        table: "entries",
         row: {
           ...row,
-          read: prior?.read ?? 0,
-          starred: prior?.starred ?? 0,
-          stored_at: prior?.stored_at ?? row.stored_at,
+          read: prior?.read ?? older?.read ?? 0,
+          starred: prior?.starred ?? older?.starred ?? 0,
+          stored_at: prior?.stored_at ?? older?.stored_at ?? row.stored_at,
         },
-      };
-    });
+      });
+      if (older === undefined) continue;
+      operations.push({
+        type: "put",
+        table: "entries",
+        row: { ...older, superseded_by: key },
+      });
+      // The body the reader already had follows the article: it was fetched
+      // once, and it is the same post.
+      const body = await this.db.get<ExtractionRow>("extractions", older.key);
+      if (body !== null && (await this.db.get<ExtractionRow>("extractions", key)) === null) {
+        operations.push({ type: "put", table: "extractions", row: { ...body, key } });
+        operations.push({ type: "delete", table: "extractions", key: older.key });
+      }
+    }
 
     await this.db.write(operations);
     return {
-      stored: operations.length,
+      stored: rows.size,
       added: [...rows.keys()].filter((key) => !before.has(key)).length,
     };
+  }
+
+  /**
+   * The rows a batch makes obsolete, keyed by the row that replaces them.
+   *
+   * Only a link that is unambiguous on both sides counts: exactly one stored row
+   * of that feed carries it, and exactly one row of the batch claims it. A feed
+   * that points several posts at one page — a monthly index, a comment feed
+   * whose items all share the discussion's address — is not a feed that changed
+   * its ids, and guessing there would hide every post but one.
+   */
+  private async supersededByLink(
+    rows: Map<string, EntryRow>,
+    now: number,
+  ): Promise<Map<string, EntryRow>> {
+    const claims = new Map<string, number>();
+    const claimOf = (feed: string, link: string): string => `${feed}\u0000${link}`;
+    for (const row of rows.values()) {
+      if (row.link === null || row.link === "") continue;
+      const claim = claimOf(row.feed, row.link);
+      claims.set(claim, (claims.get(claim) ?? 0) + 1);
+    }
+    if (claims.size === 0) return new Map();
+
+    const stored = new Map<string, EntryRow[]>();
+    for (const row of await this.db.all<EntryRow>("entries")) {
+      if (row.link === null || row.link === "") continue;
+      if ((row.superseded_by ?? null) !== null) continue;
+      if (rows.has(row.key)) continue;
+      if (row.stored_at > now) continue;
+      const claim = claimOf(row.feed, row.link);
+      if (!claims.has(claim)) continue;
+      const list = stored.get(claim);
+      if (list === undefined) stored.set(claim, [row]);
+      else list.push(row);
+    }
+
+    const replaced = new Map<string, EntryRow>();
+    for (const [key, row] of rows) {
+      if (row.link === null || row.link === "") continue;
+      const claim = claimOf(row.feed, row.link);
+      if ((claims.get(claim) ?? 0) !== 1) continue;
+      const older = stored.get(claim);
+      if (older === undefined || older.length !== 1) continue;
+      replaced.set(key, older[0]);
+    }
+    return replaced;
   }
 
   async entry(itemId: string): Promise<EntryRow | null> {
@@ -616,6 +940,9 @@ export class LocalStore {
 
     const wanted = query.feeds === undefined ? null : new Set(query.feeds);
     const rows = (await this.db.all<EntryRow>("entries")).filter((row) => {
+      // A row the feed re-issued under a new id is history, not the article:
+      // the list follows the row that superseded it.
+      if ((row.superseded_by ?? null) !== null) return false;
       if (wanted !== null && !wanted.has(row.feed)) return false;
       if (query.starred === true && row.starred !== 1) return false;
       if (query.read === true && row.read !== 1) return false;
@@ -675,8 +1002,19 @@ export class LocalStore {
       );
     }
 
+    // A row the feed re-issued under a new id still carries the article's
+    // history; a mark written for the id a pane was drawn with has to land on
+    // the row the list shows, or the reader's read mark goes nowhere.
+    const successors = rows
+      .map((row) => row.superseded_by ?? null)
+      .filter((key): key is string => key !== null);
+    const flagged = new Map(rows.map((row) => [row.key, row]));
+    for (const row of await this.db.getMany<EntryRow>("entries", successors)) {
+      flagged.set(row.key, row);
+    }
+
     await this.db.write(
-      rows.map((row) => ({
+      [...flagged.values()].map((row) => ({
         type: "put" as const,
         table: "entries" as const,
         row: { ...row, [column]: value ? 1 : 0 },
@@ -694,12 +1032,17 @@ export class LocalStore {
    * only query that returns them without the articles around them.
    */
   async entryFlags(): Promise<Pick<EntryRow, "key" | "read" | "starred" | "stored_at">[]> {
-    return (await this.db.all<EntryRow>("entries")).map((row) => ({
-      key: row.key,
-      read: row.read,
-      starred: row.starred,
-      stored_at: row.stored_at,
-    }));
+    return (await this.db.all<EntryRow>("entries"))
+      // A superseded row's marks have already moved to the row that replaced
+      // it, and carrying both would put two records for one article in the
+      // document.
+      .filter((row) => (row.superseded_by ?? null) === null)
+      .map((row) => ({
+        key: row.key,
+        read: row.read,
+        starred: row.starred,
+        stored_at: row.stored_at,
+      }));
   }
 
   /**
@@ -711,6 +1054,9 @@ export class LocalStore {
   async counts(): Promise<FeedCount[]> {
     const counts = new Map<string, FeedCount>();
     for (const row of await this.db.all<EntryRow>("entries")) {
+      // A superseded row is not an unread article, and counting it would make
+      // the sidebar disagree with the list that hides it.
+      if ((row.superseded_by ?? null) !== null) continue;
       const current = counts.get(row.feed) ?? {
         feedUrl: row.feed,
         count: 0,

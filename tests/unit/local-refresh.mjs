@@ -565,6 +565,7 @@ if (sqlite !== null) {
         "last_modified",
         "failures",
         "last_error",
+        "resolved_url",
       ],
       "added columns",
     );

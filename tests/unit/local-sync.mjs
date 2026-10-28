@@ -684,6 +684,7 @@ const DOCUMENT_FIELDS = [
   "marks",
   "place",
   "prefs",
+  "redirects",
   "sidebar",
   "version",
   "writtenAt",

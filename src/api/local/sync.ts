@@ -72,7 +72,7 @@ import {
 } from "../../lib/sidebar-doc";
 import { LocalStorageError } from "./driver";
 import type { EntryRow, FeedRow, FolderRow } from "./schema";
-import type { LocalStore } from "./store";
+import { localItemPrefix, redirectTarget, type LocalStore } from "./store";
 import type { SyncProvider } from "./sync-provider";
 
 /**
@@ -133,6 +133,21 @@ export interface SyncedFolder {
 }
 
 /**
+ * A feed that moved, as it travels.
+ *
+ * The key is the address the feed was subscribed at; `to` is where it answers
+ * now, and `at` is when the device that wrote the record learned the move. It is
+ * a *fact about the web* rather than a preference, which is why one device
+ * seeing it is enough and why the record outlives the subscription that found
+ * it: a device still holding the old address follows it instead of subscribing
+ * a second copy.
+ */
+export interface SyncedRedirect {
+  to: string;
+  at: number;
+}
+
+/**
  * What one device says about one article.
  *
  * Read and starred are separate registers with their own times: two devices
@@ -154,6 +169,16 @@ export interface SyncSnapshot {
   writtenAt: number;
   feeds: Record<string, SyncedFeed>;
   folders: Record<string, SyncedFolder>;
+  /**
+   * Feeds that moved, keyed by the address they were subscribed at.
+   *
+   * A group of its own rather than a field on `feeds`: the feed's record has
+   * *become* the new address, and the old one has to outlive it or the device
+   * that never fetched would subscribe a second copy. Additive — a build that
+   * does not read this group still reads every other one, so it needs no
+   * version bump.
+   */
+  redirects: Record<string, SyncedRedirect>;
   marks: Record<string, SyncedMark>;
   /** The settings document the server path also carries. */
   prefs: PrefsDoc;
@@ -189,6 +214,7 @@ export function emptySnapshot(device = "", writtenAt = 0): SyncSnapshot {
     writtenAt,
     feeds: {},
     folders: {},
+    redirects: {},
     marks: {},
     prefs: emptyPrefs(),
     sidebar: null,
@@ -256,6 +282,21 @@ function parseMark(raw: unknown): SyncedMark | null {
 }
 
 /**
+ * A move, if the document carried a usable one.
+ *
+ * Without a target there is nothing to follow, and without a stamp the record
+ * cannot be ordered against another device's — so either omission drops the
+ * record rather than keeping a half-fact the merge would have to guess about.
+ */
+function parseRedirect(raw: unknown): SyncedRedirect | null {
+  if (!isRecord(raw)) return null;
+  const to = text(raw.to);
+  const at = stamp(raw.at);
+  if (to === null || to.trim() === "" || at === 0) return null;
+  return { to, at };
+}
+
+/**
  * The arrangement, if the document carried one with a stamp.
  *
  * A record with no stamp is dropped: it has no provenance, so it cannot be
@@ -316,6 +357,7 @@ export function parseSyncSnapshot(raw: string): SyncSnapshot {
     writtenAt: stamp(parsed.writtenAt),
     feeds: {},
     folders: {},
+    redirects: {},
     marks: {},
     prefs: parsePreferences(parsed.prefs),
     sidebar: parseSyncedSidebar(parsed.sidebar),
@@ -325,6 +367,7 @@ export function parseSyncSnapshot(raw: string): SyncSnapshot {
   const groups = [
     ["feeds", snapshot.feeds, parseFeed] as const,
     ["folders", snapshot.folders, parseFolder] as const,
+    ["redirects", snapshot.redirects, parseRedirect] as const,
     ["marks", snapshot.marks, parseMark] as const,
   ];
   for (const [name, into, parse] of groups) {
@@ -349,6 +392,104 @@ export function serializeSnapshot(snapshot: SyncSnapshot): string {
 }
 
 /* ---------------------------------------------------------------------------
+ * One feed, one identity
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Every move any of these copies knows, with the newer record winning.
+ *
+ * A redirect is a fact, so the union is the whole merge rule: a device that has
+ * seen the move adds it, and two devices that name different targets for the
+ * same address are settled by which one learned it later. Nothing is lost in
+ * either case — the older target stays in the file as the previous record of
+ * the same address, and the next poll from either device resolves the chain.
+ */
+function unionRedirects(
+  ...sources: readonly (Record<string, SyncedRedirect> | undefined)[]
+): Record<string, SyncedRedirect> {
+  const union: Record<string, SyncedRedirect> = {};
+  for (const source of sources) {
+    for (const [from, record] of Object.entries(source ?? {})) {
+      const earlier = union[from];
+      if (earlier === undefined || record.at >= earlier.at) union[from] = { ...record };
+    }
+  }
+  return union;
+}
+
+/** Two records for one feed, after a move put them under one key. */
+function mergeMovedFeed(a: SyncedFeed, b: SyncedFeed): SyncedFeed {
+  // A live subscription beats a tombstone at the address it moved away from:
+  // that tombstone is one device noticing its own key had changed, not a reader
+  // deleting anything.
+  if (a.removed !== b.removed) return a.removed ? b : a;
+  return a.at >= b.at ? a : b;
+}
+
+/** Two mark records for one article, after a move put them under one id. */
+function mergeMovedMark(a: SyncedMark, b: SyncedMark): SyncedMark {
+  // Both ids name the same article, so the flags are a union: a reader who
+  // starred it under the old id has starred it.
+  return {
+    read: a.read || b.read,
+    readAt: Math.max(a.readAt, b.readAt),
+    starred: a.starred || b.starred,
+    starredAt: Math.max(a.starredAt, b.starredAt),
+  };
+}
+
+/**
+ * The same document, with every address in it already at the end of its chain.
+ *
+ * A move applies to everything keyed by a feed: the subscription, and every
+ * article id that feed minted. Doing it as one pass over the whole document —
+ * rather than at each of the places that read a key — is what keeps a moved feed
+ * *one* feed with *one* set of marks in the file, instead of one of each per
+ * address.
+ *
+ * It is deliberately tolerant: a chain that comes back to where it started is
+ * not a move and is dropped, and records that collide are merged rather than
+ * raced.
+ */
+export function followRedirects(snapshot: SyncSnapshot): SyncSnapshot {
+  const known: Record<string, SyncedRedirect> = {};
+  for (const [from, record] of Object.entries(snapshot.redirects ?? {})) {
+    const to = redirectTarget(snapshot.redirects ?? {}, record.to);
+    if (to === from) continue;
+    const earlier = known[from];
+    if (earlier === undefined || record.at >= earlier.at) known[from] = { to, at: record.at };
+  }
+  const document: SyncSnapshot = { ...snapshot, redirects: known };
+  if (Object.keys(known).length === 0) return document;
+
+  const prefixes = Object.keys(known).map((from) => ({
+    from: localItemPrefix(from),
+    to: localItemPrefix(known[from]?.to ?? from),
+  }));
+
+  document.feeds = {};
+  for (const [url, record] of Object.entries(snapshot.feeds)) {
+    const key = redirectTarget(known, url);
+    const existing = document.feeds[key];
+    document.feeds[key] = existing === undefined ? record : mergeMovedFeed(existing, record);
+  }
+
+  document.marks = {};
+  for (const [id, record] of Object.entries(snapshot.marks)) {
+    let key = id;
+    for (const prefix of prefixes) {
+      if (!id.startsWith(prefix.from)) continue;
+      key = `${prefix.to}${id.slice(prefix.from.length)}`;
+      break;
+    }
+    const existing = document.marks[key];
+    document.marks[key] = existing === undefined ? record : mergeMovedMark(existing, record);
+  }
+
+  return document;
+}
+
+/* ---------------------------------------------------------------------------
  * Building this device's copy
  * ------------------------------------------------------------------------- */
 
@@ -357,6 +498,14 @@ export interface SnapshotRows {
   feeds: readonly FeedRow[];
   folders: readonly FolderRow[];
   entries: readonly Pick<EntryRow, "key" | "read" | "starred" | "stored_at">[];
+  /**
+   * The moves this device knows, keyed by the address a feed was subscribed at.
+   *
+   * They travel because the other device has to be able to follow a feed it has
+   * not fetched: a phone that is asleep while a site moves would otherwise
+   * subscribe the new address beside the old one on its next wake.
+   */
+  redirects: Record<string, SyncedRedirect>;
 }
 
 export interface BuildSnapshotOptions {
@@ -422,8 +571,15 @@ function sameFolder(a: SyncedFolder, b: SyncedFolder): boolean {
  */
 export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
   const now = seconds(options.now);
-  const base = options.base;
+  // The moves this device knows, and the ones it last agreed to. The base is
+  // read *through* them, so a subscription the agreement still holds under the
+  // old address is recognised as the feed that is now here — otherwise the
+  // carry-forward below would read its own moved key as a removal.
+  const redirects = unionRedirects(options.base?.redirects, options.rows.redirects);
+  const base =
+    options.base === null ? null : followRedirects({ ...options.base, redirects });
   const snapshot = emptySnapshot(options.device, now);
+  snapshot.redirects = redirects;
 
   for (const row of options.rows.feeds) {
     const record: SyncedFeed = {
@@ -511,7 +667,7 @@ export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
     now,
   );
   snapshot.place = stampPlace(options.place === undefined ? undefined : options.place, base?.place ?? null, now);
-  return pruneSnapshot(snapshot, now);
+  return pruneSnapshot(followRedirects(snapshot), now);
 }
 
 /**
@@ -555,9 +711,9 @@ function stampPlace(
   return { ...doc, at: now };
 }
 
-/** Drops what has outlived its usefulness: old tombstones and old unmarks. */
+/** Drops what has outlived its usefulness: old tombstones, old unmarks, old moves. */
 export function pruneSnapshot(snapshot: SyncSnapshot, now: number): SyncSnapshot {
-  const pruned: SyncSnapshot = { ...snapshot, feeds: {}, folders: {}, marks: {} };
+  const pruned: SyncSnapshot = { ...snapshot, feeds: {}, folders: {}, redirects: {}, marks: {} };
   for (const [url, record] of Object.entries(snapshot.feeds)) {
     if (record.removed && now - Math.max(record.at, 1) > TOMBSTONE_SECONDS) continue;
     pruned.feeds[url] = record;
@@ -565,6 +721,13 @@ export function pruneSnapshot(snapshot: SyncSnapshot, now: number): SyncSnapshot
   for (const [name, record] of Object.entries(snapshot.folders)) {
     if (record.removed && now - Math.max(record.at, 1) > TOMBSTONE_SECONDS) continue;
     pruned.folders[name] = record;
+  }
+  for (const [from, record] of Object.entries(snapshot.redirects)) {
+    // A move is remembered as long as a tombstone is. Shorter, and a device that
+    // has been away would subscribe the old address again; longer, and the file
+    // carries addresses nobody has fetched in half a year.
+    if (now - Math.max(record.at, 1) > TOMBSTONE_SECONDS) continue;
+    pruned.redirects[from] = record;
   }
   for (const [id, record] of Object.entries(snapshot.marks)) {
     const last = Math.max(record.readAt, record.starredAt);
@@ -662,12 +825,22 @@ function description(record: SyncedFeed | SyncedFolder | SyncedMark): string {
  * rather than two.
  */
 export function mergeSnapshots(
-  local: SyncSnapshot,
-  remote: SyncSnapshot,
-  base: SyncSnapshot | null,
+  localInput: SyncSnapshot,
+  remoteInput: SyncSnapshot,
+  baseInput: SyncSnapshot | null,
 ): SnapshotMerge {
+  // Every copy is read through the moves any of them knows, before a single
+  // record is compared. Two devices that disagree only about the *address* of a
+  // feed have not disagreed about the feed, and merging them as two
+  // subscriptions is exactly the duplicate this exists to prevent.
+  const redirects = unionRedirects(baseInput?.redirects, localInput.redirects, remoteInput.redirects);
+  const local = followRedirects({ ...localInput, redirects });
+  const remote = followRedirects({ ...remoteInput, redirects });
+  const base = baseInput === null ? null : followRedirects({ ...baseInput, redirects });
+
   const conflicts: SyncConflict[] = [];
   const merged = emptySnapshot(local.device, local.writtenAt);
+  merged.redirects = local.redirects;
 
   const feedKeys = new Set([
     ...Object.keys(local.feeds),
@@ -869,6 +1042,8 @@ export interface ApplyReport {
   feedsMoved: string[];
   /** Feeds whose name came from the folder's copy. */
   feedsRenamed: string[];
+  /** Feeds this library moved to another address, as `old → new`. */
+  feedsRedirected: string[];
   foldersAdded: string[];
   foldersRemoved: string[];
   /** Marks written, and marks for articles this device does not hold. */
@@ -879,10 +1054,12 @@ export interface ApplyReport {
 /**
  * Writes a merged document into this device's library.
  *
- * Only the four things that travel are touched. An article's body is never
+ * Only the five things that travel are touched. An article's body is never
  * rewritten, an extraction is never dropped, and a feed's poll memory is left
  * exactly as this device had it — a feed adopted from the folder arrives with
- * nothing fetched, which is the truth: this device has not fetched it yet.
+ * nothing fetched, which is the truth: this device has not fetched it yet. A
+ * feed the folder says has moved is moved rather than added, with its articles
+ * and their marks, so the move cannot become a second subscription here.
  *
  * A mark for an article this device does not hold is skipped rather than
  * refused. The document keeps it, so it lands on the device that does have the
@@ -898,11 +1075,25 @@ export async function applySnapshot(
     feedsRemoved: [],
     feedsMoved: [],
     feedsRenamed: [],
+    feedsRedirected: [],
     foldersAdded: [],
     foldersRemoved: [],
     marksApplied: 0,
     marksSkipped: 0,
   };
+
+  // The moves first, and before anything is compared: this library may still
+  // hold a feed under the address the other device has just left, and
+  // subscribing the new one beside it is the duplicate the move exists to
+  // prevent. The store's own rewrite carries the articles and their marks.
+  for (const [from, record] of Object.entries(snapshot.redirects)) {
+    const to = redirectTarget(snapshot.redirects, record.to);
+    if (to === from) continue;
+    if ((await store.feed(from)) === null) continue;
+    if ((await store.followRedirect(from, to)) === to) {
+      report.feedsRedirected.push(`${from} → ${to}`);
+    }
+  }
 
   const [feeds, folders] = await Promise.all([store.feeds(), store.folders()]);
   const byUrl = new Map(feeds.map((feed) => [feed.key, feed]));
@@ -1071,24 +1262,92 @@ function sameContent(a: SyncSnapshot, b: SyncSnapshot): boolean {
  */
 export async function syncOnce(options: SyncRunOptions): Promise<SyncRun> {
   const now = seconds(options.now);
-  const rows: SnapshotRows = {
-    feeds: await options.store.feeds(),
-    folders: await options.store.folders(),
-    entries: await options.store.entryFlags(),
-  };
-
-  const local = buildSnapshot({
-    rows,
-    base: options.base,
-    prefs: options.prefs.local,
-    device: options.device,
-    now,
-    sidebar: options.prefs.sidebar === undefined ? undefined : options.prefs.sidebar.local,
-    place: options.prefs.place === undefined ? undefined : options.prefs.place.local,
-  });
+  const local = await localSnapshot({ ...options, now });
 
   const raw = await options.provider.read();
   const remote = raw === null ? null : parseSyncSnapshot(raw);
+  const merged = await integrateSnapshot({ ...options, now }, local, remote);
+
+  const unchanged = remote !== null && sameContent(remote, merged.snapshot);
+  if (!unchanged) await options.provider.write(serializeSnapshot(merged.snapshot));
+
+  return {
+    snapshot: merged.snapshot,
+    conflicts: merged.conflicts,
+    applied: merged.applied,
+    unchanged,
+  };
+}
+
+/* ---------------------------------------------------------------------------
+ * One document in, one library out
+ * ------------------------------------------------------------------------- */
+
+/**
+ * What building and merging a document needs, without saying where it came from.
+ *
+ * A folder sync and an archive import are the same operation with a different
+ * transport: both build this device's document, merge another one into it with
+ * the same rules, and write the result through `applySnapshot`. The transport is
+ * the only difference, so it is the only thing the two callers do differently.
+ */
+export interface SnapshotSource {
+  store: LocalStore;
+  /** What to call this device in the document it builds. */
+  device: string;
+  /** The last agreement, or null. An import has none: an archive is a stranger. */
+  base: SyncSnapshot | null;
+  prefs: SyncPrefs;
+  now?: number;
+}
+
+/** The rows this device's document is built from, read once. */
+async function readRows(store: LocalStore): Promise<SnapshotRows> {
+  return {
+    feeds: await store.feeds(),
+    folders: await store.folders(),
+    entries: await store.entryFlags(),
+    redirects: await store.redirects(),
+  };
+}
+
+/**
+ * This device's document, as the library stands right now.
+ *
+ * The library half is `buildSnapshot`'s business; this only gathers what it
+ * reads, so an export writes exactly what a sync would have written, and the
+ * two cannot drift into different ideas of what this device has.
+ */
+export async function localSnapshot(options: SnapshotSource): Promise<SyncSnapshot> {
+  return buildSnapshot({
+    rows: await readRows(options.store),
+    base: options.base,
+    prefs: options.prefs.local,
+    device: options.device,
+    now: seconds(options.now),
+    sidebar: options.prefs.sidebar === undefined ? undefined : options.prefs.sidebar.local,
+    place: options.prefs.place === undefined ? undefined : options.prefs.place.local,
+  });
+}
+
+/**
+ * Merges a document into this device's library and adopts the settings it won.
+ *
+ * The three-way merge, the settings rule and the write are one sequence and
+ * live in one place, because a second copy of them is a second set of conflict
+ * rules — which is exactly what an import must not be. Nothing here is
+ * transport: the caller decodes the document and decides where it came from.
+ *
+ * The returned document is this device's new copy — the caller that has a
+ * provider writes it back, and the caller that imported one (an archive is not
+ * a place) keeps it for the report and writes nothing.
+ */
+export async function integrateSnapshot(
+  options: SnapshotSource,
+  local: SyncSnapshot,
+  remote: SyncSnapshot | null,
+): Promise<{ snapshot: SyncSnapshot; conflicts: SyncConflict[]; applied: ApplyReport }> {
+  const now = seconds(options.now);
   const merged = mergeSnapshots(local, remote ?? emptySnapshot(), options.base);
 
   options.prefs.adopt(merged.snapshot.prefs, merged.adoptedPrefs);
@@ -1103,9 +1362,9 @@ export async function syncOnce(options: SyncRunOptions): Promise<SyncRun> {
   }
   const applied = await applySnapshot(options.store, merged.snapshot);
 
-  const snapshot: SyncSnapshot = { ...merged.snapshot, device: options.device, writtenAt: now };
-  const unchanged = remote !== null && sameContent(remote, snapshot);
-  if (!unchanged) await options.provider.write(serializeSnapshot(snapshot));
-
-  return { snapshot, conflicts: merged.conflicts, applied, unchanged };
+  return {
+    snapshot: { ...merged.snapshot, device: options.device, writtenAt: now },
+    conflicts: merged.conflicts,
+    applied,
+  };
 }

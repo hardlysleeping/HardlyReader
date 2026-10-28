@@ -43,7 +43,7 @@ export interface ColumnSchema {
 }
 
 /**
- * The five tables.
+ * The six tables.
  *
  * They are deliberately flat. A local library is one person's reading, so the
  * questions asked of it are simple — "this feed's items, newest first", "what
@@ -91,6 +91,18 @@ export const TABLES = {
       { name: "last_modified", type: "text" },
       { name: "failures", type: "integer" },
       { name: "last_error", type: "text" },
+      /**
+       * Where the feed finally answered, which is not always where it was
+       * subscribed: a site that moved to another host, or answers a permanent
+       * redirect, gives a different address than the one typed into the box.
+       *
+       * The row's key follows this once a poll has seen the difference — one
+       * feed, one identity — and this column is what remembers the address
+       * even for a feed that never moved, so the question "does this feed live
+       * where it says it does" is answered by a column rather than by a fetch.
+       * Null until the first successful poll.
+       */
+      { name: "resolved_url", type: "text" },
     ],
   },
 
@@ -118,6 +130,15 @@ export const TABLES = {
       { name: "starred", type: "integer" },
       /** When this device first stored the post, not when it was published. */
       { name: "stored_at", type: "integer" },
+      /**
+       * The id of the row that replaced this one, when the feed changed its
+       * guid scheme and the same article arrived under a new id.
+       *
+       * The old row is kept rather than deleted — its body, its marks and the
+       * fact that it existed — but it is no longer the article: the list, the
+       * counts and the sync document all follow the row that superseded it.
+       */
+      { name: "superseded_by", type: "text" },
     ],
   },
 
@@ -184,6 +205,27 @@ export const TABLES = {
       { name: "created_at", type: "integer" },
     ],
   },
+
+  /**
+   * A feed that moved, and the address it moved to.
+   *
+   * The key is the address the feed was subscribed at, and `to` is where it
+   * answers now. It is a separate row rather than a field on `feeds` because
+   * the feed's row has *become* the new address: the old one is a fact about
+   * the past, and it has to outlive the subscription so the other device can
+   * follow it instead of subscribing a second time.
+   *
+   * `at` is when this device learned the move. It is the one thing a merge
+   * compares, and a redirect is a fact rather than a preference: one device
+   * seeing it is enough, and two devices disagreeing about the target is a
+   * conflict the newer record settles.
+   */
+  redirects: {
+    columns: [
+      { name: "to", type: "text" },
+      { name: "at", type: "integer" },
+    ],
+  },
 } as const;
 
 export type TableName = keyof typeof TABLES;
@@ -248,6 +290,11 @@ export interface FeedRow extends LocalRow {
   failures: number | null;
   /** Why the last poll failed, in words, or null when it did not. */
   last_error: string | null;
+  /**
+   * Where the feed finally answered: its own key once a poll has confirmed it,
+   * and the address it arrived from before a move. Null until it is fetched.
+   */
+  resolved_url: string | null;
 }
 
 /** A row of `entries`. */
@@ -265,6 +312,8 @@ export interface EntryRow extends LocalRow {
   read: number;
   starred: number;
   stored_at: number;
+  /** The row that replaced this one, or null while this is the article. */
+  superseded_by?: string | null;
 }
 
 /** A row of `extractions`. */
@@ -291,4 +340,10 @@ export interface PositionRow extends LocalRow {
 /** A row of `folders`. */
 export interface FolderRow extends LocalRow {
   created_at: number;
+}
+
+/** A row of `redirects`: a feed that moved, and where it went. */
+export interface RedirectRow extends LocalRow {
+  to: string;
+  at: number;
 }

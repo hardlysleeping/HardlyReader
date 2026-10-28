@@ -15,6 +15,7 @@ its own schedule, with its own validators.
 | Travels | Does not travel |
 |---|---|
 | subscriptions: URL, title, title source, folder, when added | article bodies, summaries, enclosures |
+| a feed that moved: the old address and where it answers now | the address a poll resolved to on this device |
 | folders, including empty ones | extraction results and their failures |
 | read marks, starred marks | `ETag`, `Last-Modified`, poll times, failure counts |
 | the settings document (`reading`, `theme`, `search`) | window layout, pane widths, phone chrome |
@@ -97,6 +98,14 @@ it, kept beside the library (never in the folder), because that is what turns
 - **A tie settles on the record, not on the side it came from.** Two devices
   editing the same field in the same second are compared field by field, so both
   of them land on the same answer instead of flapping it between them.
+- **A move is not a second subscription.** A feed's key is the address it finally
+  answers at. When one device sees it answer somewhere else it rewrites the feed's
+  key and its article ids, and the old address travels in the document's
+  `redirects` group. Every copy is read through those redirects *before* anything
+  is compared, so a device that disagrees only about an address has not disagreed
+  about the feed: the document ends with one feed, one set of marks, and the old
+  address recorded rather than tombstoned. A redirect that points back where it
+  came from is dropped instead of being followed.
 - Every disagreement is reported as a conflict (`SyncConflict`: group, key, which
   side was kept, what the loser said) rather than resolved silently.
 
@@ -174,12 +183,20 @@ leaves the library, the agreement and the last-run time alone.
 
 ## Proving it
 
-`tests/unit/local-sync.mjs` — 27 checks over two real `LocalStore`s and one
+`tests/unit/local-sync.mjs` — 29 checks over two real `LocalStore`s and one
 shared folder: adoption, quiet re-syncs, independent registers, arrivals, unmarks,
 removals versus renames, re-subscriptions, empty folders, settings adoption,
 refusals, same-second ties, pruning, and the name this file and `sync.rs` agree
 on. `src-tauri/src/sync.rs` carries its own `cargo test` cases for the path rules
 and the atomic write.
+
+`tests/unit/feed-identity.mjs` — 9 checks on the identity a redirect must not
+split: the resolved address recorded, the key rewritten instead of a second feed
+added, the articles and their marks following, a second spelling folded in, a
+redirect to a web page ignored, a redirect back not followed, a changed guid
+scheme keeping the old row superseded — and the acceptance case: a feed that
+redirects between two syncs leaving one feed, one set of marks and no duplicate
+in either device's document.
 
 `tests/unit/sync-provider.mjs` — 6 checks on the seam itself: two devices merging
 through one `MemorySyncProvider`, a provider whose `read()` throws leaving the
