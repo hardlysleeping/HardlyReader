@@ -16,6 +16,7 @@
   import { looksTruncated, wantsFullText } from "../lib/full-text";
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
+  import { bodies } from "../state/bodies.svelte";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { fittedWidth } from "../lib/image-fit";
   import {
@@ -564,6 +565,21 @@
   /** Nothing is said about a failure until the reader asked for one. */
   let refused = $state(false);
 
+  /**
+   * Tell the bodies cache which post is on screen.
+   *
+   * Two surfaces can be drawing two posts at once, so this is a set rather than a
+   * field: the list's inline reader and this pane both say what they are showing,
+   * and the budget passes over both. A body no pane is drawing has no claim on
+   * the space.
+   */
+  $effect(() => {
+    const drawn = item?.id ?? null;
+    if (drawn === null) return;
+    bodies.showing(drawn);
+    return () => bodies.hidden(drawn);
+  });
+
   $effect(() => {
     const current = item;
     const url = link;
@@ -589,7 +605,7 @@
       reader.noteFeedTruncated(feedId);
     }
 
-    if (!wanted || !current || url === "") {
+    if (!current || url === "") {
       extracted = null;
       extractedFor = null;
       fetching = false;
@@ -597,6 +613,20 @@
     }
 
     const id = current.id;
+
+    if (!wanted) {
+      // Keeping a copy is not the same as showing it. A reader who asked this
+      // device to keep the post it opens gets the page fetched and stored, and
+      // still reads the feed's own text — the two answers are separate on
+      // purpose, because "show me the article" and "keep it for later" are
+      // different requests. With keeping off nothing is fetched here at all.
+      extracted = null;
+      extractedFor = null;
+      fetching = false;
+      if (bodies.keeping) void extractFor(id, url);
+      return;
+    }
+
     const remembered = rememberedExtraction(id);
     if (remembered) {
       extracted = remembered;

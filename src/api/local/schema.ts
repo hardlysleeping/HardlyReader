@@ -128,6 +128,13 @@ export const TABLES = {
    * parse would otherwise be re-fetched every time it is opened, and the reader
    * would never learn that it was tried. So a row with `status = 'failed'` and
    * the reason is a result, and `extracted_at` says when it is worth retrying.
+   *
+   * The rest of the row is what makes the table a library rather than a memo: a
+   * body that survives a restart is read back without a request, so it carries
+   * the parts of the extraction the pane draws (`title`, `byline`, the length
+   * `chooseBody` weighs) and the two numbers the budget needs — `bytes` on disk
+   * and `used_at`, the last time the post was opened. Both are absent on a
+   * failure: a failure holds no text and is not a candidate for eviction.
    */
   extractions: {
     columns: [
@@ -138,6 +145,15 @@ export const TABLES = {
       /** Why it failed, in words a reader could be shown. */
       { name: "error", type: "text" },
       { name: "extracted_at", type: "integer" },
+      /** The article's own headline, when the extractor found one. */
+      { name: "title", type: "text" },
+      { name: "byline", type: "text" },
+      /** Characters of text, which is what `chooseBody` decides on. */
+      { name: "text_length", type: "integer" },
+      /** UTF-8 bytes of `html`: what this body costs the device. */
+      { name: "bytes", type: "integer" },
+      /** Seconds, the last time this body was read. Least-recently-used order. */
+      { name: "used_at", type: "integer" },
     ],
   },
 
@@ -257,6 +273,12 @@ export interface ExtractionRow extends LocalRow {
   html: string | null;
   error: string | null;
   extracted_at: number;
+  /** Absent on a row written before bodies were kept, and on any failure. */
+  title?: string | null;
+  byline?: string | null;
+  text_length?: number | null;
+  bytes?: number | null;
+  used_at?: number | null;
 }
 
 /** A row of `positions`. */

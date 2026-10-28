@@ -26,6 +26,7 @@
   import { looksTruncated, wantsFullText } from "../lib/full-text";
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
+  import { bodies } from "../state/bodies.svelte";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
 
@@ -53,6 +54,16 @@
   /** The feed's own answer, and Auto's verdict about it, are the feed's. */
   const feedId = $derived(item.origin?.streamId ?? null);
 
+  /**
+   * Tell the bodies cache this row is on screen, so the budget never evicts the
+   * article someone is reading.
+   */
+  $effect(() => {
+    const drawn = item.id;
+    bodies.showing(drawn);
+    return () => bodies.hidden(drawn);
+  });
+
   $effect(() => {
     const id = item.id;
     const url = link;
@@ -74,8 +85,12 @@
     }
 
     if (!wanted || url === "") {
+      // A row the reader asked this device to keep still gets its page fetched
+      // and stored, and still draws the feed's own text: keeping and showing are
+      // separate answers. Nothing is fetched when keeping is off.
       extracted = null;
       extractedFor = null;
+      if (!wanted && url !== "" && bodies.keeping) void extractFor(id, url);
       return;
     }
 

@@ -479,6 +479,46 @@ export function rememberExtraction(id: string, extracted: Extracted): void {
   }
 }
 
+/**
+ * Somewhere to keep an article after it has been fetched.
+ *
+ * The memo above is a session's memory — four posts, gone on reload. This is the
+ * other half: a device's own copy, keyed by the entry's id, which is how a
+ * library with no server can show a post whose feed was fetched on some other
+ * day, and how a post read here can still be read in an aeroplane.
+ *
+ * The pipeline asks it rather than any caller doing so, because there are three
+ * callers (the pane, the inline reader in the list, the queue that prepares the
+ * posts ahead) and a cache consulted by three of them is a cache that disagrees
+ * with itself. Attaching happens once, by the library: `null` means "no device
+ * library is open", and everything behaves exactly as it did before.
+ */
+export interface ExtractionCache {
+  /**
+   * The body kept for this entry, or null.
+   *
+   * Reading is unconditional: a reader who switches keeping off does not lose
+   * what is already on the device, and the copy still costs nothing to show. Only
+   * `write()` is a policy.
+   */
+  read(itemId: string): Promise<Extracted | null>;
+  /**
+   * Keep this body.
+   *
+   * A cache whose reader has not asked for keeping does nothing here. It must
+   * not throw for a body it declines to store — a full disk is a reason to stop
+   * keeping, never a reason to fail a page that has already arrived.
+   */
+  write(itemId: string, extracted: Extracted): Promise<void>;
+}
+
+let cache: ExtractionCache | null = null;
+
+/** Point the pipeline at a device's own copies, or at none. */
+export function setExtractionCache(next: ExtractionCache | null): void {
+  cache = next;
+}
+
 export interface ExtractOptions {
   /**
    * An explicit press, not an automatic fetch: a URL the ledger has parked is
@@ -492,6 +532,18 @@ export interface ExtractOptions {
 /**
  * Extract a page for one entry, remembering it and remembering when it refuses.
  *
+ * The order is the contract: **memo → what the device kept → the ledger → the
+ * network**.
+ *
+ * - The device's own copy comes before the ledger on purpose. A page parked today
+ *   may have been read successfully last week, and what is already on disk
+ *   outranks what a retry timer thinks.
+ * - An explicit press (`force`) is the only thing that skips both — a press means
+ *   "as it is now", so the page is asked again and what lands replaces the copy.
+ * - A body that arrives is offered to the cache. Declining is the cache's
+ *   business (a reader who keeps nothing, a page over the per-post ceiling), and
+ *   a cache that cannot write must not take the article with it.
+ *
  * Null means "keep the feed's text" — a parked URL, a refusal or a page with no
  * article in it all end the same way on screen, which is the point.
  */
@@ -502,6 +554,23 @@ export async function extractFor(
 ): Promise<Extracted | null> {
   const remembered = rememberedExtraction(id);
   if (remembered) return remembered;
+
+  const keeper = cache;
+  if (keeper !== null && options.force !== true) {
+    let kept: Extracted | null = null;
+    try {
+      kept = await keeper.read(id);
+    } catch {
+      // A cache that cannot read is a miss. It is never a reason to fail the
+      // post the reader just opened.
+      kept = null;
+    }
+    if (kept !== null) {
+      rememberExtraction(id, kept);
+      return kept;
+    }
+  }
+
   // Paying a publisher's timeout on every post that links to a page it will
   // never serve is the behaviour this avoids: a parked page is not asked again
   // until its retry time, and only an explicit press gets past that.
@@ -509,6 +578,14 @@ export async function extractFor(
   const extracted = await extractOnce(url);
   if (extracted === null) return null;
   rememberExtraction(id, extracted);
+  if (keeper !== null) {
+    try {
+      await keeper.write(id, extracted);
+    } catch {
+      // The article is on screen either way. A device that cannot keep it will
+      // fetch it again next time, which is the behaviour before this existed.
+    }
+  }
   return extracted;
 }
 
