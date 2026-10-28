@@ -6,6 +6,33 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.6.9] — 2026-10-27
+
+The first release since 0.6.7: this section is 0.6.8's unpublished notes, cut
+here because 0.6.8 was built and never shipped.
+
+### Since 0.6.8
+
+- **One person is one account.** Linking a provider keeps the account row and
+  replaces only the identity; deleting the account takes the identity and the
+  rows that hang off it, and cannot reach the library on the device.
+- **Changing sync provider is a migration, not a re-connect.** The nine steps in
+  `docs/sync-format.md` run in order, and a failure at any of them leaves the old
+  provider in use and the new folder as it was found.
+- **The sync folder is a versioned file set**, so two devices cannot overwrite
+  each other's records; a sync archive exports and imports the whole set.
+- **The reading position belongs to this device**, and the adapter has no route
+  that would make a server's opinion of it possible.
+- **Settings → Account**: the doors, the devices, and a deletion that has
+  somewhere to go.
+- **A release is four bundles or it is not a release.** `scripts/release.sh`
+  refuses to touch GitHub until the AppImage, the Flatpak, the APK and the IPA
+  are all present, are the size they should be and are the kind of file they
+  claim to be.
+- **In Cards the keys step the column, and it follows, centred** — the wheel's
+  own placement, once per step, and never on a click.
+- A settings section cannot be missing its open state (it was, for Saved text).
+
 ### Proven
 
 - **Local mode runs the owner's acceptance list, as one command.**
