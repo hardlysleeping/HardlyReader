@@ -15,12 +15,12 @@ Two ways to read, one app:
   included. Your server does the syncing, for free, as it always has.
 
 Moving a local library between devices is free and manual: **Settings → Device sync →
-Archive** exports `HardlyReader-Sync.zip` and imports it back — feeds, folders, hidden
+Archive** has **Export archive** and **Import archive** — feeds, folders, hidden
 categories, pins, arrangements, read and starred marks, preferences, positions. The
-same canonical files the folder providers write, so a zip can be unzipped, read, kept,
-or dropped into iCloud Drive by hand. Automatic mirroring through iCloud, Google Drive,
-Dropbox or OneDrive is the one paid feature — see *Free, and what a subscription adds*
-below.
+same canonical files the folder providers write, so the zip can also be unzipped, read,
+kept, or dropped into an iCloud Drive folder by hand. Automatic mirroring through iCloud,
+Google Drive, Dropbox or OneDrive is the one paid feature — see *Free, and what a
+subscription adds* below.
 
 Svelte 5, TypeScript, Tauri 2. One codebase: a Linux desktop window, a browser build
 (also shipped as a container), Android, and iOS.
@@ -130,9 +130,12 @@ the password and either side can revoke it.
 
 ## Free, and what a subscription adds
 
-**Exporting and importing your data is free, always.** *Settings → Device sync → Archive* writes
-`HardlyReader-Sync.zip` and imports it back — no account, no trial, no subscription, on every build.
-If you would rather move your library by hand than pay for anything, that path never goes away.
+**Exporting and importing your data is free, always.** *Settings → Device sync → Archive* has two
+buttons: **Export archive** writes `HardlyReader-Sync.zip` — through the system save dialog on a
+desktop, the share sheet on a phone (AirDrop, Files, mail), a download in a browser — and **Import
+archive** opens a file picker and merges that zip in. No account, no trial, no subscription, on
+every build. If you would rather move your library by hand than pay for anything, that path never
+goes away.
 
 What the subscription adds is **automatic** mirroring for a *local* library: the app keeps the same
 data in a folder your own cloud client already syncs — iCloud Drive, Google Drive, Dropbox, OneDrive
@@ -166,7 +169,7 @@ fetched unless the device fetches it too.
 | Your situation | Best setup | What it costs | What you don't get |
 |---|---|---|---|
 | One device | Local library, no account | **Free** | nothing — sync has nothing to do |
-| Two or more devices, no server, a zip now and then is fine | Local library + manual export/import | **Free** | it is manual: you copy `HardlyReader-Sync.zip` across, and an import happens when you make it |
+| Two or more devices, no server, a zip now and then is fine | Local library + manual export/import | **Free** | no background merge: you press **Export archive** on one device and **Import archive** on the other — a save dialog or share sheet on the way out, a file picker on the way in |
 | Two or more devices, no server, want it hands-free | Local library + **HardlyReader Sync** | subscription | article text still doesn't travel; needs a HardlyReader account; the folder has to be one your cloud client mirrors |
 | You already run FreshRSS (or another server that speaks the GReader API) | Server profile | **Free** (plus what your server costs you) | our paid sync does nothing here — it isn't offered, because your server already merges everything, articles included |
 | You pay for Feedbin, Feedly or Inoreader | read in their app; add HardlyReader only if you want a local library as well | their price, plus ours only if you also want local mirroring | HardlyReader does not speak their APIs — there is no two-way link. OPML moves between them; read state and stars do not |
