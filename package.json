@@ -11,7 +11,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
     "dev:window": "bash scripts/dev-window.sh",
-    "test": "node tests/unit/run.mjs"
+    "test": "node tests/unit/run.mjs",
+    "test:acceptance": "node --experimental-strip-types --import ./tests/unit/register-ts.mjs tests/unit/local-acceptance.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

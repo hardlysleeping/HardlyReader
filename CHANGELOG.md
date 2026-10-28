@@ -6,6 +6,20 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [Unreleased]
 
+### Proven
+
+- **Local mode runs the owner's acceptance list, as one command.**
+  `pnpm test:acceptance` launches a fresh library, adds a feed through the form's
+  own method, imports an OPML file with two folders and a feed in each, refreshes
+  an hour later and gets a new article, reads it, stars it, marks it read, closes
+  the database and opens a new handle on the same file — 51 checks, and the run
+  prints which of the nine steps it ran. It uses the app's own SQLite engine on a
+  real file (only the plugin IPC link is substituted), serves the feeds over real
+  HTTP on localhost, and fails if anything is requested that is not one of the
+  three fixtures. `docs/local-acceptance.md` carries the same list as a
+  two-minute pass to tap through on a phone, and says plainly what neither pass
+  can prove: iOS killing the app, and IndexedDB eviction under storage pressure.
+
 ### Licence
 
 - **PolyForm Noncommercial 1.0.0, named everywhere it is machine-readable.** The

@@ -18,7 +18,7 @@ import { isTauri } from "../../lib/platform";
 import { LocalStorageError, type LocalDatabase } from "./driver";
 import { IndexedDbDatabase, LOCAL_DATABASE_NAME } from "./indexeddb-db";
 import { MemoryDatabase } from "./memory-db";
-import { LOCAL_DATABASE_FILE, SqliteDatabase } from "./sqlite-db";
+import { LOCAL_DATABASE_FILE, SqliteDatabase, type SqlConnector } from "./sqlite-db";
 import type { LocalEngine } from "./schema";
 
 export interface LocalDatabaseOptions {
@@ -26,6 +26,15 @@ export interface LocalDatabaseOptions {
   engine?: LocalEngine;
   /** File name for SQLite, database name for IndexedDB. */
   name?: string;
+  /**
+   * How the SQLite engine is reached, given the file name.
+   *
+   * The plugin by default. A suite that wants the real SQL — the same
+   * `CREATE TABLE`, the same upserts, the same transactions — against a real
+   * SQLite file, without a launched app, hands in an engine of its own here.
+   * Only the SQLite arm reads it; nothing else has a connector to take.
+   */
+  connect?: SqlConnector;
 }
 
 /** Which engine this runtime would get if nothing were forced. */
@@ -42,7 +51,7 @@ export async function openLocalDatabase(
 
   switch (engine) {
     case "sqlite":
-      return SqliteDatabase.open(options.name ?? LOCAL_DATABASE_FILE);
+      return SqliteDatabase.open(options.name ?? LOCAL_DATABASE_FILE, options.connect);
     case "indexeddb":
       return IndexedDbDatabase.open(options.name ?? LOCAL_DATABASE_NAME);
     case "memory":
