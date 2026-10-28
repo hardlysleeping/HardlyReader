@@ -412,15 +412,24 @@ function projectRef(projectUrl: string): string {
   return match === null ? "" : match[1];
 }
 
-/** A build-time public value, or "" in a runtime that has no `import.meta.env`. */
-function envValue(name: string): string {
-  try {
-    const env = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env;
-    const value = env?.[name];
-    return typeof value === "string" ? value : "";
-  } catch {
-    return "";
-  }
+/**
+ * The environment Vite substitutes into the build. Absent under Node, which is a suite.
+ *
+ * `import.meta.env` is written literally because that is the expression Vite
+ * replaces with the build's own values; spelling it through a cast type-checks,
+ * builds, and silently ships a bundle with no configuration in it.
+ * `vite.config.ts` adds `PUBLIC_` to `envPrefix` for this pair. Under Node there
+ * is no `import.meta.env`, so a suite reads "" — a build with no project, and
+ * `no_store_here` rather than an unproved subscription.
+ */
+function envOfBuild(): Record<string, unknown> | null {
+  return (import.meta.env ?? null) as Record<string, unknown> | null;
+}
+
+/** A build-time public value, or "" when this build has none. */
+function envValue(name: "PUBLIC_SUPABASE_URL" | "PUBLIC_SUPABASE_ANON_KEY"): string {
+  const value = envOfBuild()?.[name];
+  return typeof value === "string" ? value.trim() : "";
 }
 
 /** `localStorage` when this runtime has one. A webview always does; a suite may not. */
