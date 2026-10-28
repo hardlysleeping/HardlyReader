@@ -130,34 +130,37 @@ refresh on return turns `cloudSync` on. A client that could grant the flag would
 subscription in two lines — `tests/unit/billing-client.mjs` asserts no card field, no price id
 and no key exists in that file.
 
-Two seams are intentionally *not* wired here. Both halves now exist — `RemoteStore.read()`
-(`t_f1230503`) and `identity.token` / `storedCloudSession()` — but where the composed store is
-*installed* is a decision, not a detail:
-
-- `src/state/entitlements.svelte.ts` cannot import `src/api/billing.ts`, because that capability
-  is held to "imports nothing from the app" (`tests/unit/entitlements.mjs`), and the import
-  would also be circular (`billing.ts` reads `SYNC_MONTHLY`, `SYNC_YEARLY`, `noEntitlement`).
-- So the composition belongs in a module that may import both, installed where the app starts
-  (`entitlement.use(...)`), not in the entitlement's own default store.
+Two halves that must not be joined here. `RemoteStore.read()` (`t_f1230503`) and
+`identity.token` / `storedCloudSession()` both exist, but `src/state/entitlements.svelte.ts`
+cannot import `src/api/billing.ts`: that capability is held to "imports nothing from the app"
+(`tests/unit/entitlements.mjs`), and the import would also be circular (`billing.ts` reads
+`SYNC_MONTHLY`, `SYNC_YEARLY`, `noEntitlement` from it). So the composition lives in
+`src/api/web-store.ts`, which may import both, and `src/main.ts` installs it once before mount:
 
 ```ts
-// somewhere that may import both — not state/entitlements.svelte.ts
+installWebStore();
+// src/api/web-store.ts, in full:
 entitlement.use(
   new WebStore({
-    base: envValue("PUBLIC_BILLING_URL"),
-    token: () => storedCloudSession(deviceStorage(), url)?.token ?? "",
-    server: reader, // the same RemoteStore the capability reads through
+    base: billingUrl(),
+    token: () => storedCloudSession()?.token ?? "",
+    server: reader, // the `RemoteStore` the capability reads through
   }),
 );
 ```
 
-Use the *same* token source the reader uses. `RemoteStore` takes its JWT from Supabase's own
-storage key (`storedCloudSession`); handing `beginCheckout` a token from somewhere else would let
-the purchase and the read disagree about who the reader is.
+`installWebStore()` does nothing at all — no `use()`, no refresh — unless this build has a
+billing URL **and** a server to read the row from; otherwise the capability keeps the store it
+was built with (`NativeStore` with no project, `RemoteStore` with one). The token is the same
+source the reader uses: `RemoteStore` takes its JWT from Supabase's own storage key
+(`storedCloudSession`), and handing `beginCheckout` a token from somewhere else would let the
+purchase and the read disagree about who the reader is.
 
-`checkoutReturned()` is likewise exported and tested but has no call site yet: the "come back and
-refresh" hook belongs to the same entitlement refresh that `t_f1230503` owns, and wiring a second
-one here would refresh twice.
+A page loaded with `?checkout=success` or `?checkout=cancelled` refreshes the entitlement
+exactly once, so coming back from Checkout turns sync on without a reload: `checkoutReturned()`
+reads the marker, `entitlement.refresh()` asks the server. There is no second hook — the launch
+check `entitlement.watch()` already performs is untouched — and a cancelled checkout refreshes
+like any other page load and says nothing alarming, because nothing went wrong.
 
 ## 6. Running it
 
