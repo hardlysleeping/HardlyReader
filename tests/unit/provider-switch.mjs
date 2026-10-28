@@ -359,24 +359,16 @@ await check("a failure at any step names the step and leaves the old provider in
     await other.store.setStarred([post], true);
     await other.sync(drive, T + 150);
 
-    // The same store, with one write refused: everything `applySnapshot` uses is
-    // forwarded, and starring throws the way a read-only library would.
-    const refusing = {
-      feeds: () => a.store.feeds(),
-      folders: () => a.store.folders(),
-      entryFlags: () => a.store.entryFlags(),
-      redirects: () => a.store.redirects(),
-      ensureFolder: (name) => a.store.ensureFolder(name),
-      forgetFolder: (name) => a.store.forgetFolder(name),
-      subscribe: (url, options) => a.store.subscribe(url, options),
-      unsubscribe: (url) => a.store.unsubscribe(url),
-      moveFeed: (url, folder, from) => a.store.moveFeed(url, folder, from),
-      renameFeed: (url, title, source) => a.store.renameFeed(url, title, source),
-      setRead: (ids, read) => a.store.setRead(ids, read),
+    // The same library, wearing one refusal: every method and row resolves
+    // through the real store, and starring throws the way a read-only library
+    // would. Delegated rather than re-listed, so a store call this build adds
+    // later is not a hole in the check — the step this pins is the *apply*, and
+    // a missing method would fail step 1 instead and pass for the wrong reason.
+    const refusing = Object.assign(Object.create(a.store), {
       setStarred: () => {
         throw new Error("The library is open read-only");
       },
-    };
+    });
     const error = await switchFailure(() =>
       switchProvider({
         store: refusing,

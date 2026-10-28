@@ -287,6 +287,14 @@
   const where = $derived(deviceSync.filePath);
 
   /**
+   * The service a half-finished switch is heading to, named for the one line that
+   * says so. The rows read `shown`, which is the service they are *about* and can
+   * be null on first run; the switch itself only exists while something is
+   * pending, so the empty case is the branch that never draws.
+   */
+  const movingTo = $derived(deviceSync.shown === null ? "" : SYNC_PROVIDERS[deviceSync.shown].label);
+
+  /**
    * What buying would add here, asked of the ladder rather than assumed.
    *
    * `nothing` is not a failure and not an empty section: it is the honest answer
@@ -341,7 +349,7 @@
          to point at its folder. Said in the row's own words so the picker is not
          mistaken for a finished move. -->
     <p class="hint">
-      Moving to {SYNC_PROVIDERS[deviceSync.shown].label}: its folder is all that is
+      Moving to {movingTo}: its folder is all that is
       missing. Nothing changes until the copy has been written there and read back.
     </p>
   {:else if deviceSync.provider !== null}
