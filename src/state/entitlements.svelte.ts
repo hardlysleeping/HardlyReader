@@ -539,6 +539,18 @@ export class RemoteStore implements Store {
     return this.current();
   }
 
+  /**
+   * The same answer as `current()`, under the name `WebStore` asks for.
+   *
+   * `api/billing.ts` composes a `Store` out of Checkout for buying and a server
+   * reader for the row (`ServerEntitlement`). This class is that reader, and the
+   * alias is here so the composition is a wiring line rather than a second adapter
+   * that could drift from this one.
+   */
+  read(): Promise<Entitlement> {
+    return this.current();
+  }
+
   async current(): Promise<Entitlement> {
     const now = this.now();
     let session: CloudSession | null;
@@ -562,7 +574,7 @@ export class RemoteStore implements Store {
       );
     }
 
-    const read = await this.read(userId, session.token);
+    const read = await this.fetchRow(userId, session.token);
     if (!read.ok) {
       // Rule 2 first, rule 3 second: a transient failure may be answered by the
       // cache, and everything else is a plain no.
@@ -579,7 +591,7 @@ export class RemoteStore implements Store {
   }
 
   /** One `GET`, and the three ways it can come back. */
-  private async read(userId: string, token: string): Promise<RemoteRead> {
+  private async fetchRow(userId: string, token: string): Promise<RemoteRead> {
     const query = `select=cloud_sync,expires_at&user_id=eq.${encodeURIComponent(userId)}&limit=1`;
     const stop = new AbortController();
     const timer = setTimeout(() => stop.abort(), this.timeoutMs);

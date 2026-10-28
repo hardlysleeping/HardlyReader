@@ -33,7 +33,7 @@ import { MemoryDatabase } from "../../src/api/local/memory-db.ts";
 import { LocalStore } from "../../src/api/local/store.ts";
 import { LocalBackend } from "../../src/api/local/local-backend.ts";
 import { READING_LIST } from "../../src/api/freshrss.ts";
-import { GEN_DIR, ROOT } from "./build-reader.mjs";
+import { GEN_DIR, ROOT, absolute } from "./build-reader.mjs";
 
 let checks = 0;
 let failures = 0;
@@ -432,6 +432,58 @@ async function capability(store) {
   const refusal = await store.purchase(SYNC_MONTHLY);
   check("a purchase press is refused, not invented", refusal.state === "none" && refusal.reason !== null);
   check("and the refusal does not pretend a row exists", refusal.productId === null);
+}
+
+/* --------------------------------------------------------------------------
+ * The store the panel will actually hold: Checkout for buying, this for reading
+ * ----------------------------------------------------------------------- */
+
+{
+  // `api/billing.ts` composes `WebStore` out of a checkout opener and a server
+  // reader, and left that reader unwritten. This is that reader — so the join is
+  // checked here rather than assumed: the same panel, the same capability, and the
+  // answer still comes from the row.
+  //
+  // `billing.ts` imports the capability, which is a runes module Node cannot load
+  // raw, so the test builds it the way the app's bundler would: type-stripped, with
+  // its two relative imports pointed at the real files.
+  const entitlementsUrl = buildEntitlementsModule();
+  const billingUrl = (() => {
+    const { outputText } = ts.transpileModule(readFileSync(join(ROOT, "src/api/billing.ts"), "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+      fileName: "billing.ts",
+    });
+    const code = outputText
+      .replaceAll('"../state/entitlements.svelte"', JSON.stringify(entitlementsUrl))
+      .replaceAll('"../lib/open-external"', JSON.stringify(absolute("src/lib/open-external.ts")));
+    const out = join(GEN_DIR, "billing.mjs");
+    writeFileSync(out, code);
+    return pathToFileURL(out).href;
+  })();
+  const { Entitlements: Capability } = await import(entitlementsUrl);
+  const { WebStore } = await import(billingUrl);
+
+  const token = jwt(USER_A, Math.floor(NOW / 1000) + 3600);
+  const net = server(() => json(200, [{ cloud_sync: true, expires_at: new Date(NOW + 86_400_000).toISOString() }]));
+  const store = new WebStore({
+    token: () => token,
+    server: remote({ request: net.request, storage: new MemoryStorage() }),
+    base: PROJECT,
+    open: () => {},
+    fetch: net.request,
+  });
+  const entitlement = new Capability(store);
+  await entitlement.refresh();
+  check("the composed store grants from the row alone", entitlement.cloudSync === true, entitlement.state);
+  check(
+    "without a press, a receipt or a checkout",
+    net.calls.length === 1 && net.last.url.includes("/rest/v1/entitlements"),
+    net.calls.map((call) => call.url).join(","),
+  );
+  check(
+    "and the reader it delegates to is the one this suite tested",
+    typeof store.server.read === "function" && (await store.server.read()).state === "active",
+  );
 }
 
 /* --------------------------------------------------------------------------
