@@ -188,3 +188,100 @@ and `NoIdentity` (a build with no project configured, which refuses by name and 
   removes the identity key and nothing else — a FreshRSS session and a local library both survive it.
 - **One identity, one device.** The record is device-level, like the FreshRSS session beside it,
   because a purchase follows the reader; the *library* stays per profile.
+
+## One person, one account
+
+Two traps, one shape. Trap 5 — *two accounts, one person, two subscriptions* — is what happens when
+signing in with Apple and then with Google creates a second `auth.users` row: the purchase is attached
+to the first row, and the app has to tell a paying reader they have no subscription. Trap 18 — *account
+deletion taking iCloud/Drive data with it* — is what happens when "delete my account" is read as
+"delete everything". Neither is a feature; both are a rule about what the app may not do.
+
+**Linking is the first half.** `Identity.link(provider)` in `src/api/identity.ts`:
+
+- with an account already on the device, `linkIdentity` adds Google or Apple to **that** user, and
+  `updateUser({ email })` changes the address the account answers to (confirmed from both inboxes);
+- with no account, `link()` refuses in one sentence — there is nothing to add a door to;
+- a provider refusal rejects, because the sheet that started it has somewhere to show the reason.
+
+The row never moves, which is the whole guarantee: `entitlements.user_id` is the primary key of the
+auth user, so identity linking leaves it alone and the entitlement is the same row it was. And the app
+cannot create a second one: there is no write policy on `entitlements`, so the worst a client can do is
+read.
+
+**A second sign-in is refused, in the seam.** `StoredIdentity.signIn()` starts with
+`refuseASecondAccount()`: signed in with Google and pressing Apple does not sign in again — it says
+*"This device is already signed in. Add Apple to the account you have instead of signing in again"*.
+Same door again is allowed (that is re-authenticating the account that is here). The refusal is in the
+base class rather than in a screen, so no new sheet can forget it.
+
+**Two settings in the project, not in this repository**, both in Dashboard → Authentication:
+
+| setting | why |
+|---|---|
+| **Link identities with the same email** (automatic linking) | a reader who signs in with Apple on a phone after paying with Google lands on the account that owns Sync, instead of a fresh one with no subscription |
+| **Manual linking** | `linkIdentity()` is refused without it; the app then shows the provider's refusal rather than silently creating an account |
+
+**What the reader sees after linking** is the same subscription, including offline: the cached answer is
+keyed `hardlyreader.entitlement.v1.<user id>`, and the id is the part that did not change.
+`tests/unit/account.mjs` drives exactly that — pay with Google, link Apple, read the subscription again
+with the network switched off.
+
+## Devices, and revoking one
+
+An account can be signed in more than once, so `public.account_devices` holds **one row per session**,
+keyed by the `auth.sessions` row. That id is in every access token's `session_id` claim, which is how a
+device recognises its own row without asking the server who it is (`sessionIdOf`).
+
+The three calls (`src/api/account.ts`) and what each one may touch:
+
+| call | what it does | what it cannot touch |
+|---|---|---|
+| `registerDevice` → `rpc/register_device` | writes this device's own row, session id from the token, label and platform from the caller | any other session: the insert policy pins `session_id` to the caller's claim |
+| `listDevices` → `GET account_devices` | the reader's own rows, newest first, the asking device marked | anyone else's rows: the policy is `user_id = auth.uid()` |
+| `revokeDevice` → `rpc/revoke_device` | deletes that session's refresh tokens and its `auth.sessions` row | a library, an entitlement or a provider file — none of them is in this database |
+
+**Revoking is ending a session, and that is what signs the device out.** The refresh token is gone, so
+that device's next `refresh()` fails, and `refresh()` already means *signed out, library untouched*.
+Two details worth keeping in mind:
+
+- **A stale access token stays valid until it expires.** That is what a stateless JWT is. Nothing in
+  this app acts on one without asking the server first — sync, the entitlement and the device list all
+  make a request — so the window is bounded by the token's own lifetime, not by our promises.
+- **`signOut()` passes `scope: "local"`.** `supabase-js` defaults to `global`, which revokes *every*
+  session the reader has: signing out on the phone would sign out the desktop, and the device list
+  would never have a second row to revoke. One option is the difference.
+
+The list itself is a later card; the layer, the SQL and the wording are here, and
+`tests/unit/account.mjs` holds them. Revoking the device you are reading on is allowed and says what it
+means (`REVOKE_THIS_DEVICE`): you are signing this device out, and your library stays where it is.
+
+## Deleting an account
+
+One call — `deleteAccount()` → `rpc/delete_my_account()` — and one row: the `auth.users` row. Everything
+else on the server goes with it by cascade, which is why the schema declared
+`references auth.users (id) on delete cascade` in the first place: the `entitlements` row, the Stripe
+customer link, the sessions and therefore the device rows.
+
+Three things it deliberately does not do:
+
+1. **It does not touch the reader's library.** `src/api/account.ts` imports nothing from `api/local/` or
+   `state/` and holds no key store, so there is no path from a deletion to a post. The suite proves it
+   the way it can be proved: a real local library is opened before the deletion and read back after it,
+   with the same titles, the same count and the same local ids.
+2. **It does not touch a provider's files.** No iCloud, Drive, Dropbox or OneDrive is named anywhere on
+   this path, and the SQL deletes from `auth` only. The reader's folder is theirs: HardlyReader put
+   files in it, and a support request is not permission to take them away.
+3. **It does not delete an account that is still being charged.** The function returns `cancel_first`
+   while the row says a paid subscription is live, because deleting the identity leaves Stripe charging
+   a card for an account no webhook can name. The reader cancels at the payment provider first; the app
+   says so in `CANCEL_FIRST` and changes nothing.
+
+**If they want the files gone, that is a second action, with its own wording.** `PROVIDER_FILES_ACTION`
+and `PROVIDER_FILES_WARNING` are written and held now; the button arrives with the first provider
+(`t_63abddf5`, `t_af52a063`), because until there is a provider there is nothing to delete and a button
+that cannot do its work is worse than no button. Its wording says what it is not: not the account, not
+the library on this device, not the rest of the folder.
+
+After a deletion the device signs itself out locally — `identity.signOut()`, a storage clear — and the
+reader keeps reading.

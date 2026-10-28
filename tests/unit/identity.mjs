@@ -29,17 +29,23 @@ import { LocalBackend } from "../../src/api/local/local-backend.ts";
 import { READING_LIST } from "../../src/api/freshrss.ts";
 import { ROOT } from "./build-reader.mjs";
 import {
+  EMAIL_CHANGE_SENT,
   FakeIdentity,
   IDENTITY_KEY,
   IDENTITY_PROVIDERS,
+  LINK_NEEDS_AN_ACCOUNT,
   NoIdentity,
   SupabaseIdentity,
   clearIdentityRecord,
   createIdentity,
+  fakeToken,
   identityConfig,
+  linkStarted,
   parseIdentityRecord,
   readIdentityRecord,
   roleOf,
+  secondAccountRefusal,
+  sessionIdOf,
   sessionRecord,
   writeIdentityRecord,
 } from "../../src/api/identity.ts";
@@ -323,6 +329,14 @@ function fakeClient(overrides = {}) {
       calls.push(["otp", options.email]);
       return { data: {}, error: null };
     },
+    linkIdentity: async (options) => {
+      calls.push(["link", options.provider, options.options]);
+      return { data: { provider: options.provider, url: "https://provider.test/link" }, error: null };
+    },
+    updateUser: async (attributes) => {
+      calls.push(["updateUser", attributes]);
+      return { data: { user: {} }, error: null };
+    },
     getSession: async () => {
       calls.push(["getSession"]);
       return {
@@ -349,8 +363,8 @@ function fakeClient(overrides = {}) {
         error: null,
       };
     },
-    signOut: async () => {
-      calls.push(["signOut"]);
+    signOut: async (options) => {
+      calls.push(["signOut", options ?? null]);
       return { error: null };
     },
     ...overrides,
@@ -507,6 +521,142 @@ function jwt(claims) {
   );
   check("a session becomes a record with the door it came through", session.provider === "apple");
   check("and an expiry in milliseconds", session.expiresAt === T * 1000, String(session.expiresAt));
+}
+
+/* --------------------------------------------------------------------------
+ * One person, one account: linking, and the session a device holds
+ * ----------------------------------------------------------------------- */
+
+{
+  const keys = memoryKeys();
+  const id = new FakeIdentity({ keys });
+  await id.signIn("google");
+
+  // The session is in the token, because that is where the provider puts it and
+  // how a device list recognises the device that is asking.
+  check("a sign-in has a session, from the token's own claim", /^fake-session-\d+$/.test(String(id.sessionId)), String(id.sessionId));
+  const session = id.sessionId;
+  const account = id.userId;
+  await id.refresh();
+  check("a refresh renews the token and keeps the session", id.sessionId === session && id.userId === account);
+  check("a token that is not a JWT has no session", sessionIdOf("fake-token") === null);
+  check("and no token at all has none either", sessionIdOf(null) === null);
+
+  check("a signed-in account knows the door it came through", id.providers.join(",") === "google");
+  await id.link("apple");
+  check("adding Apple keeps one account", id.userId === account, String(id.userId));
+  check("and one session", id.sessionId === session, String(id.sessionId));
+  check("and adds the door", id.providers.join(",") === "google,apple", id.providers.join(","));
+  check("and says it is still the same account and subscription", id.notice === linkStarted("apple"), String(id.notice));
+  const rested = readIdentityRecord(keys);
+  check("and a restart knows both doors", rested !== null && (rested.providers ?? []).join(",") === "google,apple", JSON.stringify(rested?.providers ?? null));
+
+  const nobody = new FakeIdentity({ keys: memoryKeys() });
+  await nobody.link("google");
+  check("linking with no account says to sign in first", nobody.notice === LINK_NEEDS_AN_ACCOUNT, String(nobody.notice));
+  check("and the provider is not asked", nobody.calls.length === 0, nobody.calls.join(",") || "(none)");
+
+  const named = new FakeIdentity({ keys: memoryKeys() });
+  await named.signIn("google");
+  await named.signIn("apple");
+  check("a second sign-in is refused with the reason", named.notice === secondAccountRefusal("apple"), String(named.notice));
+  check("and the refusal names the door to add", /Add Apple/.test(secondAccountRefusal("apple")));
+}
+
+/* --------------------------------------------------------------------------
+ * The real one: which provider call a link makes, and which session a sign-out ends
+ * ----------------------------------------------------------------------- */
+
+{
+  let doors = ["google"];
+  const calls = [];
+  const navigated = [];
+  const auth = {
+    signInWithOAuth: async (options) => {
+      calls.push(["oauth", options.provider]);
+      return { data: { url: null }, error: null };
+    },
+    linkIdentity: async (options) => {
+      calls.push(["link", options.provider, options.options]);
+      return { data: { provider: options.provider, url: "https://provider.test/link" }, error: null };
+    },
+    updateUser: async (attributes) => {
+      calls.push(["updateUser", attributes]);
+      return { data: { user: {} }, error: null };
+    },
+    getSession: async () => ({
+      data: {
+        session: {
+          access_token: fakeToken({ sub: "user-1", session_id: "session-1" }),
+          expires_at: T,
+          user: { id: "user-1", email: "reader@fixture.test", identities: doors.map((provider) => ({ provider })) },
+        },
+      },
+      error: null,
+    }),
+    signOut: async (options) => {
+      calls.push(["signOut", options ?? null]);
+      return { error: null };
+    },
+  };
+  const id = new SupabaseIdentity({
+    client: { auth },
+    keys: memoryKeys(),
+    navigate: (url) => navigated.push(url),
+    redirectTo: "https://app.test/",
+  });
+
+  await id.signIn("google");
+  check("the real one signs in once", calls.filter((call) => call[0] === "oauth").length === 1);
+  check("and holds the session the token names", id.sessionId === "session-1", String(id.sessionId));
+
+  // The provider answers with both doors only after the round trip, which is why
+  // the list is re-read rather than assumed.
+  doors = ["google", "apple"];
+  await id.link("apple");
+  const link = calls.find((call) => call[0] === "link");
+  check("a link calls linkIdentity, not a second sign-in", link !== undefined && link[1] === "apple", JSON.stringify(link ?? null));
+  check("and never signs in again", calls.filter((call) => call[0] === "oauth").length === 1);
+  check("the provider page is left to us to open", link?.[2]?.skipBrowserRedirect === true, JSON.stringify(link?.[2] ?? null));
+  check("and it comes back where we said", link?.[2]?.redirectTo === "https://app.test/");
+  check("the window is sent to the link page", navigated.join(",") === "https://provider.test/link", navigated.join(","));
+  check("the account did not move", id.userId === "user-1" && id.sessionId === "session-1", `${id.userId}/${id.sessionId}`);
+  check("and now has both doors, as the provider lists them", id.providers.join(",") === "google,apple", id.providers.join(","));
+  check("and says the subscription is still the same one", /same account and subscription/i.test(String(id.notice)), String(id.notice));
+
+  // A change of address is an update to the account, not a new sign-in.
+  await id.link("email", "  new@fixture.test  ");
+  const changed = calls.find((call) => call[0] === "updateUser");
+  check("a changed address updates the account", changed !== undefined && changed[1]?.email === "new@fixture.test", JSON.stringify(changed ?? null));
+  check("and sends no sign-in link", calls.every((call) => call[0] !== "otp"));
+  check("and says it is confirmed from both inboxes", id.notice === EMAIL_CHANGE_SENT, String(id.notice));
+
+  // Signing out ends this device's session, and only this one: the default scope
+  // would sign out the reader's other devices, which is the whole device list.
+  await id.signOut();
+  const out = calls[calls.length - 1];
+  check("signing out ends one session", out[0] === "signOut" && out[1]?.scope === "local", JSON.stringify(out ?? null));
+  check("and not every session the reader has", out[1]?.scope !== "global");
+
+  // A provider that refuses the link is a rejection the sheet can show.
+  const refuses = new SupabaseIdentity({
+    client: {
+      auth: {
+        ...auth,
+        linkIdentity: async () => ({ data: null, error: { message: "Identity is already linked" } }),
+      },
+    },
+    keys: memoryKeys(),
+  });
+  await refuses.signIn("google");
+  let thrown = null;
+  try {
+    await refuses.link("apple");
+  } catch (cause) {
+    thrown = cause;
+  }
+  check("a refused link rejects with the provider's reason", thrown instanceof Error && /already linked/i.test(thrown.message), String(thrown));
+  check("and the account it belongs to did not move", refuses.userId === "user-1", String(refuses.userId));
 }
 
 /* --------------------------------------------------------------------------

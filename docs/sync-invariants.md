@@ -15,7 +15,7 @@ at kept as a redirect, so a move cannot become a second subscription.
 | 2 | one conflict rule for everything | **held** | `sync.ts`: read and starred are separate registers with their own stamps; ordering is one record, not interleaved indexes; prefs last-modified |
 | 3 | deletions resurrected by an offline device | **held** | tombstones (`SyncedFeed.removed`, `TOMBSTONE_SECONDS`), and only a device that has *seen* one may re-subscribe |
 | 4 | provider switching losing either side | **card** `t_c9457710` | pull → merge → write → verify → switch, never "connect and hope" |
-| 5 | two accounts, one person, two subscriptions | **card** `t_cb99e288` | identity linking comes with the identity layer |
+| 5 | two accounts, one person, two subscriptions | **held** | `Identity.link()` in `src/api/identity.ts` adds a door to the account already signed in (`linkIdentity`, `updateUser`), and `signIn()` refuses a second door rather than creating a second `auth.users` row — so the entitlement row, keyed by that id, is the same row. `tests/unit/account.mjs` (pay with Google, link Apple, read the subscription offline) and `tests/unit/identity.mjs` |
 | 6 | expiry locking someone's data | **held** | expiry pauses sync only; `docs/accounts-and-entitlements.md`, rule 5 |
 | 7 | purchase source leaking into app logic | **held** | one `cloudSync`; `source` is a column nothing reads (`supabase/schema.sql`) |
 | 8 | provider token expiring into a silent failure | **card** `t_af52a063` (folded in) | must degrade to *Reconnect Google Drive*, not "sync failed" forever |
@@ -28,9 +28,9 @@ at kept as a redirect, so a move cannot become a second subscription.
 | 15 | local → FreshRSS silently merging libraries | **decision** `t_e43fdb0e` | two profiles, explicit import, never a silent merge |
 | 16 | a temporarily missing extension treated as unsupported | **held** | `probeCapabilities` (`src/api/hardlyread.ts`) answers `unknown` for a `5xx`, a timeout, an offline socket or a `401`; `remember` + `resolveAuthority` keep the last good read, so `unknown` never moves a feature to the cloud — `tests/unit/capabilities.mjs` |
 | 17 | reading history and hidden categories in a provider's file | **decision** `t_fbca0887` | client-side encryption before this grows |
-| 18 | account deletion taking iCloud/Drive data with it | **card** `t_cb99e288` | revoke linkage, never touch provider files without an explicit request |
-| 19 | clock skew deciding conflicts | **card** `t_21b91dd5` | per-record `at` is all there is today; needs a revision alongside it |
-| 20 | a sync that bounces forever | **card** `t_21b91dd5` | apply is already adoption-gated; needs an assertion that an applied change is not written back |
+| 18 | account deletion taking iCloud/Drive data with it | **held** | `deleteAccount()` in `src/api/account.ts` reaches no provider and no library at all, and `public.delete_my_account()` in `supabase/schema.sql` deletes one `auth.users` row and refuses while a subscription is still charging. The files are a second action with its own wording (`PROVIDER_FILES_ACTION`), arriving with the first provider. `tests/unit/account.mjs` |
+| 19 | clock skew deciding conflicts | **held** | a record is ordered by `(at, rev, by)` — `compareStamps` in `sync.ts` documents the tie-break — and no change is dated earlier than `max(seen) + 1`, so an edit made after seeing a copy outranks it whatever the clocks say. The id and the revision counter live in the library's `meta` rows. `tests/unit/local-sync.mjs` |
+| 20 | a sync that bounces forever | **held** | `sameContent` ignores only `device` and `writtenAt`, so a merge that changed nothing writes nothing; `tests/unit/local-sync.mjs` syncs A → B → A and asserts the folder is byte-identical, nothing is applied twice, and only the copy's own `writtenAt` moved |
 | 21 | browser-local failing where native-local does not | **held** | same `ReaderBackend`, different transport; `docs/hosting.md` states the CORS difference |
 | 22 | no way to test any of this before iCloud | **held, extend** | `MemorySyncProvider` exists; the scenario suite is `t_bbf90b66` |
 
@@ -41,7 +41,8 @@ at kept as a redirect, so a move cannot become a second subscription.
 2. **Canonical data** — `SyncSnapshot`: feeds, folders, marks, prefs, sidebar, place. Small on
    purpose; bodies and images never travel.
 3. **Conflict and tombstones** — three-way merge against a remembered base, separate read/star
-   registers, whole-record ordering, tombstones with a retention window.
+   registers, whole-record ordering by `(at, rev, by)` rather than by a clock, tombstones with a
+   retention window.
 4. **Identity and entitlement** — `supabase/schema.sql` for who may claim sync; the feed's canonical
    key and `localItemId` for what an article is, with a move kept as a redirect rather than a second
    subscription. The second half is where #11 and #19 bite.

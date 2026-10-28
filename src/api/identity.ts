@@ -46,6 +46,44 @@ export type IdentityProvider = "google" | "apple" | "email";
 /** The doors, in the order a sign-in sheet draws them. */
 export const IDENTITY_PROVIDERS: readonly IdentityProvider[] = ["google", "apple", "email"];
 
+/** The doors by the name a person uses for them, for one sentence in a sheet. */
+export const PROVIDER_LABEL: Record<IdentityProvider, string> = {
+  google: "Google",
+  apple: "Apple",
+  email: "an email address",
+};
+
+/** Whether a value names a door this app offers. */
+export function isProvider(value: unknown): value is IdentityProvider {
+  return value === "google" || value === "apple" || value === "email";
+}
+
+/**
+ * The sentence a sheet shows when someone tries to sign in a second time.
+ *
+ * A second sign-in is how one person ends up with two `auth.users` rows, and a
+ * second row means the entitlement they paid for is attached to the other one:
+ * the app would then have to say "no subscription" to a reader who has one. So
+ * the refusal lives here, in the seam, rather than in whichever screen remembers
+ * to check.
+ */
+export function secondAccountRefusal(provider: IdentityProvider): string {
+  return `This device is already signed in. Add ${PROVIDER_LABEL[provider]} to the account you have instead of signing in again — a second sign-in is how one person ends up with two accounts.`;
+}
+
+/** What a link attempt is called while the provider has not answered yet. */
+export const LINK_NEEDS_AN_ACCOUNT =
+  "There is no account on this device to add a second sign-in method to. Sign in first.";
+
+/** A confirmation travels by email, so the account changes only after both inboxes answer. */
+export const EMAIL_CHANGE_SENT =
+  "Check your inbox: the change needs confirming from the old address and the new one before it happens. Until then this account is unchanged.";
+
+/** The browser is at the provider, and the account is the same one on the way back. */
+export function linkStarted(provider: IdentityProvider): string {
+  return `Your browser is open at ${PROVIDER_LABEL[provider]}. Come back when it is done — it is still this same account and subscription.`;
+}
+
 /**
  * What a signed-in device holds.
  *
@@ -62,6 +100,15 @@ export interface IdentityRecord {
   /** Which door it came through, so a sheet can say "signed in with Google". */
   readonly provider: IdentityProvider;
   readonly expiresAt: number | null;
+  /**
+   * Every door into this account, as the provider last listed them.
+   *
+   * Absent on a record written before linking existed, and absent when the
+   * provider did not say — which is why the getter falls back to the one door
+   * that *is* known rather than pretending the list is complete. Linking writes
+   * it; nothing else does, and it is never a reason to refuse a sign-in.
+   */
+  readonly providers?: readonly IdentityProvider[];
 }
 
 /**
@@ -75,9 +122,37 @@ export interface Identity {
   readonly token: string | null;
   /** The address the account answers to, when there is one. */
   readonly email: string | null;
+  /**
+   * Every door into this account — at least the one this device signed in
+   * through. Empty when there is no account.
+   */
+  readonly providers: readonly IdentityProvider[];
+  /**
+   * The provider session this device is signed in under.
+   *
+   * Read from the token's own `session_id` claim, which is the row in
+   * `auth.sessions`: that is what a device list shows and what revoking ends.
+   * Null on a device with no account, and on any token that does not carry one.
+   */
+  readonly sessionId: string | null;
   /** Why the last attempt did not happen, in one sentence. Null when nothing is wrong. */
   readonly notice: string | null;
   signIn(provider: IdentityProvider, email?: string): Promise<void>;
+  /**
+   * Adds a door to the account already signed in on this device.
+   *
+   * The whole point of the method: a reader who paid with Google and then wants
+   * to use Apple on their phone links Apple to the account they have, rather
+   * than signing in again and paying twice. The account is one `auth.users` row
+   * before and after, so the entitlement row — keyed by that id — is the same
+   * row. `email` addresses a change of address, which needs confirming from both
+   * inboxes and is not a second account either.
+   *
+   * Refuses, with a sentence, when there is no account to link to, and rejects
+   * when the provider refuses — a sheet that started this has somewhere to show
+   * the reason.
+   */
+  link(provider: IdentityProvider, email?: string): Promise<void>;
   signOut(): Promise<void>;
   /** Renews the token. Never throws: a refusal is `signed out`. */
   refresh(): Promise<void>;
@@ -147,14 +222,40 @@ export function parseIdentityRecord(value: unknown): IdentityRecord | null {
   if (typeof parsed.userId !== "string" || parsed.userId === "") return null;
   if (typeof parsed.token !== "string" || parsed.token === "") return null;
   const provider = parsed.provider;
-  if (provider !== "google" && provider !== "apple" && provider !== "email") return null;
-  return {
+  if (!isProvider(provider)) return null;
+  const base: IdentityRecord = {
     userId: parsed.userId,
     token: parsed.token,
     email: typeof parsed.email === "string" && parsed.email !== "" ? parsed.email : null,
     provider,
     expiresAt: typeof parsed.expiresAt === "number" ? parsed.expiresAt : null,
   };
+  // A list this app cannot read is dropped rather than half-believed, and an
+  // absent one stays absent: the getter then answers with the one door it knows.
+  const listed = Array.isArray(parsed.providers) ? parsed.providers.filter(isProvider) : [];
+  return listed.length === 0 ? base : { ...base, providers: listed };
+}
+
+/**
+ * The provider session a token belongs to, from its own `session_id` claim.
+ *
+ * Supabase puts the `auth.sessions` row's id in every access token. That id is
+ * what a device list draws and what revoking deletes, so a device can recognise
+ * its own row without the server being asked who it is. Read without believing
+ * it: nothing here verifies a signature, and nothing needs to — the server is
+ * what acts on the claim, and a forged claim is a claim about a session the
+ * forger does not hold.
+ */
+export function sessionIdOf(token: string | null): string | null {
+  if (token === null) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const payload = JSON.parse(decodeSegment(parts[1])) as { session_id?: unknown };
+    return typeof payload.session_id === "string" && payload.session_id !== "" ? payload.session_id : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Writes the record. A store that is full or blocked loses only the persistence. */
@@ -214,6 +315,24 @@ export abstract class StoredIdentity implements Identity {
     return this.record === null ? null : this.record.email;
   }
 
+  /**
+   * Every door into this account.
+   *
+   * The record's list when the provider gave one, and the door this device came
+   * through otherwise — never an empty list while signed in, because "signed in"
+   * itself proves one door exists.
+   */
+  get providers(): readonly IdentityProvider[] {
+    if (this.record === null) return [];
+    const listed = this.record.providers ?? [];
+    return listed.length === 0 ? [this.record.provider] : listed;
+  }
+
+  /** The session this device holds, from the token's `session_id` claim. */
+  get sessionId(): string | null {
+    return this.record === null ? null : sessionIdOf(this.record.token);
+  }
+
   /** Which door this account came through, or null. */
   get provider(): IdentityProvider | null {
     return this.record === null ? null : this.record.provider;
@@ -238,6 +357,42 @@ export abstract class StoredIdentity implements Identity {
   abstract refresh(): Promise<void>;
 
   /**
+   * Adds a door to the account this device is already signed in under.
+   *
+   * The two refusals that belong to the seam rather than to a screen: there is
+   * no account to link to, or the provider will not take the door. The provider
+   * call itself is `linkDoor`, so the real client and the suite differ in one
+   * method rather than in what linking means.
+   */
+  async link(provider: IdentityProvider, email?: string): Promise<void> {
+    if (this.record === null) {
+      this.reason = LINK_NEEDS_AN_ACCOUNT;
+      return;
+    }
+    this.reason = null;
+    await this.linkDoor(provider, email);
+  }
+
+  /** The provider call a link makes. Rejecting is the provider's refusal, shown by the sheet. */
+  protected abstract linkDoor(provider: IdentityProvider, email?: string): Promise<void>;
+
+  /**
+   * Whether a sign-in must be refused because this device already has an account.
+   *
+   * True means the reason has been written and the caller must stop: a second
+   * sign-in while signed in is how one reader becomes two `auth.users` rows, with
+   * the purchase attached to the row they are no longer using. The same door
+   * again is allowed — that is re-authenticating the account that is already
+   * here, not creating a second one.
+   */
+  protected refuseASecondAccount(provider: IdentityProvider): boolean {
+    if (this.record === null) return false;
+    if (this.record.provider === provider) return false;
+    this.reason = secondAccountRefusal(provider);
+    return true;
+  }
+
+  /**
    * Signing out forgets the account on this device, and does nothing else.
    *
    * No deletion, no lock, no "your library is read-only now": the posts on this
@@ -245,8 +400,28 @@ export abstract class StoredIdentity implements Identity {
    * different account — does not make them hostages.
    */
   async signOut(): Promise<void> {
+    // The provider is told first, so the session row and its refresh token go
+    // with this device — a signed-out device that stayed listed in the reader's
+    // own device list would be a lie. A provider that will not answer is not a
+    // reason to keep this device signed in: the local clear happens either way.
+    try {
+      await this.endSession();
+    } catch {
+      /* the record is being removed regardless; the server drops the session on its own schedule */
+    }
     this.clear(null);
   }
+
+  /**
+   * Ends the provider session, if this identity has one.
+   *
+   * **This device's session only.** `supabase-js` signs out with a *global*
+   * scope by default, which revokes every session the reader has — signing out
+   * on a phone would silently sign out the laptop, and the device list would
+   * never show a second row to revoke. The real implementation passes
+   * `scope: "local"`; the suite records that it did.
+   */
+  protected async endSession(): Promise<void> {}
 
   /**
    * Renews the token when the window comes back, and only then.
@@ -306,6 +481,29 @@ export class NoIdentity extends StoredIdentity {
     // There is nothing to renew and nothing to say: this build never had an
     // account, and a resume is not the moment to explain that again.
   }
+
+  /** Nothing can be linked on a build that cannot sign in, and it says so by name. */
+  protected async linkDoor(): Promise<void> {
+    this.reason = "This build has no sign-in provider configured, so there is no second sign-in method to add.";
+  }
+}
+
+/**
+ * A token shaped like the provider's, so the suite can read claims without a
+ * provider.
+ *
+ * **Suite only.** It is signed by nobody, and nothing in this app treats a claim
+ * as proof: `sessionIdOf` reads `session_id` to recognise this device in a device
+ * list, and the server is what acts on it.
+ */
+export function fakeToken(claims: Record<string, unknown>): string {
+  const part = (value: unknown): string => {
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  };
+  return `${part({ alg: "none", typ: "JWT" })}.${part(claims)}.not-signed`;
 }
 
 /** How the suite drives an account, without a provider or a network. */
@@ -316,6 +514,8 @@ export interface FakeIdentityOptions {
   record?: IdentityRecord | null;
   /** Whether the next refresh is refused, the way an expired refresh token is. */
   failRefresh?: boolean;
+  /** Whether the provider refuses to add a door, the way an identity already linked elsewhere does. */
+  failLink?: boolean;
 }
 
 /**
@@ -325,6 +525,10 @@ export interface FakeIdentityOptions {
  * refresh, refuses a refresh on demand and signs out — and it records every call,
  * so a suite can assert the absence of one (no `refresh` at launch, no request
  * for a signed-out device) rather than only the presence.
+ *
+ * Linking is modelled the way the provider does it: the account keeps its id and
+ * its session, and gains a door. A token carries a `session_id` claim, because
+ * the device list is keyed by it.
  */
 export class FakeIdentity extends StoredIdentity {
   /** Every method this identity was asked for, in order: `signIn:google`, `refresh`, `signOut`. */
@@ -333,16 +537,30 @@ export class FakeIdentity extends StoredIdentity {
   /** A refresh that fails, as an expired refresh token does. Set back to false to recover. */
   failRefresh: boolean;
 
+  /** A link the provider refuses. */
+  failLink: boolean;
+
   private issued = 0;
+
+  /** The provider session this device is in, one per sign-in and kept across refreshes. */
+  private session: string | null = null;
 
   constructor(options: FakeIdentityOptions = {}) {
     super(options.keys === undefined ? null : options.keys);
     this.failRefresh = options.failRefresh === true;
+    this.failLink = options.failLink === true;
     const seeded = options.record ?? null;
-    if (seeded !== null) this.adopt(seeded);
+    if (seeded !== null) {
+      this.adopt(seeded);
+      this.session = sessionIdOf(seeded.token);
+    }
   }
 
   async signIn(provider: IdentityProvider, email?: string): Promise<void> {
+    if (this.refuseASecondAccount(provider)) {
+      this.calls.push(`signInRefused:${provider}`);
+      return;
+    }
     this.calls.push(`signIn:${provider}`);
     const address = (email ?? "").trim();
     if (provider === "email" && address === "") {
@@ -350,12 +568,15 @@ export class FakeIdentity extends StoredIdentity {
       return;
     }
     this.issued += 1;
+    const userId = `fake-${provider}-user`;
+    this.session = `fake-session-${this.issued}`;
     this.adopt({
-      userId: `fake-${provider}-user`,
-      token: `fake-token-${this.issued}`,
+      userId,
+      token: fakeToken({ sub: userId, session_id: this.session }),
       email: address === "" ? `${provider}@fixture.test` : address,
       provider,
       expiresAt: null,
+      providers: [provider],
     });
   }
 
@@ -368,7 +589,41 @@ export class FakeIdentity extends StoredIdentity {
       return;
     }
     this.issued += 1;
-    this.adopt({ ...this.record, token: `refreshed-token-${this.issued}` });
+    const session = sessionIdOf(this.record.token) ?? this.session ?? `fake-session-${this.issued}`;
+    this.adopt({
+      ...this.record,
+      token: fakeToken({ sub: this.record.userId, session_id: session, issued: this.issued }),
+    });
+  }
+
+  /**
+   * Adds a door: the same account, the same session, one more way in.
+   *
+   * Nothing about the id changes, which is the property the whole card rests on —
+   * the entitlement row is keyed by that id and a link must not move it.
+   */
+  protected async linkDoor(provider: IdentityProvider, email?: string): Promise<void> {
+    this.calls.push(`link:${provider}`);
+    if (this.failLink) throw new Error(`${provider} is already linked to another account`);
+    const record = this.record;
+    if (record === null) return;
+    const address = (email ?? "").trim();
+    if (provider === "email" && address === "") {
+      this.reason = "An emailed sign-in link needs an address to send it to.";
+      return;
+    }
+    const doors = record.providers ?? [record.provider];
+    this.adopt({
+      ...record,
+      email: provider === "email" && address !== "" ? address : record.email,
+      providers: doors.includes(provider) ? doors : [...doors, provider],
+    });
+    this.reason = provider === "email" ? EMAIL_CHANGE_SENT : linkStarted(provider);
+  }
+
+  /** Ends this device's session, as the provider does — one session, not all of them. */
+  protected async endSession(): Promise<void> {
+    this.calls.push("endSession");
   }
 
   async signOut(): Promise<void> {
@@ -433,6 +688,7 @@ export class SupabaseIdentity extends StoredIdentity {
    * *refresh* failure does not, because a resume handler does not.
    */
   async signIn(provider: IdentityProvider, email?: string): Promise<void> {
+    if (this.refuseASecondAccount(provider)) return;
     this.reason = null;
     this.pending = provider;
     if (provider === "email") {
@@ -492,6 +748,64 @@ export class SupabaseIdentity extends StoredIdentity {
     }
   }
 
+  /**
+   * Adds a door to the account already signed in here.
+   *
+   * `linkIdentity` for Google and Apple: the browser goes to the provider and
+   * comes back with the identity attached to **this** user, so the `user_id` the
+   * entitlement row is keyed by never moves. `updateUser({ email })` for a change
+   * of address, which the provider confirms from both inboxes.
+   *
+   * Manual linking has to be enabled for the project (Dashboard → Authentication
+   * → "Manual linking"); with it off, the provider's refusal is what the sheet
+   * shows, and it is a truthful sentence rather than a silently created second
+   * account.
+   */
+  protected async linkDoor(provider: IdentityProvider, email?: string): Promise<void> {
+    if (provider === "email") {
+      const address = (email ?? "").trim();
+      if (address === "") {
+        this.reason = "An emailed sign-in link needs an address to send it to.";
+        return;
+      }
+      const { error } = await this.client.auth.updateUser({ email: address });
+      if (error !== null) throw new Error(`the address could not be changed: ${messageOf(error)}`);
+      await this.adoptFromClient();
+      // After `adopt`: adopting the session clears the sentence, and this one is
+      // about the account rather than about the token.
+      this.reason = EMAIL_CHANGE_SENT;
+      return;
+    }
+
+    const { data, error } = await this.client.auth.linkIdentity({
+      provider,
+      options: {
+        skipBrowserRedirect: true,
+        ...(this.redirectTo === null ? {} : { redirectTo: this.redirectTo }),
+      },
+    });
+    if (error !== null) throw new Error(`${provider} could not be added to this account: ${messageOf(error)}`);
+    const url = (data as { url?: string | null } | null)?.url ?? null;
+    if (url !== null) this.navigate(url);
+    // A window on its way to the provider has the identity added on the way back.
+    await this.adoptFromClient();
+    // After `adopt`: adopting the session clears the sentence the sheet is
+    // waiting for, and this one is not about the token.
+    this.reason = linkStarted(provider);
+  }
+
+  /**
+   * Ends this device's session, and only this one.
+   *
+   * `supabase-js` defaults to the `global` scope here, which revokes every
+   * session the reader has: signing out on the phone would sign out the desktop,
+   * and the device list would never have a second row to revoke. `local` is the
+   * whole difference, and it is one option.
+   */
+  protected async endSession(): Promise<void> {
+    await this.client.auth.signOut({ scope: "local" });
+  }
+
   /** The session the provider handed back, if it has already been handed back. */
   private async adoptFromClient(): Promise<void> {
     try {
@@ -509,18 +823,32 @@ export class SupabaseIdentity extends StoredIdentity {
 export interface SupabaseSessionLike {
   readonly access_token: string;
   readonly expires_at?: number | null;
-  readonly user?: { readonly id?: string; readonly email?: string | null } | null;
+  readonly user?: {
+    readonly id?: string;
+    readonly email?: string | null;
+    /** Every identity attached to this user — the provider's own answer to "which doors". */
+    readonly identities?: readonly { readonly provider?: string }[] | null;
+  } | null;
 }
 
 /** A session, as the record this app stores. */
 export function sessionRecord(session: SupabaseSessionLike, provider: IdentityProvider): IdentityRecord {
   const userId = session.user?.id ?? "";
+  const doors: IdentityProvider[] = [];
+  for (const identity of session.user?.identities ?? []) {
+    const door = identity?.provider;
+    if (isProvider(door) && !doors.includes(door)) doors.push(door);
+  }
+  // The door that was just used is in the list whenever the provider says so;
+  // when it does not, it is still true that this account came through it.
+  if (!doors.includes(provider)) doors.push(provider);
   return {
     userId,
     token: session.access_token,
     email: session.user?.email ?? null,
     provider,
     expiresAt: typeof session.expires_at === "number" ? session.expires_at * 1000 : null,
+    providers: doors,
   };
 }
 

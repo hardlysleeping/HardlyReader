@@ -552,7 +552,10 @@ function sourceFiles(dir) {
   // The other half of the grep: the SQL must not grow the policy this suite says
   // does not exist, and the webhook's function must stay out of clients' reach.
   const sql = readFileSync(join(ROOT, "supabase/schema.sql"), "utf8");
-  const policyBodies = [...sql.matchAll(/create policy[\s\S]{0,400}?;/gi)].map((match) => match[0]);
+  // Scoped to `entitlements` on purpose: the schema also has policies on the
+  // account's device table, and a count over every policy in the file would turn
+  // "this table is select-only" into a test of how many tables exist.
+  const policyBodies = [...sql.matchAll(/create policy[\s\S]{0,200}?on public\.entitlements[\s\S]{0,400}?;/gi)].map((match) => match[0]);
   check("the table has a policy", policyBodies.length === 1, String(policyBodies.length));
   check(
     "and it is a select on the reader's own row",
