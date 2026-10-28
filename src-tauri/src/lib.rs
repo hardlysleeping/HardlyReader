@@ -1,5 +1,9 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod files;
+// The native half of the safe area: iOS insets the webview on top of the padding
+// the page already pays for the notch. See `insets.rs`.
+#[cfg(target_os = "ios")]
+mod insets;
 mod lan;
 mod share;
 mod sync;
@@ -44,6 +48,20 @@ pub fn run() {
                 let state = window.app_handle().state::<lan::LanState>();
                 let _ = lan::stop(state.inner());
             }
+        })
+        // iOS only: the webview is inset by the safe area on top of the padding
+        // the page already pays for the notch, which leaves strips of the
+        // window's own background above the header and under the last row.
+        // One call, before anything is drawn — see `insets.rs`.
+        .setup(|_app| {
+            #[cfg(target_os = "ios")]
+            {
+                let status = insets::apply();
+                if status != insets::APPLIED {
+                    eprintln!("the webview could not be uninset (status {status})");
+                }
+            }
+            Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

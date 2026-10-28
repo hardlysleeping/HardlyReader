@@ -62,20 +62,25 @@ workflows:
           export PATH="$CM_BUILD_DIR/bin:$PATH"
           pnpm tauri ios init --ci
           ls -la src-tauri/gen/apple
-      - name: Add the native share bridge
+      - name: Add the native Swift sources
         script: |-
           set -euo pipefail
-          # The share sheet is half Swift: `src-tauri/ios/ShareSheet.swift` is the
-          # half that cannot be written in Rust. It is committed outside the Xcode
-          # project because that project is a build product — `tauri ios init`
-          # above regenerates it from the template on every run.
+          # Two files here are half Swift, the half that cannot be written in
+          # Rust: `src-tauri/ios/ShareSheet.swift` (the system share sheet) and
+          # `src-tauri/ios/SafeArea.swift` (the webview is not inset by UIKit —
+          # see that file for why the strips above the header and under the last
+          # row are the window's background and not the page's). They are
+          # committed outside the Xcode project because that project is a build
+          # product — `tauri ios init` above regenerates it from the template on
+          # every run.
           #
-          # So: find the directory the template compiles Swift from, copy the file
-          # in, and re-run XcodeGen so it is in the app target rather than merely
-          # on disk. A Swift file that is in no target's compile sources compiles
-          # nowhere and fails silently, which is why the generated pbxproj is
-          # grepped at the end of this step — and why the packaged binary is
-          # grepped again after the build.
+          # So: find the directory the template compiles Swift from, copy the
+          # files in, and re-run XcodeGen so they are in the app target rather
+          # than merely on disk. A Swift file that is in no target's compile
+          # sources compiles nowhere and fails silently, which is why every
+          # expected filename is grepped out of the generated pbxproj at the end
+          # of this step — and why the packaged binary is grepped again after the
+          # build.
           cat src-tauri/gen/apple/project.yml
           ls -la src-tauri/ios
           EXISTING=$(find src-tauri/gen/apple -name '*.swift' -not -path '*/build/*' -print -quit)
@@ -94,12 +99,16 @@ workflows:
           echo "project: $PROJ"
           XCODEGEN=$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)
           "$XCODEGEN" generate --spec project.yml
-          grep -q 'ShareSheet.swift in Sources' "$PROJ/project.pbxproj" || {
-            echo "ShareSheet.swift is not in the app target's compile sources"
-            grep -n 'ShareSheet' "$PROJ/project.pbxproj" || true
-            exit 1
-          }
-          echo "the share bridge is in the app target"
+          for swift in ShareSheet.swift SafeArea.swift; do
+            if grep -q "$swift in Sources" "$PROJ/project.pbxproj"; then
+              echo "in the app target: $swift"
+            else
+              echo "$swift is not in the app target's compile sources"
+              grep -n "${swift%.swift}" "$PROJ/project.pbxproj" || true
+              exit 1
+            fi
+          done
+          echo "the share bridge and the safe-area fix are in the app target"
       - name: Build unsigned .app
         script: |
           set -euo pipefail
@@ -129,21 +138,27 @@ workflows:
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
           # The card this workflow serves is not done until the IPA *contains* the
-          # bridge, and a static lib plus a Swift file that never got linked looks
-          # exactly like a successful build. Ask the binary itself: the Swift
-          # marker (logged on every presentation) and the command name the webview
-          # invokes both have to be in there.
+          # Swift, and a static lib plus a Swift file that never got linked looks
+          # exactly like a successful build. Ask the binary itself: each Swift
+          # file's marker (both are logged when the code runs) and the names the
+          # Rust side links against all have to be in there.
           BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
           echo "binary: $BIN"
-          # Write the strings out first: `strings ... | grep -q` would have grep
-          # exit on its first match, close the pipe, and turn a match into a
-          # SIGPIPE failure under pipefail.
-          strings -a "$BIN" > "$CM_BUILD_DIR/build/binary-strings.txt"
-          for symbol in hardlyreader-share-sheet-1 share_sheet; do
-            if grep -q -- "$symbol" "$CM_BUILD_DIR/build/binary-strings.txt"; then
+          # Raw bytes, not `strings | grep -q`: grep exits on its first match,
+          # closes the pipe and pipefail turns a match into a SIGPIPE failure,
+          # and macOS and GNU `strings` do not agree on what they print anyway.
+          #
+          # The Swift markers are the real proof that a file was linked, and the
+          # C symbol name is not: the release binary is stripped of its local
+          # symbols, so `hardlyreader_safe_area` is not in it even though the
+          # code is (measured — the build this check was written against failed
+          # on exactly that needle with every marker present). `share_sheet` is
+          # the Rust command name, which is a string literal and does survive.
+          for symbol in hardlyreader-share-sheet-1 hardlyreader-safe-area-1 share_sheet; do
+            if grep -aq -e "$symbol" "$BIN"; then
               echo "found in the binary: $symbol"
             else
-              echo "MISSING from the binary: $symbol — the share bridge was not linked"
+              echo "MISSING from the binary: $symbol — a Swift half was not linked"
               exit 1
             fi
           done
