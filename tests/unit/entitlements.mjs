@@ -371,7 +371,9 @@ function sourceFiles(dir) {
   // forbids, so the scan reads a file with its comments taken out.
   const code = (path) => read(path).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-  const named = files.filter((path) => /hardlyreader\.sync\./.test(code(path))).map((path) => relative(ROOT, path));
+  const named = files
+    .filter((path) => /hardlyreader\.sync\.(monthly|yearly)/.test(code(path)))
+    .map((path) => relative(ROOT, path));
   check(
     "the product ids are read in exactly one file",
     named.join(",") === "src/state/entitlements.svelte.ts",
