@@ -37,6 +37,8 @@
  * PUT route needs that id. `categoryIdForLabel()` is the bridge.
  */
 import { normalizeApiPath, normalizeServerUrl, type Session, type Transport } from "./freshrss";
+import { transport } from "./transport";
+import { capabilitiesFromState, wholeReport, type CapabilityAnswer } from "../lib/capabilities";
 import { mergePositions, nextStamp, parsePositions, positionsBody, type Positions } from "../lib/positions";
 import { parseAddPerson, parsePeopleList, parsePeopleStatus, recordAvailability, type Person } from "../lib/people";
 import { parsePreferences, preferencesBody, type PrefsDoc } from "../lib/prefs-sync";
@@ -206,8 +208,79 @@ export function unavailableState(): HiddenCategoriesState {
   };
 }
 
+/**
+ * Where the adapter's routes live for this window.
+ *
+ * Normally that is the server itself. A page served from somewhere else — the
+ * PWA on the tailnet, which is how the phone reads its feeds — cannot reach
+ * these routes cross-origin at all: the GReader API sends
+ * `access-control-allow-origin: *` and `misc.php` sends nothing, so the browser
+ * refuses to hand back the answer (measured: `TypeError: Failed to fetch`, while
+ * the request does go out and return). The extension state is where the passcode
+ * count, the hidden categories and the pins live, so without these routes the
+ * app cannot know any of it.
+ *
+ * Rather than make the reader type this window's address into the server field —
+ * which would make that field lie, and is wrong for the desktop app, which talks
+ * to the server directly — the page can answer for the server. When whatever is
+ * hosting the page advertises a proxy (`GET /__proxy` → `{"proxy": true}`), the
+ * adapter's calls go to `<this origin>/through/<server origin>/<path>` and the
+ * host forwards them. `serverUrl` keeps its meaning; only the transport differs.
+ */
+let proxyOrigin: string | null = null;
+
+/** Told by `detectProxy`, or left null where nothing is hosting a proxy. */
+export function setProxyOrigin(origin: string | null): void {
+  proxyOrigin = origin;
+}
+
+/** The adapter URL for one route, through the host's proxy when there is one. */
 export function apiUrl(serverUrl: string, path: string): string {
-  return `${normalizeServerUrl(serverUrl)}${API_PREFIX}${path}`;
+  const absolute = `${normalizeServerUrl(serverUrl)}${API_PREFIX}${path}`;
+  if (proxyOrigin === null) return absolute;
+  try {
+    const target = new URL(absolute);
+    // Same origin already: a proxy would be a hop for nothing.
+    if (typeof location !== "undefined" && target.origin === location.origin) return absolute;
+    return `${proxyOrigin}/through/${encodeURIComponent(target.origin)}${target.pathname}${target.search}`;
+  } catch {
+    return absolute;
+  }
+}
+
+/**
+ * Asks the page's own host whether it can forward for the server.
+ *
+ * Cheap and silent: one request, at start, and a failure means "no proxy" — which
+ * is the truth everywhere except the PWA on a host that runs `serve-pwa.py`.
+ *
+ * **Awaited by the caller before anything reads the extension state.** The probe
+ * has to land before the first `apiUrl` call: a state read that starts first is
+ * built while `proxyOrigin` is still null, goes absolute, is refused
+ * cross-origin, and takes the hidden categories with it for the rest of the
+ * session (a failed read is not re-drawn). The wait is bounded so a host that
+ * accepts the connection and never answers cannot hold the splash screen — after
+ * `PROXY_PROBE_TIMEOUT_MS` the answer is "no proxy" and the app moves on.
+ */
+const PROXY_PROBE_TIMEOUT_MS = 1500;
+
+export async function detectProxy(): Promise<void> {
+  if (typeof location === "undefined" || !/^https?:$/.test(location.protocol)) return;
+  try {
+    const response = await transport(`${location.origin}/__proxy`, {
+      method: "GET",
+      // Not every WebView this app runs in has `AbortSignal.timeout` (it is
+      // Safari 16.4). Where it is missing the probe simply has no bound: the
+      // app must still detect a proxy, and an unbounded probe that answers is
+      // better than a bounded one that throws and silently means "no proxy".
+      signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(PROXY_PROBE_TIMEOUT_MS) : undefined,
+    });
+    if (!response.ok) return;
+    const body = (await response.json()) as { proxy?: unknown };
+    if (body?.proxy === true) proxyOrigin = location.origin;
+  } catch {
+    /* not proxied: the adapter URL stays absolute, as it always was */
+  }
 }
 
 /**
@@ -652,6 +725,50 @@ export async function getApiState(transport: Transport, session: Session): Promi
   // take a control away from a server that has it.
   recordAvailability(session.serverUrl, session.email, state.peopleAvailable);
   return state;
+}
+
+/**
+ * Asks the adapter what it can do, without letting a failure answer for it.
+ *
+ * The three answers a capability check can get, and why they are not one answer:
+ *
+ * - **The adapter replied.** `apiVersion` decides which extended routes exist at all
+ *   (`capabilitiesFromState`), and the two block-level extensions report their own
+ *   `available` flag. This is the only branch that may lower a feature.
+ * - **`404` — there is no such route.** A FreshRSS whose Hardly Read extension is not
+ *   installed or not enabled for this account, or a server that cannot host it. The
+ *   server answered; the answer is that the feature has nowhere to live, so it is
+ *   `unsupported` and may resolve as it did before any adapter existed.
+ * - **Anything else — nothing answered.** `5xx` while the server restarts, a proxy
+ *   error page, a timeout, an offline server, a dropped socket. Every state comes back
+ *   `unknown`, and the caller keeps whatever the last answer said: a restart must not
+ *   hand the server's features to the cloud, because when it returns there would be two
+ *   writers for one field.
+ *
+ * A `401` is `unknown` rather than `unsupported` on purpose: a rejected credential says
+ * nothing about which routes exist, and the session's own error handling is what
+ * reports it. This function never throws — an authority decision has to be made on the
+ * failure path too, and a throw here would leave the caller with no answer at all.
+ */
+export async function probeCapabilities(
+  transport: Transport,
+  session: Session,
+): Promise<CapabilityAnswer> {
+  // A server that cannot host the adapter is a definite no, and asking would only earn
+  // the same `404` from the choke point in `request()`. Not a network call: whether the
+  // GReader prefix is FreshRSS's is already known.
+  if (!supportsExtensionRoutes(session)) {
+    return { report: wholeReport("unsupported"), outcome: "missing" };
+  }
+  try {
+    const state = await getApiState(transport, session);
+    return { report: capabilitiesFromState(state), outcome: "answer" };
+  } catch (error) {
+    if (isRouteMissing(error)) {
+      return { report: wholeReport("unsupported"), outcome: "missing" };
+    }
+    return { report: wholeReport("unknown"), outcome: "unreachable" };
+  }
 }
 
 /**

@@ -304,10 +304,11 @@ check(
 );
 
 // --- phone ------------------------------------------------------------------
-// An iPhone is ~390x844 in CSS pixels: portrait is one column, landscape is
-// three, and the switch can still change it afterwards.
+// An iPhone is ~390x844 in CSS pixels: one column in both orientations. Landscape
+// used to open in three, which on a 390px-tall screen left every pane under 300px
+// and the article pane unreadable — the shape the owner reported as cropped.
 check("phone portrait opens in 1", defaultModeFor({ phone: true, width: 390, height: 844 }) === 1);
-check("phone landscape opens in 3", defaultModeFor({ phone: true, width: 844, height: 390 }) === 3);
+check("phone landscape opens in 1 too", defaultModeFor({ phone: true, width: 844, height: 390 }) === 1);
 // A desktop opens in three panes whatever the width: the shape is a decision,
 // not a guess about the window. `effectiveMode` still draws only what fits, so
 // a narrow window shows fewer panes without the default changing.

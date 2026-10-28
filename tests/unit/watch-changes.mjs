@@ -210,7 +210,7 @@ function bench({ tokens = [], rejects = [] } = {}) {
   );
 
   check("the app watches while it is open", /startChangeWatch\(\{/.test(main));
-  check("it reads the token, not the state", /read: \(\) => getRevision\(transport, session\)/.test(main));
+  check("it reads the token, not the state", /read: \(\) => getRevision\(transport, server\)/.test(main));
   check("a change re-reads the extension state", /onChange: \(\) => \{[\s\S]{0,120}reader\.loadApiState\(\)/.test(main));
   // The feed list and counts come from FreshRSS's crawler, not from a view
   // change, so the reaction is one request and nothing else.

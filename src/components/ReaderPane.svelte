@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
+
   import { isRead, isStarred } from "../api/freshrss";
   import {
+    bodyFor,
     canExtract,
     chooseBody,
     extractFor,
@@ -9,15 +12,40 @@
     sameImage,
     type Extracted,
   } from "../lib/extract";
+  import { ledger, type BodyChoice } from "../lib/extract-ledger";
+  import { looksTruncated, wantsFullText } from "../lib/full-text";
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
+  import { bodies } from "../state/bodies.svelte";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { fittedWidth } from "../lib/image-fit";
+  import {
+    atRest,
+    doubleTap,
+    drag,
+    fitInto,
+    midpoint,
+    pinch,
+    restZoom,
+    span,
+    transformOf,
+    type Point,
+    type Size,
+    type Zoom,
+  } from "../lib/picture-zoom";
   import { IMAGE_SCALE, scalePercent } from "../lib/reading-layout";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { pullDown } from "../lib/pull";
+  import { shareArticle } from "../lib/share";
+  import { layout } from "../state/layout.svelte";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
+
+  /**
+   * How long "Link copied" stays in the byline: long enough to read once, short
+   * enough that it never becomes part of the article's furniture.
+   */
+  const SHARE_NOTE_MS = 2400;
 
   /**
    * `onLock` is the curtain in one press: the caller sends you home and locks,
@@ -64,16 +92,49 @@
    */
   let pageHeight = $state(0);
 
+  /**
+   * The page's content box: what the observer would report, read from the
+   * element instead.
+   *
+   * `clientWidth` is the padding box less the scrollbar, and the content box is
+   * that less its padding — the same rectangle `entry.contentRect` gives, so the
+   * two paths cannot disagree about the frame a picture is fitted to.
+   */
+  function pageSize(page: HTMLElement): { width: number; height: number } {
+    const style = getComputedStyle(page);
+    const px = (value: string): number => Number.parseFloat(value) || 0;
+    return {
+      width: Math.round(page.clientWidth - px(style.paddingLeft) - px(style.paddingRight)),
+      height: Math.round(page.clientHeight - px(style.paddingTop) - px(style.paddingBottom)),
+    };
+  }
+
+  /**
+   * The frame a picture is fitted to, measured when the article is bound and
+   * kept up to date by the observer.
+   *
+   * Measuring on the element matters because the observer's first delivery is
+   * not a promise. An article built inside a pane that is not in front — the
+   * phone's stack keeps every layer mounted and moves them with `transform`, so
+   * the article is drawn off screen and `inert` until it is slid in — can be
+   * observed and then never reported on, and the pane used to wait for that
+   * report forever: `pageWidth` stayed 0, so every picture was drawn at its
+   * file's own width and a 684px comic was clipped to a 390px pane. Nothing
+   * wrote a width, and nothing was going to.
+   */
   $effect(() => {
     const page = scroller;
     if (page === null) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry !== undefined) {
-        pageWidth = Math.round(entry.contentRect.width);
-        pageHeight = Math.round(entry.contentRect.height);
-      }
-    });
+    const write = (): void => {
+      const size = pageSize(page);
+      // A frame with no width has not been laid out yet, which is not the same
+      // as a frame that is zero wide: writing it would un-fit every picture.
+      if (size.width <= 0) return;
+      pageWidth = size.width;
+      pageHeight = size.height;
+    };
+    write();
+    const observer = new ResizeObserver(write);
     observer.observe(page);
     return () => observer.disconnect();
   });
@@ -94,6 +155,12 @@
    * the pane even though the words are not.
    */
   function paintPicture(img: HTMLImageElement): void {
+    // Nothing to fit against yet. The stylesheet is already holding the picture
+    // to the pane by then (`width: auto` inside a `max-width: 100%`), so this
+    // is the one case where saying nothing is the right answer: writing the
+    // file's own width instead is what drew a 684px comic 684px wide inside a
+    // 390px pane and clipped it.
+    if (pageWidth <= 0) return;
     const width = fittedWidth(
       { width: img.naturalWidth, height: img.naturalHeight },
       { width: pageWidth, height: pageHeight },
@@ -117,9 +184,126 @@
         // The natural size is not known until the file has decoded, and every
         // measurement above is taken from it.
         img.addEventListener("load", () => paintPicture(img));
+        // A tap opens the picture itself, where it can be pinched. On a pointer
+        // device the tap means nothing: a mouse has no pinch, and hijacking the
+        // click would break the link an image is often wrapped in.
+        if (touching) img.addEventListener("click", (event) => openPicture(img, event));
       }
       paintPicture(img);
     }
+  }
+
+  /**
+   * Whether a finger is what presses things here.
+   *
+   * Asked once, at load: a phone that reports a coarse pointer is the surface
+   * this viewer exists for, and the same page in a browser tab keeps its clicks.
+   */
+  const touching =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches;
+
+  /** The picture on its own layer, and where the fingers have put it. */
+  let opened = $state<{ src: string; alt: string; natural: Size } | null>(null);
+  let zoom = $state<Zoom>(restZoom());
+  let layer = $state<HTMLElement | null>(null);
+  let frame = $state<Size>({ width: 0, height: 0 });
+
+  /** The size the picture is drawn at before zoom, recomputed when the frame moves. */
+  const drawing = $derived(
+    opened === null ? { width: 0, height: 0 } : fitInto(opened.natural, frame),
+  );
+
+  /** Fingers currently down on the layer, in the layer's own coordinates. */
+  const fingers = new Map<number, Point>();
+  let gesture: { start: Zoom; from: number; centre: Point; travel: number } | null = null;
+  let lastTapAt = 0;
+
+  function openPicture(img: HTMLImageElement, event: Event): void {
+    const src = img.currentSrc || img.src;
+    if (!src) return;
+    event.preventDefault();
+    event.stopPropagation();
+    opened = {
+      src,
+      alt: img.alt || "",
+      natural: { width: img.naturalWidth, height: img.naturalHeight },
+    };
+    zoom = restZoom();
+    fingers.clear();
+    gesture = null;
+  }
+
+  function closePicture(): void {
+    opened = null;
+    fingers.clear();
+    gesture = null;
+  }
+
+  function pointOf(event: PointerEvent): Point {
+    const box = layer?.getBoundingClientRect();
+    return {
+      x: event.clientX - (box?.left ?? 0),
+      y: event.clientY - (box?.top ?? 0),
+    };
+  }
+
+  function onPointerDown(event: PointerEvent): void {
+    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+    fingers.set(event.pointerId, pointOf(event));
+    if (fingers.size === 2) {
+      const [a, b] = [...fingers.values()];
+      gesture = { start: zoom, from: span(a, b), centre: midpoint(a, b), travel: 0 };
+    } else if (fingers.size === 1) {
+      gesture = { start: zoom, from: 0, centre: pointOf(event), travel: 0 };
+    }
+  }
+
+  function onPointerMove(event: PointerEvent): void {
+    if (!fingers.has(event.pointerId)) return;
+    const before = fingers.get(event.pointerId);
+    const next = pointOf(event);
+    fingers.set(event.pointerId, next);
+    if (gesture === null) return;
+    gesture.travel += Math.hypot(next.x - (before?.x ?? next.x), next.y - (before?.y ?? next.y));
+
+    if (fingers.size >= 2 && opened !== null) {
+      const [a, b] = [...fingers.values()];
+      zoom = pinch(gesture.start, gesture.from, span(a, b), midpoint(a, b), frame, drawing);
+    } else if (fingers.size === 1 && opened !== null) {
+      zoom = drag(
+        gesture.start,
+        { x: next.x - gesture.centre.x, y: next.y - gesture.centre.y },
+        drawing,
+        frame,
+      );
+    }
+  }
+
+  function onPointerUp(event: PointerEvent): void {
+    if (!fingers.has(event.pointerId)) return;
+    fingers.delete(event.pointerId);
+    if (fingers.size > 0) {
+      // A finger lifted from a pinch: the remaining one starts dragging from
+      // where it is now, not from where the pinch began.
+      const [only] = [...fingers.values()];
+      gesture = { start: zoom, from: 0, centre: only, travel: 0 };
+      return;
+    }
+    const travelled = gesture?.travel ?? 0;
+    gesture = null;
+    if (travelled > 10) return;
+
+    const now = Date.now();
+    const at = pointOf(event);
+    if (now - lastTapAt < 320) {
+      lastTapAt = 0;
+      zoom = doubleTap(zoom, at, frame, drawing);
+      return;
+    }
+    lastTapAt = now;
+    if (atRest(zoom)) closePicture();
   }
 
   // A new article, a bigger or smaller picture setting, or a frame that changed
@@ -267,6 +451,74 @@
   const link = $derived(item?.alternate?.[0]?.href ?? item?.canonical?.[0]?.href ?? "");
 
   /**
+   * The link a share can carry: the post's own address, if the feed gave one.
+   *
+   * Same rule as "open at source" — an external http(s) URL, never a relative
+   * one and never something the feed invented. Without it there is nothing to
+   * share, so the control is not drawn at all rather than drawn dead.
+   */
+  const shareUrl = $derived(isExternalHttp(link) ? link : "");
+
+  /**
+   * The picture a share can carry: the lead image the feed itself named.
+   *
+   * Read here rather than from the `lead` below, which is the picture the
+   * article pane *draws* — that one honours the reader's image preference and
+   * hides a duplicate, and neither is a reason to send a link without its
+   * photograph. A feed with no picture answers empty, which the payload drops.
+   */
+  const shareImage = $derived(item ? thumbnailOf(item as ThumbSource).url : "");
+
+  /**
+   * What the share press has to say for itself.
+   *
+   * The sheet needs no announcement — it is on screen and it is the answer — but
+   * a copy lands silently, so it gets a word. It clears itself, because a line
+   * about a press three minutes ago is clutter in a byline.
+   */
+  let shareNote = $state<string | null>(null);
+  let shareNoteTimer: number | null = null;
+
+  function noteShare(text: string): void {
+    if (shareNoteTimer !== null) clearTimeout(shareNoteTimer);
+    shareNote = text;
+    shareNoteTimer = null;
+    if (typeof window === "undefined") return;
+    shareNoteTimer = window.setTimeout(() => {
+      shareNote = null;
+      shareNoteTimer = null;
+    }, SHARE_NOTE_MS);
+  }
+
+  /**
+   * Offer this post to the device, and say so only when copying had to stand in.
+   *
+   * Called straight from the press with nothing awaited before the sheet: Web
+   * Share is checked against the click's own activation, so a fetch or a state
+   * write first would spend it and the sheet would refuse to open.
+   */
+  async function shareThis(): Promise<void> {
+    // Read once into locals: the derived values are read through Svelte's own
+    // accessors, and a value checked for null and then read again is not the
+    // same binding to the type checker.
+    const current = item;
+    const url = shareUrl ?? "";
+    const image = shareImage ?? "";
+    if (current === null || url === "") return;
+    const outcome = await shareArticle({
+      title: current.title ?? "",
+      url,
+      image,
+    });
+    if (outcome === "copied") noteShare("Link copied");
+    else if (outcome === "failed") noteShare("Couldn't copy the link");
+  }
+
+  onDestroy(() => {
+    if (shareNoteTimer !== null) clearTimeout(shareNoteTimer);
+  });
+
+  /**
    * The feed's own HTML, always available and always the fallback.
    *
    * Kept separate from `body` because extraction is an addition to this, not a
@@ -276,23 +528,105 @@
    */
   const feedBody = $derived(sanitizeArticle(item?.content?.content ?? item?.summary?.content ?? ""));
 
+  /**
+   * The feed this post came from — the unit a full-text answer belongs to.
+   *
+   * Both account kinds name it the same way (`feed/<url>`), so the answer follows
+   * the feed in a local library as well as on a server.
+   */
+  const feedId = $derived(item?.origin?.streamId ?? null);
+
+  /**
+   * What the reader decided about this one post, when they decided anything.
+   *
+   * The account-wide switch is "extract every post"; this is "this one", in
+   * either direction — asking for the article on a summary-only feed, or for the
+   * feed's own text on a post whose extracted version is worse. It is written to
+   * the ledger by entry id, so it outlives the next post, the next launch and
+   * the next sync, and it never travels to another account.
+   */
+  let choice = $state<BodyChoice | null>(null);
+  /** The entry that choice belongs to, so switching posts cannot inherit it. */
+  let choiceFor = $state<string | null>(null);
+
+  $effect(() => {
+    const current = item?.id ?? null;
+    if (current === choiceFor) return;
+    choiceFor = current;
+    choice = current === null ? null : ledger.choice(current);
+  });
+
   /** The extraction for the open post, if one has arrived. */
   let extracted = $state<Extracted | null>(null);
   /** Which post that extraction belongs to, so a late result cannot land on the next one. */
   let extractedFor = $state<string | null>(null);
+  /** A press is waiting on a page. */
+  let fetching = $state(false);
+  /** Nothing is said about a failure until the reader asked for one. */
+  let refused = $state(false);
+
+  /**
+   * Tell the bodies cache which post is on screen.
+   *
+   * Two surfaces can be drawing two posts at once, so this is a set rather than a
+   * field: the list's inline reader and this pane both say what they are showing,
+   * and the budget passes over both. A body no pane is drawing has no claim on
+   * the space.
+   */
+  $effect(() => {
+    const drawn = item?.id ?? null;
+    if (drawn === null) return;
+    bodies.showing(drawn);
+    return () => bodies.hidden(drawn);
+  });
 
   $effect(() => {
     const current = item;
     const url = link;
-    const wanted = reading.extract;
+    // Where this post's text comes from: the reader's own ¶ press on this entry,
+    // the feed's answer (Auto / Feed / Full webpage), or Auto's read — the
+    // account-wide switch, what Auto already knows about the feed, and this
+    // post's own markup. The feed's text needs no page, and neither does a post
+    // the reader has put back on the feed; everything else waits for one fetch,
+    // and the ledger decides whether that fetch is worth making at all.
+    const wanted = wantsFullText({
+      post: choice,
+      feed: reader.feedExtract(feedId),
+      accountWide: reading.extract,
+      remembered: reader.feedTruncated(feedId),
+      html: feedBody,
+    });
 
-    if (!wanted || !current || url === "") {
+    // Auto's verdict, written once for the feed that proved it: the piece this
+    // feed sends stops short, so its later posts need no second test. Silent on
+    // purpose — it changes nothing that is drawn, and the fetch below is the
+    // answer to the post on screen.
+    if (wanted && reader.feedExtract(feedId) === "auto" && looksTruncated(feedBody)) {
+      reader.noteFeedTruncated(feedId);
+    }
+
+    if (!current || url === "") {
       extracted = null;
       extractedFor = null;
+      fetching = false;
       return;
     }
 
     const id = current.id;
+
+    if (!wanted) {
+      // Keeping a copy is not the same as showing it. A reader who asked this
+      // device to keep the post it opens gets the page fetched and stored, and
+      // still reads the feed's own text — the two answers are separate on
+      // purpose, because "show me the article" and "keep it for later" are
+      // different requests. With keeping off nothing is fetched here at all.
+      extracted = null;
+      extractedFor = null;
+      fetching = false;
+      if (bodies.keeping) void extractFor(id, url);
+      return;
+    }
+
     const remembered = rememberedExtraction(id);
     if (remembered) {
       extracted = remembered;
@@ -316,63 +650,68 @@
   });
 
   /**
-   * Experimental, per-article full read.
+   * The per-article switch, in both directions.
    *
-   * The global preference extracts every post that has a link; this is the same
-   * fetch on demand, for one article, from a button — the way to read a
-   * summary-only feed without turning extraction on for a whole account. It is
-   * keyed by id so a page that lands after the reader has moved on is dropped
-   * rather than pasted over the next article.
+   * The account-wide preference extracts every post that has a link; this is one
+   * article at a time, from a button — the way to read a summary-only feed
+   * without turning extraction on for a whole account, and the way to put a post
+   * back on the feed's own text when the extracted version is worse.
    */
-  let manualId = $state<string | null>(null);
-  let manualBody = $state<Extracted | null>(null);
-  let manualBusy = $state(false);
-  /** Nothing is shown about a failure until the reader asked for one. */
-  let manualFailed = $state(false);
+  /** The extraction in force for the open post. */
+  const extractedNow = $derived(extractedFor === item?.id ? extracted : null);
 
-  $effect(() => {
-    const current = item?.id ?? null;
-    if (current === manualId) return;
-    manualId = null;
-    manualBody = null;
-    manualBusy = false;
-    manualFailed = false;
-  });
+  /** What is on screen, and where it came from. */
+  const picked = $derived(bodyFor(choice, extractedNow, feedBody));
+  const body = $derived(sanitizeArticle(picked.html));
+  /** Whether the article, rather than the feed's own text, is what is being read. */
+  const showingArticle = $derived(picked.source === "article");
 
-  const manualActive = $derived(manualId !== null && manualId === item?.id && manualBody !== null);
-
-  /** The extraction in force for the open post, from either route. */
-  const extractedNow = $derived(
-    manualActive ? manualBody : extractedFor === item?.id ? extracted : null,
-  );
-
-  async function loadFullArticle(): Promise<void> {
+  /**
+   * A press on the article returns to the feed's text; a press on the feed
+   * fetches this one page.
+   *
+   * The fetch is explicit, so it is also a retry: the ledger may have parked this
+   * URL after a paywall or a timeout, and pressing the button is the reader
+   * saying they want it tried anyway. Nothing is remembered as "this post reads
+   * as the article" until an article actually arrives — a remembered choice is a
+   * fact about the post, not a wish.
+   */
+  async function toggleReading(): Promise<void> {
     const current = item;
-    if (!current || link === "" || manualBusy) return;
+    if (!current || link === "" || fetching) return;
+    if (showingArticle) {
+      setChoice("feed");
+      return;
+    }
     const id = current.id;
-    manualBusy = true;
-    manualFailed = false;
-    const result = await extractFor(id, link);
+    fetching = true;
+    refused = false;
+    const result = await extractFor(id, link, { force: true });
+    // Moving on cancels the landing: a slow page must never replace the article
+    // the reader is now looking at.
     if (item?.id !== id) return;
-    manualBusy = false;
+    fetching = false;
     // `chooseBody` already refuses a paywall stub or an extraction that found
     // less than the feed sent; asking for the full article does not override
     // that, it only overrides "do not fetch at all".
     if (result === null || chooseBody(result, feedBody).source !== "article") {
-      manualFailed = true;
+      refused = true;
       return;
     }
-    manualId = id;
-    manualBody = result;
+    setChoice("article");
+    extracted = result;
+    extractedFor = id;
   }
 
-  function dropFullArticle(): void {
-    manualId = null;
-    manualBody = null;
-    manualFailed = false;
+  /** One place writes the choice, so the ledger and the pane cannot disagree. */
+  function setChoice(next: BodyChoice | null): void {
+    const id = item?.id ?? null;
+    choice = next;
+    choiceFor = id;
+    if (id === null) return;
+    if (next === null) ledger.forget(id);
+    else ledger.remember(id, next);
   }
-
-  const body = $derived(sanitizeArticle(chooseBody(extractedNow, feedBody).html));
 
   /** A picture the feed sent, swapped out when the file is gone. */
   let brokenLeads = new Set<string>();
@@ -520,17 +859,17 @@
              original" because it is the same page, read in here instead. -->
         <button
           class="icon full"
-          class:on={manualActive}
-          aria-pressed={manualActive}
-          aria-busy={manualBusy}
-          aria-label={manualActive ? "Show what the feed sent" : "Load the full article"}
-          title={manualBusy
+          class:on={showingArticle}
+          aria-pressed={showingArticle}
+          aria-busy={fetching}
+          aria-label={showingArticle ? "Show what the feed sent" : "Load the full article"}
+          title={fetching
             ? "Fetching the publisher's page…"
-            : manualActive
+            : showingArticle
               ? "Showing the full article — click for what the feed sent"
               : "Experimental: fetch the publisher's page and show just the article"}
-          onclick={() => (manualActive ? dropFullArticle() : void loadFullArticle())}
-        >{manualBusy ? "⋯" : "¶"}</button>
+          onclick={() => void toggleReading()}
+        >{fetching ? "⋯" : "¶"}</button>
       {/if}
       {#if link}
         <button class="icon" aria-label="Open original" title="Open original" onclick={() => openExternal(link)}>
@@ -558,6 +897,7 @@
          of the reader and back to the list it came from. -->
     <article
       bind:this={scroller}
+      tabindex="-1"
       style:--page-width={pageWidth > 0 ? `${pageWidth}px` : null}
       style:--page-height={pageHeight > 0 ? `${pageHeight}px` : null}
       data-scroll="article"
@@ -574,10 +914,22 @@
         <span>{item.origin?.title ?? ""}</span>
         {#if item.author}<span>· {item.author}</span>{/if}
         <span>· {absoluteTime(item.timestampUsec, item.published)}</span>
-        {#if manualFailed}
+        {#if layout.caps.share && shareUrl !== ""}
+          <!-- The phone's way out: the post's own title and link, through the
+               device's sheet. In the byline rather than the toolbar, which is
+               already at the width of a 375px screen, and next to the words it
+               is sharing. -->
+          <span class="share">
+            · <button class="inline" onclick={() => void shareThis()}>Share</button>
+            {#if shareNote}
+              <span class="share-note" role="status">{shareNote}</span>
+            {/if}
+          </span>
+        {/if}
+        {#if refused}
           <span class="retry" role="status">
             · no full article
-            <button class="inline" onclick={() => void loadFullArticle()}>try again</button>
+            <button class="inline" onclick={() => void toggleReading()}>try again</button>
           </span>
         {/if}
       </p>
@@ -611,6 +963,34 @@
   {#if reader.traversalEnded}
     <p class="ended" role="status">That is every post in this view.</p>
   {/if}
+  {#if opened}
+    <!-- The picture on its own layer: one finger drags, two pinch, a tap on an
+         unzoomed picture closes it. `touch-action: none` is what lets the layer
+         see the gestures instead of the browser scrolling the article under it. -->
+    <div
+      class="zoombox"
+      role="dialog"
+      aria-modal="true"
+      aria-label={opened.alt || "Picture"}
+      bind:this={layer}
+      bind:clientWidth={frame.width}
+      bind:clientHeight={frame.height}
+      onpointerdown={onPointerDown}
+      onpointermove={onPointerMove}
+      onpointerup={onPointerUp}
+      onpointercancel={onPointerUp}
+    >
+      <img
+        src={opened.src}
+        alt={opened.alt}
+        draggable="false"
+        style:width={`${drawing.width}px`}
+        style:height={`${drawing.height}px`}
+        style:transform={transformOf(zoom)}
+      />
+      <button class="zoomclose" onclick={closePicture} aria-label="Close picture">✕</button>
+    </div>
+  {/if}
   <div
     class="pull"
     class:visible={pull !== 0}
@@ -629,6 +1009,50 @@
     height: 100%;
     overflow: hidden;
     background: var(--bg);
+  }
+
+  /* The tapped picture, over everything the pane draws. `touch-action: none` is
+     load-bearing: without it the webview scrolls the article under the fingers
+     and a pinch never becomes a pinch. */
+  .zoombox {
+    position: fixed;
+    inset: 0;
+    z-index: 400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #000000e0;
+    touch-action: none;
+    overscroll-behavior: contain;
+  }
+
+  .zoombox img {
+    max-width: none;
+    max-height: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    will-change: transform;
+    touch-action: none;
+  }
+
+  .zoomclose {
+    position: absolute;
+    top: max(10px, env(safe-area-inset-top));
+    right: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid #ffffff3d;
+    border-radius: 999px;
+    background: #000000a6;
+    color: #fff;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
   }
 
   /* The feedback for the pull: fills left to right as the next article gets
@@ -809,6 +1233,18 @@
   .retry {
     white-space: nowrap;
     opacity: 0.85;
+  }
+
+  /* The share press and its answer, kept on the byline's own line so a copy
+     that had to stand in for a sheet does not move the article under the thumb
+     that just pressed it. */
+  .share {
+    white-space: nowrap;
+  }
+
+  .share-note {
+    margin-left: 6px;
+    color: var(--accent-text);
   }
 
   .content {

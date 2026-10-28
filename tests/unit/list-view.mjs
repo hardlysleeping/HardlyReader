@@ -222,7 +222,7 @@ const sidebar = read("src/components/Sidebar.svelte");
 check("the one-pane posts are the real list", /<ArticleList nested \/>/.test(sidebar));
 check("and there is no second post row implementation", !/class="post-title"/.test(sidebar));
 check("the nested flag exists", /nested = false \}: \{ onOpen\?: \(\) => void; nested\?: boolean \}/.test(list));
-check("nesting drops the second title", /\{#if !nested\}[\s\S]{0,80}<h1>/.test(list));
+check("nesting drops the second title", /\{#if !nested[^}]*\}[\s\S]{0,80}<h1>/.test(list));
 check("and the nested block does not make its own scrollbar", /\.list\.nested \.items \{[\s\S]{0,80}overflow: visible/.test(list));
 check("touch gets a real target for the toggles", /@media \(pointer: coarse\)[\s\S]{0,120}width: 34px/.test(list));
 
@@ -286,11 +286,13 @@ check("the card sizes are three", CARD_SIZES.length === 3);
 // no fifth view pill for one.
 check("the views did not gain a masonry shape", LIST_VIEWS.length === 4, String(LIST_VIEWS.length));
 
-// The controls live in the bar and belong to one view each.
-check("the sizer is in the bar, not a panel", /class="bar"[\s\S]{0,6000}class="sizer"/.test(listSource));
+// The controls live in the bar and belong to one view each. The window is wide
+// enough to cross the bar's comments: what it proves is containment in the bar's
+// own markup, not adjacency.
+check("the sizer is in the bar, not a panel", /class="bar"[\s\S]{0,9000}class="sizer"/.test(listSource));
 check(
   "the grid's count is offered only in the grid",
-  /\{#if view === "grid"\}[\s\S]{0,1600}type="range"/.test(listSource),
+  /\{#if view === "grid"[^}]*\}[\s\S]{0,1600}type="range"/.test(listSource),
 );
 check(
   "and the range is bounded by the same two numbers the type allows",
@@ -387,7 +389,7 @@ check(
     );
     const body = rule.slice(0, rule.indexOf("\n  }"));
     return (
-      /margin-right: 9px;/.test(body) &&
+      /margin-right: 3px;/.test(body) &&
       !/overflow: hidden;/.test(body) &&
       // Held against the edge the end reads as a cut-off corner, or asks for the
       // two corners the turn leaves to be filled in — and a filled gap between
@@ -400,7 +402,7 @@ check(
       )
     );
   })(),
-  "9px of air at the edge, and no fill between one end and the next",
+  "3px of air inside the scrollbar, and no fill between one end and the next",
 );
 
 check(
@@ -425,7 +427,7 @@ check(
     // Flat: a shadow dropped to the right, not an inner light or a bevel. The row
     // stays a 2D shape with a curve; the shadow is the only relief it gets.
     return (
-      /box-shadow: 3px 2px 7px -4px rgba\(0, 0, 0, 0\.55\);/.test(body) &&
+      /box-shadow: 3px 2px 6px -4px rgba\(0, 0, 0, 0\.55\);/.test(body) &&
       !/inset/.test(body)
     );
   })(),
@@ -618,7 +620,7 @@ check(
 );
 check(
   "the expanded post is the article pane's own pipeline, not a second reader",
-  /chooseBody\(/.test(inlineSource) &&
+  /bodyFor\(/.test(inlineSource) &&
     /sanitizeArticle\(/.test(inlineSource) &&
     /rememberedExtraction\(id\)/.test(inlineSource) &&
     /prepareImages\(node\)/.test(inlineSource) &&
@@ -696,7 +698,7 @@ check(
    content clears the new left edge by the 11px the actions clear the right.
    The right-hand numbers are asserted above and are not restated here. */
 check(
-  "both ends of the foot are the same: one thickness on three sides, 9px in from the pane, 12px of clearance",
+  "both ends of the foot are the same: one thickness on three sides, 9px in on the left, 12px of clearance",
   /\.items\.half-end[^{]*\.row \{[^}]*margin-left: 9px;/.test(listSource) &&
     /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
       listSource,
@@ -704,8 +706,8 @@ check(
     /\.items\.half-end[^{]*\.item \{[^}]*padding: calc\(4px \* var\(--row-scale, 1\)\) 6px calc\(4px \* var\(--row-scale, 1\)\) 12px;/.test(
       listSource,
     ) &&
-    // The right side keeps its own 9px: the left is a copy, not a replacement.
-    /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,1600}?margin-right: 9px;/.test(
+    // The right side keeps its own margin: the left is a copy, not a replacement.
+    /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,1600}?margin-right: 3px;/.test(
       listSource,
     ),
 );

@@ -4,7 +4,95 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.6.9] — 2026-10-27
+
+The first release since 0.6.7: this section is 0.6.8's unpublished notes, cut
+here because 0.6.8 was built and never shipped.
+
+### Since 0.6.8
+
+- **One person is one account.** Linking a provider keeps the account row and
+  replaces only the identity; deleting the account takes the identity and the
+  rows that hang off it, and cannot reach the library on the device.
+- **Changing sync provider is a migration, not a re-connect.** The nine steps in
+  `docs/sync-format.md` run in order, and a failure at any of them leaves the old
+  provider in use and the new folder as it was found.
+- **The sync folder is a versioned file set**, so two devices cannot overwrite
+  each other's records; a sync archive exports and imports the whole set.
+- **The reading position belongs to this device**, and the adapter has no route
+  that would make a server's opinion of it possible.
+- **Settings → Account**: the doors, the devices, and a deletion that has
+  somewhere to go.
+- **A release is four bundles or it is not a release.** `scripts/release.sh`
+  refuses to touch GitHub until the AppImage, the Flatpak, the APK and the IPA
+  are all present, are the size they should be and are the kind of file they
+  claim to be.
+- **In Cards the keys step the column, and it follows, centred** — the wheel's
+  own placement, once per step, and never on a click.
+- A settings section cannot be missing its open state (it was, for Saved text).
+
+### Proven
+
+- **Local mode runs the owner's acceptance list, as one command.**
+  `pnpm test:acceptance` launches a fresh library, adds a feed through the form's
+  own method, imports an OPML file with two folders and a feed in each, refreshes
+  an hour later and gets a new article, reads it, stars it, marks it read, closes
+  the database and opens a new handle on the same file — 51 checks, and the run
+  prints which of the nine steps it ran. It uses the app's own SQLite engine on a
+  real file (only the plugin IPC link is substituted), serves the feeds over real
+  HTTP on localhost, and fails if anything is requested that is not one of the
+  three fixtures. `docs/local-acceptance.md` carries the same list as a
+  two-minute pass to tap through on a phone, and says plainly what neither pass
+  can prove: iOS killing the app, and IndexedDB eviction under storage pressure.
+### Local library
+
+- **Changing sync provider is a migration, not a re-connect.** Picking another service in Settings
+  no longer just remembers a different folder and lets the next run reconcile against a blank page:
+  `switchProvider` runs the nine steps in `docs/sync-format.md` — sync the current provider, read
+  canonical state, connect the new one, look for state already there, merge, write, read it back and
+  compare it, and only then move authority (`withSwitch`, which replaces the agreement with the
+  migrated document so the abandoned provider's state cannot come back on the next run). A failure
+  at any step leaves the old provider in use, the new folder as it found it and the library untouched
+  from the read onwards, and says which step stopped and which service is still in use. The old
+  folder is never written to after step 2 and never deleted — the section says so in its own words,
+  both before a switch and after one. `tests/unit/provider-switch.mjs` proves it, including the
+  owner's acceptance: one device switches while a second is offline, both end on the new provider
+  with the same feeds and marks, and the old file is still there and complete.
+
+- **A library on this device keeps the text of the posts you open.** Before this, a local library
+  held what each feed's XML carried — a summary, or the whole piece if the publisher sent one — and
+  the article behind a "continue reading" was fetched again every time the post was opened, and
+  lost on the way to another device. The body is now kept beside its entry, in the same store:
+  `extractions` gains the headline, byline, length, size and last-read stamp it needs to answer for
+  a post on its own. Three answers under the Aa panel's **Saved text** — off (the default), on
+  open, on open and ahead — with a ceiling of 8, 24 or 64 MB per device, least-recently-used when
+  it is full and never at the cost of the post on screen. The panel says who sees the request: a
+  body is fetched from the publisher's own page, so this device's address lands in that publisher's
+  log, and a library on this device has no server in between. Bodies are deliberately *not* in the
+  sync document. [`docs/article-bodies.md`](docs/article-bodies.md) has the whole shape.
+
+### Licence
+
+- **PolyForm Noncommercial 1.0.0, named everywhere it is machine-readable.** The
+  repo's `LICENSE` and the README carried it; `package.json` and the Tauri crate
+  declared nothing at all, so a package manager or a crates.io listing would have
+  read this as unlicensed. Both now point at the file rather than inventing an
+  SPDX id — PolyForm Noncommercial has none, which is also why GitHub reports
+  "Other". The adapter's README says the same next to its FreshRSS note.
+
 ## [0.6.7] — 2026-10-26
+
+### Packaging
+
+- **0.6.7 ships on all four platforms.** The AppImage and the Flatpak are both
+  built from a binary compiled in Ubuntu 22.04, because an Arch build needs a
+  newer glibc than either package can guarantee; the Flatpak carries no libraries
+  of its own and takes GTK and WebKitGTK from `org.gnome.Platform//46`. The APK is
+  signed with the key 0.6.0–0.6.6 used, versionCode 6007, so it upgrades in place.
+  The IPA is unsigned, as every release here is, and installs through AltStore or
+  Sideloadly.
 
 ### Changed
 

@@ -34,6 +34,10 @@
   import { tabbed, type Tabbed } from "../lib/date-tabs";
   import { pullDown } from "../lib/pull";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
+  import { articleQueue, candidateFor } from "../lib/extract-queue";
+  import { ledger } from "../lib/extract-ledger";
+  import { wantsFullText } from "../lib/full-text";
+  import { bodies } from "../state/bodies.svelte";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
@@ -356,6 +360,63 @@
 
   const loadNow = (id: string): boolean => nearIds[id] === true || aheadIds[id] === true;
 
+  /**
+   * The posts a step ahead, prepared while the reader is still on this one.
+   *
+   * The list already warms the pictures of the next card or two; this is the same
+   * idea for the article itself. `extractFor()` remembers the page it fetched, so
+   * a post prepared here opens its article rather than the feed's summary — and
+   * nothing waits for it: the plan is set and the press that follows finds the
+   * page on hand, or fetches it exactly as it would have.
+   *
+   * It starts past the open post, or at the first post near the viewport when
+   * nothing is open, so scrolling the list does not leave three prepared posts a
+   * screenful behind. The queue never prepares the post being read — the pane is
+   * already fetching that one — and `wantsFullText()` is the pane's own answer to
+   * "would this post's page be shown at all", asked here so a feed put back on its
+   * own text costs no request.
+   */
+  $effect(() => {
+    const items = reader.listItems;
+    const open =
+      reader.selectedId === null
+        ? -1
+        : items.findIndex((item) => item.id === reader.selectedId);
+    // Past the post in hand — the pane is already fetching that one — or at the
+    // first post on screen when nothing is open. A list too short to have
+    // measured anything yet starts at the top, which is what is on screen then.
+    const start = open >= 0 ? open + 1 : Math.max(0, items.findIndex((item) => nearIds[item.id] === true));
+    // "Ahead" in Settings → Aa → Saved text is the reader saying they want the
+    // posts they are about to reach already on disk. It is the same queue and the
+    // same rule — it just also counts as an answer for a post whose text the
+    // feed already sent whole, because there is no other way to keep a body than
+    // to fetch the page it lives on.
+    const accountWide = reading.extract || bodies.ahead;
+    const byId = new Map(items.map((item) => [item.id, item]));
+    articleQueue.prepare(
+      items.map((item) =>
+        candidateFor(item.id, item.alternate?.[0]?.href ?? item.canonical?.[0]?.href ?? ""),
+      ),
+      start,
+      (candidate) => {
+        const item = byId.get(candidate.id);
+        if (item === undefined) return false;
+        const feedId = item.origin?.streamId ?? null;
+        return wantsFullText({
+          post: ledger.choice(candidate.id),
+          feed: reader.feedExtract(feedId),
+          accountWide,
+          remembered: reader.feedTruncated(feedId),
+          // The feed's own markup, unsanitised: this decides one fetch, and
+          // `looksTruncated()` reads words and a marker, neither of which
+          // sanitising changes. Sanitising ten posts per step is not worth that
+          // nothing.
+          html: item.content?.content ?? item.summary?.content ?? "",
+        });
+      },
+    );
+  });
+
   /*
    * Files being fetched for a card that has not been scrolled to yet. The
    * references are held because an `Image` with no other handle can be
@@ -516,6 +577,59 @@
    * around it says which card that is.
    */
   let heldId = $state<string | null>(null);
+
+  /**
+   * The last step the column has placed.
+   *
+   * The key map's ↓/↑ step the post in hand, and in Cards the post in hand is a
+   * card — a step that selected the next post and left the column where it was
+   * showed its headline somewhere below the fold, which is a step the reader
+   * cannot see. So a step is answered by `landOn` — the same placement the wheel
+   * uses — and a *click* is not: `select()` is what a row press does too, and a
+   * column that re-centred itself under the pointer would be moving away from
+   * what the reader just picked.
+   *
+   * The counter is what tells the two apart, and remembering the last one placed
+   * keeps this to once per step rather than once per paint: `landOn` writes
+   * `scrollTop`, which fires a scroll event, and a scroll event that re-centred
+   * would be a column fighting itself.
+   */
+  let lastStep = 0;
+
+  /**
+   * Put the stepped-to card in the middle, exactly as a wheel step does.
+   *
+   * A step is *consumed* once the column can act on it, never before: a step
+   * whose card has not been rendered yet is still owed, so the effect waits for
+   * the rows (`reader.items.length`) rather than dropping it. A step taken in
+   * another view is consumed, because there was no card to place.
+   */
+  $effect(() => {
+    const seq = reader.stepSeq;
+    void view;
+    void reader.items.length;
+    if (seq === lastStep) return;
+    if (view !== "cards") {
+      lastStep = seq;
+      return;
+    }
+    const id = reader.selectedId;
+    if (id === null) {
+      lastStep = seq;
+      return;
+    }
+    // A launch restore is applying the place the reader left, and a restore is
+    // not a step: it keeps its own offset.
+    if (resumeAt !== null) return;
+    const el = itemsEl;
+    if (!el) return;
+    const card = el.querySelector<HTMLElement>(`.row[data-id="${CSS.escape(id)}"]`);
+    if (!card) return;
+    lastStep = seq;
+    if (card === currentCard()) return;
+    landOn(card);
+    syncSnap();
+  });
 
   /** Set while a fit is landing, so a double press is one resize. */
   let fitting = false;
@@ -1069,7 +1183,11 @@
 <section class="list" data-pane="posts" class:nested aria-label={reader.activeTitle}>
   <header class="list-header">
     <div class="headline">
-      {#if !nested}
+      <!-- The bar above a phone already names this stream, one line up: drawing
+           the same words here as well cost a whole line of the column to say
+           nothing new. The count, the feed's own mark and the filter rows stay —
+           they are about this list, not about where you are. -->
+      {#if !nested && layout.device !== "phone"}
         <h1>{reader.activeTitle}</h1>
       {/if}
       {#if feed}
@@ -1177,6 +1295,12 @@
             </svg>
           </button>
           {/if}
+          <!-- Everything below is a shape you set once, and a phone's bar has no
+               room for it: row ends, their radius, and whether a picture fills
+               the end live in `Settings → Post list` there. The four shapes and
+               the filters stay on the bar, because they are what you use while
+               reading. -->
+          {#if layout.device !== "phone"}
           <!-- How the row ends: half a turn, or the pill. Both kept. -->
           <button
             class="viewicon end"
@@ -1212,14 +1336,18 @@
               </svg>
             </button>
           {/if}
+          {/if}
         {/if}
       </div>
 
       <!-- Sizing lives where the view is chosen, and only the view that has
            something to size shows it: the grid's tiles per row, the cards'
            picture height. `auto` is always the way it looked before, so the
-           default is the previous behaviour, not a new look. -->
-      {#if view === "grid"}
+           default is the previous behaviour, not a new look.
+
+           On a phone the ruler is in `Settings → Post list`: nine answers on a
+           240px bar left no room for the four shapes beside it. -->
+      {#if view === "grid" && layout.device !== "phone"}
         <!-- Four buttons became a ruler: two to eight is nine answers, and nine
              buttons do not fit in a 240px column beside the view icons and the
              filter pills. `auto` stays a button of its own, because it is not a
@@ -2018,12 +2146,15 @@
        inner light, no bevel — the end stays a 2D shape with a curve, and the
        shadow is what gives it a little relief against the column. It needs the
        9px of margin below to have anywhere to fall. */
-    box-shadow: 3px 2px 7px -4px rgba(0, 0, 0, 0.55);
+    box-shadow: 3px 2px 6px -4px rgba(0, 0, 0, 0.55);
     /* Away from the pane's edge, so the turn has room to be seen as a turn. Held
        against the edge it either looks like a cut-off corner or asks for the two
        corners it leaves to be filled in, and a filled gap between two pills reads
-       as a rail down the column rather than as a row ending. */
-    margin-right: 9px;
+       as a rail down the column rather than as a row ending.
+       3px, not 9: the dropped shadow reaches about 2px past the row (3px offset,
+       6px blur, -4px spread), so the row's edge and its shadow both stay clear
+       of the scrollbar, which is 5px of its own and sits beyond this margin. */
+    margin-right: 3px;
   }
 
   /* Unread is the accent of that turn, filled: 5px along the right edge and 1px

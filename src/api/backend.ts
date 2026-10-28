@@ -68,6 +68,41 @@ export interface MoveFeedRequest {
 export interface ReaderBackend {
   readonly kind: BackendKind;
 
+  /**
+   * What this backend can store itself.
+   *
+   * Optional and partial on purpose: a backend that says nothing is treated as a plain GReader
+   * service (feeds, folders, read, stars — and nothing extended), which is the safe default for a
+   * server we have not measured. `src/lib/capabilities.ts` is what turns this into a decision about
+   * where a feature's truth lives; see `docs/authority.md` for why the decision is per feature
+   * rather than per profile.
+   */
+  readonly capabilities?: Partial<import("../lib/capabilities").Capabilities>;
+
+  /**
+   * Asks the backend **now** what it can store, when the backend can be asked at all.
+   *
+   * `capabilities` above is a declaration: what a backend says it is, decided once. This
+   * is the measurement, and the difference is the whole point of it existing —
+   *
+   * - an extension can be *installed but disabled*, which is a definite `404` on its
+   *   routes and therefore `unsupported`;
+   * - it can be *older than the route we would call*, which a version check turns into
+   *   fewer reported features instead of a `404` at the first write;
+   * - the server can be *restarting*, and a `5xx` or a timeout is not evidence about
+   *   what it can store — every feature comes back `unknown`.
+   *
+   * `unknown` must never move authority: it keeps whatever the last answer said, so the
+   * UI may say "could not check" without the feature travelling to the cloud and back.
+   * See `src/lib/capabilities.ts` (`remember`, `resolveAuthority`) and
+   * `probeCapabilities` in `src/api/hardlyread.ts` for the implementation that never
+   * throws.
+   *
+   * Optional: a backend with no probe is taken at its declaration, which is what a
+   * database on this device is entitled to.
+   */
+  probeCapabilities?(): Promise<import("../lib/capabilities").CapabilityAnswer>;
+
   /** The account behind this backend, for the header and the account panel. */
   profile(): Promise<UserInfo>;
 
@@ -87,6 +122,19 @@ export interface ReaderBackend {
   subscribe(request: SubscribeRequest): Promise<void>;
   unsubscribe(streamId: string): Promise<void>;
   moveFeed(request: MoveFeedRequest): Promise<void>;
+
+  /**
+   * Fetches whatever has been published since this backend last looked.
+   *
+   * Optional because a server crawls on its own: a FreshRSS backend has nothing
+   * to fetch, and pretending otherwise would make every client poll on behalf of
+   * a crawler that is already doing it. A local library has no crawler behind
+   * it, so it is the crawler, and this is the call that runs it.
+   */
+  fetchNew?(options?: {
+    wake?: "launch" | "resume" | "background" | "manual";
+    signal?: AbortSignal;
+  }): Promise<unknown>;
 }
 
 /** The items a stream page carries, for callers that only want those. */

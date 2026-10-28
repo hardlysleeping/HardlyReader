@@ -193,15 +193,20 @@ const app = read("src/app.css");
     /\{ id: "feeds", label: "Feeds", note: "[^"]*", phone: true \}/.test(panel),
   );
   check(
-    "it is the only phone-only section, so desktop's list is unchanged",
-    (panel.match(/phone: true/g) ?? []).length === 1,
+    "every phone-only section is filtered out, so a desktop's list is unchanged",
+    // Feeds (the indent and the two file actions) and Post list (the four shape
+    // controls) are the two surfaces a phone's own chrome gives up; every other
+    // section is drawn on both devices, exactly as before.
+    /phone: true \}/g.test(panel) && (panel.match(/phone: true \}/g) ?? []).length === 2 &&
+      /\{ id: "feeds", label: "Feeds", note: "[^"]*", phone: true \}/.test(panel) &&
+      /\{ id: "list", label: "Post list", note: "[^"]*", phone: true \}/.test(panel),
   );
   check(
     "...and it is filtered out by the device, not by a window width",
     /SECTIONS\.filter\(\(section\) => section\.phone !== true \|\| layout\.device === "phone"\)/.test(panel),
   );
   check("the list the sheet draws is the filtered one", /\{#each sections as section \(section\.id\)\}/.test(panel));
-  check("it starts folded, like every section but Accounts", /accounts: true,\s*feeds: false,/.test(panel));
+  check("it starts folded, like every section but Accounts", /accounts: true,\s*account: false,\s*feeds: false,/.test(panel));
 
   const body = panel.slice(panel.indexOf('section.id === "feeds"'), panel.indexOf('section.id === "reading"'));
   check("the section has an Import control", /Import feeds|Importing…/.test(body));

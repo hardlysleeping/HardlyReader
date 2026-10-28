@@ -1,5 +1,6 @@
 <script lang="ts">
   import ArticleList from "./ArticleList.svelte";
+  import IndentControl from "./IndentControl.svelte";
   import SidebarBand from "./SidebarBand.svelte";
   import ThemeToggle from "./ThemeToggle.svelte";
   import { READING_LIST, STATE_STARRED, type Subscription } from "../api/freshrss";
@@ -69,6 +70,22 @@
    * the height for the full block and a desktop has always had it, file-name
    * line included. */
   const compressedFooter = $derived(layout.device === "phone" && layout.upright);
+
+  /**
+   * A phone's sidebar, which carries one row fewer than a window's.
+   *
+   * The `Indent` row — the label, its number and the slider under them — is a
+   * look-setting, not content, and it was permanent: two lines at the top of the
+   * one column a phone has. It lives in `Settings → Feeds` instead, where the
+   * same `IndentControl` sits on a row of its own, and the day / night switch
+   * moves beside the band rather than owning a row of its own.
+   *
+   * Nothing is dropped: the indent is the same slider and the same reader write
+   * on both surfaces, and the switch is the same `ThemeToggle`. Every other
+   * device keeps the row exactly where it was, which is why this is one gate and
+   * not a second layout.
+   */
+  const phoneSidebar = $derived(layout.device === "phone");
 
   /**
    * The field itself.
@@ -258,9 +275,19 @@
    * build for local feeds with no FreshRSS behind them can pass `third-party`
    * instead. Until it does, nothing is ever requested from a third party.
    */
-  let { inlinePosts = false, iconProvider = DEFAULT_ICON_PROVIDER }: {
+  let {
+    inlinePosts = false,
+    iconProvider = DEFAULT_ICON_PROVIDER,
+    onconnect,
+  }: {
     inlinePosts?: boolean;
     iconProvider?: FeedIconProvider;
+    /**
+     * Opens the connect-a-service screen. It is the same one the account panel
+     * presses, handed down rather than rebuilt here: syncing is an offer the
+     * empty library makes, not a second way into it.
+     */
+    onconnect?: () => void;
   } = $props();
 
   /**
@@ -275,6 +302,29 @@
   /** The add-feed form: closed until asked for, so the sidebar stays a list. */
   let adding = $state(false);
   let feedUrl = $state("");
+
+  /**
+   * A library with nothing in it yet.
+   *
+   * The one moment the panel has to say what it is for. It is the same three
+   * answers the old one-line notice used — the feeds mode, no subscriptions and
+   * no load in flight — so nothing is re-decided here; the block that draws on
+   * it only says more. It goes the moment a feed arrives, because a list with
+   * one feed in it needs no introduction.
+   */
+  const emptyLibrary = $derived(
+    mode === "feeds" && reader.subscriptions.length === 0 && !reader.loadingList,
+  );
+
+  /**
+   * Whether the invitation is still on screen.
+   *
+   * The add form lives in the footer, so pressing `+ Add feed` in the block has
+   * to give way to it: the invitation stands aside while the form is open
+   * rather than offering the same control twice, and it never comes back once a
+   * feed exists.
+   */
+  const startsHere = $derived(emptyLibrary && !adding);
 
   /**
    * Image URLs that failed to load. A dead icon falls back to the letter tile
@@ -712,6 +762,20 @@
 </script>
 
 <nav class="sidebar" data-pane="feeds" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
+  <!-- One file picker for the whole panel. The footer's Import label and the
+       empty library's Import OPML are two labels for this one control — the
+       empty block is the only way in on a phone, where the footer's file row is
+       folded away, and a second input would be a second entrance to the same
+       dialog. Not inside the footer, because the footer is not drawn then. -->
+  <input
+    id="opml-file"
+    type="file"
+    class="opml-input"
+    accept=".opml,.xml,text/xml,application/xml,application/octet-stream"
+    disabled={reader.feedBusy}
+    onchange={pickOpml}
+  />
+
   <!-- One field, filtering as you type: no submit button, no separate mode
        button beside it. The paragraph mark inside the field is the "also search
        post text" switch, kept quiet until it is wanted. It sits above the band
@@ -776,7 +840,15 @@
     >¶</button>
   </div>
 
-  <SidebarBand />
+  <!-- The band, and — on a phone — the day / night switch beside it. The rail is
+       `display: contents` everywhere else, so on a window the band's margins and
+       stacking are exactly what they were: the wrapper makes no box. -->
+  <div class="rail">
+    <SidebarBand />
+    {#if phoneSidebar}
+      <ThemeToggle />
+    {/if}
+  </div>
 
   {#if search.deep}
     <p class="find-note">
@@ -790,38 +862,31 @@
 
   <!-- Feed indent: the extension's own setting, not a lookalike. Disabled
        rather than hidden when the extension is absent, so the reason is
-       visible instead of the control silently doing nothing. -->
-  <div class="indent" class:open={chrome.indentOpen}>
-    <button
-      class="indent-label"
-      aria-expanded={chrome.indentOpen}
-      aria-controls="feed-indent-row"
-      title={chrome.indentOpen ? "Hide the indent slider" : "Show the indent slider"}
-      onclick={() => chrome.toggleIndentOpen()}
-    >
-      Indent
-      <span class="px">{reader.sidebarIndent.px}</span>
-      <svg class="caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5 8 10.5l4-4" /></svg>
-    </button>
-    {#if chrome.indentOpen}
-      <input
-        id="feed-indent-row"
-        type="range"
-        min="0"
-        max={reader.sidebarIndent.max}
-        step="1"
-        value={reader.sidebarIndent.px}
-        aria-label="Feed name indent"
-        title={reader.indentError ??
-          (reader.indentDeviceOnly
-            ? "Feed name indent, kept on this device — Sidebar Feed Indent is not storing it on the server"
-            : "Feed name indent, shared with the Sidebar Feed Indent extension")}
-        oninput={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value))}
-        onchange={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value), true)}
-      />
-    {/if}
-    <span class="right"><ThemeToggle /></span>
-  </div>
+       visible instead of the control silently doing nothing.
+
+       A phone does not draw this row at all: `IndentControl` is in
+       `Settings → Feeds` there, and it is the same slider — same store, same
+       write — so the tree starts that many pixels higher instead of the row
+       costing them. -->
+  {#if !phoneSidebar}
+    <div class="indent" class:open={chrome.indentOpen}>
+      <button
+        class="indent-label"
+        aria-expanded={chrome.indentOpen}
+        aria-controls="feed-indent-row"
+        title={chrome.indentOpen ? "Hide the indent slider" : "Show the indent slider"}
+        onclick={() => chrome.toggleIndentOpen()}
+      >
+        Indent
+        <span class="px">{reader.sidebarIndent.px}</span>
+        <svg class="caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5 8 10.5l4-4" /></svg>
+      </button>
+      {#if chrome.indentOpen}
+        <IndentControl />
+      {/if}
+      <span class="right"><ThemeToggle /></span>
+    </div>
+  {/if}
 
   <!-- Everything that can grow scrolls here and nowhere else: the search field,
        the band and the indent strip stay put above, the counts and the add/OPML
@@ -1157,8 +1222,34 @@
   {/each}
   {/if}
 
-  {#if mode === "feeds" && reader.subscriptions.length === 0 && !reader.loadingList}
-    <p class="empty">No feeds yet.</p>
+  {#if startsHere}
+    <!-- The empty library, and the only place the panel explains itself: the
+         two ways to get feeds in, and syncing as the upgrade it is rather than
+         something to do first. One short block — no wizard, no second flow —
+         and it is gone the moment a feed exists. -->
+    <div class="start">
+      <p class="start-lead"><b>Start reading</b> — Add a feed or import your subscriptions.</p>
+      <div class="start-actions">
+        <button class="start-add" onclick={startAdding}>+ Add feed</button>
+        <label
+          class="start-import"
+          class:busy={reader.feedBusy}
+          for="opml-file"
+          title="Import feeds from an OPML file — folders come too"
+        >
+          {reader.feedBusy ? "Importing…" : "Import OPML"}
+        </label>
+      </div>
+      {#if onconnect}
+        <p class="start-sync">
+          Want feeds synced across devices?
+          <button class="start-connect" onclick={onconnect}>Connect a sync service</button>
+        </p>
+      {/if}
+      {#if opmlNote}
+        <p class="start-note" role="status">{opmlNote}</p>
+      {/if}
+    </div>
   {/if}
   </div>
 
@@ -1179,6 +1270,11 @@
     {/if}
   </div>
 
+  <!-- The footer, unless the empty library is introducing itself above: that
+       block carries the same two ways in, so drawing both would be the panel
+       saying one thing twice. The form still lives here, which is why the gate
+       reopens the moment `adding` is set. -->
+  {#if !startsHere}
   <div class="add">
     {#if adding}
       <form onsubmit={submitFeed}>
@@ -1237,14 +1333,9 @@
           <label
             class="opml-import"
             class:busy={reader.feedBusy}
+            for="opml-file"
             title="Import feeds from an OPML file — folders come too"
           >
-            <input
-              type="file"
-              accept=".opml,.xml,text/xml,application/xml,application/octet-stream"
-              disabled={reader.feedBusy}
-              onchange={pickOpml}
-            />
             <svg class="up" viewBox="0 0 16 16" aria-hidden="true">
               <path d="M8 10.6V2.4" />
               <path d="M4.7 5.7 8 2.4l3.3 3.3" />
@@ -1268,6 +1359,7 @@
       </div>
     {/if}
   </div>
+  {/if}
 </nav>
 
 <style>
@@ -1858,14 +1950,6 @@
     color: var(--muted);
   }
 
-  .empty {
-    margin: 0;
-    padding: 8px 16px;
-    font-size: 11.5px;
-    line-height: 1.4;
-    color: var(--muted);
-  }
-
   .indent {
     display: flex;
     align-items: center;
@@ -1936,64 +2020,28 @@
     display: inline-flex;
   }
 
-  /* A 2px track and a 9px thumb: the native 14px trough was the loudest thing
-     in the sidebar for a setting that is set once. */
-  .indent input[type="range"] {
-    flex: 1 1 auto;
-    min-width: 0;
-    height: 12px;
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    appearance: none;
-    -webkit-appearance: none;
-    cursor: pointer;
+  /* The rail: the band, and on a phone the day / night switch beside it.
+     `contents` on a window means the wrapper makes no box at all — the band's
+     own margins and the sidebar's stacking are the ones it always had — and a
+     phone turns it into the one row the two controls then share. */
+  .rail {
+    display: contents;
   }
 
-  .indent input[type="range"]:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 4px;
+  :global(html[data-device="phone"]) .rail {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    padding-right: 10px;
   }
 
-  .indent input[type="range"]::-webkit-slider-runnable-track {
-    height: 2px;
-    border-radius: 1px;
-    background: var(--border);
-  }
-
-  .indent input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 9px;
-    height: 9px;
-    margin-top: -3.5px;
-    border: 0;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-
-  .indent input[type="range"]:hover::-webkit-slider-thumb,
-  .indent input[type="range"]:focus-visible::-webkit-slider-thumb {
-    background: var(--accent);
-  }
-
-  .indent input[type="range"]::-moz-range-track {
-    height: 2px;
-    border-radius: 1px;
-    background: var(--border);
-  }
-
-  .indent input[type="range"]::-moz-range-thumb {
-    width: 9px;
-    height: 9px;
-    border: 0;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-
-  .indent input[type="range"]:disabled {
-    cursor: default;
-    opacity: 0.4;
+  /* A thumb's target, drawn around a 20px glyph: the switch keeps its size and
+     its place, and the box a finger lands in grows to the band's own height. */
+  :global(html[data-device="phone"]) .rail > :global(.mode) {
+    align-self: center;
+    width: 34px;
+    height: 34px;
+    margin-bottom: 6px;
   }
 
   .count {
@@ -2006,10 +2054,111 @@
     color: var(--tone-trim);
   }
 
-  .empty {
-    padding: 12px 16px;
+  /* The empty library. It takes the footer's place rather than sitting beside
+     it, so the panel offers each way in once: one lead line naming both, the
+     two controls, then the sync offer underneath as an upgrade. Sized to be
+     read at a glance in a phone's drawer — three short parts, no headings. */
+  .start {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px 12px 16px;
+  }
+
+  .start-lead {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text-dim);
+  }
+
+  .start-lead b {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .start-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .start-add,
+  .start-import {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    padding: 0 11px;
+    border: 1px solid var(--border-soft);
+    border-radius: 7px;
+    background: none;
+    color: var(--text);
+    font: inherit;
     font-size: 12px;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      background 120ms ease,
+      border-color 120ms ease;
+  }
+
+  .start-import {
+    color: var(--text-dim);
+  }
+
+  .start-add:hover,
+  .start-import:hover {
+    color: var(--text);
+    background: var(--hover);
+    border-color: var(--border);
+  }
+
+  .start-import.busy {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  /* A thumb would rather have two more pixels than a tighter line, and the
+     block has the height to spare in a drawer. */
+  :global(html[data-device="phone"]) .start-add,
+  :global(html[data-device="phone"]) .start-import {
+    height: 32px;
+  }
+
+  .start-sync {
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.45;
     color: var(--muted);
+  }
+
+  /* A link drawn as a link, inside the sentence that makes it an offer: the
+     account panel's own connect card is what it opens. The padding is for a
+     thumb and the negative margin gives the paragraph its line spacing back, so
+     the target grows without the words moving. */
+  .start-connect {
+    padding: 3px 0;
+    margin: -3px 0;
+    border: 0;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+
+  .start-connect:hover {
+    color: var(--text);
+  }
+
+  .start-note {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--text-dim);
   }
 
   /* Compact, because it is furniture: two rows and a file name, no scroll, and
@@ -2190,9 +2339,10 @@
     cursor: default;
   }
 
-  /* The file input is the label's business, not the sidebar's: the visible
-     control is the label, and the browser's own chrome would break the row. */
-  .opml-import input {
+  /* The file input is nobody's visible business: the labels in the footer and
+     in the empty library are the controls, and the browser's own chrome would
+     break the row. One input, two labels, one dialog. */
+  .opml-input {
     position: absolute;
     width: 1px;
     height: 1px;

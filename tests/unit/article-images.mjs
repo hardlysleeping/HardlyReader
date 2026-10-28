@@ -30,7 +30,13 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { fetchArticle, imageSources, promoteImages, sameImage } from "../../src/lib/extract.ts";
+import {
+  fetchArticle,
+  imageSources,
+  promoteImages,
+  sameImage,
+  unwrapNoscriptImages,
+} from "../../src/lib/extract.ts";
 
 let failures = 0;
 let checks = 0;
@@ -196,6 +202,45 @@ check(
 );
 check("a source that is only a beacon is removed", promoted('<picture><source srcset="/analytics/beacon.png"><img src="img/a.jpg"></picture>').includes("<source") === false);
 
+// --- the lazy attributes other publishers use -----------------------------
+for (const [attribute, label] of [
+  ["data-lazy-src", "WordPress lazy-load"],
+  ["data-cfsrc", "Cloudflare Mirage"],
+  ["data-original-src", "magazine themes"],
+]) {
+  const tag = promoted(`<img src="img/blank.gif" ${attribute}="https://cdn.example/real.jpg" alt="x">`);
+  check(`${attribute} (${label}) is fetched at load time too`, srcOf(tag) === "https://cdn.example/real.jpg", tag);
+}
+check(
+  "a lazy attribute still loses to a larger srcset",
+  srcOf(promoted('<img data-lazy-src="https://cdn.example/small.jpg" srcset="https://cdn.example/big.jpg 2000w">')) ===
+    "https://cdn.example/big.jpg",
+);
+
+// --- the copy only a browser without JavaScript would see -----------------
+const SPACER_GIF =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+const noscript = unwrapNoscriptImages(
+  `<p><img src="${SPACER_GIF}"><noscript><img src="img/real.jpg" alt="real"></noscript></p>`,
+);
+check("a noscript picture is unwrapped", noscript.includes('<img src="img/real.jpg"') && !noscript.includes("<noscript"), noscript);
+check(
+  "and promotion makes it absolute like any other",
+  imageSources(promoteImages(noscript, BASE)).includes("https://pub.example/2026/10/img/real.jpg"),
+  JSON.stringify(imageSources(promoteImages(noscript, BASE))),
+);
+check(
+  "a noscript holding a picture element is unwrapped too",
+  unwrapNoscriptImages("<noscript><picture><source srcset='a.jpg'><img src='a.jpg'></picture></noscript>").startsWith("<picture>"),
+);
+check(
+  "a noscript without a picture is left alone",
+  unwrapNoscriptImages("<noscript>Please enable JavaScript</noscript>") ===
+    "<noscript>Please enable JavaScript</noscript>",
+);
+check("nothing to unwrap means no change", unwrapNoscriptImages("<p>text</p>") === "<p>text</p>");
+check("an empty page stays empty", unwrapNoscriptImages("") === "");
+
 // Reading order: promotion edits tags in place and touches nothing else.
 const ordered = promoted('<p>one</p><img data-src="img/1.jpg"><p>two</p><img src="img/2.jpg"><p>three</p>');
 check(
@@ -323,8 +368,24 @@ check(
 check(
   "the pane measures its own height, not the window's",
   /let pageHeight = \$state\(0\);/.test(pane) &&
-    /pageHeight = Math\.round\(entry\.contentRect\.height\);/.test(pane) &&
+    /height: Math\.round\(page\.clientHeight - px\(style\.paddingTop\) - px\(style\.paddingBottom\)\)/.test(pane) &&
     /style:--page-height=\{pageHeight > 0 \? `\$\{pageHeight\}px` : null\}/.test(pane),
+);
+// The observer's first delivery is not a promise: an article built inside a pane
+// that is off screen and `inert` — the phone's stack, mid-slide — can be
+// observed and never reported on. Waiting for that report left the frame at 0
+// forever and every comic drawn at its file's width.
+check(
+  "the page is measured when the article is bound, not awaited from the observer",
+  /const write = \(\): void => \{[\s\S]{0,400}?write\(\);\s*const observer = new ResizeObserver\(write\);/.test(pane),
+);
+check(
+  "a report of no box is not a measurement",
+  /const size = pageSize\(page\);[\s\S]{0,220}?if \(size\.width <= 0\) return;/.test(pane),
+);
+check(
+  "a picture with no page to fit against keeps the stylesheet's own width",
+  /function paintPicture\(img: HTMLImageElement\): void \{[\s\S]{0,400}?if \(pageWidth <= 0\) return;/.test(pane),
 );
 check(
   "every picture in the body is capped by the frame's height and fitted whole",

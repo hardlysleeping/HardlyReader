@@ -9,21 +9,24 @@
    * and the post being read is the one in front of you.
    *
    * The body is the article pane's own pipeline, deliberately: the feed's HTML,
-   * the account's extraction preference when it is on, and `chooseBody` deciding
-   * between them. Two surfaces that disagreed about which text is the article
-   * would be two readers.
+   * the extraction preference when it is on, the per-article choice the pane
+   * writes, and `bodyFor` deciding between them. Two surfaces that disagreed
+   * about which text is the article would be two readers.
    */
   import { type StreamItem } from "../api/freshrss";
   import {
-    chooseBody,
+    bodyFor,
     extractFor,
     imageSources,
     rememberedExtraction,
     sameImage,
     type Extracted,
   } from "../lib/extract";
+  import { ledger } from "../lib/extract-ledger";
+  import { looksTruncated, wantsFullText } from "../lib/full-text";
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
+  import { bodies } from "../state/bodies.svelte";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
 
@@ -38,14 +41,56 @@
   let extracted = $state<Extracted | null>(null);
   let extractedFor = $state<string | null>(null);
 
+  /**
+   * What the reader asked for on this post in the article pane, if anything.
+   *
+   * One post read in two places must not disagree about which text is the
+   * article, so the row honours the pane's own per-article choice — including
+   * "give me the feed's version", which is why it does not ask the network at
+   * all.
+   */
+  const choice = $derived(ledger.choice(item.id));
+
+  /** The feed's own answer, and Auto's verdict about it, are the feed's. */
+  const feedId = $derived(item.origin?.streamId ?? null);
+
+  /**
+   * Tell the bodies cache this row is on screen, so the budget never evicts the
+   * article someone is reading.
+   */
+  $effect(() => {
+    const drawn = item.id;
+    bodies.showing(drawn);
+    return () => bodies.hidden(drawn);
+  });
+
   $effect(() => {
     const id = item.id;
     const url = link;
-    const wanted = reading.extract;
+    // The same rule the pane asks (`wantsFullText`), so a row opened in the
+    // posts column and the same post in the article column cannot disagree
+    // about which text the article is.
+    const wanted = wantsFullText({
+      post: choice,
+      feed: reader.feedExtract(feedId),
+      accountWide: reading.extract,
+      remembered: reader.feedTruncated(feedId),
+      html: feedBody,
+    });
+
+    // The row is the only surface on a phone reading in the list, so it writes
+    // Auto's verdict too. Idempotent: the ledger keeps one per feed.
+    if (wanted && reader.feedExtract(feedId) === "auto" && looksTruncated(feedBody)) {
+      reader.noteFeedTruncated(feedId);
+    }
 
     if (!wanted || url === "") {
+      // A row the reader asked this device to keep still gets its page fetched
+      // and stored, and still draws the feed's own text: keeping and showing are
+      // separate answers. Nothing is fetched when keeping is off.
       extracted = null;
       extractedFor = null;
+      if (!wanted && url !== "" && bodies.keeping) void extractFor(id, url);
       return;
     }
 
@@ -72,7 +117,7 @@
   });
 
   const body = $derived(
-    sanitizeArticle(chooseBody(extractedFor === item.id ? extracted : null, feedBody).html),
+    sanitizeArticle(bodyFor(choice, extractedFor === item.id ? extracted : null, feedBody).html),
   );
 
   let brokenLead = $state(false);

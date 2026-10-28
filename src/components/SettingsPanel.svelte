@@ -11,7 +11,8 @@
    * So this file is the frame, not the settings. Nothing here is a control the
    * app did not already have: each section mounts the component that owns those
    * rows — `ThemePanel` for appearance, layout and the sync interval,
-   * `ReadingPanel` for the Aa rows, `AccountsBody` for the account list. Two copies of
+   * `ReadingPanel` for the Aa rows, `AccountsBody` for the account list,
+   * `CloudAccountPanel` for the HardlyReader account itself. Two copies of
    * a slider is how the same setting ends up with two answers, so the rule is
    * one control per setting and this panel borrows all of them.
    *
@@ -21,10 +22,17 @@
    * working if this file's script never runs.
    */
   import AccountsBody from "./AccountsBody.svelte";
+  import CloudAccountPanel from "./CloudAccountPanel.svelte";
+  import DeviceSyncPanel from "./DeviceSyncPanel.svelte";
+  import IndentControl from "./IndentControl.svelte";
+  import PostListPanel from "./PostListPanel.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
+  import BodyPanel from "./BodyPanel.svelte";
   import ThemePanel from "./ThemePanel.svelte";
   import { exportFeedsOpml, importFeedsFile } from "../lib/feeds-io";
   import { APP_VERSION } from "../lib/version";
+  import { showsDeviceSync } from "../state/device-sync.svelte";
+  import { showsSavedText } from "../state/bodies.svelte";
   import { layout } from "../state/layout.svelte";
   import { reader } from "../state/reader.svelte";
 
@@ -46,44 +54,81 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "feeds" | "appearance" | "reading" | "layout" | "sync" | "about";
+  type SectionId = "accounts" | "account" | "feeds" | "appearance" | "reading" | "list" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
 
   /**
    * The sections, in the order someone looks for them: who I am, what is in the
-   * list, what it looks like, how it reads, how it is laid out, where it fetches
-   * from, and what version this is. Accounts first because it is the one that
-   * has to be found when something is wrong.
+   * list, what it looks like, how it reads, how it is laid out, when it fetches,
+   * how it reaches the other device, and what version this is. Accounts first
+   * because it is the one that has to be found when something is wrong.
    *
-   * `phone` marks a section only a phone draws. There is one: Feeds, which holds
-   * Import and Export for the sidebar's footer on a phone held upright, where
-   * that footer has no room for them (see `compressedFooter` in `Sidebar`). A
-   * desktop keeps those two controls in the sidebar, where they have always
-   * been, so the section is filtered out of the desktop's sheet entirely rather
-   * than drawn as a second home for a control that already has one.
+   * The word **Sync** means one thing: reaching the other device. The interval
+   * row is **Refreshing** — it is about fetching feeds on this machine and always
+   * was, and two rows called Sync is how a reader concludes the paid feature is
+   * already on.
+   *
+   * `phone` marks a section only a phone draws. There are two: Feeds, which
+   * holds Import and Export for the sidebar's footer on a phone held upright,
+   * where that footer has no room for them (see `compressedFooter` in `Sidebar`),
+   * and the feed indent the phone's sidebar gives up for the same reason; and
+   * Post list, which holds the four shape controls the phone's posts bar gives up
+   * (see `ArticleList`), where a one-column bar has no room beside the four
+   * views. A desktop keeps those controls where they have always been, so the
+   * sections are filtered out of its sheet entirely rather than drawn as a
+   * second home for a control that already has one.
+   *
+   * Device sync is filtered by something else: it is drawn for a library on this
+   * device that has feeds in it, and nowhere else (`showsDeviceSync`). A reader
+   * on first launch has nothing to sync and must not be sold anything; a reader
+   * signed in to a server already has FreshRSS doing this for them.
    */
   const SECTIONS: { id: SectionId; label: string; note: string; phone?: boolean }[] = [
     { id: "accounts", label: "Accounts", note: "This account, this server" },
-    { id: "feeds", label: "Feeds", note: "Import and export OPML", phone: true },
+    { id: "account", label: "Account", note: "HardlyReader account, devices" },
+    { id: "feeds", label: "Feeds", note: "Indent, import and export", phone: true },
     { id: "appearance", label: "Appearance", note: "Colours, page, background" },
     { id: "reading", label: "Reading", note: "Text, pictures, read state" },
+    { id: "list", label: "Post list", note: "Row ends, corners, tiles", phone: true },
     { id: "layout", label: "Layout", note: "Pane widths and arrangement" },
-    { id: "sync", label: "Sync", note: "Interval, and when it fetches" },
+    { id: "bodies", label: "Saved text", note: "Article text kept on this device" },
+    { id: "refreshing", label: "Refreshing", note: "Interval, and when it fetches" },
+    { id: "device-sync", label: "Device sync", note: "Your own folder, both devices" },
     { id: "about", label: "About", note: "Version" },
   ];
 
-  /** The sections this device draws: all of them but the phone-only ones. */
+  /**
+   * The sections this device draws: the phone-only ones are filtered by the
+   * device, and Device sync is filtered by the profile and its feeds
+   * (`showsDeviceSync`) — a first launch has nothing to sync and is never sold
+   * anything, and a signed-in reader already has FreshRSS keeping its library in
+   * step. Both filters are inside the `$derived`, so switching a phone to a
+   * desktop while the sheet is open redraws the list.
+   */
   const sections = $derived(
-    SECTIONS.filter((section) => section.phone !== true || layout.device === "phone"),
+    SECTIONS.filter((section) => section.phone !== true || layout.device === "phone")
+      .filter(
+        (section) =>
+          section.id !== "device-sync" ||
+          showsDeviceSync(reader.profile, reader.categories.length, reader.upgradePitch),
+      )
+      .filter((section) => section.id !== "bodies" || showsSavedText(reader.profile)),
   );
 
   /** Which sections are open. Accounts starts open: it is the shortest one. */
   let opened = $state<Record<SectionId, boolean>>({
     accounts: true,
+    account: false,
     feeds: false,
     appearance: false,
     reading: false,
+    list: false,
     layout: false,
-    sync: false,
+    // Every section in `SECTIONS`, including the ones a device filters out:
+    // the record is keyed by the type, so a section added to the list and not
+    // here is a type error rather than a section that silently cannot open.
+    bodies: false,
+    refreshing: false,
+    "device-sync": false,
     about: false,
   });
 
@@ -243,15 +288,28 @@
                    switching and signing out can never disagree between the two
                    frames. -->
               <AccountsBody onadd={() => onaddaccount?.()} onsignout={signOut} />
+            {:else if section.id === "account"}
+              <!-- The HardlyReader account itself: sign-in, the doors it has, the
+                   devices it is signed in on, and the deletion. A separate component
+                   because `Accounts` above is the FreshRSS roster — two different
+                   questions that only look alike. -->
+              <CloudAccountPanel />
             {:else if section.id === "appearance"}
               <!-- The colours are the theme panel's rows, mounted — not a second
                    set written here. -->
               <ThemePanel part="colours" />
             {:else if section.id === "feeds"}
-              <!-- The two file actions the phone's footer gives up, drawn in the
-                   panel's own idiom: one row of two controls, then whatever the
-                   last file was. No new setting, and nothing that is not already
-                   in the sidebar on a desktop. -->
+              <!-- The feed indent the phone's sidebar gives up, and the two file
+                   actions its footer gives up, drawn in the panel's own idiom.
+                   The indent is `IndentControl` — the very input the sidebar's
+                   own row mounts — so this is a second home for one slider and
+                   never a second slider: same store, same write, same reason
+                   line. Nothing here is a new setting. -->
+              <div class="indent-row">
+                <span class="indent-key">Feed indent</span>
+                <IndentControl id="settings-indent" />
+                <span class="indent-px">{reader.sidebarIndent.px}</span>
+              </div>
               <div class="feeds">
                 <label
                   class="feeds-do"
@@ -281,16 +339,31 @@
               {/if}
             {:else if section.id === "reading"}
               <ReadingPanel />
+            {:else if section.id === "list"}
+              <!-- The phone's posts bar gives up its shape controls; these are
+                   the same stores the bar wrote, on rows with room for them. -->
+              <PostListPanel />
             {:else if section.id === "layout"}
               <!-- Pane widths, the one-pane width and the held-upright mode are
                    the layout tab, mounted whole: a phone now reaches the same
                    rows a desktop does, and they write the same state. -->
               <ThemePanel part="layout" />
-            {:else if section.id === "sync"}
+            {:else if section.id === "bodies"}
+              <!-- The article text this device keeps: the three answers, the
+                   ceiling, and who sees the request. A library on a server has
+                   no such section — nothing here would apply to it. -->
+              <BodyPanel />
+            {:else if section.id === "refreshing"}
               <ThemePanel part="sync" />
               <!-- Sign out is not repeated here: it is the account's one action,
                    and it is drawn once, in Accounts. -->
               <p class="hint">Signing out is in Accounts.</p>
+            {:else if section.id === "device-sync"}
+              <!-- Reaching the other device: the provider, its folder and the run.
+                   Every row is the section's own — this is the one setting whose
+                   component exists nowhere else — and it is handed the profile the
+                   window is reading so the folder is remembered per profile. -->
+              <DeviceSyncPanel profile={reader.profile} />
             {:else}
               <div class="row">
                 <span class="key">Version</span>
@@ -498,6 +571,28 @@
     color: var(--muted);
     font-size: 11px;
     line-height: 1.4;
+  }
+
+  /* The indent the sidebar gave up, as a named row: the slider takes the width
+     between its name and its number, and a thumb gets a 34px box for it. */
+  .indent-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0 8px;
+  }
+
+  .indent-key {
+    flex: 0 0 auto;
+    color: var(--text-dim);
+  }
+
+  .indent-px {
+    flex: 0 0 auto;
+    min-width: 1.6rem;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
   }
 
   /* The two file actions, as one row of two buttons: the sheet has the width a

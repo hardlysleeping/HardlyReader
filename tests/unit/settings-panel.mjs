@@ -32,7 +32,7 @@ import { render } from "svelte/server";
 import ts from "typescript";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const GEN = join(ROOT, "tests/unit/.gen-settings");
+const GEN = join(ROOT, `tests/unit/.gen-${process.pid}/settings`);
 
 let failures = 0;
 let checks = 0;
@@ -150,13 +150,33 @@ export const accounts = {
   built.set(join(ROOT, "src/state/accounts.svelte.ts"), pathToFileURL(file).href);
 }
 
+/**
+ * The preferences store, without the network.
+ *
+ * `PrefsSync` reaches `api/freshrss` for the server's copy of the settings
+ * document. Device sync asks it for this device's document and hands a merged
+ * one back, so the sheet only needs those two doors.
+ */
+function stubPrefs() {
+  const file = join(GEN, "prefs-stub.mjs");
+  writeFileSync(
+    file,
+    `export const prefs = {
+  deviceDoc() { return { version: 1, updatedAt: 0, entries: {} }; },
+  adoptFromDevice() {},
+};
+`,
+  );
+  built.set(join(ROOT, "src/state/prefs.svelte.ts"), pathToFileURL(file).href);
+}
+
 let SettingsPanel;
 
 try {
   // State first: the components import them by the names the compiler rewrites.
   // Libraries first: a `.ts` module Node loads in place cannot resolve its own
   // extensionless imports, so anything below them is built and rewritten too.
-  for (const lib of ["src/lib/article-filter.ts", "src/lib/version.ts"]) {
+  for (const lib of ["src/lib/article-filter.ts", "src/lib/version.ts", "src/lib/list-view.ts", "src/lib/sync-setup.ts", "src/lib/prefs-sync.ts", "src/lib/account-device.ts"]) {
     buildRunes(lib);
   }
 
@@ -168,6 +188,9 @@ try {
     "src/state/reading.svelte.ts",
     "src/state/lan.svelte.ts",
     "src/state/floods.svelte.ts",
+    "src/state/entitlements.svelte.ts",
+    "src/state/device-sync.svelte.ts",
+    "src/state/bodies.svelte.ts",
   ]) {
     buildRunes(state);
   }
@@ -177,12 +200,25 @@ try {
   // which is what lets its rewritten imports point at their generated copies.
   buildRunes("src/state/reader.svelte.ts");
 
+  // The Account section mounts `CloudAccountPanel`, which asks the account store,
+  // which composes Checkout and the entitlement reader. Built bottom-up like
+  // everything else here: billing imports `entitlements.svelte.ts`, so that one is
+  // already compiled above and billing's import of it points at the copy.
+  buildRunes("src/api/billing.ts");
+  buildRunes("src/state/cloud-account.svelte.ts");
+
   // The roster is a list; the harness supplies it rather than pulling the network in.
   mkdirSync(GEN, { recursive: true });
   stubAccounts();
+  stubPrefs();
 
   // Then the components, children before the panel that mounts them.
   await buildComponent("src/components/AccountsBody.svelte");
+  await buildComponent("src/components/BodyPanel.svelte");
+  await buildComponent("src/components/CloudAccountPanel.svelte");
+  await buildComponent("src/components/DeviceSyncPanel.svelte");
+  await buildComponent("src/components/IndentControl.svelte");
+  await buildComponent("src/components/PostListPanel.svelte");
   await buildComponent("src/components/ReadingPanel.svelte");
   await buildComponent("src/components/ThemePanel.svelte");
   ({ default: SettingsPanel } = await import(await buildComponent("src/components/SettingsPanel.svelte")));
@@ -228,18 +264,18 @@ try {
   }
 
   // -------------------------------------------------------------------------
-  // The sections: six disclosures, each with its own rows inside it.
+  // The sections: seven disclosures, each with its own rows inside it.
   // -------------------------------------------------------------------------
-  const SECTIONS = ["Accounts", "Appearance", "Reading", "Layout", "Sync", "About"];
+  const SECTIONS = ["Accounts", "Account", "Appearance", "Reading", "Layout", "Refreshing", "About"];
   {
     const body = draw();
     // Sections carry `class="sec"`. Counted by that class, not by every
     // `<details>` in the panel: a section's own content may hold a disclosure of
-    // its own (Accounts holds the pairing block), and the question here is how
-    // many *sections* there are.
+    // its own (Accounts holds the pairing block, Account the address change), and
+    // the question here is how many *sections* there are.
     const sections = (markup) => (markup.match(/<details[^>]*class="sec/g) ?? []).length;
-    check("there are six sections", sections(body) === 6, String(sections(body)));
-    check("every one is a disclosure with a summary", count(body, 'class="sum') === 6, String(count(body, 'class="sum')));
+    check("there are seven sections", sections(body) === 7, String(sections(body)));
+    check("every one is a disclosure with a summary", count(body, 'class="sum') === 7, String(count(body, 'class="sum')));
     check("every section is named", SECTIONS.every((label) => new RegExp(`<span class="label[^"]*">${label}</span>`).test(body)));
     check("and says what is in it", SECTIONS.every((label) => hasClass(section(body, label), "note")));
     // Native `<details>` is the mechanism: the content is inside the disclosure,
@@ -277,6 +313,15 @@ try {
       );
     })(), prose(section(body, "Accounts")).slice(0, 140));
 
+    check("Account is the HardlyReader account, not the roster", (() => {
+      const part = prose(section(body, "Account"));
+      return (
+        part.includes("An account is only for HardlyReader Sync") &&
+        part.includes("Continue with Google") &&
+        part.includes("Continue with Apple")
+      );
+    })(), prose(section(body, "Account")).slice(0, 140));
+
     check("Appearance is the theme's rows", (() => {
       const part = section(body, "Appearance");
       return part.includes('aria-label="Appearance"') && part.includes('aria-label="Page colour"') && part.includes('aria-label="Accent colour"');
@@ -293,7 +338,7 @@ try {
     })());
 
     check("Sync is the interval", (() => {
-      const part = section(body, "Sync");
+      const part = section(body, "Refreshing");
       return part.includes('aria-label="Sync automatically"') && part.includes('aria-label="How often to sync automatically"') && /\d+h</.test(part);
     })());
 
@@ -348,6 +393,62 @@ try {
   }
 
   // -------------------------------------------------------------------------
+  // Device sync: the section the word Sync now means, and the two halves the
+  // entitlement decides between.
+  // -------------------------------------------------------------------------
+  {
+    const { reader } = await import(built.get(join(ROOT, "src/state/reader.svelte.ts")));
+    const { entitlement } = await import(built.get(join(ROOT, "src/state/entitlements.svelte.ts")));
+
+    // First launch: a library on this device with nothing in it. The section is
+    // not drawn at all, so nobody is sold anything before they have a feed.
+    check("an empty library is not offered device sync", !draw().includes("Device sync"));
+
+    // The same window with one feed in it is.
+    reader.profile = { kind: "local", slug: "local0000", label: "On this device", session: null };
+    reader.subscriptions = [
+      { id: "feed/1", title: "A", url: "https://a.test/rss", category: { id: "user/-/label/Art", label: "Art" } },
+    ];
+    check("a library with a feed is", (() => {
+      const body = draw();
+      return /<span class="label[^"]*">Device sync<\/span>/.test(body) && /Your own folder, both devices/.test(body);
+    })());
+
+    // ...and the word Sync means one thing: the interval row is Refreshing.
+    const named = draw();
+    check("the interval row is called Refreshing", /<span class="label[^"]*">Refreshing<\/span>/.test(named));
+    check("and no section is called Sync", !/<span class="label[^"]*">Sync<\/span>/.test(named));
+
+    // Free half: what it is and what it costs, inside its own section.
+    entitlement.cloudSync = false;
+    const free = section(draw(), "Device sync");
+    const freeWords = free.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+    check("the free half says what syncing is for", freeWords.includes("Sync across your devices"), freeWords.slice(0, 160));
+    check("...offers both prices", freeWords.includes("$0.99 / month") && freeWords.includes("$9.99 / year"));
+    check("...and both ways in", freeWords.includes("Start HardlyReader Sync") && freeWords.includes("Restore Purchase"));
+    check("...and no provider, because none is bought yet", !freeWords.includes("Provider"));
+
+    // Entitled half: the four providers, the folder and the run — same section,
+    // same window, only the capability moved.
+    entitlement.cloudSync = true;
+    const paid = section(draw(), "Device sync");
+    const paidWords = paid.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+    check("the entitled half says the subscription is live", paidWords.includes("HardlyReader Sync") && paidWords.includes("active"));
+    check(
+      "it offers the four providers, once each",
+      ["iCloud Drive", "Google Drive", "Dropbox", "OneDrive"].every((label) => count(paid, `aria-label="${label}"`) === 1),
+      paidWords.slice(0, 200),
+    );
+    check("it has a folder row and a run", paidWords.includes("Folder") && paid.includes('aria-label="Sync now"'));
+    check("and it does not ask for money again", !paidWords.includes("Start HardlyReader Sync"));
+
+    reader.profile = null;
+    reader.subscriptions = [];
+    entitlement.cloudSync = false;
+    check("and the section goes when the library does", !draw().includes("Device sync"));
+  }
+
+  // -------------------------------------------------------------------------
   // A phone's answer: the rows that only make sense on a phone are the same ones
   // the popover draws, and they are still gated to a phone.
   // -------------------------------------------------------------------------
@@ -359,6 +460,36 @@ try {
     const phone = draw();
     check("a phone is, once", count(phone, 'aria-label="How a phone held upright shows its panes"') === 1);
     check("and both answers are there to press", phone.includes(">One pane</button>") && phone.includes(">Sliding</button>"));
+
+    // The two sections a phone's own chrome hands over: the sidebar's indent
+    // row, and the posts bar's four shape controls. Each is a second *home*, so
+    // every row in them is one the app already had — the same slider, the same
+    // `reading` writes.
+    const sectionsOn = (body) => (body.match(/<details[^>]*class="sec/g) ?? []).length;
+    check("a phone is offered both sections its chrome gives up", sectionsOn(phone) === 9, String(sectionsOn(phone)));
+
+    const feeds = section(phone, "Feeds");
+    check(
+      "Feeds holds the feed indent, the sidebar's own slider",
+      hasClass(feeds, "indent-row") && count(feeds, 'type="range"') === 1,
+    );
+    check("...beside the two file actions", /Import feeds/.test(feeds) && /Export feeds/.test(feeds));
+
+    const rows = section(phone, "Post list");
+    check(
+      "Post list holds how a row ends and how far it turns",
+      rows.includes(">Pill</button>") && rows.includes(">Foot</button>") && count(rows, 'type="range"') === 1,
+    );
+    check("...and the picture fill, because the view is Rows", /Picture fill/.test(rows));
+    check("...and no ruler, because Rows has no tiles to count", !/Tiles across/.test(rows));
+
+    // View for view, like the bar it replaces: the ruler is there in Grid.
+    const { reading } = await import(built.get(join(ROOT, "src/state/reading.svelte.ts")));
+    reading.listView = "grid";
+    const gridRows = section(draw(), "Post list");
+    check("in Grid the ruler is there instead", /Tiles across/.test(gridRows) && !/Picture fill/.test(gridRows));
+    reading.listView = "regular";
+
     layout.device = "desktop";
   }
 
@@ -376,6 +507,18 @@ try {
     // rows behind the scrim cannot be reached by pointer.
     check("Tab stays inside it", /if \(event\.key !== "Tab" \|\| sheetEl === null\) return;/.test(source));
     check("a section's own press writes its open state", /ontoggle=\{\(event\) => \(opened\[section\.id\] = event\.currentTarget\.open\)\}/.test(source));
+    // Every section the type names has an open state. A section added to
+    // `SectionId` and not to `opened` is a section that cannot open — and it is
+    // a type error the build does not fail on, so it is checked here as well as
+    // by the compiler.
+    {
+      const ids = /type SectionId = ([^;]+);/.exec(source)?.[1] ?? "";
+      const named = [...ids.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+      const record = /let opened = \$state<Record<SectionId, boolean>>\(\{([\s\S]*?)\}\)/.exec(source)?.[1] ?? "";
+      const keys = [...record.matchAll(/^\s*"([^"]+)"\s*:/gm), ...record.matchAll(/^\s*([a-z][a-z-]*)\s*:/gm)]
+        .map((match) => match[1]);
+      check("every section has an open state", named.length > 0 && named.every((id) => keys.includes(id)), `${named.filter((id) => !keys.includes(id)).join(", ")} missing`);
+    }
     check("the header owns the flag, so the bar and the sheet agree", /open = \$bindable\(false\)/.test(read("src/components/SettingsPanel.svelte")) && /bind:open=\{settingsOpen\}/.test(read("src/components/Header.svelte")));
     check("a full-screen sheet under 700px", /@media \(max-width: 699px\)\s*\{\s*\.sheet \{\s*inset: 0;/.test(source));
     check("and a wide panel above it", /width: min\(560px, calc\(100vw - 24px\)\)/.test(source));

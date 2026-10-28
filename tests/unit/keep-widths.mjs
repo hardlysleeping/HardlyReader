@@ -31,7 +31,7 @@ import { compileModule } from "svelte/compiler";
 import ts from "typescript";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const GEN_DIR = join(ROOT, "tests/unit/.gen");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 const STORAGE_KEY = "hardlyreader.layout.v1";
 
 let failures = 0;

@@ -189,15 +189,26 @@ body {
 
 /* Slim, quiet scrollbars: they appear where there is more content, not as a
    column of chrome down the side of every panel. A short thumb is honest about a
-   long list; the track stays out of the way. */
+   long list; the track stays out of the way.
+
+   5px, and drawn as light rather than as a bar: the thumb is brightest against
+   the pane's edge and fades to nothing a few pixels in, so what a pane shows is
+   a glow coming off its margin instead of a grey capsule laid down it. That is
+   also why the row can end 3px from it without either looking crowded — there is
+   no hard edge on the scrollbar's side to collide with. */
 * {
+  /* `thin`, and it is the standard property that decides the width here:
+     measured in this Chromium, dropping it hands the bar back to the default
+     15px and the ::-webkit-scrollbar rules below are ignored. So the 5px is a
+     ceiling for an engine that honours it, and `thin` is what keeps the bar from
+     being a column of chrome where it does not. */
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--muted) 42%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--muted) 30%, transparent) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 5px;
+  height: 5px;
 }
 
 *::-webkit-scrollbar-track {
@@ -205,12 +216,22 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  border-radius: 999px;
+  background: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--muted) 46%, transparent) 0%,
+    color-mix(in srgb, var(--muted) 16%, transparent) 62%,
+    transparent 100%
+  );
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--muted) 65%, transparent);
+  background: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--muted) 62%, transparent) 0%,
+    color-mix(in srgb, var(--muted) 22%, transparent) 62%,
+    transparent 100%
+  );
 }
 
 /* The pull gesture's feedback: one line at the top of the window, saying what
@@ -380,8 +401,19 @@ html.drag-panning :is(button, a, [role="button"]):active:not(.on):not([aria-pres
   --safe-left: env(safe-area-inset-left, 0px);
 }
 
+/* The page owns every pixel the app does not, so a strip left by a safe-area
+   inset — the notch, the home indicator, the gutter beside a rotated phone — is
+   the app's own colour rather than whatever the window paints (on iOS, black).
+   Declared on both elements: `html` is what a webview shows outside the body's
+   box, and `body` is what shows between the body and the first child. */
+html,
+body {
+  background: var(--bg);
+}
+
 #app {
   height: 100%;
+  background: var(--bg);
 }
 
 /* Phone surfaces, edge to edge.
@@ -481,6 +513,18 @@ html[data-device="phone"] .sheet[role="dialog"] {
   background: var(--glass-fill);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
+}
+
+/* The settings page stops above the home indicator.
+
+   On a wide window the sheet is a panel that hangs clear of the bar; on a phone
+   it is the window, and its last row of controls was drawn 2px from the glass
+   edge — inside the band the system reserves for the indicator's own gesture,
+   where a thumb aiming at "Never" starts a swipe home instead. The inset is paid
+   on the sheet rather than on the section list, so the settings' own scroller
+   ends above the band and the sheet's fill paints the strip under it. */
+html[data-device="phone"] .sheet[role="dialog"] {
+  padding-bottom: var(--safe-bottom);
 }
 
 /* Both fallbacks, because both are real phones.
@@ -652,4 +696,37 @@ html[data-device="phone"] .phone-header :is(.step, .more, .sync)::after {
   width: var(--tap44-w, 44px);
   height: var(--tap44-h, 44px);
   translate: -50% -50%;
+}
+
+/* Two rows of controls that a phone's width cannot hold on one line.
+
+   The posts list's header carries six view icons and three filter pills. Beside
+   a 380px column those are 327px and fit; on a phone the same row is 410px in a
+   357px content box, `overflow: hidden` is the only thing meeting it, and the
+   Starred pill was drawn half outside the pane — a filter that cannot be pressed
+   in full. The row already wraps; what it lacked was a width to wrap against, so
+   the bar takes the whole line and its groups break at their seam: icons on one
+   line, pills on the next.
+
+   The article's toolbar is the same story one pane over: eleven controls, 398px
+   wide in a 390px phone and 366px in the 269px column a landscape phone gives
+   the article, with the padlock — the control that hides what you are reading
+   from someone looking over your shoulder — the one cut off. It wraps too, and
+   its gaps tighten by 2px so a portrait phone still draws the single row it was:
+   350px at 390, and only a column too narrow for one row pays for a second.
+
+   Both are qualified by the phone attribute, so a desktop window keeps the rows
+   it has — this is a width a narrow column cannot honour, not a restyle. */
+html[data-device="phone"] .list-header .bar {
+  flex: 1 1 100%;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+html[data-device="phone"] .toolbar {
+  flex-wrap: wrap;
+  gap: 2px;
+  height: auto;
+  min-height: 40px;
+  padding: 4px 6px;
 }

@@ -208,7 +208,7 @@ check("a completion from a run that is over is ignored", () => {
  * ------------------------------------------------------------------------- */
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const GEN_DIR = join(ROOT, "tests/unit/.gen");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 
 function absolute(relativePath) {
   return pathToFileURL(join(ROOT, relativePath)).href;
@@ -253,8 +253,12 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"../api/freshrss"', absolute("src/api/freshrss.ts")],
   ['"../api/hardlyread"', absolute("src/api/hardlyread.ts")],
   ['"../api/transport"', absolute("src/api/transport.ts")],
+  ['"../api/backend"', absolute("src/api/backend.ts")],
+  ['"../api/greader-backend"', absolute("src/api/greader-backend.ts")],
+  ['"../api/profile"', absolute("src/api/profile.ts")],
   ['"../lib/reading-order"', absolute("src/lib/reading-order.ts")],
   ['"../lib/feed-order"', absolute("src/lib/feed-order.ts")],
+  ['"../lib/capabilities"', absolute("src/lib/capabilities.ts")],
   ['"../lib/indent"', absolute("src/lib/indent.ts")],
   ['"../lib/article-filter"', absolute("src/lib/article-filter.ts")],
   ['"../lib/list-view"', absolute("src/lib/list-view.ts")],
@@ -266,6 +270,7 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"../lib/contextmenu"', absolute("src/lib/contextmenu.ts")],
   ['"../lib/sync-progress"', absolute("src/lib/sync-progress.ts")],
   ['"../lib/place"', absolute("src/lib/place.ts")],
+  ['"../lib/sidebar-doc"', absolute("src/lib/sidebar-doc.ts")],
   ['"./hidden-write"', absolute("src/state/hidden-write.ts")],
   ['"./hidden"', absolute("src/state/hidden.ts")],
   ['"./favorites"', absolute("src/state/favorites.ts")],
@@ -280,6 +285,8 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"../lib/account-key"', absolute("src/lib/account-key.ts")],
   ['"../lib/add-feeds"', absolute("src/lib/add-feeds.ts")],
   ['"../lib/opml"', absolute("src/lib/opml.ts")],
+  ['"../lib/extract-ledger"', absolute("src/lib/extract-ledger.ts")],
+  ['"../lib/full-text"', absolute("src/lib/full-text.ts")],
 ]);
 
 const { ReaderState } = await import(readerModule);

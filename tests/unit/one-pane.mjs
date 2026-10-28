@@ -57,7 +57,8 @@ check("back at the root is honest about it", backLabel("feeds", "Ars") === "Alre
 // Collapsing is not a crop: one column starts at its first pane, the feeds.
 // Shrinking the window while an article was open used to leave that article
 // alone on screen — the second pane's content on the surface whose first pane
-// is the feeds.
+// is the feeds. The one exception is the sliding stack, which draws the open
+// post in front and so keeps it across a rotation (see mobile-nav.mjs).
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -67,11 +68,11 @@ const layout = readFileSync(join(root, "src/state/layout.svelte.ts"), "utf8");
 
 check(
   "landing on one pane closes the article",
-  /if \(now === 1 \|\| now === 2\) reader\.closeReader\(\)/.test(main),
+  /if \(now === 1 && slideStack\) return;\s*\n\s*reader\.closeReader\(\);/.test(main.replace(/\n\s*\/\/[^\n]*/g, "")),
 );
 check(
   "and on two as well, so the second column is the posts, not the open article",
-  /now === 2\) reader\.closeReader\(\)/.test(main),
+  /if \(now !== 1 && now !== 2\) return;/.test(main),
 );
 check(
   "and it is the transition that decides, not the width at render",

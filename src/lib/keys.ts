@@ -14,6 +14,8 @@ export type KeyIntent =
   | { type: "last" }
   | { type: "enter" }
   | { type: "back" }
+  | { type: "scroll"; delta: -1 | 1 }
+  | { type: "edge"; to: "start" | "end" }
   | { type: "page"; direction: -1 | 1; advance: boolean }
   | { type: "escape" }
   | { type: "none" };
@@ -26,10 +28,31 @@ export interface KeyContext {
   hasArticle: boolean;
   atArticleStart: boolean;
   atArticleEnd: boolean;
+  /**
+   * Keyboard focus is inside the article pane — the third pane, once Right has
+   * handed it over. Up/Down there are the pane's own scroll, not the post list's
+   * walk: a reader who has stepped into the article is moving the page, and a
+   * key that silently swapped the article under them would be a different
+   * action from the one the pane shows.
+   */
+  inArticle: boolean;
 }
 
 export function resolveKey(key: string, ctx: KeyContext): KeyIntent {
   if (ctx.typing || ctx.menuOpen) return { type: "none" };
+
+  // Inside the article pane the arrows and Home/End belong to the page: they
+  // scroll it. This is an INTENT rather than `none` because "the pane scrolls
+  // itself" is only true when focus actually landed on the scroller — the third
+  // pane is reached by pressing Right, and a reader who pressed Right expects
+  // Up/Down to move the page whether or not the webview took the focus. The
+  // caller scrolls the article for both cases, so the key always answers.
+  if (ctx.inArticle) {
+    if (key === "ArrowDown") return { type: "scroll", delta: 1 };
+    if (key === "ArrowUp") return { type: "scroll", delta: -1 };
+    if (key === "Home") return { type: "edge", to: "start" };
+    if (key === "End") return { type: "edge", to: "end" };
+  }
 
   switch (key) {
     case "ArrowDown":

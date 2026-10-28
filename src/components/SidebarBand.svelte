@@ -1,5 +1,6 @@
 <script lang="ts">
   import { bandFacts } from "../lib/band";
+  import { lockHint, lockOpensPanel, lockState, lockTitle } from "../lib/lock-title";
   import { appendDigit, backspace } from "../lib/pinpad";
   import { chrome } from "../state/chrome.svelte";
   import { nextHiddenView } from "../state/hidden";
@@ -108,6 +109,37 @@
   const locked = $derived(reader.hiddenLocked);
 
   /**
+   * What the lock can honestly say.
+   *
+   * `unknown` is a real answer here: a build served from another origin cannot
+   * read the adapter's state at all, and claiming "no passcode" in that case
+   * told the reader something false about their own server.
+   */
+  const lock = $derived(lockState(reader.hiddenAvailable, reader.hiddenHasPasscode, reader.session !== null));
+  const hint = $derived(lockHint(lock));
+  const lockTip = $derived(lockTitle(lock));
+
+  /**
+   * The band with nothing engaged: no curtain, the eye on its own default view,
+   * the pin on its own.
+   *
+   * That is the state a sidebar spends nearly all its time in, and on a phone it
+   * was still paying two rows — a fold handle above a labelled row — to say
+   * nothing had been asked of it. Idle, the handle joins the row and the two
+   * words go: "Hidden" and "Active" *are* the defaults (see `emptyHidden` in
+   * `state/hidden` and `PIN_VIEW_CYCLE` in `state/pins`), so on a phone they
+   * named nothing the glyphs and their pressed states do not.
+   *
+   * The seats, their presses and every spoken name stay exactly as they are; a
+   * press on either control leaves this state, and the labels come back with it.
+   * Read from the stores rather than kept here: the defaults are the app's, and a
+   * second copy of them would be a second answer to "what is untouched".
+   */
+  const idle = $derived(
+    !locked && reader.hiddenView === "hidden" && reader.pinView === "all",
+  );
+
+  /**
    * The eye's next view, in whichever store is keeping the set.
    *
    * A server without the extension is not a server without the feature: the
@@ -144,7 +176,7 @@
       openPasscode();
       return;
     }
-    if (!reader.hiddenHasPasscode) {
+    if (lockOpensPanel(lock)) {
       openPasscode();
       // The panel offers a passcode this server may already have; re-reading is
       // how it stops offering one it does not.
@@ -240,7 +272,7 @@
 <!-- One band above the stream list: eye on the left, lock in the middle, pin on
      the right. Each control is drawn from `facts`, so the three states are one
      model rather than three branches of markup that can drift apart. -->
-<div class="bandbox" class:collapsed={chrome.bandCollapsed}>
+<div class="bandbox" class:collapsed={chrome.bandCollapsed} class:idle>
   {#if pulse}
     <span
       class="pulse {pulse}"
@@ -328,9 +360,7 @@
           disabled={!reader.hiddenAvailable}
           aria-expanded={lockOpen}
           aria-controls={lockOpen ? "band-passcode" : undefined}
-          title={reader.hiddenHasPasscode
-            ? "Lock hidden categories"
-            : "Set a passcode first"}
+          title={lockTip}
           aria-label="Lock hidden categories"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -393,8 +423,8 @@
             <button type="button" class="cancel" onclick={() => closePasscode(true)}>Cancel</button>
           {/if}
         </form>
-        {#if !locked}
-          <p class="hint">Set a passcode to enable locking. One to six digits.</p>
+        {#if !locked && hint !== null}
+          <p class="hint">{hint}</p>
         {/if}
         {#if reader.lockNotice}
           <p class="notice" role="status">{reader.lockNotice}</p>
@@ -411,9 +441,14 @@
      reference. Written as a mix of the theme's own surface and ink, so the light
      theme gets greys that belong to it instead of a dark slab. */
   .bandbox {
-    --band-face: color-mix(in srgb, var(--surface-solid) 88%, var(--text) 12%);
-    --band-face-quiet: color-mix(in srgb, var(--surface-solid) 94%, var(--text) 6%);
-    --band-edge: color-mix(in srgb, var(--border) 85%, transparent);
+    /* No fill at all behind the three controls. Any tint read as a grey slab
+       laid over the sidebar, so the band is only a hairline and a light: the
+       buttons sit on the sidebar's own colour, and the glass is what is left
+       when there is nothing to see. */
+    --band-face: transparent;
+    --band-face-quiet: transparent;
+    --band-edge: color-mix(in srgb, var(--text) 12%, transparent);
+    --band-light: color-mix(in srgb, #fff 8%, transparent);
     position: relative;
     margin: 0 8px 6px;
   }
@@ -508,6 +543,57 @@
     height: 12px;
   }
 
+  /* On a phone the band shares a row with the day / night switch (the rail in
+     `Sidebar`), so it takes the width that is left instead of a margin of its
+     own on the right: the rail's padding is what keeps the pair off the edge. */
+  :global(html[data-device="phone"]) .bandbox {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0 0 6px;
+  }
+
+  /* Idle on a phone: the fold handle moves to the end of the row, so the two
+     strips become one and the tree starts a row higher.
+
+     The handle keeps its place in the markup — it is still the way to fold the
+     band, and it still says which way a press will go — and it gains rather than
+     loses: a full row's height instead of the 8px line it used to be.
+     `:not(.collapsed)` is deliberate: a folded band is the handle on its own, and
+     there the full-width 12px strip is the target. */
+  :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 22px;
+    align-items: stretch;
+    column-gap: 2px;
+    margin-bottom: 4px;
+  }
+
+  :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .bar {
+    grid-column: 2;
+    grid-row: 1;
+    width: 22px;
+    height: auto;
+    min-height: 26px;
+    opacity: 0.6;
+  }
+
+  :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .reveal {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  /* The seats lose their labels and the padding that spaced them, never their
+     glyphs: three presses in a 26px row are still three 26px targets, which is
+     what the coarse-pointer rule below asks for everywhere else. */
+  :global(html[data-device="phone"]) .bandbox.idle .ctl {
+    min-height: 26px;
+    padding: 1px 4px;
+  }
+
+  :global(html[data-device="phone"]) .bandbox.idle .lbl {
+    display: none;
+  }
+
   .bar:hover,
   .bar:focus-visible {
     opacity: 1;
@@ -527,22 +613,30 @@
   /* Three seats, one row: eye, lock, pin. The lock sits in the middle because
      its column is sized to the glyph, so the two halves either side are equal at
      every sidebar width and the labels give up their ends evenly. */
+  /* One glass slab: translucent, blurred, hairline edge. Every seat inside is
+     inset by the same 2px, so its ring lines up with the band's edge instead of
+     cutting a second, smaller curve across it. */
   .band {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: stretch;
-    gap: 1px;
-    padding: 1px;
-    border: 1px solid var(--band-edge);
-    border-radius: 8px;
-    background: var(--band-face);
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--band-face) 52%, transparent);
+    -webkit-backdrop-filter: blur(12px) saturate(1.25);
+    backdrop-filter: blur(12px) saturate(1.25);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent),
+      0 10px 20px -16px rgba(0, 0, 0, 0.75);
   }
 
-  /* Locked: the same row, quieter. No border of its own — the glyphs carry the
-     band — and the face steps down so it reads as a curtain, not a menu. */
+  /* Locked: the same glass, dimmer — a curtain, not a menu. */
   .band.compact {
-    border-color: transparent;
-    background: var(--band-face-quiet);
+    border-color: color-mix(in srgb, var(--text) 6%, transparent);
+    background: color-mix(in srgb, var(--band-face) 30%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
   }
 
   .ctl {
@@ -553,47 +647,79 @@
     justify-content: center;
     gap: 1px;
     min-width: 0;
-    min-height: 24px;
-    padding: 1px 5px;
+    min-height: 26px;
+    padding: 2px 6px;
     border: 0;
-    border-radius: 6px;
+    /* The band's 11px minus its 1px border minus the 2px inset: every seat's
+       ring follows the same curve, one step inside the band's own edge. */
+    border-radius: 8px;
     background: transparent;
     color: var(--tone);
     font: inherit;
     cursor: pointer;
     transition:
-      background-color 0.12s ease,
-      color 0.12s ease,
+      background-color 0.14s ease,
+      color 0.14s ease,
+      box-shadow 0.14s ease,
       transform 0.08s ease;
+  }
+
+  /* A seat carrying a state wears its tone as GLASS: a wash thin enough to see
+     the list through, and a 1px ring in the same tone so the edge reads as
+     coloured light rather than a painted border. Grey fill is what made hidden,
+     lock and pinned look like three disabled buttons. */
+  .ctl.hidden.on,
+  .ctl.lock,
+  .ctl.pin {
+    background: color-mix(in srgb, var(--tone) 11%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 32%, transparent);
   }
 
   .ctl.hidden.on {
     --tone: var(--tone-hidden);
   }
 
-  .ctl.pin.on {
+  /* The pin keeps its tone in EVERY view. "Active" is one of the three working
+     states, not an idle one, so a grey seat would read as a disabled control. */
+  .ctl.pin {
     --tone: var(--tone-pinned);
   }
 
   .ctl.lock {
     --tone: var(--tone-lock-open);
-    min-width: 24px;
+    /* Two of the band's three seats carry a word and take 85–137px; the lock has
+       only a shackle. 26px read as a sliver, and 44 still looked like the odd one
+       out beside them, so it takes a third of the band's own width instead: a
+       square-ish seat the size of the thing it sits between. Measured at 56px
+       with the band at 223px (desktop) and 317px (phone), no overflow. */
+    min-width: 56px;
+  }
+
+  .ctl.lock svg {
+    width: 18px;
+    height: 18px;
   }
 
   .ctl.lock.on {
     --tone: var(--tone-lock-closed);
   }
 
+  /* Hover lifts a seat in its OWN tone: the glass takes more of the colour and
+     the ring brightens, so the light in the pane changes rather than a grey
+     overlay landing on it. */
   .ctl:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--text) 9%, transparent);
-    color: var(--text);
+    background: color-mix(in srgb, var(--tone) 20%, transparent);
+    color: color-mix(in srgb, var(--tone) 64%, #fff);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 52%, transparent);
   }
 
   /* Pressed: the seat takes the tone, so the click is answered on the frame the
      pointer goes down. */
   .ctl:active:not(:disabled) {
     transform: scale(0.97);
-    background: color-mix(in srgb, var(--tone) 20%, transparent);
+    background: color-mix(in srgb, var(--tone) 30%, transparent);
+    color: color-mix(in srgb, var(--tone) 42%, #fff);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 74%, transparent);
   }
 
   .ctl:disabled {

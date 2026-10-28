@@ -309,9 +309,10 @@ export const FLAT_ROWS = `${track(0)} 100% ${track(0)} ${track(0)}`;
  *
  * The sidebar's floor is the band's own. It was measured when the band was two
  * die-cut halves around a 44px lock; the band is now one row — eye, lock, pin —
- * whose longest label is the extension's own "HIDDEN FAVOURITES". That fits the
- * reference's 295px sidebar and only starts to ellipsize here, so the floor did
- * not move with the shape. Nothing narrower than this is a sidebar.
+ * whose longest label was the extension's own "HIDDEN FAVOURITES". The labels
+ * are now the short ones (Hidden / Active / Only), so this floor carries slack
+ * rather than being the exact fit it was measured as. Nothing narrower than this
+ * is a sidebar.
  */
 export const MIN: Record<"sidebar" | "list" | "article", number> = {
   sidebar: 240,
@@ -616,9 +617,16 @@ export function defaultModeFor(input: {
   /** The user's own thresholds, when they have any. */
   thresholds?: PaneThresholds;
 }): PaneMode {
-  // A phone still follows its orientation: portrait has no room for two columns
-  // and pretending otherwise would open a 390px screen "squeezed" every time.
-  if (input.phone) return input.width > input.height ? 3 : 1;
+  /**
+   * One column on a phone, in both orientations.
+   *
+   * It used to switch to three when the phone lay down, on the reasoning that a
+   * landscape screen is wider. It is also only ~390px tall: three columns at that
+   * height leave each pane under 300px and the article pane unreadable, which is
+   * how landscape came to look cropped. Landscape earns width, not height — the
+   * pane buttons still offer 2 and 3 for anyone who wants them there.
+   */
+  if (input.phone) return 1;
   /**
    * A desktop opens in three panes, whatever the window width.
    *

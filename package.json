@@ -1,7 +1,8 @@
 {
   "name": "hardlyreader",
   "private": true,
-  "version": "0.6.7",
+  "version": "0.6.9",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,13 +11,16 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
     "dev:window": "bash scripts/dev-window.sh",
-    "test": "node tests/unit/run.mjs"
+    "test": "node tests/unit/run.mjs",
+    "test:acceptance": "node --experimental-strip-types --import ./tests/unit/register-ts.mjs tests/unit/local-acceptance.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
+    "@supabase/supabase-js": "^2.118.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-http": "^2.8.3",
     "@tauri-apps/plugin-opener": "^2.7.2",
+    "@tauri-apps/plugin-sql": "^2",
     "dompurify": "^3.4.17"
   },
   "devDependencies": {

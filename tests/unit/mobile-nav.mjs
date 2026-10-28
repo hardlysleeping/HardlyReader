@@ -24,7 +24,7 @@ import { compileModule } from "svelte/compiler";
 import ts from "typescript";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const GEN_DIR = join(ROOT, "tests/unit/.gen");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 
 let failures = 0;
 let checks = 0;
@@ -242,6 +242,16 @@ check(
 check(
   "the hamburger slides the feeds in, over the stack",
   /function showFeeds\(\) \{\s*\n\s*if \(slideStack\) \{[\s\S]{0,900}mobileNav\.show\(2\);\s*\n\s*mobileNav\.openPrevious\(\);/.test(main),
+);
+// A rotation is a measurement, and a measurement may not close what is being
+// read: turning the phone back upright lands on one column, which is normally
+// the walk's cue to start from the top — but when the stack is what that column
+// draws, the post stays in front and only the walk starts over.
+const collapse = main.slice(main.indexOf("let drawn = layout.mode;"), main.indexOf("const menu = $derived.by"));
+check("a phone turned upright into the stack keeps the post that is open", /if \(now === 1 && slideStack\) return;/.test(collapse));
+check(
+  "and the walk still lands on the feeds",
+  collapse.indexOf("if (now === 1 && slideStack) return;") < collapse.indexOf("reader.closeReader();"),
 );
 check("the preference is asked in one place", /slidesInPortrait\(\{[\s\S]{0,200}layout\.mobilePortraitMode/.test(main));
 check("a saved layout carries the preference", /mobilePortraitMode: this\.mobilePortraitMode,/.test(layoutSrc));

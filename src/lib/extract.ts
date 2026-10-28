@@ -14,7 +14,12 @@
  *    instead of the article is worse than one that shows less of the article.
  * 2. **A thin extraction is thrown away.** Readability will happily return the
  *    three sentences of a cookie notice and call it the article; if the result
- *    is smaller than what the feed already sent, the feed wins.
+ *    is smaller than what the feed already sent — or kept none of its pictures —
+ *    the feed wins.
+ *
+ * A failure is also remembered (see `extract-ledger.ts`), with a retry time that
+ * depends on what went wrong, so a paywall is not fetched once per post for the
+ * rest of time.
  *
  * Pictures are part of the article, so `promoteImages()` runs over Readability's
  * output before it is returned. Readability's own lazy-image pass skips any
@@ -26,6 +31,7 @@
  * 403 frame showing alt text.
  */
 
+import { ledger, type BodyChoice, type FailureKind } from "./extract-ledger";
 import { attr, firstImageIn, resolveUrl } from "./thumb";
 
 /** Off unless it was turned on: extraction costs a network request per post. */
@@ -33,6 +39,14 @@ export const EXTRACT_DEFAULT = false;
 
 /** Below this many characters of text, an extraction is not worth showing. */
 const MIN_TEXT = 300;
+
+/**
+ * A feed with this many pictures and an extraction with none is a gallery that
+ * was stripped: three is low enough that a two-thumbnail post still loses to a
+ * clean extraction, high enough that a real gallery is not mistaken for a
+ * thumbnail.
+ */
+const GALLERY_MIN = 3;
 
 /** Above this size the page is not an article, it is a download. */
 const MAX_BYTES = 3_000_000;
@@ -64,14 +78,26 @@ export function canExtract(url: string): boolean {
   }
 }
 
-/** Characters of text in a fragment of HTML, for the size comparison below. */
-export function textLength(html: string): number {
+/**
+ * The words in a fragment of HTML, one space between them.
+ *
+ * Tags become a space rather than nothing, so `a</p><p>b` does not fuse into
+ * `ab`; entities become a space too, because `&nbsp;` is not a character of the
+ * article. `script` and `style` are dropped whole — their contents are not text
+ * a reader sees, and counting them lets a cookie banner look like an article.
+ */
+export function plainText(html: string): string {
   return html
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
     .replace(/<[^>]*>/g, " ")
     .replace(/&[a-z#0-9]+;/gi, " ")
     .replace(/\s+/g, " ")
-    .trim().length;
+    .trim();
+}
+
+/** Characters of text in a fragment of HTML, for the size comparison below. */
+export function textLength(html: string): number {
+  return plainText(html).length;
 }
 
 /**
@@ -80,7 +106,15 @@ export function textLength(html: string): number {
  * construction, then the lazy stand-ins publishers swap in at load time.
  */
 const SRCSET_ATTRS = ["srcset", "data-srcset"] as const;
-const LAZY_ATTRS = ["data-src", "data-original"] as const;
+/**
+ * The lazy stand-ins publishers swap in at load time. `data-src` and
+ * `data-original` are the common pair; `data-lazy-src` is WordPress's
+ * `lazy-load` plugin, `data-cfsrc` is Cloudflare's Mirage, and
+ * `data-original-src` is the one several magazine themes use. All four mean the
+ * same thing, so they are asked in the same place instead of being special-cased
+ * per publisher.
+ */
+const LAZY_ATTRS = ["data-src", "data-original", "data-lazy-src", "data-cfsrc", "data-original-src"] as const;
 
 /** `&amp;` in an attribute is the URL's `&`; the filter and resolver want the URL. */
 function decodeAttr(value: string): string {
@@ -132,6 +166,27 @@ function usableSource(value: string | null): string | null {
   if (trimmed === "") return null;
   const accepted = firstImageIn(`<img src="${encodeAttr(trimmed)}">`);
   return accepted === null ? null : decodeAttr(accepted);
+}
+
+/**
+ * The real picture behind a `<noscript>`.
+ *
+ * A lazy-loading page ships a placeholder in `src` and puts the markup a browser
+ * *without* JavaScript would have seen in `<noscript>` — usually the same `<img>`
+ * with its real `src`. A parser has no JavaScript, so that copy is the only one
+ * a reader can ever see, and Readability leaves `<noscript>` where it is: the
+ * article arrives with a blank frame and no picture at all. Unwrapping the
+ * element before parsing is what lets `promoteImages()` find the tag at all.
+ *
+ * Only a `<noscript>` that holds a picture is unwrapped. The others hold
+ * "enable JavaScript" banners and tracking pixels, which are not the article.
+ */
+export function unwrapNoscriptImages(html: string): string {
+  if (typeof html !== "string" || html === "") return html;
+  return html.replace(
+    /<noscript\b[^>]*>([\s\S]*?)<\/noscript>/gi,
+    (whole: string, inner: string) => (/<(?:img|picture|source)\b/i.test(inner) ? inner : whole),
+  );
 }
 
 /**
@@ -266,6 +321,9 @@ export function sameImage(a: string, b: string): boolean {
  * `MIN_TEXT` rejects a paywall stub. The `FEED_RATIO` check rejects an
  * extraction that found less than the feed already had: many feeds ship the full
  * article, and stripping it down to a caption is a regression, not a cleanup.
+ * The same is true of pictures — a feed that carried a gallery and an extraction
+ * that kept none of it is a worse article, not a cleaner one — so a feed with
+ * several pictures and an extraction with none loses too.
  */
 export function chooseBody(extracted: Extracted | null, feedHtml: string): Body {
   if (extracted === null || extracted.textLength < MIN_TEXT) {
@@ -275,7 +333,30 @@ export function chooseBody(extracted: Extracted | null, feedHtml: string): Body 
   if (feedText >= MIN_TEXT && extracted.textLength < feedText * 0.6) {
     return { html: feedHtml, source: "feed" };
   }
+  const feedPictures = imageSources(feedHtml).length;
+  if (feedPictures >= GALLERY_MIN && imageSources(extracted.html).length === 0) {
+    return { html: feedHtml, source: "feed" };
+  }
   return { html: extracted.html, source: "article" };
+}
+
+/**
+ * What to show, given what the reader asked for on this post.
+ *
+ * `null` is the automatic rule, which is `chooseBody()`: the feed's text unless
+ * the extraction is at least as good. `"feed"` is absolute — it never fetches and
+ * never shows a paywall stub, which is the whole point of asking for it. And
+ * `"article"` is *not* absolute either: it asks for the extraction to be fetched,
+ * but a page that comes back thin still loses to the feed. "Give me the article"
+ * is not a request to read a cookie notice.
+ */
+export function bodyFor(
+  choice: BodyChoice | null,
+  extracted: Extracted | null,
+  feedHtml: string,
+): Body {
+  if (choice === "feed") return { html: feedHtml, source: "feed" };
+  return chooseBody(extracted, feedHtml);
 }
 
 /**
@@ -291,7 +372,7 @@ export async function extractFromHtml(html: string, url: string): Promise<Extrac
   if (typeof DOMParser === "undefined") return null;
   try {
     const { Readability } = await import("@mozilla/readability");
-    const doc = new DOMParser().parseFromString(html, "text/html");
+    const doc = new DOMParser().parseFromString(unwrapNoscriptImages(html), "text/html");
     // The parser has no way to know the page's own address, and Readability
     // resolves relative links against it — without this, every href in the
     // article would point at the app.
@@ -313,16 +394,23 @@ export async function extractFromHtml(html: string, url: string): Promise<Extrac
   }
 }
 
+/** What a page turned out to be: the markup, or the reason there is none. */
+export type Page = { html: string } | { failure: FailureKind };
+
 /**
- * The page, or nothing.
+ * The page, or why not.
  *
  * In the Tauri window this goes through `plugin-http`, which is not subject to
  * CORS and is already permitted for every http(s) URL. In a plain browser it is
  * an ordinary fetch, which most publishers refuse — that failure is expected and
- * handled by returning null, not by reporting an error.
+ * handled by returning a reason, not by reporting an error.
+ *
+ * The reason matters, because the ledger keeps it: a 4xx or a non-HTML answer
+ * will not change in a hurry, while a timeout or a 5xx may be gone by the next
+ * post.
  */
-export async function fetchArticle(url: string, timeoutMs = 8000): Promise<string | null> {
-  if (!canExtract(url)) return null;
+export async function fetchPage(url: string, timeoutMs = 8000): Promise<Page> {
+  if (!canExtract(url)) return { failure: "refused" };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -330,7 +418,7 @@ export async function fetchArticle(url: string, timeoutMs = 8000): Promise<strin
       "__TAURI_INTERNALS__" in globalThis
         ? ((await import("@tauri-apps/plugin-http")).fetch as typeof fetch)
         : globalThis.fetch;
-    if (typeof doFetch !== "function") return null;
+    if (typeof doFetch !== "function") return { failure: "unreachable" };
     const response = await doFetch(url, {
       signal: controller.signal,
       headers: { Accept: "text/html,application/xhtml+xml" },
@@ -338,20 +426,28 @@ export async function fetchArticle(url: string, timeoutMs = 8000): Promise<strin
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ...({ connectTimeout: timeoutMs } as any),
     });
-    if (!response.ok) return null;
+    // A server that is merely broken answers 5xx; the publisher has not decided
+    // anything, so the page is worth another try sooner than a refusal is.
+    if (!response.ok) return { failure: response.status >= 500 ? "unreachable" : "refused" };
     const type = response.headers.get("content-type") ?? "";
-    if (type !== "" && !type.includes("html")) return null;
+    if (type !== "" && !type.includes("html")) return { failure: "refused" };
     const length = Number(response.headers.get("content-length") ?? 0);
-    if (Number.isFinite(length) && length > MAX_BYTES) return null;
+    if (Number.isFinite(length) && length > MAX_BYTES) return { failure: "refused" };
     const text = await response.text();
-    if (text.length > MAX_BYTES) return null;
-    return text;
+    if (text.length > MAX_BYTES) return { failure: "refused" };
+    return { html: text };
   } catch {
     // Timeout, CORS, DNS, offline: all the same answer — use what the feed sent.
-    return null;
+    return { failure: "unreachable" };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** The page, or nothing. Kept for callers that only want the markup. */
+export async function fetchArticle(url: string, timeoutMs = 8000): Promise<string | null> {
+  const page = await fetchPage(url, timeoutMs);
+  return "html" in page ? page.html : null;
 }
 
 /**
@@ -383,13 +479,149 @@ export function rememberExtraction(id: string, extracted: Extracted): void {
   }
 }
 
-/** Extract a page for one entry, remembering it. Null means "keep the feed's text". */
-export async function extractFor(id: string, url: string): Promise<Extracted | null> {
+/**
+ * Somewhere to keep an article after it has been fetched.
+ *
+ * The memo above is a session's memory — four posts, gone on reload. This is the
+ * other half: a device's own copy, keyed by the entry's id, which is how a
+ * library with no server can show a post whose feed was fetched on some other
+ * day, and how a post read here can still be read in an aeroplane.
+ *
+ * The pipeline asks it rather than any caller doing so, because there are three
+ * callers (the pane, the inline reader in the list, the queue that prepares the
+ * posts ahead) and a cache consulted by three of them is a cache that disagrees
+ * with itself. Attaching happens once, by the library: `null` means "no device
+ * library is open", and everything behaves exactly as it did before.
+ */
+export interface ExtractionCache {
+  /**
+   * The body kept for this entry, or null.
+   *
+   * Reading is unconditional: a reader who switches keeping off does not lose
+   * what is already on the device, and the copy still costs nothing to show. Only
+   * `write()` is a policy.
+   */
+  read(itemId: string): Promise<Extracted | null>;
+  /**
+   * Keep this body.
+   *
+   * A cache whose reader has not asked for keeping does nothing here. It must
+   * not throw for a body it declines to store — a full disk is a reason to stop
+   * keeping, never a reason to fail a page that has already arrived.
+   */
+  write(itemId: string, extracted: Extracted): Promise<void>;
+}
+
+let cache: ExtractionCache | null = null;
+
+/** Point the pipeline at a device's own copies, or at none. */
+export function setExtractionCache(next: ExtractionCache | null): void {
+  cache = next;
+}
+
+export interface ExtractOptions {
+  /**
+   * An explicit press, not an automatic fetch: a URL the ledger has parked is
+   * asked again. This is what makes "try again" mean anything — otherwise the
+   * reader pressing the button a second time would be answered from the ledger
+   * without a request ever leaving the app.
+   */
+  force?: boolean;
+}
+
+/**
+ * Extract a page for one entry, remembering it and remembering when it refuses.
+ *
+ * The order is the contract: **memo → what the device kept → the ledger → the
+ * network**.
+ *
+ * - The device's own copy comes before the ledger on purpose. A page parked today
+ *   may have been read successfully last week, and what is already on disk
+ *   outranks what a retry timer thinks.
+ * - An explicit press (`force`) is the only thing that skips both — a press means
+ *   "as it is now", so the page is asked again and what lands replaces the copy.
+ * - A body that arrives is offered to the cache. Declining is the cache's
+ *   business (a reader who keeps nothing, a page over the per-post ceiling), and
+ *   a cache that cannot write must not take the article with it.
+ *
+ * Null means "keep the feed's text" — a parked URL, a refusal or a page with no
+ * article in it all end the same way on screen, which is the point.
+ */
+export async function extractFor(
+  id: string,
+  url: string,
+  options: ExtractOptions = {},
+): Promise<Extracted | null> {
   const remembered = rememberedExtraction(id);
   if (remembered) return remembered;
-  const page = await fetchArticle(url);
-  if (page === null) return null;
-  const extracted = await extractFromHtml(page, url);
-  if (extracted) rememberExtraction(id, extracted);
+
+  const keeper = cache;
+  if (keeper !== null && options.force !== true) {
+    let kept: Extracted | null = null;
+    try {
+      kept = await keeper.read(id);
+    } catch {
+      // A cache that cannot read is a miss. It is never a reason to fail the
+      // post the reader just opened.
+      kept = null;
+    }
+    if (kept !== null) {
+      rememberExtraction(id, kept);
+      return kept;
+    }
+  }
+
+  // Paying a publisher's timeout on every post that links to a page it will
+  // never serve is the behaviour this avoids: a parked page is not asked again
+  // until its retry time, and only an explicit press gets past that.
+  if (!options.force && ledger.parked(url)) return null;
+  const extracted = await extractOnce(url);
+  if (extracted === null) return null;
+  rememberExtraction(id, extracted);
+  if (keeper !== null) {
+    try {
+      await keeper.write(id, extracted);
+    } catch {
+      // The article is on screen either way. A device that cannot keep it will
+      // fetch it again next time, which is the behaviour before this existed.
+    }
+  }
+  return extracted;
+}
+
+/**
+ * Pages being extracted right now, by URL.
+ *
+ * Two callers can want the same page in the same moment — the queue preparing
+ * the posts ahead, and the pane for the post the reader has just opened — and a
+ * publisher should not be asked twice for one article. The second caller waits on
+ * the first request instead of starting one: one fetch, one parse, one ledger
+ * entry, and the article lands for both at once.
+ */
+const running = new Map<string, Promise<Extracted | null>>();
+
+function extractOnce(url: string): Promise<Extracted | null> {
+  const going = running.get(url);
+  if (going !== undefined) return going;
+  const started = extractPage(url).finally(() => running.delete(url));
+  running.set(url, started);
+  return started;
+}
+
+/** One page, from request to article, with what the ledger learns from it. */
+async function extractPage(url: string): Promise<Extracted | null> {
+  const page = await fetchPage(url);
+  if ("failure" in page) {
+    ledger.record(url, page.failure);
+    return null;
+  }
+  const extracted = await extractFromHtml(page.html, url);
+  if (extracted === null || extracted.textLength < MIN_TEXT) {
+    // The page arrived and it was not an article: a cookie wall, a paywall stub,
+    // a JavaScript shell. Same markup tomorrow, so it is parked for a day.
+    ledger.record(url, "thin");
+    return null;
+  }
+  ledger.forgive(url);
   return extracted;
 }

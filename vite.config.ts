@@ -7,6 +7,16 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [svelte()],
 
+  // Vite only exposes `VITE_`-prefixed variables to the client by default. The
+  // identity's two values are spelled `PUBLIC_SUPABASE_URL` / `PUBLIC_SUPABASE_ANON_KEY`
+  // in `.env.example`, because "public" is the whole point of them: the anon key
+  // ships in every bundle by design and row-level security is what protects the
+  // data. The prefix is named here rather than renamed in the environment so the
+  // name says the truth. Never add a variable with a secret in it to this list —
+  // the service key must not reach a bundle at all (`src/api/identity.ts` refuses
+  // one that does).
+  envPrefix: ["VITE_", "PUBLIC_"],
+
   // Vite options tailored for Tauri development, applied in `tauri dev` and `tauri build`.
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,

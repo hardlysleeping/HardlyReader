@@ -1,9 +1,16 @@
 # HardlyReader
 
-A reading app for [FreshRSS](https://freshrss.org): three panes that fold to one,
-a keyboard that never needs the mouse, and no reflow while you scroll. Cards is
-built for reading comics one page after another — a page fills the pane at its
-own size, one push moves one post, and nothing is cropped.
+A feed reader that runs without a server, and reads your own one when you have it:
+three panes that fold to one, a keyboard that never needs the mouse, and no reflow
+while you scroll. Cards is built for reading comics one page after another — a page
+fills the pane at its own size, one push moves one post, and nothing is cropped.
+
+Point it at [FreshRSS](https://freshrss.org), Miniflux, Tiny Tiny RSS or The Old
+Reader and it syncs through your server, extension state included. Use it with no
+account at all: a library on the device, fed by the feeds you add or import, with
+read state, stars, folders and OPML. Optional sync of a local library across your
+own devices through your own cloud is the one paid feature — see *Free, and what a
+subscription would add* below.
 
 Svelte 5, TypeScript, Tauri 2. One codebase: a Linux desktop window, a browser
 build, and Android and iOS.
@@ -108,6 +115,31 @@ the password and either side can revoke it.
 - OPML import and export, feed icons with a drawn fallback, and a session and
   reading position that survive a restart.
 
+## Free, and what a subscription would add
+
+The app is two halves of the same thing, and which half owns your state depends only on which
+profile you are reading with:
+
+- **Free, with your own server.** Point HardlyReader at FreshRSS, Miniflux, Tiny Tiny RSS or The
+  Old Reader and everything syncs through it, as it always has — feeds, read state, stars, and,
+  when the extensions are installed, hidden categories, pins, sidebar indent, preferences and
+  reading position. Nothing in this path ever asks about a subscription.
+- **Free, on this device alone.** A local library needs no account and no server: feeds, folders,
+  read/star state, OPML and a real lock, stored in SQLite (or IndexedDB in a browser tab). It can
+  also keep the text of the posts you open, so a post read on the train reads the same in the
+  evening — [`docs/article-bodies.md`](docs/article-bodies.md) says what that costs, how much it
+  holds, and who sees the request.
+
+There is one paid feature planned, and it is only for the second case: **HardlyReader Sync**,
+which mirrors a *local* library across your own devices through iCloud, Google Drive, Dropbox or
+OneDrive — one subscription for all four, because a provider is storage, not a product. It does
+not apply to a server-backed library and will not appear there; your server already does that job,
+for free.
+
+The rule that keeps this coherent: **one authority per profile.** FreshRSS and its extensions own
+a server-backed profile; the local database owns a local one. No state is ever written by two
+authorities, and `docs/authority.md` spells out which feature lives where.
+
 ## Extensions (optional)
 
 | Extension | What it adds |
@@ -141,13 +173,47 @@ Building needs Node 22+, pnpm, Rust and Tauri 2's Linux dependencies
 instance; it is not required, and in the desktop app requests go through Tauri's
 http plugin regardless.
 
+## Releasing
+
+A release is four bundles on four platforms, in one GitHub release:
+
+- Linux, portable — `hardlyreader-<version>-linux-x86_64.AppImage`
+- Linux, Flatpak — `hardlyreader-<version>-x86_64.flatpak`
+- Android — `hardlyreader-<version>-android.apk`
+- iOS — `hardlyreader-<version>-ios.ipa`
+
+Fewer than four is not a release, even when every step that ran passed. The four
+come from different tools in different places, so a step can be skipped without
+anything failing; a release that carried only the AppImage has shipped here
+before. `scripts/release.sh` is what stops that:
+
+```sh
+scripts/release.sh 0.6.8 --ipa path/to/HardlyReader-unsigned.ipa --dry-run
+scripts/release.sh 0.6.8 --ipa path/to/HardlyReader-unsigned.ipa
+```
+
+It collects the bundles, checks each one exists, is close to the size it should
+be and is the kind of file it claims to be, then creates the release as a draft,
+uploads all four, reads the draft back, and only then publishes and reads the
+published release back. A missing or wrong bundle is named and the run stops
+before anything is created on GitHub.
+
+`--build` runs the three builders that work on Linux
+(`scripts/build-appimage.sh`, `scripts/build-flatpak.sh`,
+`scripts/android-build.sh --release`) first; `--appimage`, `--flatpak` and
+`--apk` point at a bundle built somewhere else. The IPA has no Linux builder —
+`codemagic.yaml` makes it on a macOS worker — so it is the one bundle that has
+to be passed in, and the script says so instead of guessing a path. `--dry-run`
+does every check and prints the exact commands it would run, calling nothing.
+
 ## Notes
 
 - The Tauri window runs under a Content-Security-Policy; [`docs/csp.md`](docs/csp.md)
   explains each directive and what only a built app can prove.
 - [`docs/android.md`](docs/android.md) covers the Android build and signing.
-- No offline cache of article bodies or images: a server that is down is a
-  server that is down.
+- No offline cache of article bodies or images for a **server-backed** library: a server that is
+  down is a server that is down. A library on this device is the exception, and it keeps only the
+  text you asked it to keep — [`docs/article-bodies.md`](docs/article-bodies.md).
 - Screenshots use invented feeds; no real subscriptions appear in this repo.
 
 ## Licence

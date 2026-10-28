@@ -100,7 +100,7 @@ export function bandFacts(input: BandInput): BandFacts {
     pinnedCount: input.pinnedCount,
     pinLabel: open ? PIN_VIEW_LABELS[input.pinView] : null,
     // While locked the view's own words are not spoken either: one of them is
-    // "Hidden favourites", and a lock may not say it. The count is not hidden
+    // a filter name, and a lock may not say it. The count is not hidden
     // content — it is what the app is showing.
     pinName: open ? PIN_VIEW_LABELS[input.pinView] : String(input.pinnedCount),
     pinNext: open ? PIN_VIEW_LABELS[nextPinView(input.pinView)] : null,

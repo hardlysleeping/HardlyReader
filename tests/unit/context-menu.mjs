@@ -320,14 +320,49 @@ function state(overrides = {}) {
   check("a feed row offers nothing that needs an extension", menu.toggle === null && menu.pin !== null && menu.remove !== null);
 }
 
+/* ---------------------------------------------------------------------------
+ * Where a feed's text comes from
+ *
+ * One question per feed, three answers, and the model is where the words live:
+ * the component draws whatever it is handed, so the labels and the ticked one
+ * are checked here rather than by looking at markup.
+ * ------------------------------------------------------------------------- */
+
+{
+  const menu = feedMenu("Ars Technica", false);
+  check("a fresh feed answers Auto", menu.fullText.length === 3 && menu.fullText[0].label === "Auto");
+  check("the three answers are in one order", menu.fullText.map((item) => item.label).join(",") === "Auto,Feed,Full webpage");
+  check("each answer carries its own action", menu.fullText.map((item) => item.action.type).join(",") === "full-text,full-text,full-text");
+  check("and its own answer in the action", menu.fullText.map((item) => item.action.mode).join(",") === "auto,feed,article");
+  check("exactly one is ticked", menu.fullText.filter((item) => item.checked).length === 1);
+  check("and it is the feed's answer", menu.fullText[0].checked === true);
+
+  const told = feedMenu("Ars Technica", false, false, "article");
+  check("a feed told Full webpage ticks that one", told.fullText[2].checked === true && told.fullText[0].checked === false);
+  check("nothing here is disabled: it never needs a server", told.fullText.every((item) => !item.disabled));
+
+  const truncating = feedMenu("Ars Technica", false, false, "auto", true);
+  check("Auto says what it will do for a feed that truncates", /cuts its posts short/.test(truncating.fullText[0].hint ?? ""));
+  check("and for one it has seen send whole posts", !/cuts its posts short/.test(menu.fullText[0].hint ?? ""));
+  check("the two absolute answers say what they fetch", /nothing is fetched/.test(menu.fullText[1].hint ?? "") && /fetch/i.test(menu.fullText[2].hint ?? ""));
+
+  const confirming = feedMenu("Ars Technica", true);
+  check("a removal being confirmed asks nothing else", confirming.fullText.length === 0);
+}
+
+{
+  const menu = categoryMenu(state(), "Technology", false);
+  check("a category has no full-text answer of its own", menu.fullText.length === 0);
+}
+
 {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
   const source = readFileSync(join(root, "src/state/reader.svelte.ts"), "utf8");
   const removeFeed = source.slice(source.indexOf("async removeFeed("));
   check(
-    "removing a feed is a GReader call, not an extension one",
-    /unsubscribe\(transport, session/.test(removeFeed.slice(0, 900)),
-    "removeFeed should hand the stream id to the GReader transport",
+    "removing a feed is a library call, not an extension one",
+    /backend\.unsubscribe\(streamId\)/.test(removeFeed.slice(0, 900)),
+    "removeFeed should hand the stream id to the library backend",
   );
   check(
     "removing a feed is not routed through the adapter",

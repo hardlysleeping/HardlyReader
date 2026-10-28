@@ -50,5 +50,25 @@ check("typing detects contenteditable", isTypingTarget({ tagName: "DIV", isConte
 check("typing ignores a div", isTypingTarget({ tagName: "DIV", isContentEditable: false }) === false);
 check("typing ignores null", isTypingTarget(null) === false);
 
+// The third pane. Once Right has handed the keyboard to the article, Up/Down are
+// the page's own scroll — and they must answer even when the webview never moved
+// focus into the scroller, which is why they are an intent and not `none`.
+const inArticle = { ...reading, inArticle: true };
+check(
+  "in the article, ArrowDown scrolls the page",
+  JSON.stringify(resolveKey("ArrowDown", inArticle)) === JSON.stringify({ type: "scroll", delta: 1 }),
+);
+check(
+  "in the article, ArrowUp scrolls the page",
+  JSON.stringify(resolveKey("ArrowUp", inArticle)) === JSON.stringify({ type: "scroll", delta: -1 }),
+);
+check("in the article, Home goes to the top", JSON.stringify(resolveKey("Home", inArticle)) === JSON.stringify({ type: "edge", to: "start" }));
+check("in the article, End goes to the bottom", JSON.stringify(resolveKey("End", inArticle)) === JSON.stringify({ type: "edge", to: "end" }));
+check("in the article, Left still backs out", resolveKey("ArrowLeft", inArticle).type === "back");
+check("in the article, Right still enters", resolveKey("ArrowRight", inArticle).type === "enter");
+check("in the article, Space still pages", resolveKey(" ", inArticle).type === "page");
+check("in the article, typing still wins", resolveKey("ArrowDown", { ...inArticle, typing: true }).type === "none");
+check("outside the article, Up/Down are still feeds", resolveKey("ArrowDown", reading).type === "stream");
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

@@ -1,12 +1,23 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { AuthError, userInfo } from "./api/freshrss";
+  import { detectProxy } from "./api/hardlyread";
   import type { Session } from "./api/freshrss";
   import { transport } from "./api/transport";
   import { accounts } from "./state/accounts.svelte";
+  import { entitlement } from "./state/entitlements.svelte";
+  import { identity } from "./api/identity";
   import { layout } from "./state/layout.svelte";
+  import { reader } from "./state/reader.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
+  import {
+    openLocalProfile,
+    syncProfile,
+    type LocalProfile,
+    type ReaderProfile,
+    type SyncProfile,
+  } from "./api/profile";
 
   /**
    * The device shape, published where CSS can see it.
@@ -31,6 +42,15 @@
   });
 
   let checking = $state(true);
+
+  /**
+   * The library on this device.
+   *
+   * Opened on every launch, not only on the first: it is what the app shows
+   * when there is no account, and opening an empty SQLite file costs less than
+   * a server probe costs in latency. Nothing about it talks to the network.
+   */
+  let local = $state<LocalProfile | null>(null);
 
   /**
    * Whether the reader is being unveiled: the login screen stays drawn, over the
@@ -66,6 +86,25 @@
   const session = $derived(accounts.active);
 
   /**
+   * The profile `Main` is mounted with.
+   *
+   * A signed-in account wins over the local library, because someone who
+   * connected a service meant it. The sync profile is built once per token
+   * rather than on every read: a new object each render would re-run every
+   * effect in the reader that takes the profile as a dependency.
+   */
+  let syncCache: SyncProfile | null = null;
+  let syncCacheToken = "";
+  const profile: ReaderProfile | null = $derived.by(() => {
+    if (session === null) return local;
+    if (syncCache === null || syncCacheToken !== session.token) {
+      syncCache = syncProfile(session);
+      syncCacheToken = session.token;
+    }
+    return syncCache;
+  });
+
+  /**
    * How long the stored session gets before the app gives the window back.
    *
    * Waiting forever is what a blank window is made of: a cold WebKit start plus
@@ -75,10 +114,74 @@
    */
   const CHECK_TIMEOUT_MS = 9000;
 
+  /**
+   * Removes the subscription's visibility listener.
+   *
+   * The paid capability is checked once here and again on every return to the
+   * window, because a window left open for a week is the normal case on a
+   * desktop and the store's answer can change underneath it. The check is not
+   * awaited and gates nothing on this screen: cloud sync stays off until an
+   * answer says otherwise, which is what a store that is missing or offline has
+   * proven.
+   */
+  let stopWatchingEntitlement: (() => void) | null = null;
+
+  /**
+   * Tells the reader whether HardlyReader Sync is paid for.
+   *
+   * The reader holds the ladder (`featureAuthority`) and must not know what a
+   * receipt is, so the shell joins the two stores: the entitlement in, one
+   * boolean out. A build with no store answers `false` like every other question
+   * about a purchase, and nothing on a reading path imports the entitlement.
+   *
+   * Read inside the effect, so a lapse or a restore while the window is open
+   * re-resolves every extra on the next paint rather than the next restart.
+   */
+  $effect(() => {
+    reader.paid = entitlement.cloudSync;
+  });
+
+  /**
+   * Removes the identity's return-to-window listener.
+   *
+   * The account is the one piece of state this app has that expires while it is
+   * open, so the token is renewed when the window comes back — and only then.
+   * There is deliberately **no request on this path at launch**: an identity is
+   * read from the device's storage when the module loads (no network), and a
+   * device with no account installs this listener and refreshes nothing for the
+   * whole session. A reader with a local library never meets any of it.
+   */
+  let stopWatchingIdentity: (() => void) | null = null;
+
   onMount(async () => {
+    stopWatchingEntitlement = entitlement.watch();
+    stopWatchingIdentity = identity.watch();
+
+    // Before anything reads the extension state: if the page is served by a host
+    // that can forward for the server (the PWA on this box), the adapter's routes
+    // are reachable through it. A window with no such host answers nothing and
+    // the URLs stay absolute, which is what the desktop app wants anyway.
+    //
+    // Awaited, not fired and forgotten: the reader's first state read happens a
+    // few ticks after this function returns, so a probe still in flight would
+    // let that read go absolute — refused cross-origin, and the extension state
+    // is then drawn as missing for the whole session. The probe bounds itself
+    // (see `detectProxy`), so a host that never answers costs one second here
+    // and nothing else.
+    await detectProxy();
+
     const stored = accounts.active;
     if (stored === null) {
-      checking = false;
+      // No account on this device: that is not an error and not a reason to
+      // ask for a server URL. The reader opens on the empty local library, and
+      // connecting a service stays one optional step away.
+      try {
+        local = await openLocalProfile();
+      } catch (cause) {
+        startupNote = `The library on this device could not be opened: ${String(cause)}`;
+      } finally {
+        checking = false;
+      }
       return;
     }
 
@@ -127,6 +230,10 @@
   }
 
   onDestroy(() => {
+    stopWatchingEntitlement?.();
+    stopWatchingEntitlement = null;
+    stopWatchingIdentity?.();
+    stopWatchingIdentity = null;
     if (unveilTimer !== null) clearTimeout(unveilTimer);
   });
 
@@ -157,13 +264,14 @@
       <p class="status-hint">Signing in with the session saved on this device.</p>
     </div>
   {:else}
-    {#if session && !adding}
-      {#key session.token}
+    {#if profile && !adding}
+      {#key profile.slug + (session?.token ?? "")}
         <Main
-          {session}
+          {profile}
           account={accounts.profile}
           onsignout={disconnect}
           onaddaccount={addAccount}
+          onconnect={addAccount}
         />
       {/key}
     {/if}
@@ -171,7 +279,7 @@
     <!-- Drawn over the reader until the slide is over. The block stays rendered
          across the switch — it is the same panel gaining a class — which is what
          lets it animate out instead of disappearing. -->
-    {#if !(session && !adding) || unveiling}
+    {#if !(profile && !adding) || unveiling}
       <div
         class="veil"
         class:unveiling

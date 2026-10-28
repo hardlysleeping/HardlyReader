@@ -30,7 +30,7 @@ import { filterByAuthor } from "../../src/lib/article-filter.ts";
 import { buildReaderModule } from "./build-reader.mjs";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const GEN_DIR = join(ROOT, "tests/unit/.gen");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 
 let failures = 0;
 let checks = 0;

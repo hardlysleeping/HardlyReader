@@ -33,6 +33,8 @@ import {
   type UserInfo,
 } from "./freshrss";
 import type { MoveFeedRequest, ReaderBackend, SubscribeRequest } from "./backend";
+import { probeCapabilities as probeAdapterCapabilities } from "./hardlyread";
+import type { CapabilityAnswer } from "../lib/capabilities";
 
 export class GReaderBackend implements ReaderBackend {
   readonly kind = "greader" as const;
@@ -49,6 +51,19 @@ export class GReaderBackend implements ReaderBackend {
 
   profile(): Promise<UserInfo> {
     return userInfo(this.transport, this.session);
+  }
+
+  /**
+   * The measurement behind the declaration: one `/v1/state` read, read for what it
+   * *measures* rather than for what it stores.
+   *
+   * A GReader server declares nothing about the Hardly Read routes — `capabilities` is
+   * absent on this class — so this is the only way anything learns that a FreshRSS here
+   * has them. It never throws: "the server is restarting" is an answer (`unknown`), and
+   * a caller deciding where a feature's truth lives cannot be handed a stack instead.
+   */
+  probeCapabilities(): Promise<CapabilityAnswer> {
+    return probeAdapterCapabilities(this.transport, this.session);
   }
 
   subscriptions(): Promise<Subscription[]> {

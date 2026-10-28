@@ -37,7 +37,7 @@ import {
 } from "../../src/lib/accounts.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const GEN_DIR = join(ROOT, "tests/unit/.gen");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 
 let checks = 0;
 let failures = 0;

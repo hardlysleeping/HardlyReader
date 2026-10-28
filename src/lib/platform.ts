@@ -32,6 +32,17 @@ export interface Capabilities {
    * platform which forbids outbound fetches has somewhere to say so.
    */
   articleExtract: boolean;
+  /**
+   * Offering a post through the device's share sheet.
+   *
+   * A phone, and only a phone. The desktop window is the finished layout: a
+   * fourth act in every row would change the shape the owner signed off, and
+   * sharing is a thing done away from the desk. The flag is about the *shape*
+   * rather than about the API being present, so the control does not appear and
+   * vanish between two phones — the one without Web Share still falls back to
+   * copying the link, which is the same press.
+   */
+  share: boolean;
 }
 
 /**
@@ -50,6 +61,7 @@ export function capabilitiesFor(shape: DeviceShape, tauri: boolean): Capabilitie
     paneThresholds: desktop,
     windowFit: desktop && tauri,
     articleExtract: true,
+    share: !desktop,
   };
 }
 
@@ -77,4 +89,40 @@ export function detectShape(): DeviceShape {
   const coarse = matchMedia("(pointer: coarse)").matches;
   const shortest = Math.min(window.screen?.width ?? 1440, window.screen?.height ?? 900);
   return coarse && shortest <= 500 ? "phone" : "desktop";
+}
+
+/* ---------------------------------------------------------------------------
+ * iOS
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Whether this is an iOS device's webview.
+ *
+ * iOS is the one host with a native share sheet to call: the packaged app serves
+ * its page from `tauri://localhost`, which is not a secure context, so Web Share
+ * is absent there and the sheet has to be presented from UIKit instead. Nothing
+ * else — desktop, Android, a browser tab — has that command, and asking for it
+ * would only produce an error to swallow.
+ *
+ * The user agent is a parameter rather than read inside, so the rule is provable
+ * without a phone. The `Macintosh` branch is iPadOS 13 and later, which reports
+ * the desktop UA: a Mac has no touch points and an iPad has five.
+ */
+export function iosHost(userAgent: string, touchPoints = 0): boolean {
+  if (/iPhone|iPad|iPod/.test(userAgent)) return true;
+  return /Macintosh/.test(userAgent) && touchPoints > 1;
+}
+
+/**
+ * Whether the native share sheet can be called from here.
+ *
+ * Both halves are required: the command exists only in the iOS build, and it is
+ * reached through Tauri's IPC — a browser tab on an iPhone has Web Share instead,
+ * which `src/lib/share.ts` prefers precisely because it costs no bridge.
+ */
+export function nativeShareAvailable(): boolean {
+  if (!isTauri()) return false;
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  const touches = typeof navigator === "undefined" ? 0 : (navigator.maxTouchPoints ?? 0);
+  return iosHost(ua, touches);
 }

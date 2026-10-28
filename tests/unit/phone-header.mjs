@@ -184,7 +184,15 @@ check("but the crumb row still exists for a desktop column", /class="crumbs"/.te
 
 // The rectangle first: `#app` must not inset the app any more, or the edges
 // below would pay every inset twice and produce the band this task removes.
-check("the app is no longer one inset rectangle", /^#app \{\s*height: 100%;\s*\}/m.test(app));
+check(
+  "the app is no longer one inset rectangle",
+  (() => {
+    const block = app.match(/^#app \{[\s\S]*?\}/m)?.[0] ?? "";
+    // The page owns the inset colour now (`background`), but `#app` must still
+    // pay no padding: one rectangle inside another doubles every inset.
+    return /height: 100%;/.test(block) && !/padding/.test(block);
+  })(),
+);
 check(
   "a phone's shell is the dynamic viewport, edge to edge",
   /html\[data-device="phone"\] #app \{\s*height: 100dvh;\s*padding: 0;\s*\}/.test(app),

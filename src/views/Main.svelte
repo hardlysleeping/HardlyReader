@@ -27,21 +27,35 @@
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
   import { prefs } from "../state/prefs.svelte";
   import { reading } from "../state/reading.svelte";
+  import { bodies } from "../state/bodies.svelte";
   import { reader } from "../state/reader.svelte";
+  import { localStoreOf, type ReaderProfile } from "../api/profile";
 
   let {
-    session,
+    profile,
     account,
     onsignout,
     onaddaccount,
+    onconnect,
   }: {
-    session: Session;
+    profile: ReaderProfile;
     account: UserInfo | null;
     /** Sign out of every account on this device. */
     onsignout?: () => void;
     /** Sign a second account in without touching the one in use. */
     onaddaccount?: () => void;
+    /** Open the connect-a-service screen from inside the reader. */
+    onconnect?: () => void;
   } = $props();
+
+  /**
+   * The server session, when there is a server.
+   *
+   * `null` for a library on this device. Everything server-only — the extension
+   * state, change-watch, prefs sync, pairing — reads this and does nothing when
+   * it is null, instead of the reader refusing to open.
+   */
+  const session = $derived(profile.session);
 
   /**
    * Automatic sync: starts when the setting says so and stops when it stops.
@@ -60,8 +74,10 @@
    * or a pin on the website show up here on its own.
    */
   $effect(() => {
+    const server = session;
+    if (server === null) return;
     const watch = startChangeWatch({
-      read: () => getRevision(transport, session),
+      read: () => getRevision(transport, server),
       // Only the extension state: that is what the website's buttons write, and
       // every visible consequence of it (which categories are pinned, hidden,
       // locked, indented) is derived from it. The feed list and unread counts
@@ -204,7 +220,14 @@
     const now = layout.mode;
     if (now === drawn) return;
     drawn = now;
-    if (now === 1 || now === 2) reader.closeReader();
+    if (now !== 1 && now !== 2) return;
+    // A phone turned back upright lands on one column too, and it must not pay
+    // the same price: the sliding stack draws the post that is open in front of
+    // the list, so a rotation is not a request to leave what you were reading —
+    // and turning the phone is not a collapse into the walk. The walk still
+    // starts from the top, because a walk has nowhere else to start.
+    if (now === 1 && slideStack) return;
+    reader.closeReader();
   });
   const menu = $derived.by(() => {
     const point = reader.menu;
@@ -227,12 +250,18 @@
     layout.reload();
     chrome.load();
     reading.load();
+    // Text this device keeps: the two choices are a device key, and the cache is
+    // pointed at whichever library is open — a local one, or none for a reader
+    // whose articles live on a server. Bound before the reader starts, so the
+    // first post opened has somewhere to read from.
+    bodies.load();
+    bodies.bind(localStoreOf(profile));
     // The account's copy of the remembered settings, read once behind the first
     // paint. It is started here rather than in `reader.start` because it spans
     // stores the reader does not own — the theme, the cards, the search toggle —
     // and this view is mounted once per session, so the switch is the moment.
-    prefs.start(session);
-    void reader.start(session).finally(() => (launched = true));
+    if (session !== null) prefs.start(session);
+    void reader.start(profile).finally(() => (launched = true));
 
     // The mode is drawn from the real container width rather than from an
     // `innerWidth` guess, and the observer has one job: report that width.
@@ -295,6 +324,27 @@
     return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
+  /**
+   * The article pane takes the keyboard.
+   *
+   * `tabindex="-1"` on the scroller makes it focusable without putting it in the
+   * tab order, so this is the only way in — which is right: Right walked there.
+   * Focusing the scroll container is what makes Up/Down the page's own scroll,
+   * because `lib/keys.ts` stops claiming those keys once focus is inside it.
+   */
+  function focusArticle(): void {
+    const el = document.querySelector<HTMLElement>('[data-scroll="article"]');
+    if (el === null) return;
+    el.focus({ preventScroll: true });
+  }
+
+  /** Whether the key event came from inside the article pane. */
+  function inArticlePane(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null;
+    if (el === null || typeof el.closest !== "function") return false;
+    return el.closest('[data-scroll="article"]') !== null;
+  }
+
   function pageArticle(direction: -1 | 1): void {
     const el = document.querySelector<HTMLElement>('[data-scroll="article"]');
     if (el === null) return;
@@ -317,6 +367,7 @@
       hasArticle: reader.selectedId !== null,
       atArticleStart: reader.articleAtStart,
       atArticleEnd: reader.articleAtEnd,
+      inArticle: inArticlePane(event.target),
     };
     const intent = event.shiftKey
       ? resolveShiftKey(event.key, context)
@@ -347,6 +398,14 @@
         return;
       case "enter":
         event.preventDefault();
+        // Right is the whole tree: feeds, posts, article. With a post already
+        // open, the third press hands the keyboard to the article pane itself
+        // instead of doing nothing — that pane is where reading happens, and a
+        // key with no answer at the end of the walk reads as a dead key.
+        if (reader.selectedId !== null) {
+          focusArticle();
+          return;
+        }
         void reader.enter();
         return;
       case "back":
@@ -951,15 +1010,15 @@
        A tablet stays `desktop` (see `detectShape()`), so it keeps the toolbar. -->
   {#if layout.device === "phone"}
     <PhoneHeader
-      subtitle={account?.userName ?? session.email}
-      server={session.serverUrl}
+      subtitle={account?.userName ?? profile.label}
+      server={profile.session?.serverUrl ?? "On this device"}
       {onsignout}
       {onaddaccount}
     />
   {:else}
     <Header
-      subtitle={account?.userName ?? session.email}
-      server={session.serverUrl}
+      subtitle={account?.userName ?? profile.label}
+      server={profile.session?.serverUrl ?? "On this device"}
       controls={layoutSwitch}
       {onsignout}
       {onaddaccount}
@@ -978,6 +1037,16 @@
     <div class="error" role="alert">
       <span>{reader.error}</span>
       <button onclick={() => reader.dismissError()} aria-label="Dismiss">×</button>
+    </div>
+  {/if}
+
+  <!-- A landed action, said once. It sits where the error banner sits and takes
+       the same height, so confirming a move does not make the panes jump, and it
+       clears itself rather than asking to be dismissed. -->
+  {#if reader.notice}
+    <div class="notice" role="status">
+      <span>{reader.notice}</span>
+      <button onclick={() => reader.dismissNotice()} aria-label="Dismiss">×</button>
     </div>
   {/if}
 
@@ -1067,7 +1136,7 @@
          than a second component, so the walk does not have to rebuild the list
          it is walking out of. -->
     <div class="slot feeds" class:away={!slots.sidebar} bind:this={feedsSlot}>
-      <Sidebar inlinePosts={mode === 1} />
+      <Sidebar inlinePosts={mode === 1} {onconnect} />
     </div>
 
     <div class="slot seam-x gut-feeds" class:away={!slots.seam}>
@@ -1755,6 +1824,45 @@
   .error span {
     flex: 1;
     overflow-wrap: anywhere;
+  }
+
+  /* The confirmation half of the banner: the same box in the account's own green
+     rather than the alarm's red, so it reads as one system saying two things. */
+  .notice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    font-size: 12.5px;
+    color: color-mix(in srgb, var(--tone-unlock, #3fbf6f) 30%, #fff);
+    background: color-mix(in srgb, var(--tone-unlock, #3fbf6f) 22%, var(--bg));
+    animation: notice-in 140ms ease-out both;
+  }
+
+  .notice span {
+    flex: 1;
+    overflow-wrap: anywhere;
+  }
+
+  .notice button {
+    border: 0;
+    background: none;
+    color: inherit;
+    font-size: 16px;
+    cursor: pointer;
+  }
+
+  @keyframes notice-in {
+    from {
+      opacity: 0;
+      transform: translateY(-3px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .notice {
+      animation: none;
+    }
   }
 
   .error button {

@@ -393,6 +393,33 @@ export class PrefsSync {
   }
 
   /**
+   * This device's settings with the stamps already recorded for them, whether or
+   * not a server session is running.
+   *
+   * Device sync reads this so both transports stamp from one place: a setting
+   * changed on this device carries the time this record says it changed, not the
+   * time a sync happened to notice it. With no session the stamps are zero and
+   * the values are simply the three stores' — a first sync has no provenance to
+   * claim, which is what lets the other device's copy decide instead of a fresh
+   * install's defaults overwriting it.
+   */
+  deviceDoc(): PrefsDoc {
+    return this.snapshotDoc(this.local);
+  }
+
+  /**
+   * Takes the namespaces the other device decided on.
+   *
+   * The values land in the stores and nothing is sent. A server sync running in
+   * the same window sees them as a local change and stamps them itself, which is
+   * what keeps a device syncing by folder and a device syncing by FreshRSS from
+   * holding two opinions about the same setting.
+   */
+  adoptFromDevice(doc: PrefsDoc, namespaces: PrefsNamespace[]): void {
+    this.applyAdopted(namespaces, doc);
+  }
+
+  /**
    * This device's current values with the stamps already recorded for them.
    *
    * Every namespace is present, even one with a zero stamp: the value is real,

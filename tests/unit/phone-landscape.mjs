@@ -186,7 +186,7 @@ check(
  * ------------------------------------------------------------------------- */
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const GEN_DIR = join(ROOT, "tests/unit/.gen");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 const STORAGE_KEY = "hardlyreader.layout.v1";
 
 const stored = new Map();
@@ -266,8 +266,8 @@ try {
     const layout = await start(landscape);
     check("a landscape phone is a phone", layout.device === "phone", layout.device);
     check(
-      "it opens in three, by orientation and by nobody's choice",
-      layout.desired === 3 && layout.mode === 3 && layout.chosen === false,
+      "it opens in one column, by nobody's choice",
+      layout.desired === 1 && layout.mode === 1 && layout.chosen === false,
       `desired ${layout.desired}, mode ${layout.mode}, chosen ${layout.chosen}`,
     );
     check(
@@ -279,13 +279,13 @@ try {
       JSON.stringify(layout.panes),
     );
     check(
-      "which is the row drawn side by side",
-      layout.columns() === "237px 6px 279px 6px 316px",
+      "which is one pane across the whole landscape frame",
+      layout.columns() === "844px 0px 0px 0px 0px",
       layout.columns(),
     );
     check(
-      "the drawn widths are the profile's, so nothing is clamped away",
-      layout.shown.sidebar === 237 && layout.shown.list === 279,
+      "the widths behind it are the phone profile's, ready for a second pane",
+      layout.shown.sidebar === 237 && layout.shown.list === 210,
       JSON.stringify(layout.shown),
     );
 
@@ -399,8 +399,8 @@ try {
       JSON.stringify(layout.panes),
     );
     check(
-      "and the three columns fit the landscape frame",
-      layout.mode === 3 && layout.desired === 3,
+      "and it stays one column in landscape, so the list keeps its height",
+      layout.mode === 1 && layout.desired === 1,
       `mode ${layout.mode}, desired ${layout.desired}`,
     );
   }

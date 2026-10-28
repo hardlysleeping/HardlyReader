@@ -179,6 +179,26 @@
     </button>
   {/if}
 
+  {#if model.fullText.length > 0}
+    <div class="separator" role="separator"></div>
+    <div role="group" aria-label="Full text">
+      <p class="group-title">Full text</p>
+      {#each model.fullText as item (item.label)}
+        <button
+          class="item"
+          role="menuitemradio"
+          aria-checked={item.checked}
+          title={item.hint ?? ""}
+          disabled={item.disabled || busy}
+          onclick={() => onselect(item.action)}
+        >
+          <span class="check-glyph" aria-hidden="true">{item.checked ? "✓" : ""}</span>
+          <span class="option">{item.label}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+
   {#if model.remove}
     {@const remove = model.remove}
     <div class="separator" role="separator"></div>
@@ -274,6 +294,25 @@
 
   .option {
     flex: 1;
+  }
+
+  /* A group's own name: the three full-text answers are one question, and a
+     separator alone does not say which. */
+  .group-title {
+    margin: 2px 8px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+  }
+
+  /* The tick's box is always drawn, so the three labels stay on one left edge
+     whether or not two of them are chosen. */
+  .check-glyph {
+    width: 12px;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--accent);
   }
 
   .separator {
