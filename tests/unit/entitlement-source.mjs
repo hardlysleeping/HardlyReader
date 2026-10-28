@@ -235,11 +235,14 @@ async function capability(store) {
   await store.close();
 
   // And the half that runs a sync is drawn only behind the capability, so a
-  // lapsed row is a paused section rather than a button that fails on press.
+  // lapsed row is a paused section rather than a button that fails on press. The
+  // anchor is the gate rather than the file's first `{#if}`: another branch may be
+  // drawn before it (`pitch === "nothing"`), and this check is about the order
+  // between the gate and the button, not about what precedes them.
   const panel = readFileSync(join(ROOT, "src/components/DeviceSyncPanel.svelte"), "utf8");
-  const gate = panel.indexOf("{#if entitlement.cloudSync}");
+  const gate = panel.search(/\{[^}]*\bentitlement\.cloudSync\b[^}]*\}/);
   const run = panel.indexOf("onclick={runSync}");
-  check("the sync button is inside the entitled half", gate !== -1 && run > gate, `${gate} / ${run}`);
+  check("the sync button is behind the entitlement gate", gate !== -1 && run > gate, `${gate} / ${run}`);
   check("and the panel reads one capability, not a provider flag", !/entitlement\.(offer|state)\s*(&&|\?)/.test(panel));
 }
 
