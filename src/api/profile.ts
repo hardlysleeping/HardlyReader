@@ -103,6 +103,21 @@ export function syncProfile(session: Session, backend?: ReaderBackend): SyncProf
 }
 
 /**
+ * The library behind a profile, when the library is on this device.
+ *
+ * Device sync merges rows, so it needs the `LocalStore` and not the reading
+ * seam; a signed-in profile answers `null`, because its library lives on the
+ * server and FreshRSS already keeps it in step. Returns the store rather than
+ * opening a second one: two handles on one SQLite file would be two writers on
+ * the same rows for no reason.
+ */
+export function localStoreOf(profile: ReaderProfile | null): LocalStore | null {
+  if (profile === null || profile.kind !== "local") return null;
+  const backend = profile.backend;
+  return backend instanceof LocalBackend ? backend.store : null;
+}
+
+/**
  * Opens (or creates) the library on this device.
  *
  * The engine is chosen by `openLocalDatabase` — SQLite inside the desktop and

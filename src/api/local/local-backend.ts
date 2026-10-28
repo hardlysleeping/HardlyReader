@@ -131,7 +131,13 @@ function toStreamItem(row: EntryRow, feed: FeedRow | undefined): StreamItem {
 export class LocalBackend implements ReaderBackend {
   readonly kind = "local" as const;
 
-  private readonly store: LocalStore;
+  /**
+   * The library itself, for the two things that are not reading: the poller and
+   * device sync. Both need the store rather than the seam — a sync merges rows,
+   * it does not fetch a page — and a caller holding only a `ReaderBackend` has
+   * no other way to reach them.
+   */
+  readonly store: LocalStore;
   private readonly deviceName: string;
   private readonly fetcher: FeedFetcher;
 

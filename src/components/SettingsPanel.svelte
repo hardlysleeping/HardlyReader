@@ -21,12 +21,14 @@
    * working if this file's script never runs.
    */
   import AccountsBody from "./AccountsBody.svelte";
+  import DeviceSyncPanel from "./DeviceSyncPanel.svelte";
   import IndentControl from "./IndentControl.svelte";
   import PostListPanel from "./PostListPanel.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
   import ThemePanel from "./ThemePanel.svelte";
   import { exportFeedsOpml, importFeedsFile } from "../lib/feeds-io";
   import { APP_VERSION } from "../lib/version";
+  import { showsDeviceSync } from "../state/device-sync.svelte";
   import { layout } from "../state/layout.svelte";
   import { reader } from "../state/reader.svelte";
 
@@ -48,13 +50,18 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "feeds" | "appearance" | "reading" | "list" | "layout" | "sync" | "about";
+  type SectionId = "accounts" | "feeds" | "appearance" | "reading" | "list" | "layout" | "refreshing" | "device-sync" | "about";
 
   /**
    * The sections, in the order someone looks for them: who I am, what is in the
-   * list, what it looks like, how it reads, how it is laid out, where it fetches
-   * from, and what version this is. Accounts first because it is the one that
-   * has to be found when something is wrong.
+   * list, what it looks like, how it reads, how it is laid out, when it fetches,
+   * how it reaches the other device, and what version this is. Accounts first
+   * because it is the one that has to be found when something is wrong.
+   *
+   * The word **Sync** means one thing: reaching the other device. The interval
+   * row is **Refreshing** — it is about fetching feeds on this machine and always
+   * was, and two rows called Sync is how a reader concludes the paid feature is
+   * already on.
    *
    * `phone` marks a section only a phone draws. There are two: Feeds, which
    * holds Import and Export for the sidebar's footer on a phone held upright,
@@ -65,6 +72,11 @@
    * views. A desktop keeps those controls where they have always been, so the
    * sections are filtered out of its sheet entirely rather than drawn as a
    * second home for a control that already has one.
+   *
+   * Device sync is filtered by something else: it is drawn for a library on this
+   * device that has feeds in it, and nowhere else (`showsDeviceSync`). A reader
+   * on first launch has nothing to sync and must not be sold anything; a reader
+   * signed in to a server already has FreshRSS doing this for them.
    */
   const SECTIONS: { id: SectionId; label: string; note: string; phone?: boolean }[] = [
     { id: "accounts", label: "Accounts", note: "This account, this server" },
@@ -73,13 +85,25 @@
     { id: "reading", label: "Reading", note: "Text, pictures, read state" },
     { id: "list", label: "Post list", note: "Row ends, corners, tiles", phone: true },
     { id: "layout", label: "Layout", note: "Pane widths and arrangement" },
-    { id: "sync", label: "Sync", note: "Interval, and when it fetches" },
+    { id: "refreshing", label: "Refreshing", note: "Interval, and when it fetches" },
+    { id: "device-sync", label: "Device sync", note: "Your own folder, both devices" },
     { id: "about", label: "About", note: "Version" },
   ];
 
-  /** The sections this device draws: all of them but the phone-only ones. */
+  /**
+   * The sections this device draws: the phone-only ones are filtered by the
+   * device, and Device sync is filtered by the profile and its feeds
+   * (`showsDeviceSync`) — a first launch has nothing to sync and is never sold
+   * anything, and a signed-in reader already has FreshRSS keeping its library in
+   * step. Both filters are inside the `$derived`, so switching a phone to a
+   * desktop while the sheet is open redraws the list.
+   */
   const sections = $derived(
-    SECTIONS.filter((section) => section.phone !== true || layout.device === "phone"),
+    SECTIONS.filter((section) => section.phone !== true || layout.device === "phone").filter(
+      (section) =>
+        section.id !== "device-sync" ||
+        showsDeviceSync(reader.profile, reader.categories.length),
+    ),
   );
 
   /** Which sections are open. Accounts starts open: it is the shortest one. */
@@ -90,7 +114,8 @@
     reading: false,
     list: false,
     layout: false,
-    sync: false,
+    refreshing: false,
+    "device-sync": false,
     about: false,
   });
 
@@ -304,11 +329,17 @@
                    the layout tab, mounted whole: a phone now reaches the same
                    rows a desktop does, and they write the same state. -->
               <ThemePanel part="layout" />
-            {:else if section.id === "sync"}
+            {:else if section.id === "refreshing"}
               <ThemePanel part="sync" />
               <!-- Sign out is not repeated here: it is the account's one action,
                    and it is drawn once, in Accounts. -->
               <p class="hint">Signing out is in Accounts.</p>
+            {:else if section.id === "device-sync"}
+              <!-- Reaching the other device: the provider, its folder and the run.
+                   Every row is the section's own — this is the one setting whose
+                   component exists nowhere else — and it is handed the profile the
+                   window is reading so the folder is remembered per profile. -->
+              <DeviceSyncPanel profile={reader.profile} />
             {:else}
               <div class="row">
                 <span class="key">Version</span>

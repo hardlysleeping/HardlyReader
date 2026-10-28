@@ -150,13 +150,33 @@ export const accounts = {
   built.set(join(ROOT, "src/state/accounts.svelte.ts"), pathToFileURL(file).href);
 }
 
+/**
+ * The preferences store, without the network.
+ *
+ * `PrefsSync` reaches `api/freshrss` for the server's copy of the settings
+ * document. Device sync asks it for this device's document and hands a merged
+ * one back, so the sheet only needs those two doors.
+ */
+function stubPrefs() {
+  const file = join(GEN, "prefs-stub.mjs");
+  writeFileSync(
+    file,
+    `export const prefs = {
+  deviceDoc() { return { version: 1, updatedAt: 0, entries: {} }; },
+  adoptFromDevice() {},
+};
+`,
+  );
+  built.set(join(ROOT, "src/state/prefs.svelte.ts"), pathToFileURL(file).href);
+}
+
 let SettingsPanel;
 
 try {
   // State first: the components import them by the names the compiler rewrites.
   // Libraries first: a `.ts` module Node loads in place cannot resolve its own
   // extensionless imports, so anything below them is built and rewritten too.
-  for (const lib of ["src/lib/article-filter.ts", "src/lib/version.ts", "src/lib/list-view.ts"]) {
+  for (const lib of ["src/lib/article-filter.ts", "src/lib/version.ts", "src/lib/list-view.ts", "src/lib/sync-setup.ts", "src/lib/prefs-sync.ts"]) {
     buildRunes(lib);
   }
 
@@ -168,6 +188,8 @@ try {
     "src/state/reading.svelte.ts",
     "src/state/lan.svelte.ts",
     "src/state/floods.svelte.ts",
+    "src/state/entitlements.svelte.ts",
+    "src/state/device-sync.svelte.ts",
   ]) {
     buildRunes(state);
   }
@@ -180,9 +202,11 @@ try {
   // The roster is a list; the harness supplies it rather than pulling the network in.
   mkdirSync(GEN, { recursive: true });
   stubAccounts();
+  stubPrefs();
 
   // Then the components, children before the panel that mounts them.
   await buildComponent("src/components/AccountsBody.svelte");
+  await buildComponent("src/components/DeviceSyncPanel.svelte");
   await buildComponent("src/components/IndentControl.svelte");
   await buildComponent("src/components/PostListPanel.svelte");
   await buildComponent("src/components/ReadingPanel.svelte");
@@ -232,7 +256,7 @@ try {
   // -------------------------------------------------------------------------
   // The sections: six disclosures, each with its own rows inside it.
   // -------------------------------------------------------------------------
-  const SECTIONS = ["Accounts", "Appearance", "Reading", "Layout", "Sync", "About"];
+  const SECTIONS = ["Accounts", "Appearance", "Reading", "Layout", "Refreshing", "About"];
   {
     const body = draw();
     // Sections carry `class="sec"`. Counted by that class, not by every
@@ -295,7 +319,7 @@ try {
     })());
 
     check("Sync is the interval", (() => {
-      const part = section(body, "Sync");
+      const part = section(body, "Refreshing");
       return part.includes('aria-label="Sync automatically"') && part.includes('aria-label="How often to sync automatically"') && /\d+h</.test(part);
     })());
 
@@ -347,6 +371,62 @@ try {
     );
     check("it mounts the components that own the rows", ["ThemePanel", "ReadingPanel", "AccountsBody"].every((name) => new RegExp(`from "\\./${name}\\.svelte"`).test(source)));
     check("the layout rows are mounted whole, phone rows and all", /<ThemePanel part="layout" \/>/.test(source));
+  }
+
+  // -------------------------------------------------------------------------
+  // Device sync: the section the word Sync now means, and the two halves the
+  // entitlement decides between.
+  // -------------------------------------------------------------------------
+  {
+    const { reader } = await import(built.get(join(ROOT, "src/state/reader.svelte.ts")));
+    const { entitlement } = await import(built.get(join(ROOT, "src/state/entitlements.svelte.ts")));
+
+    // First launch: a library on this device with nothing in it. The section is
+    // not drawn at all, so nobody is sold anything before they have a feed.
+    check("an empty library is not offered device sync", !draw().includes("Device sync"));
+
+    // The same window with one feed in it is.
+    reader.profile = { kind: "local", slug: "local0000", label: "On this device", session: null };
+    reader.subscriptions = [
+      { id: "feed/1", title: "A", url: "https://a.test/rss", category: { id: "user/-/label/Art", label: "Art" } },
+    ];
+    check("a library with a feed is", (() => {
+      const body = draw();
+      return /<span class="label[^"]*">Device sync<\/span>/.test(body) && /Your own folder, both devices/.test(body);
+    })());
+
+    // ...and the word Sync means one thing: the interval row is Refreshing.
+    const named = draw();
+    check("the interval row is called Refreshing", /<span class="label[^"]*">Refreshing<\/span>/.test(named));
+    check("and no section is called Sync", !/<span class="label[^"]*">Sync<\/span>/.test(named));
+
+    // Free half: what it is and what it costs, inside its own section.
+    entitlement.cloudSync = false;
+    const free = section(draw(), "Device sync");
+    const freeWords = free.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+    check("the free half says what syncing is for", freeWords.includes("Sync across your devices"), freeWords.slice(0, 160));
+    check("...offers both prices", freeWords.includes("$0.99 / month") && freeWords.includes("$9.99 / year"));
+    check("...and both ways in", freeWords.includes("Start HardlyReader Sync") && freeWords.includes("Restore Purchase"));
+    check("...and no provider, because none is bought yet", !freeWords.includes("Provider"));
+
+    // Entitled half: the four providers, the folder and the run — same section,
+    // same window, only the capability moved.
+    entitlement.cloudSync = true;
+    const paid = section(draw(), "Device sync");
+    const paidWords = paid.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+    check("the entitled half says the subscription is live", paidWords.includes("HardlyReader Sync") && paidWords.includes("active"));
+    check(
+      "it offers the four providers, once each",
+      ["iCloud Drive", "Google Drive", "Dropbox", "OneDrive"].every((label) => count(paid, `aria-label="${label}"`) === 1),
+      paidWords.slice(0, 200),
+    );
+    check("it has a folder row and a run", paidWords.includes("Folder") && paid.includes('aria-label="Sync now"'));
+    check("and it does not ask for money again", !paidWords.includes("Start HardlyReader Sync"));
+
+    reader.profile = null;
+    reader.subscriptions = [];
+    entitlement.cloudSync = false;
+    check("and the section goes when the library does", !draw().includes("Device sync"));
   }
 
   // -------------------------------------------------------------------------
