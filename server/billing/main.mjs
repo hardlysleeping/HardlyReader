@@ -37,7 +37,7 @@ try {
 
 const db = new SupabaseDb({ url: config.supabase.url, serviceKey: config.supabase.serviceKey });
 const auth = new SupabaseAuth({ url: config.supabase.url, anonKey: config.supabase.anonKey });
-const stripe = new StripeApi({ secretKey: config.stripeSecretKey });
+const stripe = new StripeApi({ secretKey: config.stripeSecretKey, apiBase: config.stripeApiBase });
 const offer = new Offer({ stripe, prices: config.prices });
 
 const handle = createBillingApp({ config, db, stripe, auth, offer, log });
@@ -90,16 +90,20 @@ function readBody(request) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let tooBig = false;
     request.on("data", (chunk) => {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        resolve(null);
-        request.destroy();
+        // Keep draining instead of destroying the socket: the caller still owes
+        // the client a 413, and a destroyed request cannot be answered.
+        tooBig = true;
+        chunks.length = 0;
+        request.resume();
         return;
       }
-      chunks.push(chunk);
+      if (!tooBig) chunks.push(chunk);
     });
-    request.on("end", () => resolve(new Uint8Array(Buffer.concat(chunks))));
+    request.on("end", () => resolve(tooBig ? null : new Uint8Array(Buffer.concat(chunks))));
     request.on("error", reject);
   });
 }

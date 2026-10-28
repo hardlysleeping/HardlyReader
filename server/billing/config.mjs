@@ -53,6 +53,9 @@ export function readConfig(env) {
     origins,
     webhookSecret: env.STRIPE_WEBHOOK_SECRET.trim(),
     stripeSecretKey: env.STRIPE_SECRET_KEY.trim(),
+    // Only so a suite can point the client at a local stub; unset in production,
+    // where `StripeApi` uses the real API.
+    stripeApiBase: (env.STRIPE_API_BASE ?? "").trim() || undefined,
     prices: pricesFromEnv(env),
     supabase: {
       url: env.SUPABASE_URL.trim(),

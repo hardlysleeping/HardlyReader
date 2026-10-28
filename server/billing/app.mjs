@@ -104,7 +104,9 @@ async function handleCheckout({ request, config, db, stripe, auth, log }) {
 
   let body;
   try {
-    body = await readJson(request);
+    const raw = new Uint8Array(await request.arrayBuffer());
+    if (raw.byteLength > MAX_BODY_BYTES) return json(413, { error: "too_large" });
+    body = JSON.parse(new TextDecoder().decode(raw) || "{}");
   } catch (cause) {
     return json(400, { error: "bad_json" });
   }
@@ -119,27 +121,35 @@ async function handleCheckout({ request, config, db, stripe, auth, log }) {
     return json(400, { error: "plan_not_offered", plan });
   }
 
-  let customerId = await db.customerOf(userId);
-  if (customerId === null) {
-    // Written before the session exists: if the purchase completes, the webhook
-    // has a link to follow. If it does not, an unused customer sits in Stripe,
-    // which costs nothing and is cleaned up by nobody's cron.
-    const created = await stripe.createCustomer({ userId });
-    await db.linkCustomer(userId, created);
-    customerId = created;
+  try {
+    let customerId = await db.customerOf(userId);
+    if (customerId === null) {
+      // Written before the session exists: if the purchase completes, the
+      // webhook has a link to follow. If it does not, an unused customer sits in
+      // Stripe, which costs nothing and is cleaned up by nobody's cron.
+      const created = await stripe.createCustomer({ userId });
+      await db.linkCustomer(userId, created);
+      customerId = created;
+    }
+
+    const session = await stripe.createCheckoutSession({
+      customerId,
+      priceId,
+      userId,
+      successUrl: `${config.appUrl}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${config.appUrl}/?checkout=cancelled`,
+    });
+
+    log.info("checkout_created", { plan, customer: customerId, session: session.id });
+    // Only the URL crosses the wire. No price, no customer, no secret.
+    return json(200, { url: session.url });
+  } catch (cause) {
+    // Stripe or the database did not answer. 502, because the request was
+    // well-formed and the reader did nothing wrong; the message is ours, not
+    // Stripe's, so nothing about the account leaks into a browser.
+    log.error("checkout_failed", { plan, error: String(cause) });
+    return json(502, { error: "billing_unavailable" });
   }
-
-  const session = await stripe.createCheckoutSession({
-    customerId,
-    priceId,
-    userId,
-    successUrl: `${config.appUrl}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancelUrl: `${config.appUrl}/?checkout=cancelled`,
-  });
-
-  log.info("checkout_created", { plan, customer: customerId, session: session.id });
-  // Only the URL crosses the wire. No price, no customer, no secret.
-  return json(200, { url: session.url });
 }
 
 /* ------------------------------ /stripe/webhook ----------------------------- */
@@ -287,12 +297,6 @@ function bearer(header) {
   if (typeof header !== "string") return null;
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
   return match === null ? null : match[1].trim();
-}
-
-async function readJson(request) {
-  const raw = new Uint8Array(await request.arrayBuffer());
-  if (raw.byteLength > MAX_BODY_BYTES) throw new Error("too_large");
-  return JSON.parse(new TextDecoder().decode(raw) || "{}");
 }
 
 function json(status, body) {

@@ -172,6 +172,7 @@ node main.mjs
 | `APP_URL` | where Checkout returns to (`/?checkout=success`) |
 | `APP_ORIGINS` | comma-separated PWA origins allowed by CORS; empty ⇒ no browser may call |
 | `PORT`, `HOST` | default `8787` on `127.0.0.1` |
+| `STRIPE_API_BASE` | only for the suite, which points the client at a local stub. Never set in production |
 
 Then, in the Stripe dashboard: **Developers → Webhooks → Add endpoint**, URL
 `https://<host>/stripe/webhook`, and subscribe to `checkout.session.completed`,
@@ -199,7 +200,7 @@ three acceptance items are proven at the layer below them and not end to end:
 
 | acceptance item | what actually verifies it here |
 |---|---|
-| a test-mode purchase flips `cloud_sync` | the webhook is driven with real signed payloads and real SQL: `billing-webhook.mjs` (49 checks), `billing-postgres.mjs` against a throwaway Postgres (33 checks) |
+| a test-mode purchase flips `cloud_sync` | the webhook is driven with real signed payloads and real SQL: `billing-webhook.mjs` (49 checks), `billing-postgres.mjs` against a throwaway Postgres (33 checks), and `billing-server.mjs` starts the real process on a socket and posts a signed delivery to it (18 checks) |
 | a second device sees it after refresh | `billing-client.mjs`: a fresh `Entitlements` reads the server row and flips `cloudSync`, and an unreachable server stays false |
 | a cancelled subscription stops at period end, data untouched | `billing-states.mjs` at nine points in a subscription's life, plus the `stale` and `kept_other_source` cases in SQL |
 
