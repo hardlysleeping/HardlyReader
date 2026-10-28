@@ -70,6 +70,8 @@ export type {
   SyncedFeed,
   SyncedFolder,
   SyncedMark,
+  SyncedPlace,
+  SyncedSidebar,
 } from "./sync";
 export type { SyncFolder } from "./sync-folder";
 export type { SyncProvider, SyncProviderId } from "./sync-provider";

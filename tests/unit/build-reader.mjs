@@ -84,6 +84,7 @@ export function buildReaderModule() {
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
     .replaceAll('"../lib/sync-progress"', JSON.stringify(absolute("src/lib/sync-progress.ts")))
     .replaceAll('"../lib/place"', JSON.stringify(absolute("src/lib/place.ts")))
+    .replaceAll('"../lib/sidebar-doc"', JSON.stringify(absolute("src/lib/sidebar-doc.ts")))
     .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
     .replaceAll('"../lib/feed-move"', JSON.stringify(absolute("src/lib/feed-move.ts")))

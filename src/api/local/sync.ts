@@ -55,6 +55,21 @@ import {
   type PrefsDoc,
   type PrefsNamespace,
 } from "../../lib/prefs-sync";
+import {
+  describePlace,
+  describeSidebar,
+  emptyPlace,
+  emptySidebar,
+  isEmptySidebar,
+  parsePlaceDoc,
+  parseSidebar,
+  placeTie,
+  samePlace,
+  sameSidebar,
+  sidebarTie,
+  type PlaceDoc,
+  type SidebarDoc,
+} from "../../lib/sidebar-doc";
 import { LocalStorageError } from "./driver";
 import type { EntryRow, FeedRow, FolderRow } from "./schema";
 import type { LocalStore } from "./store";
@@ -142,6 +157,28 @@ export interface SyncSnapshot {
   marks: Record<string, SyncedMark>;
   /** The settings document the server path also carries. */
   prefs: PrefsDoc;
+  /**
+   * The sidebar as this device arranged it, with the second it was arranged.
+   *
+   * One record holding the whole arrangement, because the arrangement is one
+   * decision: interleaving two devices' orders would put the phone's third feed
+   * in the desktop's second slot and leave neither device's list as the reader
+   * drew it. `null` means this device has said nothing — different from an empty
+   * sidebar, which is a reader who hid nothing.
+   */
+  sidebar: SyncedSidebar | null;
+  /** Where this device was reading, and when it was there last. */
+  place: SyncedPlace | null;
+}
+
+/** The arrangement and its stamp. */
+export interface SyncedSidebar extends SidebarDoc {
+  at: number;
+}
+
+/** A reading place and its stamp. */
+export interface SyncedPlace extends PlaceDoc {
+  at: number;
 }
 
 /** A document with nothing in it, for a folder that has never been written. */
@@ -154,6 +191,8 @@ export function emptySnapshot(device = "", writtenAt = 0): SyncSnapshot {
     folders: {},
     marks: {},
     prefs: emptyPrefs(),
+    sidebar: null,
+    place: null,
   };
 }
 
@@ -217,6 +256,31 @@ function parseMark(raw: unknown): SyncedMark | null {
 }
 
 /**
+ * The arrangement, if the document carried one with a stamp.
+ *
+ * A record with no stamp is dropped: it has no provenance, so it cannot be
+ * compared with another device's copy, and keeping it would let a hand-edited
+ * or half-written file win a merge it never entered. Everything else about the
+ * record is parsed by `lib/sidebar-doc`, which drops what it cannot read and
+ * keeps the rest.
+ */
+function parseSyncedSidebar(raw: unknown): SyncedSidebar | null {
+  if (!isRecord(raw)) return null;
+  const at = stamp(raw.at);
+  if (at === 0) return null;
+  const doc = parseSidebar(raw);
+  return doc === null ? null : { ...doc, at };
+}
+
+function parseSyncedPlace(raw: unknown): SyncedPlace | null {
+  if (!isRecord(raw)) return null;
+  const at = stamp(raw.at);
+  if (at === 0) return null;
+  const doc = parsePlaceDoc(raw);
+  return doc === null ? null : { ...doc, at };
+}
+
+/**
  * Reads whatever the folder held.
  *
  * Tolerant about *shape* and strict about *version*: a record this build cannot
@@ -254,6 +318,8 @@ export function parseSyncSnapshot(raw: string): SyncSnapshot {
     folders: {},
     marks: {},
     prefs: parsePreferences(parsed.prefs),
+    sidebar: parseSyncedSidebar(parsed.sidebar),
+    place: parseSyncedPlace(parsed.place),
   };
 
   const groups = [
@@ -300,6 +366,16 @@ export interface BuildSnapshotOptions {
   prefs: PrefsDoc;
   device: string;
   now?: number;
+  /**
+   * The sidebar as this device has arranged it, or null when it cannot say.
+   *
+   * A caller that has no sidebar to offer passes null and the agreement's copy
+   * is carried forward untouched — silence must not read as "the reader
+   * unhid everything".
+   */
+  sidebar?: SidebarDoc | null;
+  /** Where this device was, or null when it has not been anywhere. */
+  place?: PlaceDoc | null;
 }
 
 function seconds(now?: number): number {
@@ -429,7 +505,54 @@ export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
   }
 
   snapshot.prefs = options.prefs;
+  snapshot.sidebar = stampSidebar(
+    options.sidebar === undefined ? undefined : options.sidebar,
+    base?.sidebar ?? null,
+    now,
+  );
+  snapshot.place = stampPlace(options.place === undefined ? undefined : options.place, base?.place ?? null, now);
   return pruneSnapshot(snapshot, now);
+}
+
+/**
+ * The arrangement, stamped honestly.
+ *
+ * Three cases, and they are different: the caller said nothing (`undefined`) and
+ * the agreement's copy rides along with the time it was agreed by; the caller
+ * said something, and one that matches the agreement is *unchanged* and keeps
+ * the earlier stamp — otherwise every launch would let a device that has done
+ * nothing outvote the device that rearranged the sidebar; and anything else is
+ * stamped now, because this is the first second this device can honestly claim
+ * it changed.
+ *
+ * An arrangement with nothing in it is still a decision — a reader who unhid
+ * every category and unpinned every feed must reach the other device — so it is
+ * carried, not dropped. `null` is what says "nothing to say".
+ */
+function stampSidebar(
+  doc: SidebarDoc | null | undefined,
+  agreed: SyncedSidebar | null,
+  now: number,
+): SyncedSidebar | null {
+  if (doc === null || doc === undefined) return agreed;
+  if (agreed !== null && sameSidebar(agreed, doc)) return agreed;
+  if (isEmptySidebar(doc) && agreed === null) {
+    // A device that has never arranged anything says nothing; the first real
+    // decision is what travels.
+    return null;
+  }
+  return { ...doc, at: now };
+}
+
+/** The place, by the same three cases. */
+function stampPlace(
+  doc: PlaceDoc | null | undefined,
+  agreed: SyncedPlace | null,
+  now: number,
+): SyncedPlace | null {
+  if (doc === null || doc === undefined) return agreed;
+  if (agreed !== null && samePlace(agreed, doc)) return agreed;
+  return { ...doc, at: now };
 }
 
 /** Drops what has outlived its usefulness: old tombstones and old unmarks. */
@@ -457,7 +580,7 @@ export function pruneSnapshot(snapshot: SyncSnapshot, now: number): SyncSnapshot
 
 /** One disagreement, in the reader's words, for the panel and the log. */
 export interface SyncConflict {
-  group: "feed" | "folder" | "mark" | "prefs";
+  group: "feed" | "folder" | "mark" | "prefs" | "sidebar" | "place";
   key: string;
   /** Whose value survived: this device's, or the folder's. */
   kept: "device" | "folder";
@@ -470,6 +593,10 @@ export interface SnapshotMerge {
   conflicts: SyncConflict[];
   /** Settings namespaces whose value came from the folder's copy. */
   adoptedPrefs: PrefsNamespace[];
+  /** True when the arrangement that survived came from the folder's copy. */
+  adoptedSidebar: boolean;
+  /** True when the reading place that survived came from the folder's copy. */
+  adoptedPlace: boolean;
 }
 
 /**
@@ -682,7 +809,53 @@ export function mergeSnapshots(
     conflicts.push({ group: "prefs", key: namespace, kept: "folder", dropped: "this device's copy" });
   }
 
-  return { snapshot: merged, conflicts, adoptedPrefs: prefsMerge.adopted };
+  const sidebarChoice = choose(
+    local.sidebar ?? undefined,
+    remote.sidebar ?? undefined,
+    base?.sidebar ?? undefined,
+    sameSidebar,
+    (record) => record.at,
+    sidebarTie,
+  );
+  const sidebarAdopted = sidebarChoice.kept === "folder";
+  merged.sidebar = sidebarAdopted ? remote.sidebar : local.sidebar;
+  if (sidebarChoice.both) {
+    const loser = sidebarAdopted ? local.sidebar : remote.sidebar;
+    conflicts.push({
+      group: "sidebar",
+      key: "sidebar",
+      kept: sidebarAdopted ? "folder" : "device",
+      dropped: loser === null ? "nothing arranged" : describeSidebar(loser),
+    });
+  }
+
+  const placeChoice = choose(
+    local.place ?? undefined,
+    remote.place ?? undefined,
+    base?.place ?? undefined,
+    samePlace,
+    (record) => record.at,
+    placeTie,
+  );
+  const placeAdopted = placeChoice.kept === "folder";
+  merged.place = placeAdopted ? remote.place : local.place;
+  if (placeChoice.both) {
+    const loser = placeAdopted ? local.place : remote.place;
+    conflicts.push({
+      group: "place",
+      key: "place",
+      kept: placeAdopted ? "folder" : "device",
+      dropped: loser === null ? "nowhere" : describePlace(loser),
+    });
+  }
+
+  return {
+    snapshot: merged,
+    conflicts,
+    adoptedPrefs: prefsMerge.adopted,
+    adoptedSidebar: sidebarAdopted && merged.sidebar !== null,
+    adoptedPlace: placeAdopted && merged.place !== null,
+  };
 }
 
 /* ---------------------------------------------------------------------------
@@ -826,12 +999,23 @@ export async function applySnapshot(
  * One sync
  * ------------------------------------------------------------------------- */
 
-/** The settings half, injected so this module needs no runes store of its own. */
+/**
+ * The settings half, injected so this module needs no runes store of its own.
+ *
+ * Three halves rather than one, because they are three different decisions with
+ * three different rhythms: the settings namespaces, the arrangement, and where
+ * the reader was. A device that has nothing to say about one of them leaves its
+ * half out and the other device's copy rides through untouched.
+ */
 export interface SyncPrefs {
   /** This device's document, with the stamps it has already recorded. */
   local: PrefsDoc;
   /** Takes the namespaces whose value came from the folder's copy. */
   adopt(doc: PrefsDoc, namespaces: PrefsNamespace[]): void;
+  /** The sidebar as this device arranged it, or null when it has none to offer. */
+  sidebar?: { local: SidebarDoc | null; adopt(doc: SidebarDoc): void };
+  /** Where this device was, or null when it has not been anywhere. */
+  place?: { local: PlaceDoc | null; adopt(doc: PlaceDoc): void };
 }
 
 export interface SyncRunOptions {
@@ -899,6 +1083,8 @@ export async function syncOnce(options: SyncRunOptions): Promise<SyncRun> {
     prefs: options.prefs.local,
     device: options.device,
     now,
+    sidebar: options.prefs.sidebar === undefined ? undefined : options.prefs.sidebar.local,
+    place: options.prefs.place === undefined ? undefined : options.prefs.place.local,
   });
 
   const raw = await options.provider.read();
@@ -906,6 +1092,15 @@ export async function syncOnce(options: SyncRunOptions): Promise<SyncRun> {
   const merged = mergeSnapshots(local, remote ?? emptySnapshot(), options.base);
 
   options.prefs.adopt(merged.snapshot.prefs, merged.adoptedPrefs);
+  // Only the half the other device decided is taken: a value that survived from
+  // this device is already on screen, and re-applying it would be a write to the
+  // reader's own settings on every sync.
+  if (merged.adoptedSidebar && merged.snapshot.sidebar !== null) {
+    options.prefs.sidebar?.adopt(merged.snapshot.sidebar);
+  }
+  if (merged.adoptedPlace && merged.snapshot.place !== null) {
+    options.prefs.place?.adopt(merged.snapshot.place);
+  }
   const applied = await applySnapshot(options.store, merged.snapshot);
 
   const snapshot: SyncSnapshot = { ...merged.snapshot, device: options.device, writtenAt: now };

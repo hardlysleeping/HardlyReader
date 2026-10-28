@@ -120,6 +120,7 @@ function buildReaderModule() {
     .replaceAll('"../lib/contextmenu"', JSON.stringify(absolute("src/lib/contextmenu.ts")))
     .replaceAll('"../lib/sync-progress"', JSON.stringify(absolute("src/lib/sync-progress.ts")))
     .replaceAll('"../lib/place"', JSON.stringify(absolute("src/lib/place.ts")))
+    .replaceAll('"../lib/sidebar-doc"', JSON.stringify(absolute("src/lib/sidebar-doc.ts")))
     .replaceAll('\"./hidden-write\"', JSON.stringify(absolute("src/state/hidden-write.ts")))
     .replaceAll('\"./hidden\"', JSON.stringify(absolute("src/state/hidden.ts")))
     .replaceAll('\"./favorites\"', JSON.stringify(absolute("src/state/favorites.ts")))

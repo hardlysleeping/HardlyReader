@@ -12,6 +12,10 @@ import { StreamScroll } from "../lib/stream-scroll";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
 import { SYNC_IDLE, createSyncTracker, type SyncReport, type SyncState } from "../lib/sync-progress";
 import { EMPTY_PLACE, readPlace as readStoredPlace, writePlace as writeStoredPlace, type Place } from "../lib/place";
+// Type-only, so it is erased before any suite compiles this file: the sidebar
+// document's shape is named once, in `lib/sidebar-doc`, and this is the state
+// that fills it in.
+import type { PlaceDoc, SidebarDoc } from "../lib/sidebar-doc";
 import { floods } from "./floods.svelte";
 import { theme } from "./theme.svelte";
 
@@ -1126,6 +1130,81 @@ export class ReaderState {
     const session = this.session;
     if (session === null || typeof localStorage === "undefined") return;
     clearApiSnapshot(localStorage, session);
+  }
+
+  /**
+   * The sidebar as a document that can travel.
+   *
+   * The same values `savePrefs` writes, in the shape `lib/sidebar-doc` names,
+   * because there must not be two spellings of the reader's arrangement. This is
+   * what a local profile hands to device sync — the answer to "who owns this
+   * state" being the device, and the snapshot being how that device reaches the
+   * next one.
+   *
+   * A FreshRSS profile never asks: the extension owns hidden, pins and the
+   * indent there, and `hiddenScope` refuses this device's copy for exactly that
+   * reason.
+   */
+  sidebarDoc(): SidebarDoc {
+    return {
+      hidden: [...this.localHidden.categories],
+      hiddenView: this.localHidden.view,
+      pins: [...this.localPins.categories],
+      pinFeeds: [...this.localPins.feeds],
+      pinView: this.localPins.view,
+      indentPx: this.localIndentPx,
+      feedOrder: [...this.feedOrder],
+      categoryOrder: [...this.categoryOrder],
+    };
+  }
+
+  /**
+   * Takes the other device's arrangement as this device's own.
+   *
+   * Written into the stores the sidebar already draws from and then stored, so
+   * the next launch reads it before any network call and a reveal costs nothing.
+   * Parsed through the same helpers a stored blob goes through: a document from
+   * another build is not a reason to trust a value this build would not have
+   * written itself.
+   */
+  adoptSidebar(doc: SidebarDoc): void {
+    this.localHidden = parseHidden({ categories: doc.hidden, view: doc.hiddenView });
+    this.localPins = {
+      categories: [...doc.pins],
+      feeds: [...doc.pinFeeds],
+      view: doc.pinView,
+    };
+    this.feedOrder = [...doc.feedOrder];
+    this.categoryOrder = [...doc.categoryOrder];
+    this.localIndentPx = doc.indentPx === null ? null : clampIndentPx(doc.indentPx);
+    if (this.localIndentPx !== null) {
+      this.sidebarIndent = { ...this.sidebarIndent, px: this.localIndentPx };
+    }
+    this.savePrefs();
+  }
+
+  /**
+   * Where this device was, as a document that can travel.
+   *
+   * The place already stored for this account — the feed, the post and the two
+   * scroll offsets a launch resumes from — rather than the live view: a sync must
+   * not depend on which pane happens to be open while it runs.
+   */
+  placeDoc(): PlaceDoc {
+    return { ...this.readPlace() };
+  }
+
+  /**
+   * Keeps where the other device was, for this device's next launch.
+   *
+   * Stored, not applied: a phone that opens on the post the desktop left is what
+   * the place is for, and teleporting the window a reader is already using would
+   * be the app moving under them. `lib/place` already treats a stale place as a
+   * hint — a feed that has since gone falls back to the Reading list.
+   */
+  adoptPlace(doc: PlaceDoc): void {
+    if (typeof localStorage === "undefined") return;
+    writeStoredPlace(localStorage, this.scope, { ...doc });
   }
 
   private savePrefs(): void {

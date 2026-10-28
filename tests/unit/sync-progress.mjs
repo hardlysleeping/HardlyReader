@@ -269,6 +269,7 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"../lib/contextmenu"', absolute("src/lib/contextmenu.ts")],
   ['"../lib/sync-progress"', absolute("src/lib/sync-progress.ts")],
   ['"../lib/place"', absolute("src/lib/place.ts")],
+  ['"../lib/sidebar-doc"', absolute("src/lib/sidebar-doc.ts")],
   ['"./hidden-write"', absolute("src/state/hidden-write.ts")],
   ['"./hidden"', absolute("src/state/hidden.ts")],
   ['"./favorites"', absolute("src/state/favorites.ts")],
