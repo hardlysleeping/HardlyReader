@@ -7,7 +7,7 @@
 // store in a JSON file and answers the calls the script makes — a draft exists,
 // an upload lands incomplete, a publish fails — so the retry path can be driven
 // without a token and without a real repository. It records every call too.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, truncateSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, truncateSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -124,8 +124,8 @@ const ghCalls = join(fixtures, "gh-calls");
 writeFileSync(join(bin, "gh"), `#!/bin/sh\necho "$@" >> '${ghCalls}'\nexit 99\n`);
 spawnSync("chmod", ["+x", join(bin, "gh")]);
 
-function release(args) {
-  const result = spawnSync("bash", [script, version, "--dry-run", ...args], {
+function release(args, scriptPath = script) {
+  const result = spawnSync("bash", [scriptPath, version, "--dry-run", ...args], {
     cwd: root,
     encoding: "utf8",
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
@@ -337,7 +337,19 @@ check("the release is created as a draft", /gh release create v[\d.]+ .*--draft/
 check("the dry run says a draft is reused", complete.output.includes(`draft for ${tag} that already exists is reused`));
 
 // 2. One bundle missing: refused, named, and nothing on GitHub.
-const noApk = release(allFour.filter((arg) => arg !== files.apk && arg !== "--apk"));
+//
+// Leaving `--apk` out sends the script to its default, a search under
+// `src-tauri/gen/android/app/build/outputs/apk`. That path exists on any machine
+// that has built an APK, so a refusal driven by its absence passed here and
+// failed on the owner's checkout the day an APK was actually built. The run
+// therefore gets a repo root of its own: the script and a package.json, and no
+// gen/ anywhere under it. That is the state the case is about.
+const lonelyRoot = mkdtempSync(join(fixtures, "repo-"));
+mkdirSync(join(lonelyRoot, "scripts"), { recursive: true });
+copyFileSync(script, join(lonelyRoot, "scripts", "release.sh"));
+writeFileSync(join(lonelyRoot, "package.json"), JSON.stringify({ version }));
+const lonelyScript = join(lonelyRoot, "scripts", "release.sh");
+const noApk = release(allFour.filter((arg) => arg !== files.apk && arg !== "--apk"), lonelyScript);
 check("a missing APK is refused", noApk.code !== 0, `exit ${noApk.code}`);
 check("the refusal names the APK", /APK: nothing to check|APK: missing/.test(noApk.output), noApk.output.slice(0, 300));
 check("the refusal creates no release", !/^\s+gh release create/m.test(noApk.output));
