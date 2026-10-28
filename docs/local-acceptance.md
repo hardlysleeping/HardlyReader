@@ -49,12 +49,12 @@ one the OS is allowed to throw away.
 |---|---|---|
 | 1 | Open the app with no account saved | The library opens straight away. No sign-in, no server URL, no spinner that ends in an error. |
 | 2 | **+ Add feed**, paste a real feed URL, add | The feed appears in the sidebar by its own name and its posts arrive without pressing anything else. |
-| 3 | Pick a real OPML file with **Import OPML** | The folders in the file appear **as folders**, each feed inside its own — not all feeds flat in the sidebar. |
+| 3 | Pick a real OPML file with **Import OPML** — the sidebar footer says **Import**, Settings says **Import feeds** | The folders in the file appear **as folders**, each feed inside its own — not all feeds flat in the sidebar. |
 | 4 | Wait, or pull the header to refresh | The refresh finishes; a site that published in the meantime gains posts. |
 | 5 | Tap a post, read it, then **Mark read** | The post leaves the unread count. |
 | 6 | Tap the **star** on a row | The star fills, and **Starred** in the sidebar holds that post. |
 | 7 | Swipe the app away — really kill it, not just background it — then reopen | Everything is still there: three feeds, both folders, the read post still read, the starred post still starred, the post's text still readable. |
-| 8 | Settings → **Export** | The OPML it writes holds the folders and the feeds, which is the round trip the import half of the script proves for the store. |
+| 8 | Settings → **Export feeds** | The OPML it writes holds the folders and the feeds, which is the round trip the import half of the script proves for the store. |
 
 If step 7 comes back empty, that is the bug this list exists to catch, and the
 engine under it is IndexedDB: check `Storage` in the phone's browser settings
