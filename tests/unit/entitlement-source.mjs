@@ -527,6 +527,17 @@ function sourceFiles(dir) {
     (own.match(/\.(insert|update|upsert|delete)\s*\(/g) ?? []).join(","),
   );
 
+  // The build's two values must be read through the literal `import.meta.env`:
+  // Vite replaces that expression, and a cast around it type-checks, builds, and
+  // ships a bundle with no configuration at all (the trap in the identity's own
+  // notes, proved by building with dummy values and grepping the chunk).
+  check("the configuration comes from the literal import.meta.env", /\(import\.meta\.env \?\? null\)/.test(own));
+  check(
+    "not through a cast Vite cannot see",
+    !/import\.meta as (unknown|ImportMeta)/.test(own),
+    (own.match(/import\.meta as \w+/g) ?? []).join(","),
+  );
+
   const tableWrite = files.filter((path) =>
     /entitlements["'`]?\s*\)?\s*\.(insert|update|upsert|delete)\s*\(/.test(code(path)),
   ).map(name);
