@@ -1,29 +1,27 @@
 <script module lang="ts">
-  /**
-   * What one run hands the engine.
-   *
-   * Three halves of one document: the settings, the sidebar's arrangement
-   * (hidden, pins, both views, the indent, the two orders) and the reading
-   * place. The engine merges each on its own stamp — `api/local/sync.ts` — and
-   * the reader fills in and adopts the two that are its own.
-   *
-   * It lives at module scope, and is exported, for one reason: this is the seam
-   * where the app joins the two halves. The engine is proved on its own
-   * (`tests/unit/authority.mjs`), the reader's side on its own, and only this
-   * function can show that a press in Settings actually carries them. A local
-   * profile is the only caller that reaches it: `deviceSync.bind(localStoreOf(profile))`
-   * binds a library for a profile read on this device and nothing else, and the
-   * run refuses before it reads or writes when there is none.
-   */
   import type { SyncPrefs } from "../api/local/sync";
   import type { PrefsDoc, PrefsNamespace } from "../lib/prefs-sync";
   import { prefs as accountPrefs } from "../state/prefs.svelte";
   import { reader } from "../state/reader.svelte";
 
   /**
-   * The settings half from the store that owns the preferences, and the two the
-   * reader owns. Nothing here merges: `adopt` is called by the engine with the
-   * value its merge kept, and each half hands it to the state that draws it.
+   * What one run hands the engine.
+   *
+   * Three halves of one document: the settings, the sidebar's arrangement
+   * (hidden, pins, both views, the indent, the two orders) and the reading
+   * place. The engine merges each on its own stamp — `api/local/sync.ts` — and
+   * the reader fills in and adopts the two that are its own. Nothing here
+   * merges: `adopt` is called by the engine with the value its merge kept, and
+   * each half hands it to the state that draws it.
+   *
+   * It lives at module scope, and is exported, for one reason: this is the seam
+   * where the app joins the engine and the reader. Each side is proved on its
+   * own (`tests/unit/authority.mjs`, `reader.svelte.ts`), and only this function
+   * can show that a press in Settings actually carries them —
+   * `tests/unit/device-sync-wiring.mjs`. A local profile is the only caller that
+   * reaches it: `deviceSync.bind(localStoreOf(profile))` binds a library for a
+   * profile read on this device and nothing else, and the run refuses before it
+   * reads or writes when there is none.
    */
   export function syncPrefs(): SyncPrefs {
     return {
