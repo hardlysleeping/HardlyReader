@@ -79,9 +79,13 @@ Three-way, against the **last agreement**: the document as this device last saw
 it, kept beside the library (never in the folder), because that is what turns
 "the mark is set" into "the mark changed here since we last agreed".
 
-- Every record carries the second it last changed. A record that has not changed
-  since the agreement keeps the time it was agreed by, so a device that has done
-  nothing cannot win an argument with a device that has.
+- **Every record carries a stamp, not a second.** `(at, rev, by)`: the second it
+  last changed, the revision of the device that changed it, and that device's
+  id. `at` is the only field a person reads — it is what the conflict line in
+  the panel prints — and it is not enough on its own, because a phone whose
+  clock is ten minutes fast would win every argument it entered. A record that
+  has not changed since the agreement keeps the whole stamp it was agreed by, so
+  a device that has done nothing cannot win an argument with a device that has.
 - **Read and starred are two registers.** One device marking an article read and
   the other starring it both keep their change; a boolean cannot disagree with
   itself, so the only question a mark answers is *when* it moved.
@@ -95,9 +99,31 @@ it, kept beside the library (never in the folder), because that is what turns
   known name. A rename or a refile on the other device is not a re-subscription
   and does not bring it back; only a device that has *seen* the tombstone can
   subscribe again, and the tombstone's title is what it restores.
-- **A tie settles on the record, not on the side it came from.** Two devices
-  editing the same field in the same second are compared field by field, so both
-  of them land on the same answer instead of flapping it between them.
+- **A tie settles on the record, not on the side it came from.** The three keys
+  are compared in order: the later second, then the higher revision, then the
+  larger device id. Revision settles two writes by *one* device inside one
+  second, where `at` cannot; the id settles two devices that tie on both, and it
+  is a comparison of the records rather than of the sides, so both of them land
+  on the same answer instead of flapping it between them. A document written
+  before revisions existed has `rev` 0 and no `by`: it orders by `at` alone,
+  exactly as it used to, and gains both the next time a device writes it.
+- **No change is dated earlier than what its device has already seen.** A stamp
+  is `max(clock, newest seen + 1)` — the rule a Lamport clock applies. That is
+  what makes the two halves of the clock trap one rule: an edit made *after*
+  seeing another device's copy always outranks it, whatever either clock says
+  (a fast clock cannot keep winning once it has been answered, and each answer
+  advances the sequence by a second rather than by the skew), while a device
+  that has been offline for a week keeps its own clock as the floor and its
+  edits still beat the copies it never saw. Clamping *down* — cutting the stamp
+  off at what has been seen — would fix the first half and break the second.
+- **The device id is part of the library.** `sync.device` and `sync.rev` live in
+  the library's own `meta` rows (`api/local/schema.ts`), not in memory and not
+  in the profile: an id that changed on every launch, or a counter that started
+  over, would reach the other device as a new authority carrying the same
+  history. A reinstalled app that keeps its library keeps its id; one that
+  rebuilds the library mints a new one, which is honest, because the library is
+  new. What the document calls `device` is still a *name*, for the panel to
+  print.
 - **A move is not a second subscription.** A feed's key is the address it finally
   answers at. When one device sees it answer somewhere else it rewrites the feed's
   key and its article ids, and the old address travels in the document's
@@ -183,11 +209,14 @@ leaves the library, the agreement and the last-run time alone.
 
 ## Proving it
 
-`tests/unit/local-sync.mjs` — 29 checks over two real `LocalStore`s and one
+`tests/unit/local-sync.mjs` — 34 checks over two real `LocalStore`s and one
 shared folder: adoption, quiet re-syncs, independent registers, arrivals, unmarks,
 removals versus renames, re-subscriptions, empty folders, settings adoption,
-refusals, same-second ties, pruning, and the name this file and `sync.rs` agree
-on. `src-tauri/src/sync.rs` carries its own `cargo test` cases for the path rules
+refusals, same-second ties, pruning, the name this file and `sync.rs` agree on,
+and the ordering: a record compared by `(at, rev, by)` from either side, a
+device with a fast clock losing the edit made after it, a second sync back to
+the first device writing nothing at all, a revision that survives a restart, and
+a document from before revisions still merging on its own clock. `src-tauri/src/sync.rs` carries its own `cargo test` cases for the path rules
 and the atomic write.
 
 `tests/unit/feed-identity.mjs` — 9 checks on the identity a redirect must not

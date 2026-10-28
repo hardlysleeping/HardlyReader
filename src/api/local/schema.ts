@@ -43,7 +43,7 @@ export interface ColumnSchema {
 }
 
 /**
- * The six tables.
+ * The seven tables.
  *
  * They are deliberately flat. A local library is one person's reading, so the
  * questions asked of it are simple — "this feed's items, newest first", "what
@@ -226,6 +226,23 @@ export const TABLES = {
       { name: "at", type: "integer" },
     ],
   },
+
+  /**
+   * Facts about the library itself rather than about anything in it.
+   *
+   * Keyed by a name the library chooses (`sync.device`), with one text value.
+   * The first use is the identity this library syncs under: the device id and
+   * its revision counter live here because they are true of *this library* and
+   * have to survive a restart — a device id minted per run would look to the
+   * other device like a new authority on every launch (`api/local/sync.ts`).
+   *
+   * Deliberately not part of the document that travels: a fact stored here is
+   * about this copy of the library, and a value that travelled would arrive on
+   * the other device as a claim about a library it is not.
+   */
+  meta: {
+    columns: [{ name: "value", type: "text" }],
+  },
 } as const;
 
 export type TableName = keyof typeof TABLES;
@@ -346,4 +363,9 @@ export interface FolderRow extends LocalRow {
 export interface RedirectRow extends LocalRow {
   to: string;
   at: number;
+}
+
+/** A row of `meta`: one fact about this library, under a name it chose. */
+export interface MetaRow extends LocalRow {
+  value: string;
 }

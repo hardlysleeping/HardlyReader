@@ -25,6 +25,7 @@ import {
   TOMBSTONE_SECONDS,
   applySnapshot,
   buildSnapshot,
+  compareStamps,
   emptySnapshot,
   mergeSnapshots,
   parseSyncSnapshot,
@@ -74,7 +75,7 @@ const FEED_B = "https://b.test/feed.xml";
  * would make every sync look like a first sync — which is exactly the bug the
  * base exists to prevent, so it is modelled rather than skipped.
  */
-function device(name) {
+function device(name, { identity } = {}) {
   const database = new MemoryDatabase();
   const store = new LocalStore(database);
   return {
@@ -84,6 +85,11 @@ function device(name) {
     base: null,
     prefs: emptyPrefs(),
     adopted: [],
+    /**
+     * The identity this device writes under, or undefined to let the library
+     * answer — which is what the app does, and what the restart check relies on.
+     */
+    identity,
     async sync(provider, at) {
       const run = await syncOnce({
         store,
@@ -91,6 +97,7 @@ function device(name) {
         device: name,
         base: this.base,
         now: at,
+        identity: this.identity,
         prefs: {
           local: this.prefs,
           adopt: (doc, namespaces) => {
@@ -103,6 +110,18 @@ function device(name) {
       return run;
     },
   };
+}
+
+/**
+ * The same library, opened again.
+ *
+ * A restart is a new process over the same rows: a new `LocalStore` over the
+ * same database, with the agreement and the settings it had before — and, if the
+ * device id and the revision counter live where they should, the same identity
+ * and a counter that keeps counting.
+ */
+function reopen(dev) {
+  return { ...dev, store: new LocalStore(dev.database) };
 }
 
 /** A feed with a chosen title source, as `subscribe` would have left it. */
@@ -620,8 +639,24 @@ await check("the document's name is the one Rust writes", async () => {
 
 await check("a document round-trips through its own serialization", async () => {
   const snapshot = emptySnapshot("laptop", T);
-  snapshot.feeds[FEED_A] = { at: T, title: "Comics", titleSource: "given", folder: "Funny books", addedAt: T, removed: false };
-  snapshot.marks["local/x/y"] = { read: true, readAt: T, starred: true, starredAt: T + 1 };
+  snapshot.feeds[FEED_A] = {
+    at: T,
+    rev: 12,
+    by: "device-laptop",
+    title: "Comics",
+    titleSource: "given",
+    folder: "Funny books",
+    addedAt: T,
+    removed: false,
+  };
+  snapshot.marks["local/x/y"] = {
+    read: true,
+    readAt: T,
+    starred: true,
+    starredAt: T + 1,
+    rev: 12,
+    by: "device-laptop",
+  };
   const parsed = parseSyncSnapshot(serializeSnapshot(snapshot));
   deepEqual(parsed.feeds, snapshot.feeds, "the feeds");
   deepEqual(parsed.marks, snapshot.marks, "the marks");
@@ -691,6 +726,7 @@ const DOCUMENT_FIELDS = [
 ];
 const SIDEBAR_FIELDS = [
   "at",
+  "by",
   "categoryOrder",
   "feedOrder",
   "hidden",
@@ -699,6 +735,7 @@ const SIDEBAR_FIELDS = [
   "pinFeeds",
   "pinView",
   "pins",
+  "rev",
 ];
 
 /**
@@ -797,6 +834,283 @@ await check("a lock-shaped field found in the file is dropped, and gone when rew
   truthy(!rewritten.includes("1234"), "the passcode in the folder's copy");
   truthy(!rewritten.includes('"locked"'), "the locked flag in the folder's copy");
   deepEqual(lockShapedKeys(JSON.parse(rewritten)), [], "a lock-shaped field after a rewrite");
+});
+
+/* --------------------------------------------------------------------------
+ * Revisions, not just clocks
+ *
+ * Two traps, and they pull in opposite directions. A phone whose clock is ten
+ * minutes fast must not win every argument it enters (#19); a device that has
+ * been away for a week must not lose the edits it made while it was away. A
+ * second alone cannot answer both, so a record carries `(at, rev, by)` and no
+ * change is ever dated earlier than one second past what its device has seen.
+ * ----------------------------------------------------------------------- */
+
+/** One feed record with nothing but the fields this group of checks cares about. */
+function feedRecord(stamp, title) {
+  return { ...stamp, title, titleSource: "given", folder: null, addedAt: T, removed: false };
+}
+
+/** A device's copy of the document, holding one record. */
+function documentWith(device, record) {
+  return { ...emptySnapshot(device, T), feeds: { [FEED_A]: record } };
+}
+
+await check("a record is ordered by its second, then its revision, then its device", async () => {
+  // The comparison itself has to be antisymmetric, or two devices hand the same
+  // record back and forth forever: whichever side asks, the answer is the same.
+  const pairs = [
+    [{ at: T, rev: 1, by: "a" }, { at: T, rev: 2, by: "a" }],
+    [{ at: T, rev: 2, by: "a" }, { at: T, rev: 2, by: "b" }],
+    [{ at: T + 1, rev: 0, by: "" }, { at: T, rev: 9, by: "z" }],
+    [{ at: T, rev: 0, by: "" }, { at: T, rev: 0, by: "" }],
+  ];
+  for (const [a, b] of pairs) {
+    equal(
+      compareStamps(a, b),
+      -compareStamps(b, a),
+      `antisymmetric for ${JSON.stringify(a)} against ${JSON.stringify(b)}`,
+    );
+  }
+
+  // The later second decides, whatever the revision says.
+  const later = feedRecord({ at: T + 5, rev: 1, by: "device-a" }, "Later, low revision");
+  const earlier = feedRecord({ at: T + 4, rev: 99, by: "device-z" }, "Earlier, high revision");
+  equal(
+    mergeSnapshots(documentWith("laptop", later), documentWith("tablet", earlier), null).snapshot.feeds[
+      FEED_A
+    ].title,
+    "Later, low revision",
+    "the later second, from this side",
+  );
+  equal(
+    mergeSnapshots(documentWith("laptop", earlier), documentWith("tablet", later), null).snapshot.feeds[
+      FEED_A
+    ].title,
+    "Later, low revision",
+    "the later second, from the other side",
+  );
+
+  // The same second: the revision decides — a second is the resolution of `at`,
+  // and a device's counter is not.
+  const higher = feedRecord({ at: T + 5, rev: 7, by: "device-a" }, "Higher revision");
+  const lower = feedRecord({ at: T + 5, rev: 6, by: "device-z" }, "Lower revision");
+  equal(
+    mergeSnapshots(documentWith("laptop", higher), documentWith("tablet", lower), null).snapshot.feeds[
+      FEED_A
+    ].title,
+    "Higher revision",
+    "the higher revision, from this side",
+  );
+  equal(
+    mergeSnapshots(documentWith("laptop", lower), documentWith("tablet", higher), null).snapshot.feeds[
+      FEED_A
+    ].title,
+    "Higher revision",
+    "the higher revision, from the other side",
+  );
+
+  // The same second and the same revision: the device id settles it, and it
+  // settles it the same way for both devices because it compares the records
+  // rather than the sides.
+  const zed = feedRecord({ at: T + 5, rev: 7, by: "device-zed" }, "From zed");
+  const amy = feedRecord({ at: T + 5, rev: 7, by: "device-amy" }, "From amy");
+  equal(
+    mergeSnapshots(documentWith("laptop", zed), documentWith("tablet", amy), null).snapshot.feeds[FEED_A]
+      .title,
+    "From zed",
+    "the larger device id",
+  );
+  equal(
+    mergeSnapshots(documentWith("laptop", amy), documentWith("tablet", zed), null).snapshot.feeds[FEED_A]
+      .title,
+    "From zed",
+    "and the same answer from the other side",
+  );
+});
+
+await check("a device with a fast clock loses the edit made after it", async () => {
+  const folder = new MemorySyncProvider();
+  const desk = device("desktop", { identity: { id: "device-desk", rev: 0 } });
+  const phone = device("phone", { identity: { id: "device-phone", rev: 0 } });
+
+  await addFeed(desk, FEED_A, { title: "Comics" });
+  await desk.sync(folder, T + 100);
+  await phone.sync(folder, T + 101);
+
+  // The phone's clock is ten minutes fast, and it renames the feed at what its
+  // clock calls ten minutes later — the record that used to win everything.
+  await phone.store.renameFeed(FEED_A, "Comics (phone)", "given");
+  await phone.sync(folder, T + 700);
+  equal(
+    JSON.parse(folder.peek()).feeds[FEED_A].at,
+    T + 700,
+    "the phone dated its own edit by its own clock",
+  );
+
+  // The desktop sees it, and edits a minute later by its own, correct clock.
+  await desk.sync(folder, T + 160);
+  equal((await desk.store.feed(FEED_A)).title, "Comics (phone)", "the desktop adopted the phone's copy");
+  await desk.store.renameFeed(FEED_A, "Comics (desktop)", "given");
+  const later = await desk.sync(folder, T + 170);
+  const chosen = JSON.parse(folder.peek()).feeds[FEED_A];
+  equal(chosen.title, "Comics (desktop)", "the later edit won");
+  truthy(chosen.at > T + 700, `the later edit is dated after what answered it: ${chosen.at}`);
+  equal(chosen.by, "device-desk", "and it says which device wrote it");
+  // One device moving is not a disagreement, so nothing is reported: the
+  // desktop is simply the later of the two, and it says so in the record.
+  deepEqual(later.conflicts, [], "one device editing is not a conflict");
+
+  // And the phone cannot take it back: its library adopted the desktop's copy,
+  // so its next run — eight minutes later by its clock — has nothing to say.
+  const back = await phone.sync(folder, T + 800);
+  equal((await phone.store.feed(FEED_A)).title, "Comics (desktop)", "the phone kept the later edit");
+  equal(back.unchanged, true, "and wrote nothing");
+});
+
+await check("a sync back to the first device writes nothing", async () => {
+  const folder = new MemorySyncProvider();
+  const a = device("laptop", { identity: { id: "device-a", rev: 0 } });
+  const b = device("tablet", { identity: { id: "device-b", rev: 0 } });
+
+  await addFeed(a, FEED_A, { title: "Comics", folder: "Funny books" });
+  const post = await addEntry(a, FEED_A, "p1");
+  await a.store.setRead([post], true);
+  a.prefs = withEntry(emptyPrefs(), "theme", { updatedAt: 900, value: { accent: "crimson" } });
+
+  await a.sync(folder, T + 100);
+  const adopted = await b.sync(folder, T + 101);
+  deepEqual(adopted.applied.feedsAdded, [FEED_A], "the tablet adopted the subscription");
+  equal(b.adopted.includes("theme"), true, "and the settings");
+  const written = folder.peek();
+
+  // A's second pass: nothing in its library has changed, so the folder already
+  // says what the merge produced. Applying a remote change must not become an
+  // outgoing one — that loop is how two devices bounce a document forever.
+  const again = await a.sync(folder, T + 149);
+  equal(again.unchanged, true, "the folder already said this");
+  equal(folder.peek(), written, "the document in the folder is byte-identical");
+  deepEqual(
+    again.applied,
+    {
+      feedsAdded: [],
+      feedsRemoved: [],
+      feedsMoved: [],
+      feedsRenamed: [],
+      feedsRedirected: [],
+      foldersAdded: [],
+      foldersRemoved: [],
+      marksApplied: 0,
+      marksSkipped: 0,
+    },
+    "nothing was applied a second time",
+  );
+
+  // The one thing that may differ is the stamp on the copy itself: `device` and
+  // `writtenAt` describe who wrote this file and when, and neither is merged.
+  const before = JSON.parse(written);
+  const moved = Object.keys(again.snapshot).filter(
+    (key) => JSON.stringify(again.snapshot[key]) !== JSON.stringify(before[key]),
+  );
+  deepEqual(
+    moved.filter((key) => key !== "device" && key !== "writtenAt"),
+    [],
+    "every record is byte-identical",
+  );
+  truthy(moved.includes("writtenAt"), `writtenAt is the only stamp that moved: ${moved.join(", ")}`);
+});
+
+await check("the revision survives a restart, and never goes backwards", async () => {
+  const folder = new MemorySyncProvider();
+  const first = device("laptop");
+  await addFeed(first, FEED_A, { title: "Comics" });
+  await first.sync(folder, T + 100);
+
+  const opened = JSON.parse(folder.peek()).feeds[FEED_A];
+  truthy(opened.by !== "", "the record says which device wrote it");
+  truthy(opened.rev > 0, "and which revision of it");
+
+  // A restart: the same library, opened again in a new process. The id and the
+  // counter are the library's, so neither of them starts over.
+  const second = reopen(first);
+  await second.store.renameFeed(FEED_A, "Comics, renamed", "given");
+  await second.sync(folder, T + 200);
+  const afterSecond = JSON.parse(folder.peek()).feeds[FEED_A];
+  truthy(afterSecond.rev > opened.rev, `a later build is a higher revision: ${afterSecond.rev}`);
+  equal(afterSecond.by, opened.by, "the same device id after a restart");
+
+  const third = reopen(second);
+  await third.store.renameFeed(FEED_A, "Comics, renamed again", "given");
+  await third.sync(folder, T + 300);
+  const afterThird = JSON.parse(folder.peek()).feeds[FEED_A];
+  truthy(afterThird.rev > afterSecond.rev, `still counting: ${afterThird.rev}`);
+  equal(afterThird.by, opened.by, "and still the same device");
+
+  // A library rebuilt from nothing (a reinstall) is a new library, so it gets a
+  // new id and a counter of its own. That is not a new authority: the ordering
+  // is `(at, rev, by)`, so a fresh counter cannot outrank an old record, and the
+  // id is only ever a tie-break.
+  const rebuilt = device("laptop");
+  await addFeed(rebuilt, FEED_B, { title: "Other" });
+  await rebuilt.sync(folder, T + 400);
+  const fresh = JSON.parse(folder.peek()).feeds[FEED_B];
+  truthy(fresh.by !== opened.by, "a rebuilt library is a different device");
+  equal(fresh.rev, 1, "with its counter at the beginning");
+});
+
+await check("a document written before revisions still merges, on its own clock", async () => {
+  // A file from the build before `rev`: nothing in it but the second.
+  const legacy = {
+    version: SYNC_VERSION,
+    device: "tablet",
+    writtenAt: T,
+    feeds: {
+      [FEED_A]: {
+        at: T + 50,
+        title: "From the old build",
+        titleSource: "given",
+        folder: null,
+        addedAt: T,
+        removed: false,
+      },
+    },
+    folders: {},
+    redirects: {},
+    marks: {},
+    prefs: { entries: {} },
+    sidebar: null,
+    place: null,
+  };
+
+  const parsed = parseSyncSnapshot(JSON.stringify(legacy)).feeds[FEED_A];
+  equal(parsed.rev, 0, "no revision is invented for it");
+  equal(parsed.by, "", "and no device id");
+  equal(parsed.at, T + 50, "the second it does carry is kept");
+
+  // It still arrives: a document without revisions is an older document, not a
+  // broken one.
+  const folder = new MemorySyncProvider(JSON.stringify(legacy));
+  const a = device("laptop", { identity: { id: "device-laptop", rev: 0 } });
+  await a.sync(folder, T + 10);
+  equal((await a.store.feed(FEED_A)).title, "From the old build", "the older document arrived");
+
+  // And it orders by `at` alone, as it used to: a real stamp only takes the
+  // ties a record with no revision cannot defend.
+  const theirs = legacy.feeds[FEED_A];
+  const mine = feedRecord({ at: T + 60, rev: 4, by: "device-laptop" }, "Newer here");
+  equal(
+    mergeSnapshots(documentWith("laptop", mine), documentWith("tablet", theirs), null).snapshot.feeds[FEED_A]
+      .title,
+    "Newer here",
+    "the later second wins over the higher revision",
+  );
+  const tie = { ...mine, at: T + 50 };
+  equal(
+    mergeSnapshots(documentWith("laptop", tie), documentWith("tablet", theirs), null).snapshot.feeds[FEED_A]
+      .title,
+    "Newer here",
+    "and the same second goes to the record that has a revision",
+  );
 });
 
 console.log(`\n${passed} checks passed`);

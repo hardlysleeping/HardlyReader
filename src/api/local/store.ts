@@ -28,6 +28,7 @@ import type {
   ExtractionRow,
   FeedRow,
   FolderRow,
+  MetaRow,
   PositionRow,
   RedirectRow,
 } from "./schema";
@@ -389,6 +390,30 @@ export class LocalStore {
 
     await this.db.write([{ type: "put", table: "feeds", row }]);
     return row;
+  }
+
+  /* -------------------------------------------------------------------------
+   * Facts about the library itself
+   * ----------------------------------------------------------------------- */
+
+  /**
+   * One of this library's own facts, or null when it has never been written.
+   *
+   * Not a preference and not a setting the reader chose: today the only names
+   * in it are the identity this library syncs under (`sync.device`) and how many
+   * revisions it has written (`sync.rev`). Both are true of *this library*, so
+   * they live with its rows rather than in memory or in the profile — a device
+   * id that a restart changed would read, on the other device, as a new
+   * authority arriving with the same history (`api/local/sync.ts`).
+   */
+  async meta(name: string): Promise<string | null> {
+    const row = await this.db.get<MetaRow>("meta", name);
+    return row === null ? null : (row.value ?? null);
+  }
+
+  /** Writes one of this library's own facts. Never travels, never merged. */
+  async setMeta(name: string, value: string): Promise<void> {
+    await this.db.write([{ type: "put", table: "meta", row: { key: name, value } }]);
   }
 
   /* -------------------------------------------------------------------------

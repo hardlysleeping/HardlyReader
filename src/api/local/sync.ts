@@ -12,6 +12,17 @@
  * business: `sync-provider.ts` owns the transport and `syncOnce` asks a
  * `SyncProvider` for the document. That is why nothing below names a path.
  *
+ * **What the folder holds is a set of files, not one document.** `manifest.json`
+ * names the format and its version and is written last, `library.json`,
+ * `state.json`, `preferences.json`, `positions.json`, `tombstones.json` and
+ * `devices.json` carry the rest (`docs/sync-format.md`). Splitting them is what
+ * makes one device's position write cost one small upload instead of the whole
+ * library, and it is the layout a second provider is handed — the engine stays
+ * the only thing that knows what a feed is. A provider that cannot address a
+ * single file keeps getting the whole document in one write, so the folder-backed
+ * v1 and a folder written by v1 both keep working: the set is written from the
+ * v1 document on first read, and the old file is left where the reader put it.
+ *
  * Four decisions shape everything below.
  *
  * **Reading state travels; the fetching engine does not.** Subscriptions,
@@ -30,6 +41,23 @@
  * since we last agreed". Read and starred are merged as two separate registers,
  * so one device marking an article read and the other starring it both keep
  * their change.
+ *
+ * **A stamp is not one number.** A record's second is what a person reads, and
+ * it is decided by a clock that can be wrong: a phone ten minutes fast would win
+ * every argument it entered, and a device that had been offline for a week would
+ * lose edits made after the other device last synced. So a record is ordered by
+ * three fields — `(at, rev, by)` — where `rev` is the writing device's own
+ * revision counter and `by` is its id, and no change is ever dated earlier than
+ * one second past the newest second this device has already seen. `RecordStamp`
+ * writes the tie-break down; `writeSecond` says why the clamp is a floor rather
+ * than a ceiling.
+ *
+ * **The id this library syncs under is part of the library.** `sync.device` and
+ * `sync.rev` are kept in the library's own `meta` rows, not in memory and not in
+ * the profile, so a restart keeps the same id and the same counter: an id that
+ * changed per run would reach the other device as a new authority carrying the
+ * same history, and a counter that restarted at zero would let this device's
+ * oldest record beat its newest.
  *
  * **A removal is a record, and it is decided rather than raced.** A deleted
  * feed leaves a tombstone with the time it was deleted. An edit on another
@@ -104,6 +132,154 @@ const MAX_RECORDS = 50_000;
 const MAX_TEXT = 2048;
 
 /* ---------------------------------------------------------------------------
+ * What order a record comes in
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The stamp every record carries: when it changed, in which of the writing
+ * device's revisions, and which device wrote it.
+ *
+ * `at` is the only field a person ever reads — it is what the conflict line in
+ * the panel shows — so it stays even though it cannot be trusted alone. On its
+ * own it makes a phone whose clock is ten minutes fast win every argument it
+ * enters, and it makes a device that has been offline for a week lose edits it
+ * made after the other device last synced. So a record is ordered by three
+ * fields, in this order, and the order is total:
+ *
+ * 1. **`at`** — the later second wins. Within a copy this is the writing
+ *    device's own clock, which is the best available guess at *when* two
+ *    genuinely concurrent edits happened; it is never dated earlier than
+ *    `max(seen) + 1` (`writeSecond`), which is what stops a clock in the future
+ *    from deciding arguments it never saw.
+ * 2. **`rev`** — the writing device's revision counter, advanced once per
+ *    document it builds. A second is the resolution of `at`, so two changes by
+ *    one device inside one second tie on it; the revision does not. Between
+ *    *different* devices the numbers are not comparable — that is what the third
+ *    key is for — but comparing them is still a total order, which is all a
+ *    tie-break has to be.
+ * 3. **`by`** — the device id, compared as a plain string, the larger winning.
+ *    Two devices that land on the same second and the same revision must reach
+ *    the same answer without knowing which of them is asking; comparing the id
+ *    is arbitrary but it is symmetric, and symmetry is the whole requirement.
+ *
+ * A record with neither `rev` nor `by` was written by a build that had only
+ * `at`. It keeps ordering by `at` alone, exactly as it used to — `rev` 0 and
+ * `by` `""` lose every tie they enter — and gains both the next time a device
+ * writes it.
+ */
+export interface RecordStamp {
+  /** Seconds from the writing device's clock. The field a person reads. */
+  at: number;
+  /** The writing device's revision when it last changed. 0 in an older document. */
+  rev: number;
+  /** The id of the device that wrote it. `""` in an older document. */
+  by: string;
+}
+
+/**
+ * Where two stamps stand: positive when `a` is newer, negative when `b` is,
+ * zero when they are the same stamp.
+ *
+ * The three keys are compared in the order {@link RecordStamp} documents.
+ * Antisymmetric on purpose — `compareStamps(a, b) === -compareStamps(b, a)` —
+ * because two devices merging the same pair from opposite sides must land on the
+ * same copy: a rule that said "mine wins" would leave them disagreeing forever.
+ */
+export function compareStamps(a: RecordStamp, b: RecordStamp): number {
+  const [aAt, aRev, aBy] = ordinal(a);
+  const [bAt, bRev, bBy] = ordinal(b);
+  if (aAt !== bAt) return aAt > bAt ? 1 : -1;
+  if (aRev !== bRev) return aRev > bRev ? 1 : -1;
+  if (aBy !== bBy) return aBy > bBy ? 1 : -1;
+  return 0;
+}
+
+/**
+ * The three keys, with anything missing read as the zero an older document
+ * carries.
+ *
+ * `parseSyncSnapshot` already fills the gaps, so in the app this is belt and
+ * braces — but the comparison has to stay antisymmetric for *every* pair it can
+ * be handed, because a pair it answers the same way from both sides is a record
+ * the two devices will hand back and forth forever.
+ */
+function ordinal(stamp: RecordStamp): [number, number, string] {
+  const at = Number.isFinite(stamp.at) ? stamp.at : 0;
+  const rev = Number.isFinite(stamp.rev) ? stamp.rev : 0;
+  const by = typeof stamp.by === "string" ? stamp.by : "";
+  return [at, rev, by];
+}
+
+/* ---------------------------------------------------------------------------
+ * Which device this is
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Where the identity is kept: in the library's own `meta` rows, never the file.
+ *
+ * The document's `device` field is a *name* — what the panel shows and what a
+ * person reads. These two are the machine's half: an id nobody has to read, and
+ * the count of revisions this library has written.
+ */
+export const META_DEVICE_KEY = "sync.device";
+export const META_REV_KEY = "sync.rev";
+
+/** The identity a library syncs under. */
+export interface DeviceIdentity {
+  /** Opaque, stable for the life of the library, and not a label. */
+  id: string;
+  /** The revision this build is writing in. Advanced once per document built. */
+  rev: number;
+}
+
+/** A device id: unique and unmemorable, because nothing depends on reading it. */
+function mintDeviceId(): string {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+  return `device-${random}`;
+}
+
+/**
+ * The id this library syncs under, minted once and then kept.
+ *
+ * In the library rather than in memory, because a device id that changed would
+ * read on the other device as a *new authority*: the same history would arrive
+ * under a name nobody had seen, `compareStamps` would start answering
+ * differently between two copies of it, and every conflict would look like a
+ * newcomer's. A reinstall that keeps the library therefore keeps the id; one
+ * that rebuilds the library mints a new one, which is honest, because it is a
+ * new library.
+ */
+export async function libraryDeviceId(store: LocalStore): Promise<string> {
+  const kept = await store.meta(META_DEVICE_KEY);
+  if (kept !== null && kept.trim() !== "") return kept;
+  const minted = mintDeviceId();
+  await store.setMeta(META_DEVICE_KEY, minted);
+  return minted;
+}
+
+/**
+ * The revision this build may write in, and the id to write it under.
+ *
+ * Advanced once per document built, so every record one build changes shares a
+ * revision — a document is one revision of this device — and stored in the
+ * library *before* the document is written anywhere, so a crash between the two
+ * can skip a revision number but can never reuse one. A counter that restarted
+ * at zero on every launch would let this device's oldest record outrank its
+ * newest, which is the wrong clock's failure arrived at from the other side.
+ */
+export async function nextDeviceIdentity(store: LocalStore): Promise<DeviceIdentity> {
+  const id = await libraryDeviceId(store);
+  const kept = await store.meta(META_REV_KEY);
+  const last = Math.max(0, Math.floor(Number(kept)) || 0);
+  const rev = last + 1;
+  await store.setMeta(META_REV_KEY, String(rev));
+  return { id, rev };
+}
+
+/* ---------------------------------------------------------------------------
  * The document
  * ------------------------------------------------------------------------- */
 
@@ -111,12 +287,12 @@ const MAX_TEXT = 2048;
  * One subscription, as it travels.
  *
  * `at` is when this record last changed on the device that wrote it, not when
- * the feed was added, and it is the only field the merge order depends on. A
- * tombstone is the same shape with `removed` set: the title and folder are kept
- * so a re-subscription has something to restore.
+ * the feed was added, and it is the field a person reads; `rev` and `by` are
+ * what settle an order between two records (`RecordStamp`). A tombstone is the
+ * same shape with `removed` set: the title and folder are kept so a
+ * re-subscription has something to restore.
  */
-export interface SyncedFeed {
-  at: number;
+export interface SyncedFeed extends RecordStamp {
   title: string;
   /** Where the title came from: `feed`, `given` or `url`. */
   titleSource: string;
@@ -126,8 +302,7 @@ export interface SyncedFeed {
 }
 
 /** One folder, including an empty one. */
-export interface SyncedFolder {
-  at: number;
+export interface SyncedFolder extends RecordStamp {
   createdAt: number;
   removed: boolean;
 }
@@ -140,11 +315,13 @@ export interface SyncedFolder {
  * a *fact about the web* rather than a preference, which is why one device
  * seeing it is enough and why the record outlives the subscription that found
  * it: a device still holding the old address follows it instead of subscribing
- * a second copy.
+ * a second copy. Because it is a fact, `at` is the poll's own second rather than
+ * a stamp taken when the document was built; `rev` and `by` name the device that
+ * learned it, and only settle a tie between two different targets for one
+ * address.
  */
-export interface SyncedRedirect {
+export interface SyncedRedirect extends RecordStamp {
   to: string;
-  at: number;
 }
 
 /**
@@ -152,12 +329,19 @@ export interface SyncedRedirect {
  *
  * Read and starred are separate registers with their own times: two devices
  * doing different things to the same post is the ordinary case, not a conflict.
+ * The revision and the device id belong to the record rather than to a register
+ * — a mark is written as one record, and both registers are read from the same
+ * document — so they settle a tie between two copies of it (`RecordStamp`).
  */
 export interface SyncedMark {
   read: boolean;
   readAt: number;
   starred: boolean;
   starredAt: number;
+  /** The revision of the last write to either register. 0 in an older document. */
+  rev: number;
+  /** The device that made that write. `""` in an older document. */
+  by: string;
 }
 
 /** The whole shared document. */
@@ -197,14 +381,10 @@ export interface SyncSnapshot {
 }
 
 /** The arrangement and its stamp. */
-export interface SyncedSidebar extends SidebarDoc {
-  at: number;
-}
+export interface SyncedSidebar extends SidebarDoc, RecordStamp {}
 
 /** A reading place and its stamp. */
-export interface SyncedPlace extends PlaceDoc {
-  at: number;
-}
+export interface SyncedPlace extends PlaceDoc, RecordStamp {}
 
 /** A document with nothing in it, for a folder that has never been written. */
 export function emptySnapshot(device = "", writtenAt = 0): SyncSnapshot {
@@ -241,6 +421,24 @@ function stamp(value: unknown): number {
   return Math.floor(value);
 }
 
+/**
+ * A revision counter, or 0.
+ *
+ * An older document has no `rev` at all, and a hand-written one may have
+ * anything. Zero is the right absence: it loses every tie, so a record that was
+ * never stamped with a revision can only win on its own second — which is
+ * exactly the behaviour this field was added to improve on, not to break.
+ */
+function revision(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
+  return Math.floor(value);
+}
+
+/** The ordering stamp a record carries, with an older document's gaps filled in. */
+function parseStamp(raw: Record<string, unknown>): RecordStamp {
+  return { at: stamp(raw.at), rev: revision(raw.rev), by: text(raw.by) ?? "" };
+}
+
 function flag(value: unknown): boolean {
   return value === true;
 }
@@ -253,7 +451,7 @@ function parseFeed(raw: unknown): SyncedFeed | null {
   const folder = raw.folder === null ? null : text(raw.folder);
   if (raw.folder !== null && folder === null) return null;
   return {
-    at: stamp(raw.at),
+    ...parseStamp(raw),
     title,
     titleSource,
     folder,
@@ -265,7 +463,7 @@ function parseFeed(raw: unknown): SyncedFeed | null {
 function parseFolder(raw: unknown): SyncedFolder | null {
   if (!isRecord(raw)) return null;
   return {
-    at: stamp(raw.at),
+    ...parseStamp(raw),
     createdAt: stamp(raw.createdAt),
     removed: flag(raw.removed),
   };
@@ -278,6 +476,8 @@ function parseMark(raw: unknown): SyncedMark | null {
     readAt: stamp(raw.readAt),
     starred: flag(raw.starred),
     starredAt: stamp(raw.starredAt),
+    rev: revision(raw.rev),
+    by: text(raw.by) ?? "",
   };
 }
 
@@ -291,9 +491,9 @@ function parseMark(raw: unknown): SyncedMark | null {
 function parseRedirect(raw: unknown): SyncedRedirect | null {
   if (!isRecord(raw)) return null;
   const to = text(raw.to);
-  const at = stamp(raw.at);
-  if (to === null || to.trim() === "" || at === 0) return null;
-  return { to, at };
+  const order = parseStamp(raw);
+  if (to === null || to.trim() === "" || order.at === 0) return null;
+  return { to, ...order };
 }
 
 /**
@@ -306,19 +506,32 @@ function parseRedirect(raw: unknown): SyncedRedirect | null {
  * keeps the rest.
  */
 function parseSyncedSidebar(raw: unknown): SyncedSidebar | null {
-  if (!isRecord(raw)) return null;
-  const at = stamp(raw.at);
-  if (at === 0) return null;
+  const order = isRecord(raw) ? parseStamp(raw) : null;
+  if (order === null || order.at === 0) return null;
   const doc = parseSidebar(raw);
-  return doc === null ? null : { ...doc, at };
+  return doc === null ? null : { ...doc, ...order };
 }
 
 function parseSyncedPlace(raw: unknown): SyncedPlace | null {
-  if (!isRecord(raw)) return null;
-  const at = stamp(raw.at);
-  if (at === 0) return null;
+  const order = isRecord(raw) ? parseStamp(raw) : null;
+  if (order === null || order.at === 0) return null;
   const doc = parsePlaceDoc(raw);
-  return doc === null ? null : { ...doc, at };
+  return doc === null ? null : { ...doc, ...order };
+}
+
+/**
+ * The refusal for a folder (or a document) this build is too old for.
+ *
+ * One sentence for both, because it is one situation: the reader has two
+ * devices, one of them newer, and the only safe instruction is to update the
+ * older one. Reading a newer document wrongly and writing the result back is how
+ * a newer device's data gets erased.
+ */
+function refuseNewerVersion(where: string, label: string, version: number): LocalStorageError {
+  return new LocalStorageError(
+    `The sync ${where} was written by a newer version of HardlyReader (${label} ${version}). ` +
+      "Update this device, or the newer one's changes will be overwritten.",
+  );
 }
 
 /**
@@ -396,6 +609,14 @@ export function serializeSnapshot(snapshot: SyncSnapshot): string {
  * ------------------------------------------------------------------------- */
 
 /**
+ * A move as a row hands it over: the target and the second it was learned. The
+ * ordering fields follow when the document is built (`buildSnapshot`), which is
+ * the only place that knows which device is writing — so they are optional here
+ * and are filled with the losing values (0 and `""`) if a row ever wins a tie.
+ */
+export type RedirectRowRecord = { to: string; at: number; rev?: number; by?: string };
+
+/**
  * Every move any of these copies knows, with the newer record winning.
  *
  * A redirect is a fact, so the union is the whole merge rule: a device that has
@@ -405,16 +626,23 @@ export function serializeSnapshot(snapshot: SyncSnapshot): string {
  * the same address, and the next poll from either device resolves the chain.
  */
 function unionRedirects(
-  ...sources: readonly (Record<string, SyncedRedirect> | undefined)[]
+  ...sources: readonly (Record<string, RedirectRowRecord> | undefined)[]
 ): Record<string, SyncedRedirect> {
   const union: Record<string, SyncedRedirect> = {};
   for (const source of sources) {
     for (const [from, record] of Object.entries(source ?? {})) {
       const earlier = union[from];
-      if (earlier === undefined || record.at >= earlier.at) union[from] = { ...record };
+      if (earlier === undefined || compareStamps(stampOf(record), earlier) >= 0) {
+        union[from] = { to: record.to, at: record.at, rev: record.rev ?? 0, by: record.by ?? "" };
+      }
     }
   }
   return union;
+}
+
+/** The ordering stamp of a move that may have come from a row rather than a document. */
+function stampOf(record: RedirectRowRecord): RecordStamp {
+  return { at: record.at, rev: record.rev ?? 0, by: record.by ?? "" };
 }
 
 /** Two records for one feed, after a move put them under one key. */
@@ -423,18 +651,27 @@ function mergeMovedFeed(a: SyncedFeed, b: SyncedFeed): SyncedFeed {
   // that tombstone is one device noticing its own key had changed, not a reader
   // deleting anything.
   if (a.removed !== b.removed) return a.removed ? b : a;
-  return a.at >= b.at ? a : b;
+  return compareStamps(a, b) >= 0 ? a : b;
 }
 
 /** Two mark records for one article, after a move put them under one id. */
 function mergeMovedMark(a: SyncedMark, b: SyncedMark): SyncedMark {
   // Both ids name the same article, so the flags are a union: a reader who
-  // starred it under the old id has starred it.
+  // starred it under the old id has starred it. The stamp is whichever copy was
+  // written last, because that is the one the record now describes.
+  const newer = compareStamps(
+    { at: Math.max(a.readAt, a.starredAt), rev: a.rev, by: a.by },
+    { at: Math.max(b.readAt, b.starredAt), rev: b.rev, by: b.by },
+  ) >= 0
+    ? a
+    : b;
   return {
     read: a.read || b.read,
     readAt: Math.max(a.readAt, b.readAt),
     starred: a.starred || b.starred,
     starredAt: Math.max(a.starredAt, b.starredAt),
+    rev: newer.rev,
+    by: newer.by,
   };
 }
 
@@ -457,7 +694,9 @@ export function followRedirects(snapshot: SyncSnapshot): SyncSnapshot {
     const to = redirectTarget(snapshot.redirects ?? {}, record.to);
     if (to === from) continue;
     const earlier = known[from];
-    if (earlier === undefined || record.at >= earlier.at) known[from] = { to, at: record.at };
+    if (earlier === undefined || compareStamps(record, earlier) >= 0) {
+      known[from] = { to, at: record.at, rev: record.rev, by: record.by };
+    }
   }
   const document: SyncSnapshot = { ...snapshot, redirects: known };
   if (Object.keys(known).length === 0) return document;
@@ -503,9 +742,12 @@ export interface SnapshotRows {
    *
    * They travel because the other device has to be able to follow a feed it has
    * not fetched: a phone that is asleep while a site moves would otherwise
-   * subscribe the new address beside the old one on its next wake.
+   * subscribe the new address beside the old one on its next wake. The store
+   * knows the target and the second it learned it; the ordering stamp is added
+   * by `buildSnapshot`, which is the only place that knows which device is
+   * writing.
    */
-  redirects: Record<string, SyncedRedirect>;
+  redirects: Record<string, RedirectRowRecord>;
 }
 
 export interface BuildSnapshotOptions {
@@ -515,6 +757,16 @@ export interface BuildSnapshotOptions {
   prefs: PrefsDoc;
   device: string;
   now?: number;
+  /**
+   * The identity this library writes under, from `nextDeviceIdentity`.
+   *
+   * Absent, a build has no revision to write and falls back to the `device`
+   * label with revision 0 — the pre-revision behaviour, which is what a caller
+   * with no library behind it (an import's dry run, a test of the merge alone)
+   * should get. A caller that has a library always passes it, because the id is
+   * what makes this device's records tell apart from another's.
+   */
+  identity?: DeviceIdentity;
   /**
    * The sidebar as this device has arranged it, or null when it cannot say.
    *
@@ -529,6 +781,57 @@ export interface BuildSnapshotOptions {
 
 function seconds(now?: number): number {
   return now ?? Math.floor(Date.now() / 1000);
+}
+
+/**
+ * The newest second any record in this copy has already spoken at.
+ *
+ * `writtenAt` is deliberately not considered: that field says when the *copy*
+ * was written, it is never merged, and `buildSnapshot` compares a row's arrival
+ * against it — letting a peer's clock in here would make every newly fetched
+ * article look older than the agreement, which is the arrival rule's one job.
+ */
+function newestSecond(snapshot: SyncSnapshot | null): number {
+  if (snapshot === null) return 0;
+  let newest = 0;
+  const consider = (record: { at: number } | null | undefined) => {
+    if (record !== null && record !== undefined && record.at > newest) newest = record.at;
+  };
+  for (const record of Object.values(snapshot.feeds)) consider(record);
+  for (const record of Object.values(snapshot.folders)) consider(record);
+  for (const record of Object.values(snapshot.redirects)) consider(record);
+  for (const record of Object.values(snapshot.marks)) {
+    if (record.readAt > newest) newest = record.readAt;
+    if (record.starredAt > newest) newest = record.starredAt;
+  }
+  consider(snapshot.sidebar);
+  consider(snapshot.place);
+  return newest;
+}
+
+/**
+ * The second this device may date a change at.
+ *
+ * Two failures meet here, and this is the smallest rule that answers both.
+ *
+ * A device whose clock runs fast used to win every argument it entered: its
+ * records were stamped ten minutes into everyone else's future, so later edits
+ * on a correct device lost to them for ten minutes. So a change is never dated
+ * earlier than one second past the newest second this device has already seen —
+ * `max(seen) + 1`, the rule a Lamport clock applies — and an edit made *after*
+ * seeing another device's copy therefore always outranks it, whatever either
+ * clock says. A fast clock can still date its own first document into the
+ * future; it cannot keep winning once a device has answered it, and every
+ * answer advances the sequence by a second rather than by the skew.
+ *
+ * Clamping *down* instead — cutting the stamp off at what has already been seen
+ * — does not work for the other half of the trap. A device that has been
+ * offline for a week has a correct clock and has seen nothing for a week, and
+ * its edits must beat the ones it never saw. Keeping the local clock as the
+ * floor is what preserves that; `max` is what puts the sequence above it.
+ */
+function writeSecond(clock: number, seen: number): number {
+  return seen <= 0 ? clock : Math.max(clock, seen + 1);
 }
 
 /**
@@ -558,19 +861,23 @@ function sameFolder(a: SyncedFolder, b: SyncedFolder): boolean {
  * This device's half of the next merge.
  *
  * The interesting part is what `at` means. A record the last agreement already
- * had, unchanged, keeps the time it was agreed by — so a device that has done
- * nothing cannot win an argument with a device that has. A record that differs
- * from the agreement, or is new, is stamped now, because this is the first
- * moment this device can honestly say when it changed.
+ * had, unchanged, keeps the whole stamp it was agreed by — its second, its
+ * revision and its device — so a device that has done nothing cannot win an
+ * argument with a device that has. A record that differs from the agreement, or
+ * is new, is stamped here: this device's next revision, its own id, and a second
+ * that is its clock but never earlier than one second past what it has already
+ * seen (`writeSecond`).
  *
  * A feed or folder the agreement had and the library no longer does is a
- * removal, stamped now; its last known name travels inside the tombstone so a
- * re-subscription elsewhere has something to restore. Marks are only carried
- * while they say something (`read`, `starred`) or are still recent enough to be
- * worth remembering as an unmark.
+ * removal, stamped the same way; its last known name travels inside the
+ * tombstone so a re-subscription elsewhere has something to restore. Marks are
+ * only carried while they say something (`read`, `starred`) or are still recent
+ * enough to be worth remembering as an unmark.
  */
 export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
-  const now = seconds(options.now);
+  const clock = seconds(options.now);
+  const identity: DeviceIdentity = options.identity ?? { id: options.device, rev: 0 };
+  const now = writeSecond(clock, newestSecond(options.base));
   // The moves this device knows, and the ones it last agreed to. The base is
   // read *through* them, so a subscription the agreement still holds under the
   // old address is recognised as the feed that is now here — otherwise the
@@ -578,12 +885,14 @@ export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
   const redirects = unionRedirects(options.base?.redirects, options.rows.redirects);
   const base =
     options.base === null ? null : followRedirects({ ...options.base, redirects });
-  const snapshot = emptySnapshot(options.device, now);
-  snapshot.redirects = redirects;
+  const snapshot = emptySnapshot(options.device, clock);
+  snapshot.redirects = stampRedirects(redirects, base?.redirects ?? null, identity);
 
   for (const row of options.rows.feeds) {
     const record: SyncedFeed = {
       at: now,
+      rev: identity.rev,
+      by: identity.id,
       title: row.title,
       titleSource: row.title_source,
       folder: row.folder,
@@ -595,7 +904,13 @@ export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
   }
 
   for (const row of options.rows.folders) {
-    const record: SyncedFolder = { at: now, createdAt: row.created_at, removed: false };
+    const record: SyncedFolder = {
+      at: now,
+      rev: identity.rev,
+      by: identity.id,
+      createdAt: row.created_at,
+      removed: false,
+    };
     const agreed = base?.folders[row.key];
     snapshot.folders[row.key] = agreed !== undefined && sameFolder(agreed, record) ? agreed : record;
   }
@@ -613,6 +928,8 @@ export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
         readAt: read ? now : 0,
         starred,
         starredAt: starred ? now : 0,
+        rev: identity.rev,
+        by: identity.id,
       };
       continue;
     }
@@ -628,21 +945,31 @@ export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
     let starred = row.starred === 1;
     let readAt = agreed.readAt;
     let starredAt = agreed.starredAt;
+    let changed = false;
 
     if (agreed.read !== read) {
-      if (read || !fresh) readAt = now;
-      else read = agreed.read;
+      if (read || !fresh) {
+        readAt = now;
+        changed = true;
+      } else read = agreed.read;
     }
     if (agreed.starred !== starred) {
-      if (starred || !fresh) starredAt = now;
-      else starred = agreed.starred;
+      if (starred || !fresh) {
+        starredAt = now;
+        changed = true;
+      } else starred = agreed.starred;
     }
 
-    const record: SyncedMark = { read, readAt, starred, starredAt };
+    // A record this build did not touch keeps the stamp it was agreed with: the
+    // revision and the id belong to whoever actually wrote it, and carrying
+    // this device's name on it would make an agreement look like a claim.
+    const record: SyncedMark = changed
+      ? { read, readAt, starred, starredAt, rev: identity.rev, by: identity.id }
+      : { read, readAt, starred, starredAt, rev: agreed.rev, by: agreed.by };
     // An unmark is worth carrying for a while — it is how a star removed here
     // reaches the other device — but not forever.
     const lastMark = Math.max(record.readAt, record.starredAt);
-    if (!read && !starred && now - lastMark > MARK_RETENTION_SECONDS) continue;
+    if (!read && !starred && clock - lastMark > MARK_RETENTION_SECONDS) continue;
     snapshot.marks[row.key] = record;
   }
 
@@ -650,11 +977,15 @@ export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
   // a mark for an article it never fetched; both still have to travel.
   for (const [url, record] of Object.entries(base?.feeds ?? {})) {
     if (snapshot.feeds[url] !== undefined) continue;
-    snapshot.feeds[url] = record.removed ? record : { ...record, removed: true, at: now };
+    snapshot.feeds[url] = record.removed
+      ? record
+      : { ...record, removed: true, at: now, rev: identity.rev, by: identity.id };
   }
   for (const [name, record] of Object.entries(base?.folders ?? {})) {
     if (snapshot.folders[name] !== undefined) continue;
-    snapshot.folders[name] = record.removed ? record : { ...record, removed: true, at: now };
+    snapshot.folders[name] = record.removed
+      ? record
+      : { ...record, removed: true, at: now, rev: identity.rev, by: identity.id };
   }
   for (const [id, record] of Object.entries(base?.marks ?? {})) {
     if (snapshot.marks[id] === undefined) snapshot.marks[id] = record;
@@ -664,10 +995,44 @@ export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
   snapshot.sidebar = stampSidebar(
     options.sidebar === undefined ? undefined : options.sidebar,
     base?.sidebar ?? null,
-    now,
+    { at: now, rev: identity.rev, by: identity.id },
   );
-  snapshot.place = stampPlace(options.place === undefined ? undefined : options.place, base?.place ?? null, now);
-  return pruneSnapshot(followRedirects(snapshot), now);
+  snapshot.place = stampPlace(options.place === undefined ? undefined : options.place, base?.place ?? null, {
+    at: now,
+    rev: identity.rev,
+    by: identity.id,
+  });
+  return pruneSnapshot(followRedirects(snapshot), clock);
+}
+
+/**
+ * The moves this copy carries, with the stamp of whichever device learned them.
+ *
+ * A move is a fact about the web rather than something the reader chose, so its
+ * `at` is the poll's own second — that is when this device learned it, and
+ * restamping it to the build's second would keep a six-month-old move alive for
+ * another six months. `rev` and `by` only say who learned it, and settle a tie
+ * between two different targets for one address. A move already in the
+ * agreement rides along with the stamp it was agreed by, so nothing about it
+ * changes when a device that did nothing syncs.
+ */
+function stampRedirects(
+  redirects: Record<string, SyncedRedirect>,
+  agreed: Record<string, SyncedRedirect> | null,
+  identity: DeviceIdentity,
+): Record<string, SyncedRedirect> {
+  const stamped: Record<string, SyncedRedirect> = {};
+  for (const [from, record] of Object.entries(redirects)) {
+    const earlier = agreed?.[from];
+    const known =
+      earlier !== undefined &&
+      earlier.to === record.to &&
+      earlier.at === record.at &&
+      earlier.rev > 0 &&
+      earlier.by !== "";
+    stamped[from] = known ? earlier : { ...record, rev: identity.rev, by: identity.id };
+  }
+  return stamped;
 }
 
 /**
@@ -688,7 +1053,7 @@ export function buildSnapshot(options: BuildSnapshotOptions): SyncSnapshot {
 function stampSidebar(
   doc: SidebarDoc | null | undefined,
   agreed: SyncedSidebar | null,
-  now: number,
+  stampNow: RecordStamp,
 ): SyncedSidebar | null {
   if (doc === null || doc === undefined) return agreed;
   if (agreed !== null && sameSidebar(agreed, doc)) return agreed;
@@ -697,18 +1062,18 @@ function stampSidebar(
     // decision is what travels.
     return null;
   }
-  return { ...doc, at: now };
+  return { ...doc, ...stampNow };
 }
 
 /** The place, by the same three cases. */
 function stampPlace(
   doc: PlaceDoc | null | undefined,
   agreed: SyncedPlace | null,
-  now: number,
+  stampNow: RecordStamp,
 ): SyncedPlace | null {
   if (doc === null || doc === undefined) return agreed;
   if (agreed !== null && samePlace(agreed, doc)) return agreed;
-  return { ...doc, at: now };
+  return { ...doc, ...stampNow };
 }
 
 /** Drops what has outlived its usefulness: old tombstones, old unmarks, old moves. */
@@ -767,8 +1132,15 @@ export interface SnapshotMerge {
  *
  * `none` is the ordinary case: unchanged on both sides. `device` and `folder`
  * say only one side moved, which is not a conflict. Two changed copies of the
- * same record are — and the newer record wins, with the dropped line kept so
- * the reader can be told what did not travel.
+ * same record are — and the newer record wins by its whole stamp (`at`, then
+ * `rev`, then the device id — `RecordStamp`), with the dropped line kept so the
+ * reader can be told what did not travel.
+ *
+ * `order` is asked for the whole stamp rather than its second, because two
+ * records can share a second and still be ordered; `tie` is only reached when
+ * the stamps are identical, which is a record written twice by one device in one
+ * revision — the last case where a comparison on the values themselves is all
+ * there is left.
  */
 type Choice = { kept: "device" | "folder" | "none"; both: boolean };
 
@@ -777,7 +1149,7 @@ function choose<T>(
   remote: T | undefined,
   base: T | undefined,
   same: (a: T, b: T) => boolean,
-  at: (record: T) => number,
+  order: (record: T) => RecordStamp,
   tie: (a: T, b: T) => number,
 ): Choice {
   if (local === undefined || remote === undefined) {
@@ -786,16 +1158,16 @@ function choose<T>(
   if (same(local, remote)) {
     // The same value from both sides is not a disagreement; the newer stamp is
     // the one worth carrying forward so a third device sees one answer.
-    return { kept: at(local) >= at(remote) ? "device" : "folder", both: false };
+    return { kept: compareStamps(order(local), order(remote)) >= 0 ? "device" : "folder", both: false };
   }
   if (base !== undefined && same(local, base)) return { kept: "folder", both: false };
   if (base !== undefined && same(remote, base)) return { kept: "device", both: false };
 
-  const localAt = at(local);
-  const remoteAt = at(remote);
-  if (localAt !== remoteAt) return { kept: localAt > remoteAt ? "device" : "folder", both: true };
-  // Same second on both sides: a stable comparison rather than "the one I read
-  // first", so both devices settle on the same copy instead of flapping.
+  const difference = compareStamps(order(local), order(remote));
+  if (difference !== 0) return { kept: difference > 0 ? "device" : "folder", both: true };
+  // The same stamp on both sides, and they still disagree: a stable comparison
+  // of the records themselves rather than "the one I read first", so both
+  // devices settle on the same copy instead of flapping.
   return { kept: tie(local, remote) >= 0 ? "device" : "folder", both: true };
 }
 
@@ -873,7 +1245,7 @@ export function mergeSnapshots(
       continue;
     }
 
-    const choice = choose(mine, theirs, base?.feeds[url], sameFeed, (record) => record.at, feedTie);
+    const choice = choose(mine, theirs, base?.feeds[url], sameFeed, (record) => record, feedTie);
     const chosen = choice.kept === "folder" ? theirs : mine;
     if (chosen === undefined) continue;
     merged.feeds[url] = chosen;
@@ -909,14 +1281,7 @@ export function mergeSnapshots(
       continue;
     }
 
-    const choice = choose(
-      mine,
-      theirs,
-      base?.folders[name],
-      sameFolder,
-      (record) => record.at,
-      folderTie,
-    );
+    const choice = choose(mine, theirs, base?.folders[name], sameFolder, (record) => record, folderTie);
     const chosen = choice.kept === "folder" ? theirs : mine;
     if (chosen === undefined) continue;
     merged.folders[name] = chosen;
@@ -944,8 +1309,11 @@ export function mergeSnapshots(
       readAt: 0,
       starred: false,
       starredAt: 0,
+      rev: 0,
+      by: "",
     };
     let any = false;
+    const winners: RecordStamp[] = [];
 
     for (const field of ["read", "starred"] as const) {
       const atKey = field === "read" ? "readAt" : "starredAt";
@@ -954,12 +1322,26 @@ export function mergeSnapshots(
       const mineValue = mine?.[field] ?? false;
       const theirsValue = theirs?.[field] ?? false;
 
+      // The registers are compared by the same stamp as a whole record: the
+      // second the register moved, then the revision it moved in, then which
+      // device wrote it. The revision and the id belong to the mark rather than
+      // to the register (a mark is written as one record), which is why they are
+      // read from the record on each side — including the side that has no
+      // record at all, where they are the zeroes an older document carries.
+      const mineStamp: RecordStamp = { at: mineAt, rev: mine?.rev ?? 0, by: mine?.by ?? "" };
+      const theirsStamp: RecordStamp = {
+        at: theirsAt,
+        rev: theirs?.rev ?? 0,
+        by: theirs?.by ?? "",
+      };
+
       let from: "device" | "folder";
-      if (mineAt === theirsAt) {
-        // Same instant: the flag itself breaks the tie, so both devices agree.
+      if (compareStamps(mineStamp, theirsStamp) === 0) {
+        // The same stamp on both sides: the flag itself breaks the tie, so both
+        // devices agree.
         from = Number(mineValue) >= Number(theirsValue) ? "device" : "folder";
       } else {
-        from = mineAt > theirsAt ? "device" : "folder";
+        from = compareStamps(mineStamp, theirsStamp) > 0 ? "device" : "folder";
       }
       const value = from === "device" ? mineValue : theirsValue;
       const when = from === "device" ? mineAt : theirsAt;
@@ -970,10 +1352,21 @@ export function mergeSnapshots(
       } else if (when > 0) {
         record[atKey] = when;
       }
-      if (value || when > 0) any = true;
+      if (value || when > 0) {
+        any = true;
+        // The register that won, so the record's own stamp can name whichever
+        // copy carried the newer of its two registers — never "whichever side
+        // was asked first".
+        winners.push(from === "device" ? mineStamp : theirsStamp);
+      }
     }
 
-    if (any) merged.marks[id] = record;
+    if (any) {
+      const newest = winners.reduce((a, b) => (compareStamps(b, a) > 0 ? b : a));
+      record.rev = newest.rev;
+      record.by = newest.by;
+      merged.marks[id] = record;
+    }
   }
 
   const prefsMerge = mergePreferences(local.prefs, remote.prefs);
@@ -987,7 +1380,7 @@ export function mergeSnapshots(
     remote.sidebar ?? undefined,
     base?.sidebar ?? undefined,
     sameSidebar,
-    (record) => record.at,
+    (record) => record,
     sidebarTie,
   );
   const sidebarAdopted = sidebarChoice.kept === "folder";
@@ -1007,7 +1400,7 @@ export function mergeSnapshots(
     remote.place ?? undefined,
     base?.place ?? undefined,
     samePlace,
-    (record) => record.at,
+    (record) => record,
     placeTie,
   );
   const placeAdopted = placeChoice.kept === "folder";
@@ -1223,6 +1616,14 @@ export interface SyncRunOptions {
   base: SyncSnapshot | null;
   prefs: SyncPrefs;
   now?: number;
+  /**
+   * The identity to write under, or absent to take the library's own.
+   *
+   * See `SnapshotSource.identity`: only a test names devices, and a real run
+   * always lets `nextDeviceIdentity` read the library's id and advance its
+   * revision.
+   */
+  identity?: DeviceIdentity;
 }
 
 export interface SyncRun {
@@ -1255,6 +1656,13 @@ function sameContent(a: SyncSnapshot, b: SyncSnapshot): boolean {
  * whose read throws therefore reaches nothing at all: the library is untouched
  * because nothing has been applied yet, and the provider is untouched because
  * nothing has been written.
+ *
+ * Two transports, one merge. A provider that can address a single file gets the
+ * canonical file set and only the files whose bytes changed; one that only has
+ * `read`/`write` gets the whole document in one write, exactly as v1 did. The
+ * merge, the stamps and the tombstones are the same code either way, which is
+ * what makes the folder and the document two encodings of one library rather
+ * than two formats to keep in step.
  *
  * A document whose content the merge did not change is not rewritten. Cloud
  * folders upload every write, and a device that opens the app ten times a day
@@ -1299,6 +1707,15 @@ export interface SnapshotSource {
   base: SyncSnapshot | null;
   prefs: SyncPrefs;
   now?: number;
+  /**
+   * The identity to write under, or absent to take the library's own.
+   *
+   * There is one reason to pass it: a caller that is testing the ordering wants
+   * to name two devices rather than learn two random ids. Everything with a
+   * library behind it lets `nextDeviceIdentity` answer, because the whole point
+   * of the id is that it is the library's rather than the caller's.
+   */
+  identity?: DeviceIdentity;
 }
 
 /** The rows this device's document is built from, read once. */
@@ -1319,15 +1736,37 @@ async function readRows(store: LocalStore): Promise<SnapshotRows> {
  * two cannot drift into different ideas of what this device has.
  */
 export async function localSnapshot(options: SnapshotSource): Promise<SyncSnapshot> {
+  // The identity comes from the library, not from the caller: the id has to be
+  // the same one tomorrow (`nextDeviceIdentity`), and the revision has to be
+  // higher than the last document this library wrote.
+  const identity = options.identity ?? (await nextDeviceIdentity(options.store));
   return buildSnapshot({
     rows: await readRows(options.store),
     base: options.base,
     prefs: options.prefs.local,
     device: options.device,
     now: seconds(options.now),
+    identity,
     sidebar: options.prefs.sidebar === undefined ? undefined : options.prefs.sidebar.local,
     place: options.prefs.place === undefined ? undefined : options.prefs.place.local,
   });
+}
+
+/**
+ * A stamped record without its stamp — for the state a device keeps.
+ *
+ * A reader's arrangement and their reading place are the reader's; the second,
+ * the revision and the device on the record are the document's. Handing the
+ * stamp to `adopt` would put another device's name in this device's own state,
+ * where it would then be carried back out by the next build as though this
+ * device had written it.
+ */
+function arrangementOf<T extends object>(record: T & RecordStamp): T {
+  const readable = { ...record } as T & Partial<RecordStamp>;
+  delete readable.at;
+  delete readable.rev;
+  delete readable.by;
+  return readable as T;
 }
 
 /**
@@ -1353,12 +1792,15 @@ export async function integrateSnapshot(
   options.prefs.adopt(merged.snapshot.prefs, merged.adoptedPrefs);
   // Only the half the other device decided is taken: a value that survived from
   // this device is already on screen, and re-applying it would be a write to the
-  // reader's own settings on every sync.
+  // reader's own settings on every sync. What is handed over is the arrangement
+  // itself, without the stamp the document carries on it: the revision and the
+  // device belong to the record, and a device that stored them as part of what
+  // the reader arranged would be storing somebody else's name in its own state.
   if (merged.adoptedSidebar && merged.snapshot.sidebar !== null) {
-    options.prefs.sidebar?.adopt(merged.snapshot.sidebar);
+    options.prefs.sidebar?.adopt(arrangementOf(merged.snapshot.sidebar));
   }
   if (merged.adoptedPlace && merged.snapshot.place !== null) {
-    options.prefs.place?.adopt(merged.snapshot.place);
+    options.prefs.place?.adopt(arrangementOf(merged.snapshot.place));
   }
   const applied = await applySnapshot(options.store, merged.snapshot);
 

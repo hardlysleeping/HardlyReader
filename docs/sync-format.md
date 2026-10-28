@@ -93,7 +93,15 @@ recordId · revision · modifiedAt · modifiedBy · deleted
 ```
 
 `revision` is monotonic per device and `modifiedBy` is the device id, because timestamps alone let a
-device with a wrong clock win every argument. Card `t_21b91dd5`.
+device with a wrong clock win every argument. In v1's document the three travel as `at`, `rev` and
+`by` (`RecordStamp` in `src/api/local/sync.ts`), and they are compared in that order: the later
+second, then the higher revision, then the larger device id — the last two only settle what the
+second cannot. `at` is kept because it is the field a person reads in a conflict line; it is never
+the only thing a record is ordered by.
+
+A device's own revision counter and id are **not** part of the format: they live in that device's
+library, so a restart keeps them and a rebuilt library mints new ones honestly. Nothing in the
+folder decides which device is authoritative.
 
 ## Different data, different merge rules
 

@@ -284,13 +284,18 @@ const written = parseSyncSnapshot(provider.writes.at(-1));
 
 {
   check("the document carries the arrangement", written.sidebar !== null);
-  const { at, ...carried } = written.sidebar ?? {};
+  // The stamp is `at`, `rev` and `by` — the second, the revision and the device
+  // — and it belongs to the record, not to the arrangement: what this compares
+  // is what the reader arranged.
+  const { at, rev, by, ...carried } = written.sidebar ?? {};
   deepEqual(carried, ARRANGEMENT, "every part of the sidebar arrived: hidden, pins, both views, indent, both orders");
   check("with a stamp of its own, separate from the place's", typeof at === "number", String(at));
+  check("and a revision with a device on it", typeof rev === "number" && typeof by === "string", `${rev} ${by}`);
 
-  const { at: placeAt, ...where } = written.place ?? {};
+  const { at: placeAt, rev: placeRev, by: placeBy, ...where } = written.place ?? {};
   deepEqual(where, placeItLeft, "the reading place arrived: feed, title, post, unfolded feed and both offsets");
   check("and carries its own stamp", typeof placeAt === "number", String(placeAt));
+  check("with its own revision", typeof placeRev === "number" && typeof placeBy === "string", `${placeRev} ${placeBy}`);
 
   equal(
     Object.keys(written.prefs.entries).every((name) => PREFS_NAMESPACES.includes(name)),

@@ -360,8 +360,17 @@ await check("a redirect between two syncs ends with one feed and one set of mark
 
 await check("a document round-trips its moves, and drops one it cannot follow", async () => {
   const snapshot = emptySnapshot("laptop", T);
-  snapshot.redirects[OLD] = { to: NEW, at: T };
-  snapshot.feeds[NEW] = { at: T, title: "Comics", titleSource: "given", folder: null, addedAt: T, removed: false };
+  snapshot.redirects[OLD] = { to: NEW, at: T, rev: 3, by: "device-laptop" };
+  snapshot.feeds[NEW] = {
+    at: T,
+    rev: 3,
+    by: "device-laptop",
+    title: "Comics",
+    titleSource: "given",
+    folder: null,
+    addedAt: T,
+    removed: false,
+  };
 
   const parsed = parseSyncSnapshot(JSON.stringify(snapshot));
   deepEqual(parsed.redirects, snapshot.redirects, "the moves");
