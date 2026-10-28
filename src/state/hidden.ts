@@ -7,15 +7,20 @@
  * ## Two authorities, never both
  *
  * There is one question here — which categories are hidden — and exactly one
- * place that answers it:
+ * place that answers it. Which store it is comes from the one resolver
+ * (`lib/capabilities`, asked as `ReaderState.featureAuthority`), never from a
+ * branch on whether a session exists; `hiddenStore` maps that answer to a store
+ * and nothing else in this file second-guesses it:
  *
- * - **The extension answers** (`state.available`): its store, its view and its
+ * - **`backend`** (`state.available`): the extension's store, its view and its
  *   lock decide, exactly as before. The device's own set is not read, not
  *   merged and not written.
- * - **The extension does not answer**: this device's own set decides — the same
- *   three views, the same filter, stored per account in the same prefs blob as
- *   the pins. The only thing that is skipped is the server write, because there
- *   is no server for it to go to.
+ * - **`cloud` or `local`**: this device's own set decides — the same three
+ *   views, the same filter, stored per account in the same prefs blob as the
+ *   pins. `cloud` is the same block: a paid mirror is merged *into* this device's
+ *   copy by `state/device-sync`, so there is no third reader and no second place
+ *   to look. The only thing that is skipped is the server write, because there is
+ *   no server store for it to go to.
  *
  * Never merge the two. A merge would make the same category hidden in one place
  * and not the other, and the first launch with the extension installed would
@@ -39,6 +44,7 @@ import {
   type HiddenCategoriesState,
   type HiddenView,
 } from "../api/hardlyread";
+import type { Authority } from "../lib/capabilities";
 
 /** The extension's own words for its three views, in its own order. */
 export const HIDDEN_VIEW_LABELS: Record<HiddenView, string> = {
@@ -54,6 +60,21 @@ export const HIDDEN_VIEW_LABELS: Record<HiddenView, string> = {
  * somewhere else, and it is what every ordinary FreshRSS install gets.
  */
 export type HiddenAuthority = "extension" | "local";
+
+/**
+ * The store behind one resolved authority.
+ *
+ * `backend` is the only answer that means "something other than this device
+ * keeps it", and for hidden categories the backend's store for them is the
+ * extension's. `cloud` lands here too, deliberately: a paid mirror is a copy of
+ * this device's set, merged into it by `state/device-sync` — there is no third
+ * reader for hidden categories and no second place to look. So the store is
+ * decided by the resolver's answer and nothing here re-derives it from
+ * `available`, a session, or a product name.
+ */
+export function hiddenStore(authority: Authority): HiddenAuthority {
+  return authority === "backend" ? "extension" : "local";
+}
 
 /** What this device keeps, for a server with no extension to ask. */
 export interface LocalHidden {
@@ -95,11 +116,6 @@ export function isLocallyHidden(local: LocalHidden, label: string): boolean {
   return local.categories.includes(label);
 }
 
-/** Who decides. The extension when it answers at all — locked or not. */
-export function hiddenAuthority(server: HiddenCategoriesState): HiddenAuthority {
-  return server.available ? "extension" : "local";
-}
-
 /**
  * The block everything downstream is filtered by.
  *
@@ -107,6 +123,10 @@ export function hiddenAuthority(server: HiddenCategoriesState): HiddenAuthority 
  * consumer sees exactly what the server said. Extension absent: a block built
  * from this device's labels, shaped like the extension's so the view rules, the
  * count and the band need no second code path.
+ *
+ * `authority` is the resolver's answer, and the only thing that decides which of
+ * the two is drawn — not `available`, which is what the *extension* reports about
+ * itself and cannot speak for a store this device keeps instead.
  *
  * `available` on the local block means "this block is the authority and must be
  * obeyed", not "the extension is installed" — the reader answers that question
@@ -119,8 +139,9 @@ export function hiddenAuthority(server: HiddenCategoriesState): HiddenAuthority 
 export function resolveHidden(
   server: HiddenCategoriesState,
   local: LocalHidden,
+  authority: Authority,
 ): HiddenCategoriesState {
-  if (server.available) return server;
+  if (hiddenStore(authority) === "extension" && server.available) return server;
   const categories = local.categories.map((label, index) => ({
     id: -(index + 1),
     name: label,

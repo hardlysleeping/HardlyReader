@@ -48,7 +48,7 @@ import {
 } from "../../src/lib/sync-setup.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const GEN = join(ROOT, "tests/unit/.gen-device-sync");
+const GEN = join(ROOT, `tests/unit/.gen-${process.pid}/device-sync`);
 
 let checks = 0;
 let failures = 0;
@@ -323,10 +323,15 @@ try {
   {
     const local = { kind: "local" };
     const greader = { kind: "greader" };
-    equal(showsDeviceSync(local, 1), true, "a local library with a feed draws the section");
-    equal(showsDeviceSync(local, 0), false, "an empty library does not — no paywall on first launch");
-    equal(showsDeviceSync(greader, 12), false, "a FreshRSS profile does not: its sync is FreshRSS's");
-    equal(showsDeviceSync(null, 12), false, "and neither does a window with no profile yet");
+    equal(showsDeviceSync(local, 1, "mirror"), true, "a local library with a feed draws the section");
+    equal(showsDeviceSync(local, 0, "mirror"), false, "an empty library does not — no paywall on first launch");
+    // The ladder's answer, not the profile's: a server that already carries every
+    // extra draws one line saying there is nothing to buy...
+    equal(showsDeviceSync(greader, 12, "nothing"), true, "a server that carries every extra draws the section");
+    // ...and a server missing extras is not sold a mirror the run cannot do.
+    equal(showsDeviceSync(greader, 12, "extras"), false, "a server missing extras is not sold the mirror");
+    equal(showsDeviceSync(greader, 12, "mirror"), false, "the profile does not draw it on its own");
+    equal(showsDeviceSync(null, 12, "mirror"), false, "and neither does a window with no profile yet");
   }
 
   // The section is drawn in the sheet, and the interval row is not called Sync.
@@ -334,7 +339,10 @@ try {
     const panel = read("src/components/SettingsPanel.svelte");
     check("the sheet mounts the device sync section", /import DeviceSyncPanel from "\.\/DeviceSyncPanel\.svelte"/.test(panel));
     check("the interval row reads Refreshing", /label: "Refreshing"/.test(panel) && !/label: "Sync"/.test(panel));
-    check("and the device section is gated by the profile and its feeds", /showsDeviceSync\(reader\.profile, reader\.categories\.length\)/.test(panel));
+    check(
+      "and the device section is gated by the profile, its feeds and what buying would add",
+      /showsDeviceSync\(\s*reader\.profile,\s*reader\.categories\.length,\s*reader\.upgradePitch,?\s*\)/.test(panel),
+    );
   }
 } finally {
   rmSync(GEN, { recursive: true, force: true });

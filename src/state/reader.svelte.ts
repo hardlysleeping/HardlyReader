@@ -96,7 +96,7 @@ import {
   effectiveView,
   emptyHidden,
   enforcing,
-  hiddenAuthority as authorityOf,
+  hiddenStore,
   isLocallyHidden,
   parseHidden,
   resolveHidden,
@@ -106,6 +106,18 @@ import {
   type HiddenAuthority,
   type LocalHidden,
 } from "./hidden";
+import {
+  capabilitiesFromState,
+  remember,
+  resolveAuthority,
+  upgradePitch as pitchFor,
+  wholeReport,
+  type Authority,
+  type Capabilities,
+  type CapabilityAnswer,
+  type CapabilityReport,
+  type Feature,
+} from "../lib/capabilities";
 import { filterByAuthor, filterItems } from "../lib/article-filter";
 import { reading } from "./reading.svelte";
 import { StreamCache, sameStreamPage } from "./stream-cache";
@@ -293,6 +305,116 @@ export class ReaderState {
     const built = new GReaderBackend(transport, session);
     this.backend = built;
     return built;
+  }
+
+  /**
+   * Whether the reader pays for HardlyReader Sync.
+   *
+   * A plain boolean, and the shell is what fills it (`App.svelte`, from the one
+   * capability that store owns). The reader is told the answer instead of asking
+   * a store, so no reading path imports a receipt, a product id or a network —
+   * and every suite can drive both answers without one. It is the ladder's only
+   * use for it: an extra the backend cannot store goes to the cloud when this is
+   * true and stays on this device when it is not.
+   */
+  paid = $state(false);
+
+  /**
+   * What this backend can store, as belief rather than as an attempt.
+   *
+   * `believed` is the backend's declaration folded with every answer that was an
+   * *answer* (`remember` drops `unknown` on the floor, which is what keeps a
+   * restarting server from handing its features to the cloud). `observed` is the
+   * last check's own report, so a screen may say "could not check" while the
+   * authority stays exactly where it was.
+   */
+  private believed = $state<Partial<Capabilities>>({});
+  private observed = $state<CapabilityReport | undefined>(undefined);
+
+  /** What the backend in hand declares, before any answer has moved it. */
+  get capabilities(): Partial<Capabilities> {
+    return { ...this.measuredHere(), ...(this.backend?.capabilities ?? {}), ...this.believed };
+  }
+
+  /**
+   * What the blocks in hand say right now.
+   *
+   * The three blocks an adapter reports for itself, and each one's `available`
+   * flag *is* the measurement for the feature it belongs to: a state that arrived
+   * from a snapshot, a lock or a reply carries it, and the ladder has to agree with
+   * the block the sidebar is drawn from or the two would disagree about who owns
+   * the same label. The indent's flag stands in for `preferences`: the indent is a
+   * field of the preferences document, served by the same adapter version, so a
+   * server that answers with an indent block has the routes that carry it.
+   *
+   * Read here rather than only folded when a read lands, so a state painted from
+   * the cache at launch counts exactly like a fresh answer.
+   *
+   * The two orders are not guessed at here: their route is `/v1/positions`, and
+   * `positionsRoute` is what learns whether it is there.
+   */
+  private measuredHere(): Partial<Capabilities> {
+    const caps: Partial<Capabilities> = {};
+    if (this.hiddenCategories.available) caps.hiddenCategories = true;
+    if (this.favorites.available) caps.pinnedCategories = true;
+    if (this.sidebarIndent.available) caps.preferences = true;
+    return caps;
+  }
+
+  /**
+   * Who owns one feature, right now — the one question every extra asks.
+   *
+   * Hidden categories, the pins, the indent, the two orders and the place all ask
+   * this, and none of them branches on whether a session exists: a session is not
+   * a statement about where a feature lives, the backend's capability is.
+   */
+  featureAuthority(feature: Feature): Authority {
+    return resolveAuthority(feature, {
+      capabilities: this.capabilities,
+      paid: this.paid,
+      observed: this.observed,
+    });
+  }
+
+  /** Whether the backend itself is the authority for one feature. */
+  private atBackend(feature: Feature): boolean {
+    return this.featureAuthority(feature) === "backend";
+  }
+
+  /** Whether a server sits behind this backend — the pitch's own question. */
+  private get onAServer(): boolean {
+    const profile = this.profile;
+    if (profile !== null) return profile.kind === "greader";
+    return this.session !== null;
+  }
+
+  /**
+   * What the paid tier would actually add here.
+   *
+   * `nothing` for a server that already carries every extra, `mirror` for a
+   * library on this device, `extras` for a service that has nowhere to put them.
+   * The sync section is the only caller, and it is where the words live.
+   */
+  get upgradePitch(): "nothing" | "mirror" | "extras" {
+    return pitchFor({
+      capabilities: this.capabilities,
+      paid: this.paid,
+      observed: this.observed,
+      server: this.onAServer,
+    });
+  }
+
+  /**
+   * Folds one capability answer into what we believe, and keeps its report.
+   *
+   * Never decides anything: `remember` ignores `unknown`, so the answer to a
+   * server that is restarting leaves every feature where it was. Called by the
+   * state read — `/v1/state` is the measurement — and available to anything else
+   * that gets an answer.
+   */
+  noteCapabilityAnswer(answer: CapabilityAnswer): void {
+    this.believed = remember(this.capabilities, answer.report);
+    this.observed = answer.report;
   }
 
   subscriptions = $state<Subscription[]>([]);
@@ -587,24 +709,26 @@ export class ReaderState {
     return this.hiddenCategories.available;
   }
 
-  /** Who decides what is hidden: the extension when it answers, else this
-   * device. Never both — see `hiddenScope`. */
+  /** Who decides what is hidden: the extension when the ladder says so, else the
+   * device that keeps the same set. Never both — see `hiddenScope`. */
   get hiddenAuthority(): HiddenAuthority {
-    return authorityOf(this.hiddenCategories);
+    return hiddenStore(this.featureAuthority("hiddenCategories"));
   }
 
-  /** The last resolved block, and the two things it was built from. */
+  /** The last resolved block, and the three things it was built from. */
   private hiddenScopeMemo: {
     server: HiddenCategoriesState;
     local: LocalHidden;
+    authority: Authority;
     value: HiddenCategoriesState;
   } | null = null;
 
   /**
    * The block the sidebar, the count and the band are filtered by.
    *
-   * One resolution, two sources, no merge: the extension's own state when it is
-   * there, this device's labels when it is not (`resolveHidden` is the rule).
+   * One resolution, two sources, no merge: the extension's own state when the
+   * ladder says the backend keeps hidden categories, this device's labels when it
+   * does not (`resolveHidden` is the rule, `featureAuthority` is the question).
    * Memoised because it is read once per row while the sidebar draws, and the
    * local block is built rather than stored — a new object per read would
    * invalidate the sidebar's own memo on every paint and sort the whole tree
@@ -613,10 +737,18 @@ export class ReaderState {
   get hiddenScope(): HiddenCategoriesState {
     const server = this.hiddenCategories;
     const local = this.localHidden;
+    const authority = this.featureAuthority("hiddenCategories");
     const memo = this.hiddenScopeMemo;
-    if (memo !== null && memo.server === server && memo.local === local) return memo.value;
-    const value = resolveHidden(server, local);
-    this.hiddenScopeMemo = { server, local, value };
+    if (
+      memo !== null &&
+      memo.server === server &&
+      memo.local === local &&
+      memo.authority === authority
+    ) {
+      return memo.value;
+    }
+    const value = resolveHidden(server, local, authority);
+    this.hiddenScopeMemo = { server, local, authority, value };
     return value;
   }
 
@@ -668,14 +800,28 @@ export class ReaderState {
   /**
    * Whether a category carries the mark — the one mark a category has.
    *
-   * One fact, one word: a category is pinned. Where it is stored depends on the
-   * server — Pinned Categories keeps it, and with that extension absent the
-   * same mark is kept here so the sidebar still works. The extension's own
-   * field is still called `favorite`; that is the wire name, not a second
-   * meaning.
+   * One fact, one word: a category is pinned. Where it is stored is the ladder's
+   * answer: `pinnedCategories` at the backend means Pinned Categories keeps it
+   * (the extension's `favorite`, its wire name), and anything else means this
+   * device's own set does — which is also what a library on this device does,
+   * since that backend *is* this device. The extension's own field is still
+   * called `favorite`; that is the wire name, not a second meaning.
    */
   isCategoryPinned(label: string): boolean {
-    return this.favorites.available ? this.isFavorite(label) : this.localPins.categories.includes(label);
+    return this.pinsAtBackend ? this.isFavorite(label) : this.localPins.categories.includes(label);
+  }
+
+  /**
+   * Whether the backend holds the pins, rather than this device.
+   *
+   * Both halves are required and they are different questions: the ladder says
+   * where a pin is *supposed* to live, and `favorites.available` says the block
+   * that holds it is actually there. A backend that answers `backend` while its
+   * pin block is absent is a server mid-way through a read, and the device's copy
+   * is what the reader is looking at.
+   */
+  private get pinsAtBackend(): boolean {
+    return this.atBackend("pinnedCategories") && this.favorites.available;
   }
 
   isFeedPinned(streamId: string): boolean {
@@ -735,7 +881,7 @@ export class ReaderState {
    * the storage for a pin, which stays local.
    */
   get pinView(): PinView {
-    return this.favorites.available ? this.favorites.view : this.localPins.view;
+    return this.pinsAtBackend ? this.favorites.view : this.localPins.view;
   }
 
   /** How many categories carry the mark, for the status strip. */
@@ -800,7 +946,7 @@ export class ReaderState {
    * device when it is not.
    */
   async setCategoryPinned(label: string, pinned: boolean): Promise<void> {
-    if (this.favorites.available) {
+    if (this.pinsAtBackend) {
       await this.setCategoryFavorite(label, pinned);
       return;
     }
@@ -830,7 +976,7 @@ export class ReaderState {
       this.localIndentPx = clamped;
     }
 
-    if (!this.sidebarIndent.available || this.indentLocalOnly) {
+    if (!this.indentAtBackend || this.indentLocalOnly) {
       this.savePrefs();
       return;
     }
@@ -862,12 +1008,24 @@ export class ReaderState {
   private indentLocalOnly = false;
 
   /**
-   * True when the indent is this device's alone: no extension to store it, or
+   * True when the indent is this device's alone: no backend store to keep it, or
    * one whose write route refused. The slider stays usable either way — the
    * indent is a reading preference, not a property of the server.
    */
   get indentDeviceOnly(): boolean {
-    return this.indentLocalOnly || !this.sidebarIndent.available;
+    return this.indentLocalOnly || !this.indentAtBackend;
+  }
+
+  /**
+   * Whether the backend holds the indent, rather than this device.
+   *
+   * The ladder's answer for `preferences`, and the extension's own `available`
+   * flag as the second half: the sidebar indent is one field of the preferences
+   * the adapter keeps, so a server that answers `backend` while reporting no
+   * indent block is a server whose read has not landed yet.
+   */
+  private get indentAtBackend(): boolean {
+    return this.atBackend("preferences") && this.sidebarIndent.available;
   }
 
   private indentTimer: ReturnType<typeof setTimeout> | null = null;
@@ -891,7 +1049,7 @@ export class ReaderState {
   private retryUnsentIndent(serverPx: number): void {
     const unsent = this.indentUnsent;
     if (unsent === null || this.indentWriting) return;
-    if (!this.sidebarIndent.available || this.indentLocalOnly) return;
+    if (!this.indentAtBackend || this.indentLocalOnly) return;
     // The write did land and only its answer was lost: nothing left to do.
     if (unsent === serverPx) {
       this.indentUnsent = null;
@@ -955,7 +1113,7 @@ export class ReaderState {
   /** One click on the band's favourites control: the next view in the cycle. */
   async cyclePinView(): Promise<void> {
     const next = nextPinView(this.pinView);
-    if (this.favorites.available) {
+    if (this.pinsAtBackend) {
       await this.setFavoritesView(next);
       return;
     }
@@ -990,11 +1148,12 @@ export class ReaderState {
   }
 
   /**
-   * The server's indent, unless the extension is missing.
+   * The server's indent, unless the backend is not the one that keeps it.
    *
    * A local override only exists for servers without Sidebar Feed Indent. When
-   * the extension is there it is the one store: honouring a stale local number
-   * would show one indent in the app and another on the website.
+   * the ladder says the backend holds it, the backend is the one store: honouring
+   * a stale local number would show one indent in the app and another on the
+   * website.
    */
   private withLocalIndent(state: SidebarIndentState): SidebarIndentState {
     // `localOnly` is also true while the last write is still unwritten or
@@ -1002,7 +1161,10 @@ export class ReaderState {
     return resolveIndent(
       state,
       this.localIndentPx,
-      this.indentLocalOnly || this.indentUnsent !== null || this.indentError !== null,
+      this.indentLocalOnly ||
+        this.indentUnsent !== null ||
+        this.indentError !== null ||
+        !this.indentAtBackend,
     );
   }
 
@@ -1195,6 +1357,25 @@ export class ReaderState {
   }
 
   /**
+   * Whether a document from another device may set this device's place.
+   *
+   * The place has one store today — this device (`lib/place`) — because no backend
+   * has a route for it: the adapter carries the arrangement, not where the reader
+   * was. That is why the read and the write below are local, and why a library on
+   * this device (whose backend *is* this device) adopts a place from the document
+   * exactly as before.
+   *
+   * What the ladder decides is whether a server owns the place already. When it
+   * does, a copy arriving from a phone would be a second writer for one field, so
+   * the device keeps what it has and the server stays the one authority —
+   * `docs/authority.md`'s rule, asked of the resolver rather than assumed from
+   * "there is a session".
+   */
+  private get placeIsThisDevices(): boolean {
+    return !(this.onAServer && this.atBackend("readingPosition"));
+  }
+
+  /**
    * Keeps where the other device was, for this device's next launch.
    *
    * Stored, not applied: a phone that opens on the post the desktop left is what
@@ -1203,6 +1384,7 @@ export class ReaderState {
    * hint — a feed that has since gone falls back to the Reading list.
    */
   adoptPlace(doc: PlaceDoc): void {
+    if (!this.placeIsThisDevices) return;
     if (typeof localStorage === "undefined") return;
     writeStoredPlace(localStorage, this.scope, { ...doc });
   }
@@ -1281,6 +1463,23 @@ export class ReaderState {
   }
 
   /**
+   * Whether the cloud is the authority for the arrangement.
+   *
+   * The one thing that stops a write: a reader whose extras travel through
+   * HardlyReader Sync must not also push the order at the backend, or two writers
+   * would own one arrangement and the loser would be whichever device nobody was
+   * looking at. Whether there is a route to write to at all is the wire's own
+   * question — `positionsRoute` is learned from the first read or the first `404`
+   * — so both facts are asked, and neither is guessed from a session.
+   */
+  private get orderOwnedByCloud(): boolean {
+    return (
+      this.featureAuthority("feedOrder") === "cloud" ||
+      this.featureAuthority("categoryOrder") === "cloud"
+    );
+  }
+
+  /**
    * Reads the account's arrangement once and keeps the newer copy.
    *
    * Behind the first paint on purpose: preferences are loaded and the sidebar
@@ -1288,6 +1487,11 @@ export class ReaderState {
    * an adapter that predates the route — the local order stands and nothing is
    * said, because nothing is wrong. Any other failure is equally quiet: the
    * local arrangement is on screen and it is still true.
+   *
+   * A read, not a claim: the route is how the server's copy is discovered, and a
+   * server with no arrangement store answers `404` and teaches `positionsRoute`
+   * that it has none. What it adopts is the account's own order, which is the
+   * only copy a second device could have written.
    *
    * No write follows this read. If the local copy wins it is already newer than
    * what the server holds, and the next drag sends it up with a newer stamp
@@ -1319,10 +1523,14 @@ export class ReaderState {
    * drag costs a repaint and nothing else. Queued rather than fired in
    * parallel, so two drags in a row reach the server in the order they
    * happened and the newest stamp is the last word.
+   *
+   * Ask the ladder first: sending the arrangement to a backend that cannot hold
+   * one is a request that can only fail, and — for a reader whose extras the
+   * cloud carries — a second writer for an order the cloud is authoritative for.
    */
   private sendPositions(): void {
     const session = this.session;
-    if (session === null || this.positionsRoute === "missing") return;
+    if (session === null || this.positionsRoute === "missing" || this.orderOwnedByCloud) return;
     const lists = this.drawnPositions();
     if (lists === null) return;
     const generation = (this.positionsGeneration += 1);
@@ -1965,8 +2173,11 @@ export class ReaderState {
     // The remembered rows belong to the account whose server sent them.
     this.rememberedSidebar = null;
     // The state route and the snapshot were one server's answer; the next
-    // account is asked about on its own.
+    // account is asked about on its own — and so is what its backend can store,
+    // which is a fact about that server and not about this one.
     this.stateRouteMissing = false;
+    this.believed = {};
+    this.observed = undefined;
     this.apiSnapshotPainted = false;
     // The routes below were learned from one server; the next account has its own.
     this.positionsRoute = "unknown";
@@ -2301,6 +2512,12 @@ export class ReaderState {
       // The route answered, so the server has the adapter after all — a server
       // that gained it while the app was open is picked up here.
       this.stateRouteMissing = false;
+      // And one read is the capability measurement too: `apiVersion` says which
+      // extended routes exist, the two block flags say which of their extensions
+      // are on, and folding it here costs no second request
+      // (`capabilitiesFromState`). `probeCapabilities` asks the same question on
+      // its own for a caller that has no state read to fold.
+      this.noteCapabilityAnswer({ report: capabilitiesFromState(state), outcome: "answer" });
       this.retryUnsentIndent(state.sidebarIndent.px);
       // The next launch paints this instead of guessing, and a lock set a second
       // before quitting is part of what it paints.
@@ -2310,6 +2527,14 @@ export class ReaderState {
       // A server without the route is the one failure that *is* news about the
       // state: there is nothing on it to draw, so what was drawn goes too.
       const gone = this.markStateRoute(error);
+      // What the failure says about the backend, which is not the same question:
+      // a `404` is a definite "this server cannot store the extras", and anything
+      // else — a 5xx, a proxy page, a timeout — says nothing, so it is `unknown`
+      // and `remember` leaves every feature where it was.
+      this.noteCapabilityAnswer({
+        report: wholeReport(gone ? "unsupported" : "unknown"),
+        outcome: gone ? "missing" : "unreachable",
+      });
       // A failed read is not news about the state: when a write is still out,
       // what is drawn stays drawn, and only a read with nothing in flight may
       // report the extension gone.

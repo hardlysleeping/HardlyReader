@@ -43,6 +43,7 @@ import { refreshDueFeeds, type FeedFetcher, type RefreshReport, type WakeReason 
 import type { EntryRow, FeedRow } from "./schema";
 import type { EntryQuery, LocalStore } from "./store";
 import type { MoveFeedRequest, ReaderBackend, SubscribeRequest } from "../backend";
+import { LOCAL_CAPABILITIES, type Capabilities } from "../../lib/capabilities";
 
 const FEED_PREFIX = "feed/";
 const LABEL_PREFIX = "user/-/label/";
@@ -130,6 +131,20 @@ function toStreamItem(row: EntryRow, feed: FeedRow | undefined): StreamItem {
 
 export class LocalBackend implements ReaderBackend {
   readonly kind = "local" as const;
+
+  /**
+   * Everything, declared.
+   *
+   * The backend *is* the local database, so there is no extra it cannot store:
+   * hidden categories, pins, both orders, the indent, the preferences and the
+   * reading position all live in the same store the posts do. That is why the
+   * ladder answers `backend` for every one of them here, and why paying adds the
+   * mirror rather than a feature — `src/lib/capabilities.ts`.
+   *
+   * A declaration and not a probe: a database on this device cannot be "installed
+   * but disabled", and if it cannot be opened the profile does not exist to ask.
+   */
+  readonly capabilities: Capabilities = LOCAL_CAPABILITIES;
 
   /**
    * The library itself, for the two things that are not reading: the poller and

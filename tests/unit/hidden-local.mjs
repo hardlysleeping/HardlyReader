@@ -28,7 +28,7 @@ import ts from "typescript";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 /** Only this suite's own corner: siblings run in parallel and share `.gen`. */
-const GEN_DIR = join(ROOT, "tests/unit/.gen/hidden-local");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}/hidden-local`);
 
 let failures = 0;
 let checks = 0;
@@ -106,6 +106,7 @@ function buildReaderModule() {
     .replaceAll('"../api/profile"', JSON.stringify(absolute("src/api/profile.ts")))
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
     .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
+    .replaceAll('"../lib/capabilities"', JSON.stringify(absolute("src/lib/capabilities.ts")))
     .replaceAll('"../lib/indent"', JSON.stringify(absolute("src/lib/indent.ts")))
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
@@ -158,13 +159,13 @@ const { emptyHidden, isLocallyHidden, parseHidden, resolveHidden, withHidden } =
     categories: [{ id: 12, name: "Technology", hidden: true }],
   });
   const local = { categories: ["Art"], view: "revealed" };
-  check("the extension's block is returned as it came", resolveHidden(server, local) === server);
-  check("...so a local set cannot change what it hides", !isHiddenCategory(resolveHidden(server, local), "Art"));
+  check("the extension's block is returned as it came", resolveHidden(server, local, "backend") === server);
+  check("...so a local set cannot change what it hides", !isHiddenCategory(resolveHidden(server, local, "backend"), "Art"));
 }
 
 {
   const local = { categories: ["Technology"], view: "only" };
-  const scope = resolveHidden(parseState({ available: false }), local);
+  const scope = resolveHidden(parseState({ available: false }), local, "local");
   check("without the extension the local set answers", scope.available === true && scope.mode === "local");
   check("...with its own view", scope.effectiveView === "only");
   check("...and its labels as the hidden ones", isHiddenCategory(scope, "Technology"));

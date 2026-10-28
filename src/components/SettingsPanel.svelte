@@ -106,7 +106,7 @@
       .filter(
         (section) =>
           section.id !== "device-sync" ||
-          showsDeviceSync(reader.profile, reader.categories.length),
+          showsDeviceSync(reader.profile, reader.categories.length, reader.upgradePitch),
       )
       .filter((section) => section.id !== "bodies" || showsSavedText(reader.profile)),
   );

@@ -8,6 +8,7 @@
   import { entitlement } from "./state/entitlements.svelte";
   import { identity } from "./api/identity";
   import { layout } from "./state/layout.svelte";
+  import { reader } from "./state/reader.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
   import {
@@ -124,6 +125,21 @@
    * proven.
    */
   let stopWatchingEntitlement: (() => void) | null = null;
+
+  /**
+   * Tells the reader whether HardlyReader Sync is paid for.
+   *
+   * The reader holds the ladder (`featureAuthority`) and must not know what a
+   * receipt is, so the shell joins the two stores: the entitlement in, one
+   * boolean out. A build with no store answers `false` like every other question
+   * about a purchase, and nothing on a reading path imports the entitlement.
+   *
+   * Read inside the effect, so a lapse or a restore while the window is open
+   * re-resolves every extra on the next paint rather than the next restart.
+   */
+  $effect(() => {
+    reader.paid = entitlement.cloudSync;
+  });
 
   /**
    * Removes the identity's return-to-window listener.

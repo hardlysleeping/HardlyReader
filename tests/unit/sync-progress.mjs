@@ -208,7 +208,7 @@ check("a completion from a run that is over is ignored", () => {
  * ------------------------------------------------------------------------- */
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const GEN_DIR = join(ROOT, "tests/unit/.gen");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 
 function absolute(relativePath) {
   return pathToFileURL(join(ROOT, relativePath)).href;
@@ -258,6 +258,7 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"../api/profile"', absolute("src/api/profile.ts")],
   ['"../lib/reading-order"', absolute("src/lib/reading-order.ts")],
   ['"../lib/feed-order"', absolute("src/lib/feed-order.ts")],
+  ['"../lib/capabilities"', absolute("src/lib/capabilities.ts")],
   ['"../lib/indent"', absolute("src/lib/indent.ts")],
   ['"../lib/article-filter"', absolute("src/lib/article-filter.ts")],
   ['"../lib/list-view"', absolute("src/lib/list-view.ts")],

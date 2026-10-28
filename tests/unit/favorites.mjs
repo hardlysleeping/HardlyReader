@@ -22,7 +22,7 @@ import { compileModule } from "svelte/compiler";
 import ts from "typescript";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const GEN_DIR = join(ROOT, "tests/unit/.gen");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 
 let failures = 0;
 let checks = 0;
@@ -127,6 +127,7 @@ function buildReaderModule() {
     .replaceAll('"../api/profile"', JSON.stringify(absolute("src/api/profile.ts")))
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
     .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
+    .replaceAll('"../lib/capabilities"', JSON.stringify(absolute("src/lib/capabilities.ts")))
     .replaceAll('"../lib/indent"', JSON.stringify(absolute("src/lib/indent.ts")))
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))

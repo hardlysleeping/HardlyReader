@@ -72,10 +72,42 @@ FRESHRSS_EXTENSION_CAPABILITIES    + ordering, hidden, pins, prefs, position
 LOCAL_CAPABILITIES                 everything (the backend is the local database)
 ```
 
-`resolveAuthority(feature, { capabilities, cloudSync })` returns `backend`, `cloud` or `local`, and
-`upgradePitch({ capabilities, cloudSync, server })` says what buying would actually add:
+`resolveAuthority(feature, { capabilities, paid, observed })` returns `backend`, `cloud` or `local`,
+and `upgradePitch({ capabilities, paid, observed, server })` says what buying would actually add:
 `nothing` for FreshRSS with the extensions (their server already does it), `mirror` for a local
-library, `extras` for a service that has nowhere to put them.
+library, `extras` for a service that has nowhere to put them. `paid` is the entitlement's one
+capability, passed in rather than imported: this module is pure, and the store that asks it is told
+the answer by the shell (`App.svelte`), so no reading path imports a receipt.
+
+### One resolver, and every extra asks it
+
+`ReaderState.featureAuthority(feature)` is the only caller of the ladder in the app
+(`src/state/reader.svelte.ts`). It answers with the belief the backend declared, folded with every
+answer that was an answer, plus `paid` — and the features that used to keep a rule of their own read
+its answer instead of branching on `session !== null`:
+
+| what asks | feature | `backend` means | otherwise |
+|---|---|---|---|
+| `hiddenScope`, the hide/show writes | `hiddenCategories` | the extension's block, as it came | this device's own set (cloud: the same set, mirrored) |
+| `isCategoryPinned`, `pinView`, the pin writes | `pinnedCategories` | Pinned Categories holds the mark | this device's pins |
+| the indent read and write | `preferences` | the adapter's indent block | this device's number |
+| the arrangement (`/v1/positions`) | `feedOrder` / `categoryOrder` | the account's document | this device's arrays; a `cloud` answer stops the write entirely |
+| `adoptPlace` | `readingPosition` | a server owns the place, so a document may not overwrite it | this device takes the other device's place |
+
+Two of those sentences are worth spelling out, because they are where the code and the wire meet:
+
+- **A route is not an authority.** Whether `/v1/positions` exists is learned from the route itself
+  (`positionsRoute`, from the first read or the first `404`), and a route that answers is not a
+  claim about who owns the feature. The ladder decides ownership; the route decides whether there
+  is anywhere to write.
+- **`cloud` draws the same block as `local`.** A paid mirror is merged *into* this device's copy by
+  `state/device-sync`, so `hiddenScope` and the pins have no third reader and no second place to
+  look. What `cloud` changes is who wins, and that is the merge's job, not the sidebar's.
+
+The section that sells the subscription asks `reader.upgradePitch`, so it says what buying would
+add for *this* backend: a FreshRSS-with-extensions reader is told **nothing to buy**, a local
+library is offered the **mirror**, and a service with nowhere to put the extras is offered them.
+
 
 ### A declaration is not evidence
 
@@ -147,11 +179,11 @@ Internally these are HardlyReader features with two adapters, not "FreshRSS feat
 | Reading position | extension positions, local fallback | local place → cloud snapshot |
 | Lock / passcode | extension routes | none today; per device if built — never in the snapshot |
 
-The repo already works this way in part: `hiddenScope` / `authorityOf` in
-`src/state/hidden.ts` pick the extension when it answers and fall back to the device
-otherwise, and `savePrefs` writes the same document (pins, hidden, collapsed, indent,
-order, categoryOrder, positions) whether the authority is a server or the device. Cloud
-sync extends the local side of that; it does not add a third authority.
+The repo works this way, and the seam is one function: `featureAuthority` decides which store answers
+(see above), `resolveHidden` / `hiddenStore` in `src/state/hidden.ts` draw whichever it named, and
+`savePrefs` writes the same document (pins, hidden, collapsed, indent, order, categoryOrder,
+positions) whether the authority is a server or the device. Cloud sync extends the local side of
+that; it does not add a third authority.
 
 ## What the sync document already carries
 
@@ -229,8 +261,11 @@ on a server it is not using.
 3. Switching profile never migrates state silently: connecting FreshRSS does not upload the
    local library to it, and signing out of FreshRSS does not import its hidden state into
    the local one.
-4. Nothing on the FreshRSS path consults an entitlement. `cloudSync` gates the cloud
-   provider only.
+4. Nothing on a reading path *imports* the entitlement, and no reading module names the
+   capability: `paid` reaches the reader as one boolean, set by the shell (`App.svelte`), and
+   `tests/unit/authority.mjs` walks the reading seam's import graph to hold that. What the flag can
+   change is which side of the ladder an extra falls on: for a FreshRSS **with** the extensions it
+   changes no answer at all — every extra is the backend's either way.
 5. The document holds no lock and no passcode: `tests/unit/local-sync.mjs` lists the document's
    fields, so one naming a lock or a passcode fails the suite at any depth, and a lock-shaped
    field found in a file is dropped on read and gone the next time the document is written.

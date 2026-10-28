@@ -52,8 +52,12 @@ const indent = read("src/components/IndentControl.svelte");
 check("the reader asks the rule instead of repeating it", /resolveIndent\(/.test(reader));
 check("a failed or unwritten value is kept on this device", /this\.localIndentPx = clamped;/.test(reader));
 check(
-  "and it wins while the server is unhappy, or has not taken the last value yet",
-  /this\.indentLocalOnly \|\| this\.indentUnsent !== null \|\| this\.indentError !== null/.test(reader),
+  "and it wins while the server is unhappy, has not taken the last value, or is not the store",
+  // The last term is the ladder's: an indent the backend does not own is this
+  // device's to draw, whatever the server's block happens to say.
+  /this\.indentLocalOnly \|[\s\S]{0,240}this\.indentUnsent !== null[\s\S]{0,240}this\.indentError !== null[\s\S]{0,160}!this\.indentAtBackend/.test(
+    reader,
+  ),
 );
 
 // A write that never landed must survive a restart, and be tried again.
@@ -69,7 +73,10 @@ check("the release also stores this device's copy", /if \(flush\) this\.savePref
 // disabled there, which made "keep it on this device" impossible to reach.
 check("the slider works with no extension to store it", !/disabled=\{!reader\.sidebarIndent\.available\}/.test(indent));
 check("and it says where the number lives", /reader\.indentDeviceOnly/.test(indent));
-check("which is the extension's absence or its refusal", /this\.indentLocalOnly \|\| !this\.sidebarIndent\.available/.test(reader));
+check(
+  "which is the extension's absence, its refusal, or a backend that is not the store",
+  /return this\.indentLocalOnly \|\| !this\.indentAtBackend;/.test(reader),
+);
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

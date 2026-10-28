@@ -30,7 +30,7 @@ import ts from "typescript";
 import { emptySnapshot } from "../../src/api/local/sync.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const GEN = join(ROOT, "tests/unit/.gen-device-sync-section");
+const GEN = join(ROOT, `tests/unit/.gen-${process.pid}/device-sync-section`);
 
 let checks = 0;
 let failures = 0;
@@ -262,8 +262,10 @@ try {
 
     const source = read("src/components/DeviceSyncPanel.svelte");
     check(
-      "the branch is on the capability, not on a provider or a profile",
-      /\{#if entitlement\.cloudSync\}/.test(source) && !/\{#if[^}]*provider[^}]*cloudSync/.test(source),
+      "the half is the entitlement's, asked only after the ladder has spoken",
+      /\{#if pitch === "nothing"\}/.test(source) &&
+        /\{:else if entitlement\.cloudSync\}/.test(source) &&
+        !/\{#if[^}]*provider/.test(source),
     );
   }
 

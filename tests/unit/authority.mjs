@@ -60,7 +60,7 @@ import {
   parseSidebar,
 } from "../../src/lib/sidebar-doc.ts";
 import {
-  hiddenAuthority,
+  hiddenStore,
   isLocallyHidden,
   resolveHidden,
   visibleGroups,
@@ -68,7 +68,7 @@ import {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 // Under the suite's own scratch directory, which `.gitignore` already covers.
-const GEN = join(ROOT, "tests/unit/.gen/authority");
+const GEN = join(ROOT, `tests/unit/.gen-${process.pid}/authority`);
 
 let passed = 0;
 async function check(name, fn) {
@@ -428,8 +428,8 @@ await check("the second device's sidebar is read back through the sidebar's own 
     hasPasscode: false,
     categories: [],
   };
-  const block = resolveHidden(noExtension, { categories: phone.sidebar.hidden, view: phone.sidebar.hiddenView });
-  equal(hiddenAuthority(noExtension), "local", "the authority behind the phone's sidebar");
+  const block = resolveHidden(noExtension, { categories: phone.sidebar.hidden, view: phone.sidebar.hiddenView }, "local");
+  equal(hiddenStore("local"), "local", "the authority behind the phone's sidebar");
   equal(block.view, "only", "the view the reader left it in");
   deepEqual(
     visibleGroups([{ label: "Comics" }, { label: "News" }, { label: "Art" }], block).map((group) => group.label),
@@ -564,8 +564,8 @@ await check("signing out does not import the server's hidden set into the local 
 
   // Signed in: the extension answers, so the device's own set is not read, not
   // merged and not written.
-  const signedIn = resolveHidden(server, device);
-  equal(hiddenAuthority(server), "extension", "the extension is the authority while it answers");
+  const signedIn = resolveHidden(server, device, "backend");
+  equal(hiddenStore("backend"), "extension", "the extension is the authority while it answers");
   deepEqual(signedIn.categories.map((category) => category.name), ["CelebMafia"], "the block the server sent");
   deepEqual(device, before, "and the device's own set was not touched");
 
@@ -581,8 +581,8 @@ await check("signing out does not import the server's hidden set into the local 
     hasPasscode: false,
     categories: [],
   };
-  const local = resolveHidden(signedOut, device);
-  equal(hiddenAuthority(signedOut), "local", "the device is the authority once the server is gone");
+  const local = resolveHidden(signedOut, device, "local");
+  equal(hiddenStore("local"), "local", "the device is the authority once the server is gone");
   deepEqual(local.categories, [], "no category arrived from the server");
   equal(isLocallyHidden(device, "CelebMafia"), false, "and the server's label is not hidden here");
   deepEqual(device, before, "the local set is still what the reader left");
@@ -650,8 +650,15 @@ await check("the reading seam's import graph names no entitlement", async () => 
   }
 });
 
-await check("cloudSync is named only by the module that owns it and the sheet that sells it", async () => {
-  const allowed = new Set(["src/state/entitlements.svelte.ts", "src/components/DeviceSyncPanel.svelte"]);
+await check("cloudSync is named only by the module that owns it, the sheet that sells it, and the shell", async () => {
+  // `App.svelte` is the join, and the only one: the reader holds the ladder and is
+  // told the answer as one boolean (`reader.paid`), so the entitlement's own name
+  // stays out of every module that reads or writes an article.
+  const allowed = new Set([
+    "src/state/entitlements.svelte.ts",
+    "src/components/DeviceSyncPanel.svelte",
+    "src/App.svelte",
+  ]);
   const found = [];
   const walk = (dir) => {
     for (const entry of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
