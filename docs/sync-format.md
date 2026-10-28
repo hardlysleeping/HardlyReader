@@ -1,76 +1,173 @@
-# The sync format is the product, the provider is storage
+# The sync format is the product, the provider is a dumb transport
 
-One canonical, portable file set. iCloud, Google Drive, Dropbox and OneDrive are transports that read
-and write those same files — none of the files knows where it is, and moving a library between
-providers is copying a folder.
+Hand this to anything that designs `SyncEngine` or a provider. Every supported provider stores **the
+same data in the same format**: iCloud Drive, Google Drive, Dropbox, OneDrive. A provider decides how
+bytes are uploaded and downloaded. It never decides what a feed is, how pins work, how hidden
+categories work, how ordering merges, or how conflicts resolve.
+
+```
+Local SQLite  →  SyncEngine  →  canonical HardlyReader files  →  any provider
+```
+
+Copy `HardlyReader/` from one provider to another and the app keeps working, with no conversion tool:
+
+```
+iCloud Drive/HardlyReader/   →   Google Drive/HardlyReader/   →   same library, same state
+```
+
+## SQLite is never synced
+
+The device's SQLite is the working database: feeds, articles, read state, stars, categories, hidden
+and pinned categories, ordering, preferences, position. A SQLite file mutated by two devices is
+corruption, not a merge. It stays on the device; the folder is the interchange format; the engine sits
+between them.
+
+## The canonical folder
 
 ```
 HardlyReader/
-  manifest.json        format + version, written last
-  library.json         feeds, folders, ordering
-  state.json           read / starred marks, tombstones
-  preferences.json     reader settings, theme, layout, filters
-  positions.json       current stream, article, scroll
+  manifest.json        format + version, written last, read first
+  library.json         subscriptions, categories/folders, feed and category ordering
+  state.json           read/unread, starred
+  preferences.json     theme, reading and layout settings, filters
+  positions.json       selected feed, selected article, article position
+  tombstones.json      deletions, so an offline device cannot resurrect them
+  devices.json         which device wrote what last
 ```
 
-A document that grows past this splits inside a folder (`feeds/`, `state/`, `devices/`) rather than
-changing the format.
+Split further when a file gets large — `library/feeds.json`, `state/hidden.json`,
+`state/ordering.json`, `devices/<device-id>.json` — **inside the same format**. The layout may evolve;
+the format identity may not.
 
-## The rules
+## manifest.json, from day one
 
-1. **Never sync SQLite.** A SQLite file mutated by two devices is a corruption, not a merge. The
-   device's SQLite is the fast working copy; the folder is the interchange format; the engine sits
-   between them.
-2. **Every file carries the format name and version.** `manifest.json` is `{"format":
-   "hardlyreader-sync", "version": 1}` and is written **last**, so a reader can never see a manifest
-   that promises files which are not there. A newer version is refused rather than upgraded blindly —
-   `sync.ts` already does this for the single document and the same rule applies per file.
-3. **Small.** No article bodies, no images, no extraction results, no ETags or poll state. Those
-   rebuild per device; a document that carried them would grow without bound and sync every few
-   minutes.
-4. **Provider-neutral.** No provider name, no account id and no token inside any file. A provider is
-   `readFile`, `writeFile`, `deleteFile`, `list`, `getRevision` — nothing about libraries, marks or
-   conflicts.
-5. **Portable by hand.** The reader can open the folder in their own file manager, copy it to another
-   provider, and the app reads it. That property is the reason for the next section.
+```json
+{ "format": "hardlyreader-sync", "version": 1 }
+```
 
-## What this changed about the providers
+Written **last**, read **first**: a reader must never see a manifest promising files that are absent.
+A newer version is refused, never half-applied. Migration `v1 → v2` lives in the shared engine —
+never `icloud-v2`, `google-v3`. The provider has no vote on the format.
 
-| provider | not this | this |
+## Provider neutrality
+
+Nothing in the canonical data may name a provider or carry a provider's identifiers:
+
+```json
+{ "feedId": "feed/https://example.com/rss", "hidden": true,
+  "revision": 18, "modifiedAt": 1793123456, "modifiedBy": "iphone-123" }
+```
+
+Never `icloudRecordId`, `googleDriveFileId`, `dropboxRevision`, `oneDriveItemId`. Those belong in the
+provider adapter's own local metadata, which is disposable.
+
+## Conflict metadata on every record
+
+```
+recordId · revision · modifiedAt · modifiedBy · deleted
+```
+
+`revision` is monotonic per device and `modifiedBy` is the device id, because timestamps alone let a
+device with a wrong clock win every argument. Card `t_21b91dd5`.
+
+## Different data, different merge rules
+
+| data | rule |
+|---|---|
+| read state | merge independently, per article |
+| starred | a separate register from read |
+| preferences | last modified wins |
+| deletions | tombstones with a retention window |
+| feed / category ordering | one ordered-list revision, never interleaved indexes |
+| hidden / pinned categories | merge by item id + revision |
+
+## The provider interface
+
+```ts
+interface SyncProvider {
+  read(path: string): Promise<Uint8Array | null>;
+  write(path: string, data: Uint8Array): Promise<void>;
+  delete(path: string): Promise<void>;
+  list(path: string): Promise<SyncFile[]>;
+  revision(path: string): Promise<string | null>;
+}
+```
+
+Bytes rather than strings, because encryption sits **above** this layer: one implementation encrypts
+the canonical files and every provider receives the same encrypted bytes. Four encryption
+implementations would be four ways to get it wrong.
+
+`src/api/local/sync-provider.ts` carries these as **optional** members beside the existing
+`read()`/`write()`, so the folder-backed provider keeps working while the engine moves over.
+
+Provider code answers five questions only: where is the file, how do I authenticate, how do I read it,
+how do I write it, how do I know it changed.
+
+## Where each provider puts the folder
+
+| provider | location | why |
 |---|---|---|
-| iCloud | CloudKit records | **iCloud Documents / iCloud Drive folder** — ordinary files, visible to the reader |
-| Google Drive | hidden `appDataFolder` | **a visible `HardlyReader/` folder**, narrowest practical permission |
-| Dropbox | full Dropbox | `Apps/HardlyReader/` app folder |
-| OneDrive | broad Drive scope | `Files.ReadWrite.AppFolder` → `Apps/HardlyReader/` |
+| iCloud | **iCloud Documents / iCloud Drive** `HardlyReader/` | files, visible and copyable; CloudKit records would break portability |
+| Google Drive | **visible `HardlyReader/` folder**, narrowest scope | a hidden `appDataFolder` is invisible to the person migrating |
+| Dropbox | `Apps/HardlyReader/` (app folder) | narrowest practical permission |
+| OneDrive | `Apps/HardlyReader/` (`Files.ReadWrite.AppFolder`) | same |
 
-CloudKit would work and would sync Apple devices beautifully, but it breaks the property that matters
-more: a folder you can copy. Apple's own distinction is between iCloud *Documents* (files) and
-CloudKit (records); this app wants files. The same reasoning retires the hidden `appDataFolder` on
-Google — invisible storage is invisible to the person trying to move it.
+CloudKit would sync Apple devices beautifully and break the property that matters more: a folder you
+can copy. Apple's own distinction is between iCloud *Documents* (files) and CloudKit (records); this
+app wants files.
 
-v1 still ships folder-backed: the reader points at the folder their own sync client mirrors. The
-integrations above are the same folders reached through an API instead of through the filesystem,
-which is why they are transport work rather than a rewrite.
+v1 ships folder-backed — the reader points at the folder their own sync client mirrors — and the
+integrations above are the same folders reached through an API instead of the filesystem.
 
-## Export Sync Archive
+## Provider switching is a migration
 
-**Settings → Sync → Export archive** writes `HardlyReader-Sync.zip` containing exactly these files.
-**Import archive** reads one back and merges it through the same engine, with the same conflict rules.
+`Settings → Sync → Change provider`:
 
-That is the escape hatch that makes a provider lock-in impossible: export from iCloud, import into
-Google Drive, no migration code, no special case. It is also the answer to "the provider changed its
-API" and to "I want a copy of my state I can keep".
+```
+1. fully sync the current provider      6. write canonical state to the new one
+2. read canonical state                 7. verify what was written
+3. connect the new provider             8. switch the active provider
+4. look for existing HardlyReader state 9. never delete the old provider's files
+5. merge if there is any
+```
 
-## What the engine already does, and what is left
+Failure at any step leaves the old provider active and the local library untouched, and says which
+step failed. Card `t_c9457710`.
 
-`src/api/local/sync.ts` merges a single document (`hardlyreader-sync.json`) with three-way merge,
-tombstones, separate read/star registers and whole-record ordering. That document contains every field
-the file set above splits out, so this is a layout change rather than a data-model change:
+## Export / Import
 
-1. `SyncProvider` gains the path-scoped members beside `read()`/`write()` (optional, so the folder
-   provider keeps working) — see the interface in `src/api/local/sync-provider.ts`.
-2. The engine writes the file set and migrates a v1 single document on first read.
-3. Tombstones live in `state.json`; ordering lives in `library.json`; positions are their own file so
-   a position write does not rewrite the library.
+`Settings → Sync → Export archive` writes `HardlyReader-Sync.zip` with exactly the canonical files;
+`Import archive` merges one back through the same engine with the same conflict rules — an import is
+a sync, not a replace. Backup, recovery, provider migration, and protection against a provider's API
+changing under us. Card `t_f04b12d1`.
 
-Tracked as `t_eec0be1f` (the file set) and `t_f04b12d1` (export/import archive).
+## What does not travel, ever (v1)
+
+Extracted article HTML, image caches, thumbnails, temporary API responses, search indexes, stream
+caches, and the SQLite file. All rebuildable; all would make sync large and slow.
+
+## Relationship to ReaderBackend
+
+Different questions, deliberately separate:
+
+```
+ReaderBackend   where RSS comes from               LocalBackend | GReaderBackend
+SyncProvider    where cross-device state lives     iCloud | Drive | Dropbox | OneDrive
+```
+
+All three of these are ordinary: The Old Reader + Drive sync; local library + iCloud sync; FreshRSS
+with the extensions and no paid sync at all. `docs/authority.md` says who owns which feature;
+`docs/sync-invariants.md` lists the traps.
+
+## Definition of done
+
+The architecture is right when this succeeds without a conversion tool:
+
+```
+1. iPhone, iCloud sync on
+2. add feeds, hide a category, pin another, star articles, rearrange feeds
+3. HardlyReader writes the canonical files
+4. copy HardlyReader/ into Google Drive
+5. open HardlyReader on Linux, connect Google Drive
+6. the same feeds, ordering, hidden categories, pins, stars and preferences appear
+```

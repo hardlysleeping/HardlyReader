@@ -48,19 +48,32 @@ export interface SyncProvider {
    * Path-scoped members, for the canonical file set in `docs/sync-format.md`.
    *
    * Optional so that every provider written against the single document keeps working while the
-   * engine moves to `manifest.json`, `library.json`, `state.json`, `preferences.json` and
-   * `positions.json`. A provider that implements only `read`/`write` keeps handing over the whole
-   * document; one that implements these can be asked for one file at a time, which is what makes a
-   * position write not rewrite the library.
+   * engine moves to `manifest.json`, `library.json`, `state.json`, `preferences.json`,
+   * `positions.json`, `tombstones.json` and `devices.json`. A provider that implements only
+   * `read`/`write` keeps handing over the whole document; one that implements these can be asked for
+   * one file at a time, which is what makes a position write not rewrite the library.
    *
-   * `getRevision` is the change detector a provider can offer natively (an ETag, a version, a
-   * modified time). It is optional too: an engine that cannot ask compares the bytes it has.
+   * **Bytes, not strings.** Encryption sits above this layer — one implementation encrypts the
+   * canonical files and every provider receives the same encrypted bytes — so a provider must never
+   * assume the payload is text. A provider that only speaks strings can decode UTF-8 and say so.
+   *
+   * `revision` is the change detector a provider can offer natively (an ETag, a version, a modified
+   * time). It is optional too: an engine that cannot ask compares the bytes it already has.
    */
-  readFile?(path: string): Promise<string | null>;
-  writeFile?(path: string, bytes: string): Promise<void>;
+  readFile?(path: string): Promise<Uint8Array | null>;
+  writeFile?(path: string, data: Uint8Array): Promise<void>;
   deleteFile?(path: string): Promise<void>;
-  list?(path: string): Promise<string[]>;
-  getRevision?(path: string): Promise<string | null>;
+  list?(path: string): Promise<SyncFile[]>;
+  revision?(path: string): Promise<string | null>;
+}
+
+/** One file in a provider's folder, as `list()` reports it. */
+export interface SyncFile {
+  /** Path relative to the sync folder, e.g. `library.json`. */
+  readonly path: string;
+  readonly size: number;
+  /** The provider's own change marker, when it has one. */
+  readonly revision: string | null;
 }
 
 /**
