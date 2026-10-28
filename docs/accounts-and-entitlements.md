@@ -38,6 +38,46 @@ Payment provider (Stripe now; Apple/Google later if a store demands it)
 Supabase's free tier covers this comfortably (50k MAU at $0 as of writing), and it is the whole
 backend: no queue, no cron, no file storage — the library never goes through it.
 
+### How the app asks
+
+One `GET`, at launch and again whenever the window comes back:
+
+```
+GET /rest/v1/entitlements?select=cloud_sync,expires_at&user_id=eq.<auth.uid()>&limit=1
+Authorization: Bearer <the reader's JWT>
+apikey: <the publishable key>
+```
+
+`src/state/entitlements.svelte.ts` holds the only code that talks to this table (`RemoteStore`),
+and five details are the difference between a capability and a wish:
+
+- **`source` is not even selected.** A row records that someone owns Sync. Which provider took the
+  money is the webhook's business, and a column that is never fetched cannot start a branch in the
+  UI six months from now.
+- **A row has no price, so the answer has none.** The two prices buy the same `cloud_sync`; the app
+  reports the capability and never guesses "monthly" from a boolean.
+- **The last answer is cached per user id** — `hardlyreader.entitlement.v1.<user id>` — so an
+  offline launch keeps a paying reader working. The cached answer is re-read against the calendar,
+  so it stops granting at `expires_at`: a plane is not a free month, and a device carried offline
+  past the renewal date pauses like any other.
+- **A failure is `none`.** A 500, a timeout, an answer that is not a list, a device with no session:
+  cloud sync off, the local library untouched, and the sentence says which. With one exception that
+  is the point of the cache — a transient failure (no network, 5xx, 429) is answered from this
+  reader's own last answer if they have one.
+- **A refused credential is not a cached grant.** A 401/403 means the server disowned the session:
+  that is `none`, and the cache is deliberately not consulted. Signing in again is the fix, and it
+  is the same answer for every device that holds an old token.
+
+None of that is the protection, only the manners: the database refuses a client write on its own,
+because the table has a `select` policy and no other. `tests/unit/entitlement-source.mjs` holds
+both halves — that the client issues nothing but a `GET`, and that the SQL stays select-only — so
+"a client cannot set this flag" is a test rather than a hope.
+
+The session it presents is the one `supabase-js` leaves in this device's storage
+(`sb-<project-ref>-auth-token`), and there is deliberately no second place to look. Until the
+sign-in screen exists, no such value is written, so the store reads `none` and the app says so —
+which is the correct answer for a device that cannot prove who it is, not a placeholder for one.
+
 ```sql
 -- supabase/schema.sql in the repo is the authority; this is the shape.
 create table public.entitlements (
