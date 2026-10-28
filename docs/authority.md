@@ -1,8 +1,8 @@
 # One authority at a time
 
-HardlyReader is one app with two kinds of profile, and the same features in both. What
-differs is **who is authoritative** for the state behind a feature, and that difference is
-the rule everything else follows.
+HardlyReader is one app, and the same features everywhere. What differs is **who is
+authoritative for each feature** — decided per feature, never as one "FreshRSS vs cloud" switch.
+That distinction is the rule everything else follows.
 
 ```
 FreshRSS profile                 Local profile
@@ -23,6 +23,59 @@ So: a FreshRSS profile never writes its hidden/pinned/read state to a cloud prov
 local profile never writes it to a FreshRSS server. The paid tier is a property of the
 *local* profile only. Free FreshRSS users keep every feature and keep syncing it through
 FreshRSS exactly as today, and nothing about billing touches that path.
+
+## The ladder, per feature
+
+```
+does this backend support the feature?
+  → yes:  the backend is authoritative (a server, or the local database)
+  → no, and the reader pays for Sync: HardlyReader cloud snapshot is authoritative for it
+  → no, and free: it stays on this device
+```
+
+Since a backend is whatever the profile points at, that one ladder covers every case:
+
+| profile | core RSS (feeds, read, stars, folders) | HardlyReader extras |
+|---|---|---|
+| Local | local database | paid Sync mirrors it; free stays on the device |
+| FreshRSS **with** the extensions | FreshRSS | **free — the extensions carry them** |
+| FreshRSS without them | FreshRSS | local, or paid Sync |
+| The Old Reader / Miniflux / Inoreader / Tiny Tiny RSS | that service | local, or paid Sync |
+| Local + paid | local database | paid iCloud / Drive / Dropbox / OneDrive |
+
+The extras are hidden categories, pinned categories, category and feed ordering when the service does
+not preserve it, sidebar indent, lock/reveal state, reading position, and HardlyReader's own layout
+and preferences.
+
+Worked example — The Old Reader, paid:
+
+```
+The Old Reader                    HardlyReader Sync
+├── feeds                         ├── hidden categories
+├── folders                       ├── pinned categories
+├── read / unread                 ├── custom ordering
+└── starred                       ├── layout and preferences
+                                  └── reading position
+```
+
+And the same reader without paying keeps every one of those features — on that device.
+
+### The mechanism
+
+`src/lib/capabilities.ts` is the whole model, and it is pure: no state, no network, no provider
+name. `ReaderBackend.capabilities` (optional, partial) says what a backend can store; a backend that
+declares nothing is treated as a plain GReader service.
+
+```
+GREADER_CAPABILITIES               feeds, folders, read, stars
+FRESHRSS_EXTENSION_CAPABILITIES    + ordering, hidden, pins, prefs, position
+LOCAL_CAPABILITIES                 everything (the backend is the local database)
+```
+
+`resolveAuthority(feature, { capabilities, cloudSync })` returns `backend`, `cloud` or `local`, and
+`upgradePitch({ capabilities, cloudSync, server })` says what buying would actually add:
+`nothing` for FreshRSS with the extensions (their server already does it), `mirror` for a local
+library, `extras` for a service that has nowhere to put them.
 
 ## The same features, two storage adapters
 

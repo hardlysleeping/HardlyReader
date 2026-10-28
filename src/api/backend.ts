@@ -68,6 +68,17 @@ export interface MoveFeedRequest {
 export interface ReaderBackend {
   readonly kind: BackendKind;
 
+  /**
+   * What this backend can store itself.
+   *
+   * Optional and partial on purpose: a backend that says nothing is treated as a plain GReader
+   * service (feeds, folders, read, stars — and nothing extended), which is the safe default for a
+   * server we have not measured. `src/lib/capabilities.ts` is what turns this into a decision about
+   * where a feature's truth lives; see `docs/authority.md` for why the decision is per feature
+   * rather than per profile.
+   */
+  readonly capabilities?: Partial<import("../lib/capabilities").Capabilities>;
+
   /** The account behind this backend, for the header and the account panel. */
   profile(): Promise<UserInfo>;
 
