@@ -78,6 +78,10 @@ The session it presents is the one `supabase-js` leaves in this device's storage
 sign-in screen exists, no such value is written, so the store reads `none` and the app says so —
 which is the correct answer for a device that cannot prove who it is, not a placeholder for one.
 
+Buying is the other half and does not touch any of this: `api/billing.ts` composes this reader
+into a `WebStore` whose `purchase()` only opens a Checkout page and answers *"not bought yet"*.
+The press grants nothing; the webhook's write is what the next read sees.
+
 ```sql
 -- supabase/schema.sql in the repo is the authority; this is the shape.
 create table public.entitlements (
