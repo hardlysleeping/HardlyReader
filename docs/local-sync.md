@@ -122,6 +122,23 @@ The background picture is not among the values that travel: it arrives as a
 data URL of megabytes, and `plainValue()` in `lib/prefs-sync` already drops any
 string past 2048 characters.
 
+## The section
+
+Settings draws **Device sync** for a local library that has feeds in it and for
+nothing else: a first launch has nothing to sync, and a reader signed in to a
+server already has FreshRSS doing this for them (`showsDeviceSync`). Two halves,
+and `cloudSync` alone decides which one:
+
+- **not bought** — what stays in step, both terms and their real saving, and the
+  two buttons;
+- **bought** — the four services, each with the folder it remembers on this
+  device, the last run and **Sync now**.
+
+One purchase covers all four providers, so changing service opens the folder
+picker and never the store. A run is refused before the engine when there is no
+provider or no folder for it, and a failed run is one line under the button that
+leaves the library, the agreement and the last-run time alone.
+
 ## Refusals
 
 | Situation | What happens |
@@ -136,9 +153,13 @@ string past 2048 characters.
 
 ## What is not here yet
 
-- **The panel.** `syncOnce()` is the whole sync; choosing a folder, when to run
-  it (launch, resume, after a change) and showing the last result belongs to the
-  local-mode settings surface, which needs local accounts in the UI first.
+- **When a run happens.** Only when the reader presses **Sync now**. Running on
+  launch, on resume and after a change is not wired to the folder yet — the
+  refresh interval in Settings is about fetching feeds and is a different
+  scheduler. The section is
+  `src/components/DeviceSyncPanel.svelte`, its state is `state/device-sync`, and
+  what this device chose is `lib/sync-setup` — one folder per provider per
+  profile, under a device key, never in the document.
 - **The per-account preferences blob** (`hardlyreader:prefs:<slug>`: sidebar
   order, pins mirror, indent). It is keyed by an account slug that a local
   profile does not have yet; inventing one here would put a device-specific key
@@ -165,3 +186,20 @@ through one `MemorySyncProvider`, a provider whose `read()` throws leaving the
 library, the document and the last agreement untouched, the four cloud ids writing
 to the folder they were handed and nowhere else, and a plain object with the four
 members standing in as a provider.
+
+`tests/unit/device-sync.mjs` — 71 checks on the state behind the section: one
+record per provider per profile under a device key (never the synced settings
+document), the refusals in order (no library, no provider, no folder, no folder
+support) each saying why in one line, a failed run leaving the agreement and the
+last-run time exactly as they were, and the section's own gate.
+
+`tests/unit/device-sync-section.mjs` — 29 checks that render the component for
+Svelte's server target in both entitlement states with everything else held still,
+so the half that is drawn is decided by `cloudSync` and by nothing else; it also
+pins that all four providers sit behind the one purchase and that switching
+service asks the store for nothing.
+
+`tests/unit/settings-panel.mjs` — the real sheet: the interval row is called
+**Refreshing**, no section is called Sync, Device sync is absent for an empty
+library and for a server profile, and both of its halves draw inside the section
+that mounts it.
