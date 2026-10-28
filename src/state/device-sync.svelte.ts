@@ -6,7 +6,7 @@
  * third thing: what this device has chosen, and the run itself — so the section
  * draws rows and presses a button, and nothing in the UI touches a merge.
  *
- * Four rules it keeps.
+ * Five rules it keeps.
  *
  * - **A run is unreachable without a provider and a folder.** `syncNow()` refuses
  *   before it calls the engine, because a sync with nowhere to write would build
@@ -16,6 +16,12 @@
  *   answers, so the agreement (`base`) and the last-run time are exactly what
  *   they were; the library is the engine's business and a read that throws
  *   reaches nothing at all.
+ * - **Choosing another service is a migration, not a re-connect.** The provider
+ *   that is *in use* changes only when `switchProvider` has read the old copy,
+ *   merged it, written the new one and read it back. `pending` is the service the
+ *   reader picked in the meantime, and it is not authority: a failed migration
+ *   clears it, so the rows go back to the provider this device is actually on
+ *   and the one line under them says which step stopped.
  * - **One folder per provider, per profile.** The record lives under a device
  *   key scoped to the profile (`lib/sync-setup`), never in the synced settings
  *   document: a path is a fact about this computer.
@@ -24,7 +30,7 @@
  *   who owns it and one who never did. The section decides what to draw, and
  *   only the section reads the entitlement.
  */
-import { SYNC_FILE_NAME, syncOnce, type SyncPrefs, type SyncRun } from "../api/local/sync";
+import { SYNC_FILE_NAME, ProviderSwitchError, switchProvider, syncOnce, type SyncPrefs, type SyncRun, type SwitchRun } from "../api/local/sync";
 import {
   exportArchive,
   importArchive,
@@ -36,7 +42,7 @@ import { foldersAvailable } from "../api/local/sync-folder";
 import type { LocalStore } from "../api/local/store";
 import type { AccountIdentity } from "../lib/account-key";
 import type { ReaderProfile } from "../api/profile";
-import { describeLastSynced, emptySetup, folderFor, withFolder, withImport, withProvider, withRun, readSetup, writeSetup, type SyncSetup, SYNC_CHOICES } from "../lib/sync-setup";
+import { describeLastSynced, emptySetup, folderFor, withFolder, withImport, withProvider, withRun, withSwitch, readSetup, writeSetup, type SyncSetup, SYNC_CHOICES } from "../lib/sync-setup";
 
 /** What the paid tier adds for one backend — `upgradePitch` in `lib/capabilities`. */
 type UpgradePitch = ReturnType<typeof import("../lib/capabilities").upgradePitch>;
@@ -108,9 +114,45 @@ export class DeviceSyncState {
   /** A provider that is not a folder on disk: the suite's, or a preview's. */
   private override = $state.raw<SyncProvider | null>(null);
 
-  /** The provider the reader picked, or null before they have. */
+  /**
+   * Providers by service, for the suite: a switch needs two folders it can drive
+   * separately, and `override` can only ever be one.
+   */
+  private overrides = $state.raw<Partial<Record<SyncProviderId, SyncProvider>>>({});
+
+  /**
+   * The service the reader picked that this device has not moved to yet.
+   *
+   * Not authority: `setup.provider` is the provider the document lives with until
+   * `switchProvider` has finished, and this is cleared on both a failure and a
+   * success. It exists so the rows can show the folder of the service being
+   * switched *to* while the migration runs.
+   */
+  pending = $state<SyncProviderId | null>(null);
+
+  /**
+   * The service this device left, after a switch that finished, so the panel can
+   * say the old file is still where the reader put it. Cleared by the next choice.
+   */
+  movedFrom = $state<{ label: string; where: string } | null>(null);
+
+  /** The provider the document lives with, or null before the reader has chosen. */
   get provider(): SyncProviderId | null {
     return this.setup.provider;
+  }
+
+  /**
+   * The provider the rows are about: the one being switched to while a switch is
+   * pending, and otherwise the one in use. Only drawing reads this — a run never
+   * does, because a run must write where the document already is.
+   */
+  get shown(): SyncProviderId | null {
+    return this.pending ?? this.setup.provider;
+  }
+
+  /** True while the reader has picked a service this device has not moved to. */
+  get switching(): boolean {
+    return this.pending !== null;
   }
 
   /** Its label, for the rows that have to name it. */
@@ -118,12 +160,12 @@ export class DeviceSyncState {
     return this.setup.provider === null ? "" : SYNC_PROVIDERS[this.setup.provider].label;
   }
 
-  /** The folder chosen for the provider in use, or "" when none has been. */
+  /** The folder chosen for the provider the rows are about, or "" when none has been. */
   get folder(): string {
-    return folderFor(this.setup, this.setup.provider);
+    return folderFor(this.setup, this.shown);
   }
 
-  /** Whether the provider in use has a folder, which is what makes a run possible. */
+  /** Whether the provider the rows are about has a folder, which is what makes a run possible. */
   get hasFolder(): boolean {
     return this.folder !== "";
   }
@@ -162,26 +204,69 @@ export class DeviceSyncState {
    * finds its own provider and its own folder rather than the last one's.
    *
    * `options.provider` is the suite's and a preview's way of replacing the folder
-   * on disk. Nothing else passes one.
+   * disk, and `options.providers` the same per service — a switch needs two
+   * folders, and one stand-in can only be one. Nothing else passes either.
    */
   bind(
     library: LocalStore | null,
     identity: AccountIdentity | null,
-    options: { provider?: SyncProvider | null } = {},
+    options: { provider?: SyncProvider | null; providers?: Partial<Record<SyncProviderId, SyncProvider>> } = {},
   ): void {
     this.library = library;
     this.identity = identity;
     this.override = options.provider ?? null;
+    this.overrides = options.providers ?? {};
+    this.pending = null;
+    this.movedFrom = null;
     this.note = null;
     const storage = typeof localStorage === "undefined" ? undefined : localStorage;
     this.setup = readSetup(storage, identity);
   }
 
-  /** The reader picked a service. Its folder is remembered, so this may be all there is to do. */
-  choose(provider: SyncProviderId | null): void {
-    this.setup = withProvider(this.setup, provider);
+  /**
+   * The reader picked a service.
+   *
+   * Three cases, and only the middle one is a migration:
+   *
+   * - the same service, or no service has been chosen yet — remembered, nothing
+   *   else to do;
+   * - a service with no folder here, or no library on this device — remembered
+   *   too: there is no document to move, so there is nothing to migrate;
+   * - otherwise the reader is *changing where the document lives*, and that is
+   *   `switchProvider`'s job. The service in use does not change here.
+   *
+   * `prefs` is the settings half the migration needs. It is optional so a caller
+   * that only wants to remember a choice — a suite, a preview — can still do so;
+   * with the folder already known, the switch starts on this call.
+   */
+  choose(provider: SyncProviderId | null, prefs?: SyncPrefs): void {
+    if (provider === this.setup.provider) {
+      this.pending = null;
+      this.note = null;
+      return;
+    }
+    this.movedFrom = null;
+
+    const inUse = this.setup.provider;
+    const migrating =
+      inUse !== null && this.library !== null && folderFor(this.setup, inUse) !== "" && provider !== null;
+
+    if (!migrating) {
+      this.setup = withProvider(this.setup, provider);
+      this.pending = null;
+      this.note = null;
+      this.save();
+      return;
+    }
+
+    this.pending = provider;
     this.note = null;
-    this.save();
+    // A service whose folder was chosen on an earlier visit needs nothing else:
+    // the migration can run now. One without a folder waits for the picker, and
+    // `setFolder` starts it.
+    if (prefs !== undefined && folderFor(this.setup, provider) !== "") {
+      void this.switchNow(prefs);
+    }
   }
 
   /**
@@ -189,11 +274,15 @@ export class DeviceSyncState {
    *
    * The path is taken as given — `syncProviderAt` refuses an empty one and a
    * build that cannot reach a folder, and that refusal is a sentence the row
-   * shows. A different folder is a different document, so the agreement goes
-   * with the old one.
+   * shows. A different folder for the provider **in use** is a different
+   * document, so the agreement goes with the old one; a folder typed for the
+   * service being switched to leaves it alone, because the document this device
+   * is merging is still the old provider's.
+   *
+   * A switch that was waiting for this folder starts here.
    */
-  setFolder(path: string): void {
-    const provider = this.setup.provider;
+  setFolder(path: string, prefs?: SyncPrefs): void {
+    const provider = this.shown;
     if (provider === null) {
       this.note = "Choose a provider first";
       return;
@@ -201,6 +290,9 @@ export class DeviceSyncState {
     this.setup = withFolder(this.setup, provider, path);
     this.note = null;
     this.save();
+    if (prefs !== undefined && this.pending === provider && provider !== this.setup.provider && this.hasFolder) {
+      void this.switchNow(prefs);
+    }
   }
 
   /**
@@ -226,7 +318,10 @@ export class DeviceSyncState {
       this.note = "Choose a provider before syncing";
       return null;
     }
-    if (!this.hasFolder) {
+    // The folder of the provider the document is *with*, not the one the rows are
+    // showing: a service the reader is switching to has no document to run on.
+    const folder = folderFor(this.setup, provider);
+    if (folder === "") {
       this.note = `Choose the folder ${SYNC_PROVIDERS[provider].label} keeps in sync`;
       return null;
     }
@@ -234,7 +329,7 @@ export class DeviceSyncState {
 
     let transport: SyncProvider;
     try {
-      transport = this.override ?? syncProviderAt(provider, this.folder);
+      transport = this.transportFor(provider, folder);
     } catch (error) {
       this.note = reasonOf(error);
       return null;
@@ -340,6 +435,92 @@ export class DeviceSyncState {
   private save(): void {
     const storage = typeof localStorage === "undefined" ? undefined : localStorage;
     writeSetup(storage, this.identity, this.setup);
+  }
+
+  /**
+   * The provider for one service, or the suite's stand-in for it.
+   *
+   * A build that cannot reach a folder at all (a browser tab) throws from
+   * `syncProviderAt`, and that refusal is the sentence the rows show.
+   */
+  private transportFor(provider: SyncProviderId, folder: string): SyncProvider {
+    return this.overrides[provider] ?? this.override ?? syncProviderAt(provider, folder);
+  }
+
+  /**
+   * Moves the document to the service the reader picked.
+   *
+   * This is the whole of "a switch is a migration" in this module: the engine
+   * reads the old copy, merges this library into it, writes the new copy, reads
+   * it back and only then answers. Nothing here changes the provider in use
+   * before that answer arrives, and a failure clears `pending` — so the rows go
+   * back to the service this device is actually on, with one line naming the step
+   * that stopped and saying that the old folder is still the provider.
+   *
+   * On success the record is written once: the new provider, the folder the
+   * migration wrote, and **the document it wrote as the agreement**. That last
+   * one is what stops a switched device from resurrecting the old provider's
+   * state on its next run.
+   *
+   * Answers the migration, or null when there was nothing to do or it did not
+   * finish.
+   */
+  async switchNow(prefs: SyncPrefs): Promise<SwitchRun | null> {
+    const store = this.library;
+    const target = this.pending;
+    const inUse = this.setup.provider;
+    if (store === null || target === null || inUse === null || target === inUse) return null;
+    if (this.running) return null;
+
+    const fromFolder = folderFor(this.setup, inUse);
+    const toFolder = folderFor(this.setup, target);
+    if (fromFolder === "" || toFolder === "") return null;
+
+    let from: SyncProvider;
+    let to: SyncProvider;
+    try {
+      from = this.transportFor(inUse, fromFolder);
+      to = this.transportFor(target, toFolder);
+    } catch (error) {
+      // Step three of the migration: connecting. It is the one step the engine
+      // cannot fail on, because the provider arrives as an argument.
+      this.pending = null;
+      this.note = new ProviderSwitchError(
+        "connect",
+        "to",
+        SYNC_PROVIDERS[inUse].label,
+        SYNC_PROVIDERS[target].label,
+        reasonOf(error),
+      ).message;
+      return null;
+    }
+
+    this.running = true;
+    try {
+      const run = await switchProvider({
+        store,
+        from,
+        to,
+        device: deviceName(),
+        base: this.setup.base,
+        prefs,
+      });
+      this.setup = withSwitch(this.setup, target, run.snapshot, Date.now());
+      this.pending = null;
+      this.movedFrom = { label: SYNC_PROVIDERS[inUse].label, where: fromFolder };
+      this.note = null;
+      this.save();
+      return run;
+    } catch (error) {
+      // The record is untouched — provider, folder, agreement and last-run time
+      // all still describe the device that has not moved — and the engine's
+      // sentence names the step that stopped.
+      this.pending = null;
+      this.note = reasonOf(error);
+      return null;
+    } finally {
+      this.running = false;
+    }
   }
 }
 

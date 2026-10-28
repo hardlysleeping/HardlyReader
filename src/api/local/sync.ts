@@ -1368,3 +1368,308 @@ export async function integrateSnapshot(
     applied,
   };
 }
+
+/* ---------------------------------------------------------------------------
+ * Changing where the document lives
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Where a migration stopped.
+ *
+ * These are the nine steps of `docs/sync-format.md`, "Provider switching is a
+ * migration", minus the two that are not code here: connecting the new provider
+ * builds the transport (the caller's step, whose failure arrives as `connect`),
+ * and step nine — never delete the old provider's files — is structural, because
+ * there is no delete in the provider seam at all.
+ *
+ * Every one of them can fail on a real folder: an unmounted drive, a full disk, a
+ * cloud client that swallowed the file, a target that already holds someone
+ * else's document in a shape this build must not overwrite. The step is the whole
+ * of what tells a reader what to fix, so it travels on the error rather than in a
+ * log line.
+ */
+export type SwitchStep =
+  | "connect"
+  | "sync"
+  | "read"
+  | "look"
+  | "merge"
+  | "write"
+  | "verify"
+  | "apply";
+
+/** Which side of the migration the failed step was working on. */
+export type SwitchSide = "from" | "to" | "here";
+
+/** The middle of the sentence: what was being attempted, in the reader's words. */
+function stepWords(step: SwitchStep, side: SwitchSide, fromLabel: string, toLabel: string): string {
+  switch (step) {
+    case "connect":
+      return `connecting to ${toLabel}`;
+    case "sync":
+      return `syncing ${fromLabel} one last time`;
+    case "read":
+      return `reading the copy in ${side === "to" ? toLabel : fromLabel}`;
+    case "look":
+      return `looking for an existing document in ${toLabel}`;
+    case "merge":
+      return "merging the two copies";
+    case "write":
+      return `writing the new file to ${toLabel}`;
+    case "verify":
+      return `reading the new file back from ${toLabel}`;
+    case "apply":
+      return "applying the merged document to this library";
+  }
+}
+
+/**
+ * The end of the sentence: what is still true, because this is the part a reader
+ * needs in order to know whether they now have two copies or one.
+ */
+function keptWords(step: SwitchStep, side: SwitchSide, fromLabel: string, toLabel: string): string {
+  if (step === "apply") {
+    // The last step that changes this device: the new folder has the document,
+    // and authority has still not moved.
+    return `${toLabel} holds the merged copy, but this device is still on ${fromLabel}.`;
+  }
+  if (step === "verify") {
+    return `${fromLabel} is still the provider in use, and ${toLabel} keeps whatever it was written.`;
+  }
+  if (step === "sync") {
+    // Step one is an ordinary sync, so it inherits one's failure semantics: a
+    // merge that landed has landed, and the next run merges it again.
+    return `${fromLabel} is still the provider in use, and ${toLabel} was not touched.`;
+  }
+  return `${fromLabel} is still the provider in use, and ${toLabel} holds what it held before.`;
+}
+
+/**
+ * A migration that did not finish, saying where it stopped and what is still
+ * true.
+ *
+ * Extends `LocalStorageError` so the panel's one line under the button is the
+ * engine's own sentence, the same way a failed run is.
+ */
+export class ProviderSwitchError extends LocalStorageError {
+  readonly step: SwitchStep;
+  readonly side: SwitchSide;
+  readonly fromLabel: string;
+  readonly toLabel: string;
+
+  constructor(step: SwitchStep, side: SwitchSide, fromLabel: string, toLabel: string, reason: string) {
+    super(
+      `Switching to ${toLabel} stopped at ${stepWords(step, side, fromLabel, toLabel)}: ${reason}. ` +
+        keptWords(step, side, fromLabel, toLabel),
+    );
+    this.name = "ProviderSwitchError";
+    this.step = step;
+    this.side = side;
+    this.fromLabel = fromLabel;
+    this.toLabel = toLabel;
+  }
+}
+
+/** Why something failed, as a phrase rather than a stack. */
+function reasonOf(error: unknown): string {
+  return error instanceof Error && error.message !== "" ? error.message : "the folder did not answer";
+}
+
+export interface SwitchOptions {
+  store: LocalStore;
+  /** Where the document lives now. Synced and read, never deleted. */
+  from: SyncProvider;
+  /** Where the reader wants it. */
+  to: SyncProvider;
+  /** What to call this device in the document. */
+  device: string;
+  /** The last agreement, exactly as `syncOnce` takes it. */
+  base: SyncSnapshot | null;
+  prefs: SyncPrefs;
+  now?: number;
+}
+
+export interface SwitchRun {
+  /**
+   * The document as it now stands in the new folder — and this device's new
+   * agreement. Persist it *with* the new provider: a device that moved and kept
+   * an old base, or none, stamps every record it holds with "now" on its next
+   * run and outvotes the device that moved first.
+   */
+  snapshot: SyncSnapshot;
+  conflicts: SyncConflict[];
+  applied: ApplyReport;
+  /** What the old folder held when the migration read it, or null. Never written after that. */
+  fromSnapshot: SyncSnapshot | null;
+  /** True when the new folder already held a document, which was merged, not replaced. */
+  adoptedTarget: boolean;
+  /** True when the new folder already said exactly this, so nothing was written. */
+  unchanged: boolean;
+}
+
+/**
+ * Moves the shared document from one provider to another, in one order.
+ *
+ * The nine steps of `docs/sync-format.md`, in that order:
+ *
+ * 1. **Fully sync the current provider.** An ordinary `syncOnce`, so the file
+ *    this device leaves behind is complete — a reader whose second device is
+ *    still on it is not stranded with a copy that predates today's reading. On a
+ *    device that has already synced this writes nothing at all.
+ * 2. **Read the canonical state** — what the old folder actually holds now.
+ * 3. **Connect the new provider.** Already done: it arrives as `to`.
+ * 4. **Look for existing HardlyReader state** there, before writing over it.
+ * 5. **Merge** if there is any, with the old copy as the common ancestor, so the
+ *    device that arrives second cannot bury what the device that moved first did.
+ * 6. **Write** the merged document to the new folder.
+ * 7. **Verify** it: read it back, parse it, and compare it with what was written.
+ * 8. **Switch the active provider** — the caller's step, and it happens only
+ *    after this function answers. Nothing here changes any authority.
+ * 9. **Never delete the old provider's files.** There is no delete in the
+ *    provider seam, nothing here writes to `from` after step 2, and the panel
+ *    says the file stays where the reader put it.
+ *
+ * A failure before step 8 leaves the old provider in use and the new folder
+ * holding what it held before (or, at `verify`, whatever it was written); from
+ * step 2 onwards the library on this device is not touched until step 7 has
+ * passed. Step 1 is the exception, and it is an ordinary sync: a merge that
+ * landed has landed, exactly as it would have on the button.
+ *
+ * `conflicts` speak the merge's own vocabulary: in the step-5 merge "folder"
+ * means the new folder's copy, which is the device that moved first.
+ */
+export async function switchProvider(options: SwitchOptions): Promise<SwitchRun> {
+  const now = seconds(options.now);
+  const { store, from, to } = options;
+
+  // 1. Fully sync the current provider. `syncOnce` reads the old folder, merges
+  //    it here, applies it and writes it back if anything changed — so the file
+  //    that stays behind is the whole of what this device knows.
+  let synced: SyncRun;
+  try {
+    synced = await syncOnce({
+      store,
+      provider: from,
+      device: options.device,
+      base: options.base,
+      prefs: options.prefs,
+      now,
+    });
+  } catch (error) {
+    throw new ProviderSwitchError("sync", "from", from.label, to.label, reasonOf(error));
+  }
+
+  // 2. The canonical state, read back rather than assumed: another device may
+  //    have written between the sync and now.
+  let depart: SyncSnapshot | null = null;
+  try {
+    const raw = await from.read();
+    depart = raw === null ? null : parseSyncSnapshot(raw);
+  } catch (error) {
+    throw new ProviderSwitchError("read", "from", from.label, to.label, reasonOf(error));
+  }
+
+  // 3. The new provider is `to`; connecting to it is the caller's step, and it
+  //    arrives here or it does not arrive at all.
+  //
+  // 4. Look for existing state there. A corrupt or newer document is a refusal,
+  //    not something to write over: it may be the other device's, and it may be
+  //    a newer build's.
+  let target: SyncSnapshot | null = null;
+  try {
+    const raw = await to.read();
+    target = raw === null ? null : parseSyncSnapshot(raw);
+  } catch (error) {
+    throw new ProviderSwitchError("look", "to", from.label, to.label, reasonOf(error));
+  }
+
+  // 5. Merge. This device against the canonical state first — `synced.snapshot`
+  //    is the agreement, so nothing here is restamped — and then, if the new
+  //    folder already holds a document, that one too, with the old copy as the
+  //    common ancestor both copies were measured against.
+  let settled: SyncSnapshot;
+  let conflicts: SyncConflict[];
+  let adoptedPrefs: PrefsNamespace[];
+  let adoptedSidebar: boolean;
+  let adoptedPlace: boolean;
+  try {
+    // `localSnapshot` is the same document an export writes and a sync builds —
+    // including the redirect records — so a migration cannot carry a thinner
+    // library than a run would.
+    const local = await localSnapshot({
+      store,
+      device: options.device,
+      base: synced.snapshot,
+      prefs: options.prefs,
+      now,
+    });
+    const merged = mergeSnapshots(local, depart ?? emptySnapshot(), synced.snapshot);
+    settled = merged.snapshot;
+    conflicts = merged.conflicts;
+    adoptedPrefs = merged.adoptedPrefs;
+    adoptedSidebar = merged.adoptedSidebar;
+    adoptedPlace = merged.adoptedPlace;
+
+    if (target !== null) {
+      const second = mergeSnapshots(settled, target, depart);
+      settled = second.snapshot;
+      conflicts = [...conflicts, ...second.conflicts];
+      adoptedPrefs = [...new Set([...adoptedPrefs, ...second.adoptedPrefs])];
+      adoptedSidebar = adoptedSidebar || second.adoptedSidebar;
+      adoptedPlace = adoptedPlace || second.adoptedPlace;
+    }
+  } catch (error) {
+    throw new ProviderSwitchError("merge", "here", from.label, to.label, reasonOf(error));
+  }
+
+  const snapshot: SyncSnapshot = { ...settled, device: options.device, writtenAt: now };
+  const document = serializeSnapshot(snapshot);
+
+  // 6. The new folder. A document that already says exactly this is not
+  //    rewritten: a cloud folder uploads every write.
+  const unchanged = target !== null && sameContent(target, snapshot);
+  if (!unchanged) {
+    try {
+      await to.write(document);
+    } catch (error) {
+      throw new ProviderSwitchError("write", "to", from.label, to.label, reasonOf(error));
+    }
+  }
+
+  // 7. Prove it, before anything on this device believes the move happened.
+  //    Compared as documents rather than as bytes, so a provider that normalises
+  //    whitespace is not a failure while one that drops a feed is — and ignoring
+  //    the two fields that say who wrote it and when, because a document that was
+  //    already exactly this was not rewritten (step 6) and still has to pass.
+  try {
+    const back = await to.read();
+    if (back === null) throw new Error("the new file reads back empty");
+    if (!sameContent(parseSyncSnapshot(document), parseSyncSnapshot(back))) {
+      throw new Error("what reads back is not what was written");
+    }
+  } catch (error) {
+    throw new ProviderSwitchError("verify", "to", from.label, to.label, reasonOf(error));
+  }
+
+  // 8. Step 7 passed, so this device takes the merged document — the part of it
+  //    that came from the new folder's copy has not been applied here yet — and
+  //    the caller remembers the new provider with this document as the agreement.
+  let applied: ApplyReport;
+  try {
+    applied = await applySnapshot(store, snapshot);
+    options.prefs.adopt(snapshot.prefs, adoptedPrefs);
+    if (adoptedSidebar && snapshot.sidebar !== null) options.prefs.sidebar?.adopt(snapshot.sidebar);
+    if (adoptedPlace && snapshot.place !== null) options.prefs.place?.adopt(snapshot.place);
+  } catch (error) {
+    throw new ProviderSwitchError("apply", "here", from.label, to.label, reasonOf(error));
+  }
+
+  return {
+    snapshot,
+    conflicts,
+    applied,
+    fromSnapshot: depart,
+    adoptedTarget: target !== null,
+    unchanged,
+  };
+}

@@ -21,6 +21,19 @@ All notable changes to HardlyReader are recorded here. The format follows
   can prove: iOS killing the app, and IndexedDB eviction under storage pressure.
 ### Local library
 
+- **Changing sync provider is a migration, not a re-connect.** Picking another service in Settings
+  no longer just remembers a different folder and lets the next run reconcile against a blank page:
+  `switchProvider` runs the nine steps in `docs/sync-format.md` — sync the current provider, read
+  canonical state, connect the new one, look for state already there, merge, write, read it back and
+  compare it, and only then move authority (`withSwitch`, which replaces the agreement with the
+  migrated document so the abandoned provider's state cannot come back on the next run). A failure
+  at any step leaves the old provider in use, the new folder as it found it and the library untouched
+  from the read onwards, and says which step stopped and which service is still in use. The old
+  folder is never written to after step 2 and never deleted — the section says so in its own words,
+  both before a switch and after one. `tests/unit/provider-switch.mjs` proves it, including the
+  owner's acceptance: one device switches while a second is offline, both end on the new provider
+  with the same feeds and marks, and the old file is still there and complete.
+
 - **A library on this device keeps the text of the posts you open.** Before this, a local library
   held what each feed's XML carried — a summary, or the whole piece if the publisher sent one — and
   the article behind a "continue reading" was fetched again every time the post was opened, and

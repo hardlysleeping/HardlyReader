@@ -269,13 +269,17 @@
   });
 
   function choose(id: SyncProviderId): void {
-    deviceSync.choose(id);
+    // Choosing another service is a migration: the state reads the old copy,
+    // merges, writes the new one and reads it back before the provider in use
+    // changes. The panel only has to open the picker when there is no folder for
+    // the service yet — with one, the switch starts on this press.
+    deviceSync.choose(id, syncPrefs());
     picking = !deviceSync.hasFolder;
     if (!picking) typed = deviceSync.folder;
   }
 
   function useFolder(): void {
-    deviceSync.setFolder(typed);
+    deviceSync.setFolder(typed, syncPrefs());
     if (deviceSync.hasFolder) picking = false;
   }
 
@@ -317,9 +321,9 @@
       {#each deviceSync.choices as id (id)}
         <button
           class="pick"
-          class:on={deviceSync.provider === id}
+          class:on={deviceSync.shown === id}
           role="radio"
-          aria-checked={deviceSync.provider === id}
+          aria-checked={deviceSync.shown === id}
           aria-label={SYNC_PROVIDERS[id].label}
           title={SYNC_PROVIDERS[id].place}
           onclick={() => choose(id)}
@@ -329,6 +333,22 @@
       {/each}
     </div>
   </div>
+
+  {#if deviceSync.switching}
+    <!-- The service being switched to is not in use yet, and the reader is about
+         to point at its folder. Said in the row's own words so the picker is not
+         mistaken for a finished move. -->
+    <p class="hint">
+      Moving to {SYNC_PROVIDERS[deviceSync.shown].label}: its folder is all that is
+      missing. Nothing changes until the copy has been written there and read back.
+    </p>
+  {:else if deviceSync.provider !== null}
+    <p class="hint">
+      Switching service copies your library into the new folder and switches over
+      only once it has read the copy back. The file in the old folder is never
+      deleted — it stays where you put it.
+    </p>
+  {/if}
 
   <div class="row wide">
     <span class="key">Folder</span>
@@ -345,12 +365,12 @@
           spellcheck="false"
           autocomplete="off"
           placeholder="~/…"
-          disabled={deviceSync.provider === null}
+          disabled={deviceSync.shown === null}
           bind:value={typed}
         />
         <button
           class="do"
-          disabled={deviceSync.provider === null || typed.trim() === ""}
+          disabled={deviceSync.shown === null || typed.trim() === ""}
           title="Use this folder for the shared document"
           onclick={useFolder}>Use</button>
       </div>
@@ -370,9 +390,9 @@
 
   {#if !deviceSync.hasFolder}
     <p class="hint">
-      Point this at the {deviceSync.provider === null
+      Point this at the {deviceSync.shown === null
         ? "folder your service syncs"
-        : SYNC_PROVIDERS[deviceSync.provider].place}. It holds reading state, not articles.
+        : SYNC_PROVIDERS[deviceSync.shown].place}. It holds reading state, not articles.
     </p>
   {/if}
 
@@ -391,8 +411,18 @@
 
   {#if deviceSync.note !== null}
     <!-- One line, and it is the whole report: a run that failed says why here
-         and leaves everything it did not finish alone. -->
+         and leaves everything it did not finish alone. A switch that failed says
+         which step stopped and that the old folder is still the provider. -->
     <p class="hint bad" role="status">{deviceSync.note}</p>
+  {/if}
+
+  {#if deviceSync.movedFrom !== null}
+    <!-- The one thing a reader has to know after a migration: this app took a
+         copy, and left theirs where it was. -->
+    <p class="hint" role="status">
+      Moved to {deviceSync.providerLabel}. The {deviceSync.movedFrom.label} file is
+      still at {deviceSync.movedFrom.where} — this app never deletes it.
+    </p>
   {/if}
 
   <p class="hint">

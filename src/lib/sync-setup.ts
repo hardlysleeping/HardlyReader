@@ -140,22 +140,46 @@ export function withProvider(setup: SyncSetup, provider: SyncProviderId | null):
 /**
  * The reader chose the folder for the service in use.
  *
- * A different folder is a different document, even under the same service name,
- * so the agreement goes: keeping a base from another folder would report every
- * record in the new file as a change made here.
+ * A different folder for the provider in use is a different document, so the
+ * agreement goes: keeping a base from another folder would report every record
+ * in the new file as a change made here. A folder typed for a service this
+ * device is *switching to* is not that case — the document this device is
+ * merging is still the old provider's, and its agreement is still the truth
+ * until the migration finishes (`withSwitch`).
  */
 export function withFolder(setup: SyncSetup, provider: SyncProviderId, path: string): SyncSetup {
   const trimmed = path.trim();
   const folders = { ...setup.folders };
   if (trimmed === "") delete folders[provider];
   else folders[provider] = trimmed;
-  const moved = (setup.folders[provider] ?? "") !== trimmed;
+  const moved = (setup.folders[provider] ?? "") !== trimmed && provider === setup.provider;
   return {
     ...setup,
     folders,
     lastSyncedAt: moved ? 0 : setup.lastSyncedAt,
     base: moved ? null : setup.base,
   };
+}
+
+/**
+ * The reader switched service, and the migration finished.
+ *
+ * Unlike `withProvider`, this does **not** drop the agreement: the document the
+ * migration wrote to the new folder *is* the agreement, and it is the only thing
+ * that stops a switched device from resurrecting the state of the provider
+ * everyone left. A device that moved and kept no base would stamp every record
+ * it holds with "now" on its next run and outvote the device that moved first.
+ *
+ * The folder has already been recorded by `withFolder` — the migration is what
+ * made it real, so this is called with the one that was written.
+ */
+export function withSwitch(
+  setup: SyncSetup,
+  provider: SyncProviderId,
+  base: SyncSnapshot,
+  at: number,
+): SyncSetup {
+  return { ...setup, provider, base, lastSyncedAt: at };
 }
 
 /** A run finished. Its document is the new agreement. */
