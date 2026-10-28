@@ -1007,7 +1007,6 @@
       server={profile.session?.serverUrl ?? "On this device"}
       {onsignout}
       {onaddaccount}
-      {onconnect}
     />
   {:else}
     <Header
@@ -1130,7 +1129,7 @@
          than a second component, so the walk does not have to rebuild the list
          it is walking out of. -->
     <div class="slot feeds" class:away={!slots.sidebar} bind:this={feedsSlot}>
-      <Sidebar inlinePosts={mode === 1} />
+      <Sidebar inlinePosts={mode === 1} {onconnect} />
     </div>
 
     <div class="slot seam-x gut-feeds" class:away={!slots.seam}>

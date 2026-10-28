@@ -275,9 +275,19 @@
    * build for local feeds with no FreshRSS behind them can pass `third-party`
    * instead. Until it does, nothing is ever requested from a third party.
    */
-  let { inlinePosts = false, iconProvider = DEFAULT_ICON_PROVIDER }: {
+  let {
+    inlinePosts = false,
+    iconProvider = DEFAULT_ICON_PROVIDER,
+    onconnect,
+  }: {
     inlinePosts?: boolean;
     iconProvider?: FeedIconProvider;
+    /**
+     * Opens the connect-a-service screen. It is the same one the account panel
+     * presses, handed down rather than rebuilt here: syncing is an offer the
+     * empty library makes, not a second way into it.
+     */
+    onconnect?: () => void;
   } = $props();
 
   /**
@@ -292,6 +302,29 @@
   /** The add-feed form: closed until asked for, so the sidebar stays a list. */
   let adding = $state(false);
   let feedUrl = $state("");
+
+  /**
+   * A library with nothing in it yet.
+   *
+   * The one moment the panel has to say what it is for. It is the same three
+   * answers the old one-line notice used — the feeds mode, no subscriptions and
+   * no load in flight — so nothing is re-decided here; the block that draws on
+   * it only says more. It goes the moment a feed arrives, because a list with
+   * one feed in it needs no introduction.
+   */
+  const emptyLibrary = $derived(
+    mode === "feeds" && reader.subscriptions.length === 0 && !reader.loadingList,
+  );
+
+  /**
+   * Whether the invitation is still on screen.
+   *
+   * The add form lives in the footer, so pressing `+ Add feed` in the block has
+   * to give way to it: the invitation stands aside while the form is open
+   * rather than offering the same control twice, and it never comes back once a
+   * feed exists.
+   */
+  const startsHere = $derived(emptyLibrary && !adding);
 
   /**
    * Image URLs that failed to load. A dead icon falls back to the letter tile
@@ -729,6 +762,20 @@
 </script>
 
 <nav class="sidebar" data-pane="feeds" aria-label="Feeds" style="--feed-indent: {reader.sidebarIndent.px}px">
+  <!-- One file picker for the whole panel. The footer's Import label and the
+       empty library's Import OPML are two labels for this one control — the
+       empty block is the only way in on a phone, where the footer's file row is
+       folded away, and a second input would be a second entrance to the same
+       dialog. Not inside the footer, because the footer is not drawn then. -->
+  <input
+    id="opml-file"
+    type="file"
+    class="opml-input"
+    accept=".opml,.xml,text/xml,application/xml,application/octet-stream"
+    disabled={reader.feedBusy}
+    onchange={pickOpml}
+  />
+
   <!-- One field, filtering as you type: no submit button, no separate mode
        button beside it. The paragraph mark inside the field is the "also search
        post text" switch, kept quiet until it is wanted. It sits above the band
@@ -1175,8 +1222,34 @@
   {/each}
   {/if}
 
-  {#if mode === "feeds" && reader.subscriptions.length === 0 && !reader.loadingList}
-    <p class="empty">No feeds yet.</p>
+  {#if startsHere}
+    <!-- The empty library, and the only place the panel explains itself: the
+         two ways to get feeds in, and syncing as the upgrade it is rather than
+         something to do first. One short block — no wizard, no second flow —
+         and it is gone the moment a feed exists. -->
+    <div class="start">
+      <p class="start-lead"><b>Start reading</b> — Add a feed or import your subscriptions.</p>
+      <div class="start-actions">
+        <button class="start-add" onclick={startAdding}>+ Add feed</button>
+        <label
+          class="start-import"
+          class:busy={reader.feedBusy}
+          for="opml-file"
+          title="Import feeds from an OPML file — folders come too"
+        >
+          {reader.feedBusy ? "Importing…" : "Import OPML"}
+        </label>
+      </div>
+      {#if onconnect}
+        <p class="start-sync">
+          Want feeds synced across devices?
+          <button class="start-connect" onclick={onconnect}>Connect a sync service</button>
+        </p>
+      {/if}
+      {#if opmlNote}
+        <p class="start-note" role="status">{opmlNote}</p>
+      {/if}
+    </div>
   {/if}
   </div>
 
@@ -1197,6 +1270,11 @@
     {/if}
   </div>
 
+  <!-- The footer, unless the empty library is introducing itself above: that
+       block carries the same two ways in, so drawing both would be the panel
+       saying one thing twice. The form still lives here, which is why the gate
+       reopens the moment `adding` is set. -->
+  {#if !startsHere}
   <div class="add">
     {#if adding}
       <form onsubmit={submitFeed}>
@@ -1255,14 +1333,9 @@
           <label
             class="opml-import"
             class:busy={reader.feedBusy}
+            for="opml-file"
             title="Import feeds from an OPML file — folders come too"
           >
-            <input
-              type="file"
-              accept=".opml,.xml,text/xml,application/xml,application/octet-stream"
-              disabled={reader.feedBusy}
-              onchange={pickOpml}
-            />
             <svg class="up" viewBox="0 0 16 16" aria-hidden="true">
               <path d="M8 10.6V2.4" />
               <path d="M4.7 5.7 8 2.4l3.3 3.3" />
@@ -1286,6 +1359,7 @@
       </div>
     {/if}
   </div>
+  {/if}
 </nav>
 
 <style>
@@ -1876,14 +1950,6 @@
     color: var(--muted);
   }
 
-  .empty {
-    margin: 0;
-    padding: 8px 16px;
-    font-size: 11.5px;
-    line-height: 1.4;
-    color: var(--muted);
-  }
-
   .indent {
     display: flex;
     align-items: center;
@@ -1988,10 +2054,111 @@
     color: var(--tone-trim);
   }
 
-  .empty {
-    padding: 12px 16px;
+  /* The empty library. It takes the footer's place rather than sitting beside
+     it, so the panel offers each way in once: one lead line naming both, the
+     two controls, then the sync offer underneath as an upgrade. Sized to be
+     read at a glance in a phone's drawer — three short parts, no headings. */
+  .start {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px 12px 16px;
+  }
+
+  .start-lead {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text-dim);
+  }
+
+  .start-lead b {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .start-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .start-add,
+  .start-import {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    padding: 0 11px;
+    border: 1px solid var(--border-soft);
+    border-radius: 7px;
+    background: none;
+    color: var(--text);
+    font: inherit;
     font-size: 12px;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      background 120ms ease,
+      border-color 120ms ease;
+  }
+
+  .start-import {
+    color: var(--text-dim);
+  }
+
+  .start-add:hover,
+  .start-import:hover {
+    color: var(--text);
+    background: var(--hover);
+    border-color: var(--border);
+  }
+
+  .start-import.busy {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  /* A thumb would rather have two more pixels than a tighter line, and the
+     block has the height to spare in a drawer. */
+  :global(html[data-device="phone"]) .start-add,
+  :global(html[data-device="phone"]) .start-import {
+    height: 32px;
+  }
+
+  .start-sync {
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.45;
     color: var(--muted);
+  }
+
+  /* A link drawn as a link, inside the sentence that makes it an offer: the
+     account panel's own connect card is what it opens. The padding is for a
+     thumb and the negative margin gives the paragraph its line spacing back, so
+     the target grows without the words moving. */
+  .start-connect {
+    padding: 3px 0;
+    margin: -3px 0;
+    border: 0;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+
+  .start-connect:hover {
+    color: var(--text);
+  }
+
+  .start-note {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--text-dim);
   }
 
   /* Compact, because it is furniture: two rows and a file name, no scroll, and
@@ -2172,9 +2339,10 @@
     cursor: default;
   }
 
-  /* The file input is the label's business, not the sidebar's: the visible
-     control is the label, and the browser's own chrome would break the row. */
-  .opml-import input {
+  /* The file input is nobody's visible business: the labels in the footer and
+     in the empty library are the controls, and the browser's own chrome would
+     break the row. One input, two labels, one dialog. */
+  .opml-input {
     position: absolute;
     width: 1px;
     height: 1px;
