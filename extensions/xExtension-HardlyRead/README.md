@@ -117,3 +117,6 @@ It walks a ticket through issue → approve → redeem → revoke with an inject
 [PolyForm Noncommercial 1.0.0](LICENSE), the same licence as HardlyReader: free for noncommercial use, commercial use needs written permission.
 
 This extension is built for FreshRSS, which is GPL-3.0; it is distributed separately from it.
+The extension itself, like the app, is **PolyForm Noncommercial 1.0.0** — see the
+repository's `LICENSE`. It is installed into a FreshRSS instance the reader runs; it is
+not a redistribution of FreshRSS.

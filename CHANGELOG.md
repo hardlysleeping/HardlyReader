@@ -4,6 +4,17 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Licence
+
+- **PolyForm Noncommercial 1.0.0, named everywhere it is machine-readable.** The
+  repo's `LICENSE` and the README carried it; `package.json` and the Tauri crate
+  declared nothing at all, so a package manager or a crates.io listing would have
+  read this as unlicensed. Both now point at the file rather than inventing an
+  SPDX id — PolyForm Noncommercial has none, which is also why GitHub reports
+  "Other". The adapter's README says the same next to its FreshRSS note.
+
 ## [0.6.7] — 2026-10-26
 
 ### Packaging
