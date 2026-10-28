@@ -2,9 +2,10 @@
  * Which layer owns a feature, decided per feature rather than per app.
  *
  * The old shape was one switch: "FreshRSS profile" or "paid cloud", as if every feature wanted the
- * same answer. It does not. The Old Reader will happily keep feeds, folders, read marks and stars,
- * and has nowhere to put a hidden category, a pinned category, a custom feed order, the sidebar
- * indent or a reading position. FreshRSS with the extensions has somewhere to put all of them.
+ * does not. The Old Reader will happily keep feeds, folders, read marks and stars,
+ * and has nowhere to put a hidden category, a pinned category, a custom feed order or the sidebar
+ * indent. FreshRSS with the extensions has somewhere to put all of those — but not where the
+ * reader was: no adapter has a route for the place, so it stays on this device on every backend.
  * A local library owns everything and mirrors it through a provider if the reader pays.
  *
  * So the question is never "which profile am I in" but **"does this backend support this feature, and
@@ -116,8 +117,21 @@ export const GREADER_CAPABILITIES: Capabilities = {
 /**
  * FreshRSS *with* the Hardly Read extensions.
  *
- * Everything extended is supported, which is exactly why a FreshRSS reader never needs a
- * subscription: their server can already carry all of it.
+ * Everything extended the adapter has a route for is supported, which is exactly why a FreshRSS
+ * reader never needs a subscription: their server can already carry it.
+ *
+ * The reading position is the exception, and it is left inheriting `false` from
+ * `GREADER_CAPABILITIES` on purpose. `/v1/positions` carries the arrangement — the category and
+ * feed order — and never where the reader was; `/v1/preferences` carries reading, theme and search
+ * settings, not a place; and there is no third route. The place itself is `lib/place`, keyed per
+ * account in device storage, which is where it has always actually been. A `true` here would be a
+ * declaration the adapter cannot honour: the app would believe a server had the place while the
+ * only copy of it sat in this browser's storage (`docs/sync-invariants.md` #13/#14).
+ *
+ * Giving the extension the route is the other way to answer that, and it is a version, not a flag:
+ * a place block on `/v1/positions` (or a `/v1/place`) bumps `HardlyReadApi::API_VERSION` and
+ * appends a row to `ADAPTER_ROUTES` in the same change. Until then this stays `false`, and
+ * `capabilitiesFromState` measures the place `unsupported` at every adapter version.
  */
 export const FRESHRSS_EXTENSION_CAPABILITIES: Capabilities = {
   ...GREADER_CAPABILITIES,
@@ -126,7 +140,6 @@ export const FRESHRSS_EXTENSION_CAPABILITIES: Capabilities = {
   hiddenCategories: true,
   pinnedCategories: true,
   preferences: true,
-  readingPosition: true,
 };
 
 /**
@@ -154,6 +167,11 @@ export const LOCAL_CAPABILITIES: Capabilities = {
  * Derived rather than listed again, so a feature added to `GREADER_CAPABILITIES` later
  * is not silently probed as if a server had it, and one removed from there is probed
  * without anyone remembering to edit a second list.
+ *
+ * Membership here means "not part of the GReader baseline", not "some adapter carries
+ * it": the reading position is in this list and in no `ADAPTER_ROUTES` row, so it is
+ * measured — `capabilitiesFromState` answers `unsupported` for it at every version —
+ * while no backend can ever be its authority.
  */
 const EXTENDED: Feature[] = ALL.filter((feature) => !GREADER_CAPABILITIES[feature]);
 
@@ -163,15 +181,22 @@ const EXTENDED: Feature[] = ALL.filter((feature) => !GREADER_CAPABILITIES[featur
  * `apiVersion` on `/v1/state` is the *adapter's own* version — not the preferences
  * document's (`PREFS_API_VERSION`) and not the extension's marketing version in
  * `metadata.json`. Version 1 is the frozen v1 surface: hidden categories, pins, the
- * arrangement, the preferences document and the reading position. An adapter that
+ * arrangement and the preferences document. An adapter that
  * reports no version at all reads as version 0 — old enough that none of the extended
  * routes can be assumed — and its features resolve the way they do for any other
  * GReader server, instead of the app calling a route that is not there and learning
  * `404` at the first write.
  *
+ * **The reading position is in no row, on purpose.** There is no adapter version that
+ * carries a place: `/v1/positions` is the arrangement (category ids, feed ids) and
+ * `/v1/preferences` is three namespaces of settings, so a row claiming the place would
+ * describe a route that does not exist. The place lives in `lib/place`, on the device,
+ * per account — which is what happens on every backend today.
+ *
  * Adding a route means bumping `HardlyReadApi::API_VERSION` in the extension and
  * appending a row here in the same change: an older adapter then *reports fewer
- * capabilities* rather than answering `404` later.
+ * capabilities* rather than answering `404` later. That is also how the place would
+ * become a backend's, if the extension ever gains a place block.
  *
  * The residual, stated rather than hidden: `API_VERSION` was already 1 when the
  * arrangement and preferences routes were added, so a v1 adapter from before those routes
@@ -183,9 +208,22 @@ const EXTENDED: Feature[] = ALL.filter((feature) => !GREADER_CAPABILITIES[featur
 const ADAPTER_ROUTES: readonly { since: number; features: readonly Feature[] }[] = [
   {
     since: 1,
-    features: ["hiddenCategories", "pinnedCategories", "categoryOrder", "feedOrder", "preferences", "readingPosition"],
+    features: ["hiddenCategories", "pinnedCategories", "categoryOrder", "feedOrder", "preferences"],
   },
 ];
+
+/**
+ * Whether any adapter version has a route for one feature.
+ *
+ * The reading position has none: `/v1/positions` is the arrangement and `/v1/preferences`
+ * is settings, so no backend is *meant* to hold where the reader was — the place is one
+ * device's cursor, kept in `lib/place`. That is a different thing from a gap between a
+ * server and the app, which is what the paid tier fills, so the pitch below does not count
+ * it (`upgradePitch`).
+ */
+export function adapterCarries(feature: Feature): boolean {
+  return ADAPTER_ROUTES.some((row) => row.features.includes(feature));
+}
 
 /**
  * The extended features an adapter of this version can answer, at most.
@@ -213,7 +251,9 @@ export function adapterCeiling(apiVersion: number): Feature[] {
  * with that block reporting `false`. That is a definite answer from a live adapter, so
  * it lowers the capability instead of leaving it unknown — and it must, because
  * "supported" here would make the app write to a route that answers `404`. The other
- * four have no flag on the wire; the version is what says the route is there.
+ * five have no flag on the wire; the version is what says the route is there. One of
+ * those five — the reading position — is in no version's ceiling at all, so it reads
+ * `unsupported` here whatever the adapter reports.
  *
  * A 200 never produces `unknown`: something replied. Unknown is the absence of an
  * answer, and it is decided in `src/api/hardlyread.ts` where the failure arrives.
@@ -371,6 +411,12 @@ export function resolveAll(input: AuthorityInput): Record<Feature, Authority> {
  * A FreshRSS-with-extensions reader has nothing to gain, and saying so is the honest answer rather
  * than showing them an upgrade for something their server already does. A local reader gains
  * cross-device mirroring of a library they already own. An Old Reader reader gains the extras.
+ *
+ * Only a feature some adapter carries is counted as a gap (`adapterCarries`): the reading position
+ * has no route anywhere, so it is not a gap between a server and this app — it is one device's
+ * cursor, and it is already here. Counting it would offer a provider as the home of a value no
+ * backend is meant to hold, and would take the honest "nothing to buy" away from the one reader it
+ * is true for.
  */
 export function upgradePitch(input: AuthorityInput & {
   /** Whether a server sits behind this backend at all. */
@@ -384,7 +430,9 @@ export function upgradePitch(input: AuthorityInput & {
   // A feature nobody could check is not a feature to sell: "this server may not have it, buy
   // Sync" is a pitch built on a failed request. Only a `supported` belief or an answer of
   // `unsupported` counts as missing.
-  const missing = ALL.filter((feature) => !caps[feature] && observed[feature] !== "unknown");
+  const missing = ALL.filter(
+    (feature) => !caps[feature] && observed[feature] !== "unknown" && adapterCarries(feature),
+  );
   // A server that carries every extended feature needs nothing bought for it.
   if (missing.length === 0) return "nothing";
   return "extras";

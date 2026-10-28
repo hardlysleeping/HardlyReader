@@ -12,8 +12,8 @@
  *
  * Four backends, four answers, and the same reader all the way down:
  *
- *   1. FreshRSS **with** the extensions — everything `backend`, and buying adds
- *      nothing (`upgradePitch === "nothing"`).
+ *   1. FreshRSS **with** the extensions — every extra it carries is `backend`, the place
+ *      is this device's, and buying adds nothing (`upgradePitch === "nothing"`).
  *   2. The Old Reader or Miniflux — `local` when free, `cloud` when paid, and the
  *      free case really does keep working on that device: categories hide, pins
  *      pin, the place resumes.
@@ -190,8 +190,17 @@ const EXTENDED = [
   "hiddenCategories",
   "pinnedCategories",
   "preferences",
-  "readingPosition",
 ];
+
+/**
+ * The one extra no adapter has a route for.
+ *
+ * `/v1/positions` is the arrangement (category ids, feed ids) and `/v1/preferences` is
+ * three namespaces of settings; neither carries where the reader was, so the place is
+ * `lib/place` on this device under every backend — which is why it is not in `EXTENDED`
+ * above, the list of things a backend can answer for.
+ */
+const PLACE = "readingPosition";
 
 const SUBSCRIPTIONS = [
   {
@@ -325,13 +334,14 @@ try {
     const { reader } = await readerOn(FRESHRSS, { state: STATE_WITH_EXTENSIONS });
 
     check(
-      "a FreshRSS with the extensions keeps every extra itself",
+      "a FreshRSS with the extensions keeps every extra it carries itself",
       allAre(reader, "backend"),
       extras(reader),
     );
     check(
-      "...including the place, which is the one the ladder used to have no answer for",
-      reader.featureAuthority("readingPosition") === "backend",
+      "the place is the one extra it does not carry: it is this device's",
+      reader.featureAuthority(PLACE) === "local",
+      reader.featureAuthority(PLACE),
     );
     check(
       "and the section says buying adds nothing",
@@ -340,10 +350,18 @@ try {
     );
 
     // Buying changes no answer: the server already carries all of it, so a paid
-    // reader's extras must not move to the cloud behind their back.
+    // reader's extras must not move to the cloud behind their back. The place is the
+    // one field the ladder answers differently, because no backend has a route for it —
+    // and nothing runs a sync on a server profile, so "cloud" there is a store that is
+    // never written.
     reader.paid = true;
     check("paying moves nothing: the server is still the authority", allAre(reader, "backend"), extras(reader));
     check("and the pitch stays the honest one", reader.upgradePitch === "nothing", reader.upgradePitch);
+    check(
+      "the place is the only field paying would move, to a store nothing writes on a server",
+      reader.featureAuthority(PLACE) === "cloud",
+      reader.featureAuthority(PLACE),
+    );
   }
 
   /* -------------------------------------------------------------------------
@@ -464,7 +482,7 @@ try {
 
     check(
       "an adapter that is on while both block extensions are off keeps its own routes",
-      ["categoryOrder", "feedOrder", "preferences", "readingPosition"].every(
+      ["categoryOrder", "feedOrder", "preferences"].every(
         (feature) => reader.featureAuthority(feature) === "backend",
       ),
       extras(reader),
@@ -479,7 +497,7 @@ try {
   }
 
   /* -------------------------------------------------------------------------
-   * The place: the device's under every authority, and never a second writer
+   * The place: the device's under every authority, because no adapter carries it
    * ---------------------------------------------------------------------- */
 
   {
@@ -496,18 +514,18 @@ try {
     const before = reader.placeDoc().streamId;
     reader.adoptPlace(somewhere);
     check(
-      "a place from a document does not overwrite one a server owns",
-      reader.placeDoc().streamId === before,
+      "on a FreshRSS reader the place is this device's, so a document's place lands",
+      reader.placeDoc().streamId === "feed/2",
       `${before} -> ${reader.placeDoc().streamId}`,
     );
 
-    // The device's own place, on a service where the place is this device's: the
-    // document is exactly how the other device's place arrives.
+    // The same on a service with no extensions at all: the place is not a feature any
+    // backend was ever asked for, so `adoptPlace` has one answer and not two.
     device = makeStorage();
     const free = await readerOn(MINIFLUX, { state: STATE_MISSING });
     free.reader.adoptPlace(somewhere);
     check(
-      "...while a service that keeps no place takes it from the document",
+      "...and a service with no extensions at all takes it the same way",
       free.reader.placeDoc().streamId === "feed/2",
       free.reader.placeDoc().streamId,
     );

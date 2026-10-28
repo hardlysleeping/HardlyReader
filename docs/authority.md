@@ -68,16 +68,28 @@ declares nothing is treated as a plain GReader service.
 
 ```
 GREADER_CAPABILITIES               feeds, folders, read, stars
-FRESHRSS_EXTENSION_CAPABILITIES    + ordering, hidden, pins, prefs, position
+FRESHRSS_EXTENSION_CAPABILITIES    + ordering, hidden, pins, prefs
 LOCAL_CAPABILITIES                 everything (the backend is the local database)
 ```
+
+The reading position is deliberately absent from the FreshRSS line. `/v1/positions` carries the
+arrangement — category ids and feed ids — and `/v1/preferences` carries reading, theme and search
+settings; neither is where the reader was, and there is no third route. The place is `lib/place`,
+keyed per account in device storage, which is where it actually lives on every backend today, so the
+declaration says `false` rather than claiming a route the adapter cannot honour. Giving the
+extension a place route is the other way to make it true, and that would be a version: a block on
+`/v1/positions` (or a `/v1/place`), a bumped `HardlyReadApi::API_VERSION`, and a row in
+`ADAPTER_ROUTES` in the same change.
 
 `resolveAuthority(feature, { capabilities, paid, observed })` returns `backend`, `cloud` or `local`,
 and `upgradePitch({ capabilities, paid, observed, server })` says what buying would actually add:
 `nothing` for FreshRSS with the extensions (their server already does it), `mirror` for a local
-library, `extras` for a service that has nowhere to put them. `paid` is the entitlement's one
-capability, passed in rather than imported: this module is pure, and the store that asks it is told
-the answer by the shell (`App.svelte`), so no reading path imports a receipt.
+library, `extras` for a service with nowhere to put them. The pitch counts only features some adapter
+has a route for (`adapterCarries`), which is why the place does not turn "nothing" into a price for a
+FreshRSS reader: no backend is meant to hold it, so a subscription is not what would put it anywhere.
+`paid` is the entitlement's one capability, passed in rather than imported: this module is pure, and
+the store that asks it is told the answer by the shell (`App.svelte`), so no reading path imports a
+receipt.
 
 ### One resolver, and every extra asks it
 
@@ -92,7 +104,7 @@ its answer instead of branching on `session !== null`:
 | `isCategoryPinned`, `pinView`, the pin writes | `pinnedCategories` | Pinned Categories holds the mark | this device's pins |
 | the indent read and write | `preferences` | the adapter's indent block | this device's number |
 | the arrangement (`/v1/positions`) | `feedOrder` / `categoryOrder` | the account's document | this device's arrays; a `cloud` answer stops the write entirely |
-| `adoptPlace` | `readingPosition` | a server owns the place, so a document may not overwrite it | this device takes the other device's place |
+| `adoptPlace` | `readingPosition` | a backend with a place route owns the place, so a document may not overwrite it — no adapter has one today, so a FreshRSS reader's place is this device's | this device takes the other device's place |
 
 Two of those sentences are worth spelling out, because they are where the code and the wire meet:
 
@@ -155,6 +167,14 @@ what keeps a feature from being half-claimed.
 Adding a route to the adapter means bumping `HardlyReadApi::API_VERSION` and appending a row to
 `ADAPTER_ROUTES` in the same change.
 
+The reading position appears in no row, because no version of the adapter carries a place: the
+arrangement is `/v1/positions`, settings are `/v1/preferences`, and there is no third route. So
+`capabilitiesFromState` answers it `unsupported` at every version — a measurement that agrees with
+the declaration in `src/lib/capabilities.ts` instead of contradicting it — and a FreshRSS reader keeps
+the place in `lib/place`, on the device, per account, exactly as a reader on any other server does.
+A place route would be a new version plus a row here; a `true` in the declaration without them is a
+claim about a route that does not exist, which is the failure this section exists to prevent.
+
 The gap that rule is closing, stated plainly: `API_VERSION` was already 1 when the arrangement
 (`/v1/positions`) and preferences (`/v1/preferences`) routes arrived, so a v1 adapter from before
 those routes cannot be told apart from one that carries them — both report 1, and the older copy
@@ -176,8 +196,12 @@ Internally these are HardlyReader features with two adapters, not "FreshRSS feat
 | Hidden view / revealed | extension `view` | local view → cloud snapshot |
 | Sidebar indent | `xExtension-HardlyRead` | local preference → cloud snapshot |
 | Reading, layout, theme | extension prefs doc, local fallback | local prefs doc → cloud snapshot |
-| Reading position | extension positions, local fallback | local place → cloud snapshot |
+| Reading position | device, per account — no extension route (`src/lib/place.ts`) | local place → cloud snapshot |
 | Lock / passcode | extension routes | none today; per device if built — never in the snapshot |
+
+One row has a single adapter rather than two: the reading position. The extension has no place route,
+so on a FreshRSS profile it is this device's, per account, exactly as it is on a local one — the way to
+the cloud is the local snapshot, not the server.
 
 The repo works this way, and the seam is one function: `featureAuthority` decides which store answers
 (see above), `resolveHidden` / `hiddenStore` in `src/state/hidden.ts` draw whichever it named, and
@@ -265,7 +289,10 @@ on a server it is not using.
    capability: `paid` reaches the reader as one boolean, set by the shell (`App.svelte`), and
    `tests/unit/authority.mjs` walks the reading seam's import graph to hold that. What the flag can
    change is which side of the ladder an extra falls on: for a FreshRSS **with** the extensions it
-   changes no answer at all — every extra is the backend's either way.
+   changes no answer for any extra the adapter carries — each one is the backend's either way. The
+   reading position is the exception, and it is the exception by design: no adapter has a route for
+   it, so the ladder answers `local` free and `cloud` paid, and nothing writes that cloud copy because
+   a sync only ever runs on a local library (`showsDeviceSync`).
 5. The document holds no lock and no passcode: `tests/unit/local-sync.mjs` lists the document's
    fields, so one naming a lock or a passcode fails the suite at any depth, and a lock-shaped
    field found in a file is dropped on read and gone the next time the document is written.

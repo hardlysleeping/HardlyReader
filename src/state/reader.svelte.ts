@@ -1359,17 +1359,18 @@ export class ReaderState {
   /**
    * Whether a document from another device may set this device's place.
    *
-   * The place has one store today — this device (`lib/place`) — because no backend
-   * has a route for it: the adapter carries the arrangement, not where the reader
-   * was. That is why the read and the write below are local, and why a library on
-   * this device (whose backend *is* this device) adopts a place from the document
-   * exactly as before.
+   * The place has one store — this device (`lib/place`), per account — because no
+   * backend has a route for where the reader was: the adapter carries the arrangement
+   * and the preferences, not a place. `FRESHRSS_EXTENSION_CAPABILITIES` says exactly
+   * that (`readingPosition` inherits `false`), so the ladder answers `local` on a
+   * server-backed profile (and `backend` for a local library, whose store this is), and
+   * `cloud` only when the reader pays — a provider carrying the same device-side store,
+   * never a second copy of the truth.
    *
-   * What the ladder decides is whether a server owns the place already. When it
-   * does, a copy arriving from a phone would be a second writer for one field, so
-   * the device keeps what it has and the server stays the one authority —
-   * `docs/authority.md`'s rule, asked of the resolver rather than assumed from
-   * "there is a session".
+   * The question is still asked of the resolver rather than assumed from "there is a
+   * session": an adapter that gains a place route declares it in `ADAPTER_ROUTES`, and
+   * this device then stops overwriting the server's answer without a second rule being
+   * written here.
    */
   private get placeIsThisDevices(): boolean {
     return !(this.onAServer && this.atBackend("readingPosition"));

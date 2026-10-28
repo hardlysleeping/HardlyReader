@@ -9,6 +9,7 @@ import {
   FRESHRSS_EXTENSION_CAPABILITIES,
   GREADER_CAPABILITIES,
   LOCAL_CAPABILITIES,
+  adapterCarries,
   adapterCeiling,
   capabilitiesFromState,
   explainAuthority,
@@ -60,10 +61,12 @@ check(
 /* ------------------------------------------------------- FreshRSS with extensions */
 
 check(
-  "FreshRSS with the extensions needs no subscription for any feature",
-  features().every(
-    (f) => resolveAuthority(f, { capabilities: FRESHRSS_EXTENSION_CAPABILITIES, paid: false }) === "backend",
-  ),
+  "FreshRSS with the extensions needs no subscription for any feature it carries",
+  features()
+    .filter((feature) => feature !== "readingPosition")
+    .every(
+      (feature) => resolveAuthority(feature, { capabilities: FRESHRSS_EXTENSION_CAPABILITIES, paid: false }) === "backend",
+    ),
 );
 check(
   "and paying would change nothing, so the pitch says nothing",
@@ -139,6 +142,15 @@ const SESSION = {
 };
 
 const EXTENDED = features().filter((feature) => !GREADER_CAPABILITIES[feature]);
+
+/**
+ * The extras a v1 adapter answers.
+ *
+ * `EXTENDED` is what a GReader service lacks; this is what an adapter of that version
+ * actually has a route for. The reading position is in the first list and in no version's
+ * routes at all, which is exactly the distinction the checks below turn on.
+ */
+const CARRIED = adapterCeiling(1);
 
 function json(status, body) {
   return new Response(JSON.stringify(body), {
@@ -249,12 +261,12 @@ class FlipBackend {
 
   const live = await state(new FlipBackend("supports"));
   check(
-    "supported: a live adapter measures every extended feature as supported",
-    live.answer.outcome === "answer" && EXTENDED.every((f) => live.answer.report[f] === "supported"),
+    "supported: a live adapter measures every extended feature it carries as supported",
+    live.answer.outcome === "answer" && CARRIED.every((f) => live.answer.report[f] === "supported"),
   );
   check(
     "supported: and each one is the backend's, paid or not",
-    EXTENDED.every((f) => live.authority[f] === "backend"),
+    CARRIED.every((f) => live.authority[f] === "backend"),
   );
 
   /* ------------------------------------------------------------- 2. unsupported */
@@ -295,7 +307,7 @@ class FlipBackend {
   );
   check(
     "unknown: and the paid reader's server-owned features do NOT jump to the cloud",
-    EXTENDED.every((f) => restarting.authority[f] === "backend"),
+    CARRIED.every((f) => restarting.authority[f] === "backend"),
     `hiddenCategories=${restarting.authority.hiddenCategories}`,
   );
   check(
@@ -307,7 +319,7 @@ class FlipBackend {
     const dark = await state(new FlipBackend(mode), { believed: FRESHRSS_EXTENSION_CAPABILITIES, paid: true });
     check(
       `unknown: ${mode} is an absence of an answer too, and nothing moves`,
-      dark.answer.outcome === "unreachable" && EXTENDED.every((f) => dark.authority[f] === "backend"),
+      dark.answer.outcome === "unreachable" && CARRIED.every((f) => dark.authority[f] === "backend"),
     );
   }
 
@@ -340,8 +352,10 @@ class FlipBackend {
     EXTENDED.every((f) => old.authority[f] === "local"),
   );
   check(
-    "version: the ceiling only grows with the version",
-    adapterCeiling(0).length === 0 && EXTENDED.every((f) => adapterCeiling(1).includes(f)),
+    "version: the ceiling only grows with the version, and stops at what a route carries",
+    adapterCeiling(0).length === 0 &&
+      CARRIED.every((f) => adapterCeiling(1).includes(f)) &&
+      !adapterCeiling(1).includes("readingPosition"),
     `v0=${adapterCeiling(0).length} v1=${adapterCeiling(1).length}`,
   );
   check(
@@ -408,6 +422,57 @@ class FlipBackend {
 }
 
 
+
+/* ---------------------------------- 7. the place: an extra no adapter has a route for
+ *
+ * `/v1/positions` is the arrangement — category ids, feed ids — and `/v1/preferences` is
+ * three namespaces of settings. Neither carries where the reader was, and there is no
+ * third route, so a declaration that claimed the place would be a claim about a route
+ * that does not exist. The assertion that keeps it true is the first one here: a
+ * declaration may name exactly the extras some adapter version answers.
+ */
+
+{
+  check(
+    "a declaration claims exactly the extras an adapter has a route for",
+    EXTENDED.every((feature) => FRESHRSS_EXTENSION_CAPABILITIES[feature] === adapterCarries(feature)),
+    `carried=${CARRIED.join(",")}`,
+  );
+  check(
+    "the reading position is the extra no version carries",
+    adapterCarries("readingPosition") === false &&
+      FRESHRSS_EXTENSION_CAPABILITIES.readingPosition === false &&
+      CARRIED.length === EXTENDED.length - 1,
+    `extended=${EXTENDED.length} carried=${CARRIED.length}`,
+  );
+  check(
+    "so on a FreshRSS profile the place is this device's, free or paid",
+    resolveAuthority("readingPosition", { capabilities: FRESHRSS_EXTENSION_CAPABILITIES, paid: false }) === "local" &&
+      resolveAuthority("readingPosition", { capabilities: FRESHRSS_EXTENSION_CAPABILITIES, paid: true }) === "cloud",
+  );
+  check(
+    "and the measurement agrees at every version, v0 and v1 alike",
+    capabilitiesFromState({ apiVersion: 0 }).readingPosition === "unsupported" &&
+      capabilitiesFromState({
+        apiVersion: 1,
+        hiddenCategories: { available: true },
+        favorites: { available: true },
+      }).readingPosition === "unsupported" &&
+      capabilitiesFromState({
+        apiVersion: 99,
+        hiddenCategories: { available: true },
+        favorites: { available: true },
+      }).readingPosition === "unsupported",
+  );
+  check(
+    "the place is still local for a local library, which is where the document carries it",
+    resolveAuthority("readingPosition", { capabilities: LOCAL_CAPABILITIES, paid: false }) === "backend",
+  );
+  check(
+    "and it is not counted as a gap a purchase fills for a server",
+    upgradePitch({ capabilities: FRESHRSS_EXTENSION_CAPABILITIES, paid: false, server: true }) === "nothing",
+  );
+}
 
 check(
   "no provider name appears in the model",

@@ -286,20 +286,22 @@
    * What buying would add here, asked of the ladder rather than assumed.
    *
    * `nothing` is not a failure and not an empty section: it is the honest answer
-   * for a server whose extensions already keep the hidden categories, the pins,
-   * the ordering, the indent and the reading position.
+   * for a server whose extensions already keep every extra an adapter has a route
+   * for. The reading position is not one of them — no adapter carries a place, so
+   * it stays on this device and a subscription has nothing to add for it either.
    */
   const pitch = $derived(reader.upgradePitch);
 </script>
 
 {#if pitch === "nothing"}
   <!-- A server that carries every extra already: nothing to buy, and saying so is
-       the whole of the section. -->
+       the whole of the section. The reading position is named as the device's, not
+       as something the server keeps: `/v1/positions` is the arrangement. -->
   <p class="lede">Nothing to buy</p>
   <p class="hint">
     This server's Hardly Read extensions keep hidden categories, pinned categories, the
-    ordering, the sidebar indent and your reading position already. There is nothing for a
-    subscription to add here.
+    ordering and the sidebar indent already. There is nothing for a subscription to add here.
+    Where you were in a feed stays on this device, per account.
   </p>
 {:else if entitlement.cloudSync}
   <!-- Entitled: the four services, one folder each, and the run. -->
