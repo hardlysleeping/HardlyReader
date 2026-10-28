@@ -110,7 +110,10 @@ if (!started.ok) {
 
 let ready = false;
 for (let attempt = 0; attempt < 60; attempt += 1) {
-  const ping = await docker(["exec", CONTAINER, "pg_isready", "-U", "postgres"]);
+  // Over TCP: the entrypoint's *temporary* server listens on the unix socket only
+  // (`listen_addresses=''`), so a socket check can pass against it and the first
+  // `psql` then lands in the restart. The real server answers on 127.0.0.1.
+  const ping = await docker(["exec", CONTAINER, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]);
   if (ping.ok) {
     ready = true;
     break;

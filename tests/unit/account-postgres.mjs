@@ -118,7 +118,14 @@ if (!started.ok) {
 
 let ready = false;
 for (let attempt = 0; attempt < 60; attempt += 1) {
-  const ping = await docker(["exec", CONTAINER, "pg_isready", "-U", "postgres"]);
+  // Over TCP, not the unix socket: the image's entrypoint starts a *temporary*
+  // server on the socket while it initialises (`docker-entrypoint.sh` sets
+  // `listen_addresses=''` for it), answers `pg_isready` there, and then restarts
+  // for real. A check on the socket passes against that transient server and the
+  // first `psql` then lands in the restart — a coin flip that showed up as
+  // "connection to server on socket … failed" on a busy box. The real server is
+  // the one listening on 127.0.0.1.
+  const ping = await docker(["exec", CONTAINER, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]);
   if (ping.ok) {
     ready = true;
     break;
