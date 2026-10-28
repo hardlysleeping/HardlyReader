@@ -126,6 +126,30 @@ function stubPrefs() {
   built.set(join(ROOT, "src/state/prefs.svelte.ts"), pathToFileURL(file).href);
 }
 
+/**
+ * The reader, without a library.
+ *
+ * The panel hands the engine three halves, and two of them are the reader's —
+ * the arrangement and the place — so the component imports it. This suite only
+ * draws, and in a server render nothing calls `syncPrefs()`, so the shape is all
+ * it needs. The real reader, driven through the same function into a real
+ * document, is `tests/unit/device-sync-wiring.mjs`.
+ */
+function stubReader() {
+  const file = join(GEN, "reader-stub.mjs");
+  writeFileSync(
+    file,
+    `export const reader = {
+  sidebarDoc() { return null; },
+  adoptSidebar() {},
+  placeDoc() { return null; },
+  adoptPlace() {},
+};
+`,
+  );
+  built.set(join(ROOT, "src/state/reader.svelte.ts"), pathToFileURL(file).href);
+}
+
 let Panel;
 
 try {
@@ -134,6 +158,7 @@ try {
   buildRunes("src/state/device-sync.svelte.ts");
   mkdirSync(GEN, { recursive: true });
   stubPrefs();
+  stubReader();
 
   ({ default: Panel } = await import(await buildComponent("src/components/DeviceSyncPanel.svelte")));
 
