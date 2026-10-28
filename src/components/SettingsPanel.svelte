@@ -123,6 +123,10 @@
     reading: false,
     list: false,
     layout: false,
+    // Every section in `SECTIONS`, including the ones a device filters out:
+    // the record is keyed by the type, so a section added to the list and not
+    // here is a type error rather than a section that silently cannot open.
+    bodies: false,
     refreshing: false,
     "device-sync": false,
     about: false,

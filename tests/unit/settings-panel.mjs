@@ -507,6 +507,18 @@ try {
     // rows behind the scrim cannot be reached by pointer.
     check("Tab stays inside it", /if \(event\.key !== "Tab" \|\| sheetEl === null\) return;/.test(source));
     check("a section's own press writes its open state", /ontoggle=\{\(event\) => \(opened\[section\.id\] = event\.currentTarget\.open\)\}/.test(source));
+    // Every section the type names has an open state. A section added to
+    // `SectionId` and not to `opened` is a section that cannot open — and it is
+    // a type error the build does not fail on, so it is checked here as well as
+    // by the compiler.
+    {
+      const ids = /type SectionId = ([^;]+);/.exec(source)?.[1] ?? "";
+      const named = [...ids.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+      const record = /let opened = \$state<Record<SectionId, boolean>>\(\{([\s\S]*?)\}\)/.exec(source)?.[1] ?? "";
+      const keys = [...record.matchAll(/^\s*"([^"]+)"\s*:/gm), ...record.matchAll(/^\s*([a-z][a-z-]*)\s*:/gm)]
+        .map((match) => match[1]);
+      check("every section has an open state", named.length > 0 && named.every((id) => keys.includes(id)), `${named.filter((id) => !keys.includes(id)).join(", ")} missing`);
+    }
     check("the header owns the flag, so the bar and the sheet agree", /open = \$bindable\(false\)/.test(read("src/components/SettingsPanel.svelte")) && /bind:open=\{settingsOpen\}/.test(read("src/components/Header.svelte")));
     check("a full-screen sheet under 700px", /@media \(max-width: 699px\)\s*\{\s*\.sheet \{\s*inset: 0;/.test(source));
     check("and a wide panel above it", /width: min\(560px, calc\(100vw - 24px\)\)/.test(source));
