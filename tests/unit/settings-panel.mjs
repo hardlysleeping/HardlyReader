@@ -217,6 +217,7 @@ try {
   await buildComponent("src/components/BodyPanel.svelte");
   await buildComponent("src/components/CloudAccountPanel.svelte");
   await buildComponent("src/components/DeviceSyncPanel.svelte");
+  await buildComponent("src/components/ExtensionsPanel.svelte");
   await buildComponent("src/components/IndentControl.svelte");
   await buildComponent("src/components/PostListPanel.svelte");
   await buildComponent("src/components/ReadingPanel.svelte");
