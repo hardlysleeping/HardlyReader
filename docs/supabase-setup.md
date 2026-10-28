@@ -62,10 +62,9 @@ The whole backend is one table (`supabase/schema.sql`) and one boolean.
 
 **Authentication → URL Configuration**:
 
-- **Site URL**: `https://bazzite-1.tail900410.ts.net:8457` for now (the PWA). Change it when there
-  is a real domain.
+- **Site URL**: the public origin the PWA is loaded from, e.g. `https://reader.example.com`.
 - **Redirect URLs** (one per line):
-  - `https://bazzite-1.tail900410.ts.net:8457/**`
+  - `https://reader.example.com/**`
   - `http://localhost:4179/**` (local dev)
   - a deferred entry for the native deep link once the app has one, e.g. `hardlyreader://auth`
 

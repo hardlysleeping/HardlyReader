@@ -6,7 +6,7 @@ in who is talking to whom when the app calls the API.
 ## 0. The API proxy: why the page and the API must share an origin
 
 `scripts/serve-pwa.py` forwards anything under `/api/` to the FreshRSS host
-(`HARDLYREAD_UPSTREAM`, default `https://cenvalweb.tail900410.ts.net:8449`).
+(`HARDLYREAD_UPSTREAM`, default `https://freshrss.example.com:8449`).
 That exists because of a measured difference between the two APIs the app uses:
 
 | request from the PWA's origin | before | with the proxy |
@@ -20,7 +20,7 @@ categories and the pins live. The visible symptom was the lock claiming it had
 not been told whether a passcode was set, on an account that had one.
 
 **Nothing changes about the server URL.** The reader keeps signing in with their
-own FreshRSS address (`https://cenvalweb.tail900410.ts.net:8449`); the page detects
+own FreshRSS address (`https://freshrss.example.com:8449`); the page detects
 the proxy at start (`GET /__proxy`) and routes only the adapter's calls through
 its own origin, as `/through/<server origin>/api/misc.php/...`. The proxy forwards
 them with the caller's own headers, so the session token is what authorises the
