@@ -173,6 +173,39 @@ Building needs Node 22+, pnpm, Rust and Tauri 2's Linux dependencies
 instance; it is not required, and in the desktop app requests go through Tauri's
 http plugin regardless.
 
+## Releasing
+
+A release is four bundles on four platforms, in one GitHub release:
+
+- Linux, portable — `hardlyreader-<version>-linux-x86_64.AppImage`
+- Linux, Flatpak — `hardlyreader-<version>-x86_64.flatpak`
+- Android — `hardlyreader-<version>-android.apk`
+- iOS — `hardlyreader-<version>-ios.ipa`
+
+Fewer than four is not a release, even when every step that ran passed. The four
+come from different tools in different places, so a step can be skipped without
+anything failing; a release that carried only the AppImage has shipped here
+before. `scripts/release.sh` is what stops that:
+
+```sh
+scripts/release.sh 0.6.8 --ipa path/to/HardlyReader-unsigned.ipa --dry-run
+scripts/release.sh 0.6.8 --ipa path/to/HardlyReader-unsigned.ipa
+```
+
+It collects the bundles, checks each one exists, is close to the size it should
+be and is the kind of file it claims to be, then creates the release as a draft,
+uploads all four, reads the draft back, and only then publishes and reads the
+published release back. A missing or wrong bundle is named and the run stops
+before anything is created on GitHub.
+
+`--build` runs the three builders that work on Linux
+(`scripts/build-appimage.sh`, `scripts/build-flatpak.sh`,
+`scripts/android-build.sh --release`) first; `--appimage`, `--flatpak` and
+`--apk` point at a bundle built somewhere else. The IPA has no Linux builder —
+`codemagic.yaml` makes it on a macOS worker — so it is the one bundle that has
+to be passed in, and the script says so instead of guessing a path. `--dry-run`
+does every check and prints the exact commands it would run, calling nothing.
+
 ## Notes
 
 - The Tauri window runs under a Content-Security-Policy; [`docs/csp.md`](docs/csp.md)
