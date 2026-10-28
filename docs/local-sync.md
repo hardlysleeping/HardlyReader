@@ -210,6 +210,43 @@ picker and never the store. A run is refused before the engine when there is no
 provider or no folder for it, and a failed run is one line under the button that
 leaves the library, the agreement and the last-run time alone.
 
+## Changing provider is a migration
+
+The reader's library lives in one file, so a switch is not "point the app
+somewhere else" — the file has to be carried across, in a fixed order, with
+nothing decided until the copy has been proved (`switchProvider` in
+`api/local/sync.ts`, the nine steps of `docs/sync-format.md`):
+
+| # | step | what it means here |
+|---|---|---|
+| 1 | fully sync the current provider | an ordinary `syncOnce`, so the file the reader leaves behind is complete and a device still on it is not stranded. A device that just synced writes nothing |
+| 2 | read canonical state | read the old folder back rather than trusting step 1's answer; a newer build's document is refused here |
+| 3 | connect the new provider | building the transport, in `state/device-sync`; a build that cannot reach a folder refuses here |
+| 4 | look for existing state | the new folder may already hold the other device's document — a corrupt or newer one is a refusal, never written over |
+| 5 | merge | this library against the canonical state, then against the new folder's copy with the old copy as the common ancestor: the device that moved first is not buried by the one that moved second |
+| 6 | write | one write, and none at all when the new folder already says exactly this |
+| 7 | verify | read it back, parse it, compare it with what was written. Compared as documents, so a provider that normalises whitespace passes and one that loses a feed does not |
+| 8 | switch | the only step that changes any authority, and it is the caller's — `withSwitch` writes the new provider, the folder and **the document the migration wrote** as the agreement |
+| 9 | never delete | there is no delete in the provider seam. The old file stays where the reader put it, and the section says so in its own words |
+
+A failure before step 8 leaves the old provider in use, leaves the new folder
+holding what it held before (or, at step 7, whatever it was written), and the
+one line under the button names the step — `ProviderSwitchError.step` — and both
+services. From step 2 onwards the library on this device is not touched until
+step 7 has passed; step 1 is the exception, and it is an ordinary sync, so a
+merge that landed has landed exactly as it would have on the button.
+
+Two consequences worth stating plainly:
+
+- **The agreement moves with the provider.** `withSwitch` replaces `base` with
+  the migrated document. A device that switched and kept its old base — or none
+  — would stamp every record it holds with "now" on its next run and outvote the
+  device that moved first, which is how an offline device resurrects the state of
+  the provider everyone left.
+- **Two files exist afterwards, on purpose.** The panel says where the old one
+  is, and nothing in the app removes it. Deleting it is the reader's call, in
+  their own file manager.
+
 ## Refusals
 
 | Situation | What happens |
@@ -224,6 +261,7 @@ leaves the library, the agreement and the last-run time alone.
 | `library.json` names a shard file that is not there | refused, nothing written; sync once from the device that wrote it |
 | one record is unreadable | that record is dropped, the rest of the document still arrives |
 | a mark is for an article this device does not hold | skipped and kept in the folder for the device that has it; counted in `ApplyReport.marksSkipped` |
+| a switch fails at any step before the last | the old provider stays in use, the new folder is left as it was, and the line names the step (`ProviderSwitchError.step`) and both services |
 
 ## What is not here yet
 
@@ -278,11 +316,23 @@ document), the refusals in order (no library, no provider, no folder, no folder
 support) each saying why in one line, a failed run leaving the agreement and the
 last-run time exactly as they were, and the section's own gate.
 
-`tests/unit/device-sync-section.mjs` — 29 checks that render the component for
+`tests/unit/device-sync-section.mjs` — 37 checks that render the component for
 Svelte's server target in both entitlement states with everything else held still,
 so the half that is drawn is decided by `cloudSync` and by nothing else; it also
-pins that all four providers sit behind the one purchase and that switching
-service asks the store for nothing.
+pins that all four providers sit behind the one purchase, that choosing between
+them asks the store for nothing, and that the rows say what happens to the
+reader's own file — the sentence before a switch, the service being switched to
+while one is pending, and where the old file is after one finished.
+
+`tests/unit/provider-switch.mjs` — 8 scenarios and 33 checks on the migration
+itself: the nine steps in order over real `LocalStore`s and named folders; the old
+file left whole (and literally untouched by a device that had just synced); a
+failure at each of `sync`, `read`, `look`, `write`, `verify` and `apply` naming its
+step and leaving the old provider in use; a new folder that already holds the other
+device's document merged rather than overwritten; the agreement replaced by the
+migrated document so nothing is resurrected on the next run; and the acceptance —
+one device switches while the second is offline, both end on the new provider with
+the same feeds and marks, and the old provider's file is still there, complete.
 
 `tests/unit/settings-panel.mjs` — the real sheet: the interval row is called
 **Refreshing**, no section is called Sync, Device sync is absent for an empty

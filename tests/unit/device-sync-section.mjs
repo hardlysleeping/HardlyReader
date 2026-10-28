@@ -292,6 +292,55 @@ try {
     check("a provider's folder is remembered", deviceSync.folder === "~/Dropbox/HardlyReader", deviceSync.folder);
     check("and another provider has none yet", (deviceSync.choose("gdrive"), deviceSync.folder === ""), deviceSync.folder);
   }
+
+  // -------------------------------------------------------------------------
+  // A switch is a migration, and the rows have to say so.
+  //
+  // Two sentences the owner asked for: what happens to the reader's own file,
+  // and that the service being switched *to* is not yet the one in use.
+  // -------------------------------------------------------------------------
+  {
+    const store = new FakeStore();
+    entitlement.use(store);
+    entitlement.cloudSync = true;
+
+    deviceSync.bind(null, { serverUrl: "device://local", email: "local" });
+    deviceSync.choose("icloud");
+    deviceSync.setFolder("~/iCloud/HardlyReader");
+
+    const words = text(draw());
+    check(
+      "the section says the old file is not deleted",
+      words.includes("The file in the old folder is never deleted — it stays where you put it"),
+      words.slice(0, 400),
+    );
+    check(
+      "and that a switch only happens once the copy has read back",
+      words.includes("switches over only once it has read the copy back"),
+    );
+
+    // The reader pressed Google Drive and is pointing at its folder. The rows are
+    // about the service being switched to; the one in use is still iCloud.
+    deviceSync.pending = "gdrive";
+    const movingBody = draw();
+    const moving = text(movingBody);
+    check(
+      "a pending service is what the rows show",
+      /aria-checked="true"[^>]*aria-label="Google Drive"|aria-label="Google Drive"[^>]*aria-checked="true"/.test(movingBody),
+      moving.slice(0, 300),
+    );
+    check("and the service in use is no longer the checked one", !/aria-checked="true"[^>]*aria-label="iCloud Drive"/.test(movingBody));
+    check("the row says what is missing", moving.includes("Moving to Google Drive"), moving.slice(0, 400));
+    check("and that nothing has changed yet", moving.includes("Nothing changes until the copy has been written there and read back"));
+    check("the file sentence is not drawn twice", !moving.includes("The file in the old folder is never deleted"));
+
+    // A migration that finished draws the one thing a reader needs to know.
+    deviceSync.pending = null;
+    deviceSync.movedFrom = { label: "iCloud Drive", where: "~/iCloud/HardlyReader" };
+    const moved = text(draw());
+    check("a finished move says where the old file is", moved.includes("The iCloud Drive file is still at ~/iCloud/HardlyReader — this app never deletes it"), moved.slice(0, 400));
+    deviceSync.movedFrom = null;
+  }
 } finally {
   rmSync(GEN, { recursive: true, force: true });
 }
