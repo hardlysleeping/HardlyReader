@@ -298,26 +298,29 @@ verify_assets() {
   return "$bad"
 }
 
+# The id of the draft for this tag, or nothing. A run that stopped after the
+# draft was created — a failed upload, a failed read-back, a Ctrl-C — leaves
+# that draft behind, and the bundles it did not get are still valid, so a retry
+# finishes it instead of dying on "release already exists". The id, not the tag,
+# is what the read-back uses: a draft has no resolvable `releases/tags/` path.
 draft_id() {
   gh api "repos/$REPO_SLUG/releases?per_page=100" \
-    --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id" | head -1
+    --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id" 2>/dev/null \
+    | head -1 || true
 }
 
 echo
 echo "Release steps:"
 if [ "$DRY_RUN" = 1 ]; then
-  echo "  # the tag must not exist yet; this is expected to fail with 404"
+  echo "  # a draft for $TAG that already exists is reused: nothing is created, and"
+  echo "  # every bundle goes up again with --clobber before the read-back proves it"
+  echo "  # with no draft, the tag must not exist yet; this read is expected to fail with 404"
   show gh api "repos/$REPO_SLUG/git/ref/tags/$TAG"
-fi
-
-# A draft first: assets go up while the release is invisible, and it is only
-# published once all four have been read back.
-run gh release create "$TAG" --repo "$REPO_SLUG" --draft \
-  --title "HardlyReader $VERSION" "${NOTES_ARGS[@]}"
-run gh release upload "$TAG" --repo "$REPO_SLUG" \
-  "$STAGE/$APPIMAGE_ASSET" "$STAGE/$FLATPAK_ASSET" "$STAGE/$APK_ASSET" "$STAGE/$IPA_ASSET"
-
-if [ "$DRY_RUN" = 1 ]; then
+  echo "  # only when there is no draft for $TAG yet:"
+  run gh release create "$TAG" --repo "$REPO_SLUG" --draft \
+    --title "HardlyReader $VERSION" "${NOTES_ARGS[@]}"
+  run gh release upload "$TAG" --repo "$REPO_SLUG" --clobber \
+    "$STAGE/$APPIMAGE_ASSET" "$STAGE/$FLATPAK_ASSET" "$STAGE/$APK_ASSET" "$STAGE/$IPA_ASSET"
   echo "  # before publishing: read the draft back by its id and assert all four"
   show gh api "repos/$REPO_SLUG/releases/<draft-id>" --jq "$JQ_ASSETS"
   run gh release edit "$TAG" --repo "$REPO_SLUG" --draft=false --latest
@@ -328,21 +331,47 @@ if [ "$DRY_RUN" = 1 ]; then
   exit 0
 fi
 
+# A draft first: assets go up while the release is invisible, and it is only
+# published once all four have been read back. An existing draft is reused, so
+# this step is skippable by a retry but never creatable twice.
 draft="$(draft_id)"
 if [ -n "$draft" ]; then
-  echo
-  echo "Checking the draft before publishing:"
-  if ! verify_assets "$draft" "draft $TAG"; then
-    echo "the draft is still a draft; delete it with: gh release delete $TAG --repo $REPO_SLUG" >&2
+  echo "  draft #$draft for $TAG already exists — reusing it, nothing new is created"
+else
+  echo "  creating a draft release for $TAG"
+  if ! gh release create "$TAG" --repo "$REPO_SLUG" --draft \
+    --title "HardlyReader $VERSION" "${NOTES_ARGS[@]}"; then
+    echo "could not create a draft for $TAG; nothing was uploaded" >&2
     exit 1
   fi
-else
-  echo "no draft release for $TAG after upload — not publishing" >&2
+  draft="$(draft_id)"
+  if [ -z "$draft" ]; then
+    echo "no draft release for $TAG after creating it — not uploading" >&2
+    exit 1
+  fi
+  echo "  draft #$draft created"
+fi
+
+# --clobber is what makes the retry possible: whatever already sits on the draft
+# is replaced by these four, so a half-uploaded draft is finished rather than
+# refused for having an asset of the same name.
+if ! gh release upload "$TAG" --repo "$REPO_SLUG" --clobber \
+  "$STAGE/$APPIMAGE_ASSET" "$STAGE/$FLATPAK_ASSET" "$STAGE/$APK_ASSET" "$STAGE/$IPA_ASSET"; then
+  echo "the upload failed; $TAG is still a draft — fix what failed and run this" >&2
+  echo "again: the draft is reused and the bundles are re-uploaded over it" >&2
+  exit 1
+fi
+
+echo
+echo "Checking the draft before publishing:"
+if ! verify_assets "$draft" "draft $TAG"; then
+  echo "the draft for $TAG is not whole, so it was not published; it is still a" >&2
+  echo "draft, so fix the bundle and run this again to reuse it" >&2
   exit 1
 fi
 
 if ! gh release edit "$TAG" --repo "$REPO_SLUG" --draft=false --latest; then
-  echo "could not publish $TAG; it is still a draft" >&2
+  echo "could not publish $TAG; it is still a draft — run this again to reuse it" >&2
   exit 1
 fi
 
