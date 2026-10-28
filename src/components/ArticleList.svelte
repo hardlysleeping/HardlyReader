@@ -578,6 +578,59 @@
    */
   let heldId = $state<string | null>(null);
 
+  /**
+   * The last step the column has placed.
+   *
+   * The key map's ↓/↑ step the post in hand, and in Cards the post in hand is a
+   * card — a step that selected the next post and left the column where it was
+   * showed its headline somewhere below the fold, which is a step the reader
+   * cannot see. So a step is answered by `landOn` — the same placement the wheel
+   * uses — and a *click* is not: `select()` is what a row press does too, and a
+   * column that re-centred itself under the pointer would be moving away from
+   * what the reader just picked.
+   *
+   * The counter is what tells the two apart, and remembering the last one placed
+   * keeps this to once per step rather than once per paint: `landOn` writes
+   * `scrollTop`, which fires a scroll event, and a scroll event that re-centred
+   * would be a column fighting itself.
+   */
+  let lastStep = 0;
+
+  /**
+   * Put the stepped-to card in the middle, exactly as a wheel step does.
+   *
+   * A step is *consumed* once the column can act on it, never before: a step
+   * whose card has not been rendered yet is still owed, so the effect waits for
+   * the rows (`reader.items.length`) rather than dropping it. A step taken in
+   * another view is consumed, because there was no card to place.
+   */
+  $effect(() => {
+    const seq = reader.stepSeq;
+    void view;
+    void reader.items.length;
+    if (seq === lastStep) return;
+    if (view !== "cards") {
+      lastStep = seq;
+      return;
+    }
+    const id = reader.selectedId;
+    if (id === null) {
+      lastStep = seq;
+      return;
+    }
+    // A launch restore is applying the place the reader left, and a restore is
+    // not a step: it keeps its own offset.
+    if (resumeAt !== null) return;
+    const el = itemsEl;
+    if (!el) return;
+    const card = el.querySelector<HTMLElement>(`.row[data-id="${CSS.escape(id)}"]`);
+    if (!card) return;
+    lastStep = seq;
+    if (card === currentCard()) return;
+    landOn(card);
+    syncSnap();
+  });
+
   /** Set while a fit is landing, so a double press is one resize. */
   let fitting = false;
   /** The shortest window the app is allowed to be — `minHeight` in tauri.conf. */

@@ -3415,6 +3415,18 @@ export class ReaderState {
    * opens at its end rather than its title. */
   landingEdge = $state<"top" | "bottom">("top");
 
+  /**
+   * How many times the post in hand has been *stepped* — ⇡/⇣ on the keys.
+   *
+   * A step is not the same act as picking a post: `select()` is also what a click
+   * on a row does, and in Cards the two want different things. A step asks the
+   * column to bring the next card into the middle (the way the wheel does); a
+   * click is already where the reader pointed, so the column must not move under
+   * the pointer. Counting the steps is the smallest thing that lets the list tell
+   * them apart without guessing at the reason for a selection.
+   */
+  stepSeq = $state(0);
+
   /** Offsets to put back on the next paint: the open post's and the list's. */
   articleScrollRestore = $state<number | null>(null);
   listScrollRestore = $state<number | null>(null);
@@ -3539,6 +3551,9 @@ export class ReaderState {
     const at = this.selectedId === null ? -1 : items.findIndex((item) => item.id === this.selectedId);
     const next = stepIndex(items.length, at, delta);
     if (next === null) return;
+    // Counted before the selection lands: the list reads the two together, and a
+    // step that moved nothing is not a step.
+    this.stepSeq += 1;
     this.select(items[next], delta === 1 ? "top" : "bottom");
   }
 
