@@ -125,7 +125,10 @@ profile you are reading with:
   when the extensions are installed, hidden categories, pins, sidebar indent, preferences and
   reading position. Nothing in this path ever asks about a subscription.
 - **Free, on this device alone.** A local library needs no account and no server: feeds, folders,
-  read/star state, OPML and a real lock, stored in SQLite (or IndexedDB in a browser tab).
+  read/star state, OPML and a real lock, stored in SQLite (or IndexedDB in a browser tab). It can
+  also keep the text of the posts you open, so a post read on the train reads the same in the
+  evening — [`docs/article-bodies.md`](docs/article-bodies.md) says what that costs, how much it
+  holds, and who sees the request.
 
 There is one paid feature planned, and it is only for the second case: **HardlyReader Sync**,
 which mirrors a *local* library across your own devices through iCloud, Google Drive, Dropbox or
@@ -175,8 +178,9 @@ http plugin regardless.
 - The Tauri window runs under a Content-Security-Policy; [`docs/csp.md`](docs/csp.md)
   explains each directive and what only a built app can prove.
 - [`docs/android.md`](docs/android.md) covers the Android build and signing.
-- No offline cache of article bodies or images: a server that is down is a
-  server that is down.
+- No offline cache of article bodies or images for a **server-backed** library: a server that is
+  down is a server that is down. A library on this device is the exception, and it keeps only the
+  text you asked it to keep — [`docs/article-bodies.md`](docs/article-bodies.md).
 - Screenshots use invented feeds; no real subscriptions appear in this repo.
 
 ## Licence

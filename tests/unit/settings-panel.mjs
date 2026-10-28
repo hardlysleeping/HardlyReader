@@ -190,6 +190,7 @@ try {
     "src/state/floods.svelte.ts",
     "src/state/entitlements.svelte.ts",
     "src/state/device-sync.svelte.ts",
+    "src/state/bodies.svelte.ts",
   ]) {
     buildRunes(state);
   }
@@ -206,6 +207,7 @@ try {
 
   // Then the components, children before the panel that mounts them.
   await buildComponent("src/components/AccountsBody.svelte");
+  await buildComponent("src/components/BodyPanel.svelte");
   await buildComponent("src/components/DeviceSyncPanel.svelte");
   await buildComponent("src/components/IndentControl.svelte");
   await buildComponent("src/components/PostListPanel.svelte");

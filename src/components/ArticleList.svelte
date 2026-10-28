@@ -37,6 +37,7 @@
   import { articleQueue, candidateFor } from "../lib/extract-queue";
   import { ledger } from "../lib/extract-ledger";
   import { wantsFullText } from "../lib/full-text";
+  import { bodies } from "../state/bodies.svelte";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
@@ -385,7 +386,12 @@
     // first post on screen when nothing is open. A list too short to have
     // measured anything yet starts at the top, which is what is on screen then.
     const start = open >= 0 ? open + 1 : Math.max(0, items.findIndex((item) => nearIds[item.id] === true));
-    const accountWide = reading.extract;
+    // "Ahead" in Settings → Aa → Saved text is the reader saying they want the
+    // posts they are about to reach already on disk. It is the same queue and the
+    // same rule — it just also counts as an answer for a post whose text the
+    // feed already sent whole, because there is no other way to keep a body than
+    // to fetch the page it lives on.
+    const accountWide = reading.extract || bodies.ahead;
     const byId = new Map(items.map((item) => [item.id, item]));
     articleQueue.prepare(
       items.map((item) =>

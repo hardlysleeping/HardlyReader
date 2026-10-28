@@ -30,6 +30,11 @@ import type {
   FolderRow,
   PositionRow,
 } from "./schema";
+import {
+  planBodyEviction,
+  type BodyRecord,
+  type BodyUsage,
+} from "../../lib/bodies";
 
 /** One article, as a feed poll hands it over. */
 export interface EntryInput {
@@ -79,6 +84,40 @@ export interface ExtractionInput {
   html: string | null;
   /** Why it failed. Required when `html` is null. */
   error?: string | null;
+  /** The article's own headline and byline, so a stored body reads back whole. */
+  title?: string | null;
+  byline?: string | null;
+  /** Characters of text, which is what `chooseBody` weighs. */
+  textLength?: number | null;
+}
+
+/**
+ * What keeping one body changed.
+ *
+ * `bytes` is what the row now costs, and `delta` is the difference from what it
+ * cost before this call — negative when a body shrank or a failure replaced one.
+ * A caller tracking the library's total adds the delta rather than reading every
+ * article back to find out.
+ */
+export interface ExtractionSaved {
+  bytes: number;
+  delta: number;
+  /** True when the post had no kept body before this call. */
+  added: boolean;
+}
+
+/** What one pass of the budget deleted. */
+export interface BodyPruned {
+  /** How many bodies went. */
+  dropped: number;
+  /** Bytes they freed. */
+  freed: number;
+  /** What is still kept after the pass. */
+  count: number;
+  /** And what those cost. */
+  bytes: number;
+  /** True when everything left is protected: the limit was not reachable. */
+  overLimit: boolean;
 }
 
 export interface ReadingPosition {
@@ -117,6 +156,18 @@ const DEFAULT_PAGE = 20;
 /** Seconds. The whole schema counts time this way. */
 function seconds(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+/**
+ * What a string costs on disk: UTF-8 bytes, not characters.
+ *
+ * The budget is bytes, and a character count under-reports every accented line,
+ * every CJK article and every emoji by a factor of two or three — which is
+ * exactly the sort of quiet arithmetic that makes a 24 MB ceiling hold 60 MB.
+ * `TextEncoder` is on both platforms the app ships on.
+ */
+function byteLength(html: string): number {
+  return new TextEncoder().encode(html).length;
 }
 
 /**
@@ -684,8 +735,15 @@ export class LocalStore {
    * A failure is stored as deliberately as a success: the app can then say it
    * tried, when, and why not, instead of silently re-fetching the same stubborn
    * page every time the post is opened.
+   *
+   * A success is a kept body: it carries the headline, the byline and the length
+   * the pane's `chooseBody` weighs, so the row can answer for the post on its own
+   * after a restart. `bytes` is the UTF-8 size of the body — what the device
+   * actually spends, not a character count that under-reports every accented
+   * line — and `used_at` starts at the same moment: a body nobody has read yet is
+   * the newest thing in the library, not the oldest.
    */
-  async saveExtraction(input: ExtractionInput): Promise<void> {
+  async saveExtraction(input: ExtractionInput): Promise<ExtractionSaved> {
     const error = input.error?.trim() ?? "";
     if (input.html === null && error === "") {
       throw new LocalStorageError(
@@ -693,14 +751,23 @@ export class LocalStore {
       );
     }
 
+    const previous = await this.bytesOf(input.itemId);
+    const at = seconds();
     const row: ExtractionRow = {
       key: input.itemId,
       status: input.html === null ? "failed" : "ok",
       html: input.html,
       error: error === "" ? null : error,
-      extracted_at: seconds(),
+      extracted_at: at,
+      title: input.title ?? null,
+      byline: input.byline ?? null,
+      text_length: input.textLength ?? null,
+      bytes: input.html === null ? 0 : byteLength(input.html),
+      used_at: input.html === null ? null : at,
     };
     await this.db.write([{ type: "put", table: "extractions", row }]);
+    const bytes = row.bytes ?? 0;
+    return { bytes, delta: bytes - previous, added: previous === 0 && bytes > 0 };
   }
 
   /** A remembered failure, in one call. */
@@ -710,6 +777,101 @@ export class LocalStore {
 
   async extraction(itemId: string): Promise<ExtractionRow | null> {
     return this.db.get<ExtractionRow>("extractions", itemId);
+  }
+
+  /* -------------------------------------------------------------------------
+   * Kept bodies, and the budget they live under
+   * ----------------------------------------------------------------------- */
+
+  /**
+   * Notes that a kept body was just read.
+   *
+   * Least-recently-used is only true if reading counts, and reading is exactly
+   * what a stored body is for: a post opened every morning must outlive a post
+   * fetched once in March. The whole row is written because the seam has no way
+   * to update one column — a body is a few kilobytes and an open costs one
+   * write, which is nothing against the request it saves.
+   *
+   * Silently does nothing for a post with no stored body: a touch is a fact
+   * about a row, never a reason to create one.
+   */
+  async touchExtraction(itemId: string, at: number = seconds()): Promise<void> {
+    const row = await this.db.get<ExtractionRow>("extractions", itemId);
+    if (row === null || row.status !== "ok" || row.html === null) return;
+    await this.db.write([
+      { type: "put", table: "extractions", row: { ...row, used_at: at } },
+    ]);
+  }
+
+  /**
+   * Every kept body, as the budget sees it: size and last use, no text.
+   *
+   * The row still carries its `html`, because the seam has no column projection —
+   * so this is the expensive read of the pair and callers should hold the answer
+   * rather than ask often. `bodyUsage()` is the cheap question.
+   */
+  async bodies(): Promise<BodyRecord[]> {
+    const rows = await this.db.all<ExtractionRow>("extractions");
+    const kept: BodyRecord[] = [];
+    for (const row of rows) {
+      if (row.status !== "ok" || row.html === null) continue;
+      kept.push({
+        itemId: row.key,
+        bytes: row.bytes ?? byteLength(row.html),
+        usedAt: row.used_at ?? row.extracted_at,
+        storedAt: row.extracted_at,
+      });
+    }
+    return kept;
+  }
+
+  /** How many bodies are kept, and what they cost. */
+  async bodyUsage(): Promise<BodyUsage> {
+    const kept = await this.bodies();
+    let bytes = 0;
+    for (const body of kept) bytes += body.bytes;
+    return { count: kept.length, bytes };
+  }
+
+  /**
+   * Deletes bodies until the library is back under `limitBytes`.
+   *
+   * Least recently used first, and only as many as the ceiling needs. `keep` is
+   * what must survive this pass — the posts a pane is drawing right now, and the
+   * one just written — and when honouring it leaves the library over the limit,
+   * the answer says `overLimit` rather than deleting the article on screen.
+   *
+   * Only `extractions` rows go: a body is a copy, and deleting one never touches
+   * the subscription, the post or the fact that it was read.
+   */
+  async pruneBodies(
+    limitBytes: number,
+    options: { keep?: Iterable<string> } = {},
+  ): Promise<BodyPruned> {
+    const kept = await this.bodies();
+    const plan = planBodyEviction(kept, {
+      limitBytes,
+      keep: options.keep,
+    });
+    if (plan.drop.length > 0) {
+      await this.db.write(
+        plan.drop.map((key) => ({ type: "delete" as const, table: "extractions" as const, key })),
+      );
+    }
+    return {
+      dropped: plan.drop.length,
+      freed: plan.freed,
+      count: kept.length - plan.drop.length,
+      bytes: plan.remaining,
+      overLimit: plan.overLimit,
+    };
+  }
+
+  /** What one stored body costs, or 0 when there is none. */
+  private async bytesOf(itemId: string): Promise<number> {
+    const row = await this.db.get<ExtractionRow>("extractions", itemId);
+    if (row === null || row.status !== "ok" || row.html === null) return 0;
+    return row.bytes ?? byteLength(row.html);
   }
 
   /* -------------------------------------------------------------------------

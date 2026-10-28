@@ -25,10 +25,12 @@
   import IndentControl from "./IndentControl.svelte";
   import PostListPanel from "./PostListPanel.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
+  import BodyPanel from "./BodyPanel.svelte";
   import ThemePanel from "./ThemePanel.svelte";
   import { exportFeedsOpml, importFeedsFile } from "../lib/feeds-io";
   import { APP_VERSION } from "../lib/version";
   import { showsDeviceSync } from "../state/device-sync.svelte";
+  import { showsSavedText } from "../state/bodies.svelte";
   import { layout } from "../state/layout.svelte";
   import { reader } from "../state/reader.svelte";
 
@@ -50,7 +52,7 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "feeds" | "appearance" | "reading" | "list" | "layout" | "refreshing" | "device-sync" | "about";
+  type SectionId = "accounts" | "feeds" | "appearance" | "reading" | "list" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
 
   /**
    * The sections, in the order someone looks for them: who I am, what is in the
@@ -85,6 +87,7 @@
     { id: "reading", label: "Reading", note: "Text, pictures, read state" },
     { id: "list", label: "Post list", note: "Row ends, corners, tiles", phone: true },
     { id: "layout", label: "Layout", note: "Pane widths and arrangement" },
+    { id: "bodies", label: "Saved text", note: "Article text kept on this device" },
     { id: "refreshing", label: "Refreshing", note: "Interval, and when it fetches" },
     { id: "device-sync", label: "Device sync", note: "Your own folder, both devices" },
     { id: "about", label: "About", note: "Version" },
@@ -99,11 +102,13 @@
    * desktop while the sheet is open redraws the list.
    */
   const sections = $derived(
-    SECTIONS.filter((section) => section.phone !== true || layout.device === "phone").filter(
-      (section) =>
-        section.id !== "device-sync" ||
-        showsDeviceSync(reader.profile, reader.categories.length),
-    ),
+    SECTIONS.filter((section) => section.phone !== true || layout.device === "phone")
+      .filter(
+        (section) =>
+          section.id !== "device-sync" ||
+          showsDeviceSync(reader.profile, reader.categories.length),
+      )
+      .filter((section) => section.id !== "bodies" || showsSavedText(reader.profile)),
   );
 
   /** Which sections are open. Accounts starts open: it is the shortest one. */
@@ -329,6 +334,11 @@
                    the layout tab, mounted whole: a phone now reaches the same
                    rows a desktop does, and they write the same state. -->
               <ThemePanel part="layout" />
+            {:else if section.id === "bodies"}
+              <!-- The article text this device keeps: the three answers, the
+                   ceiling, and who sees the request. A library on a server has
+                   no such section — nothing here would apply to it. -->
+              <BodyPanel />
             {:else if section.id === "refreshing"}
               <ThemePanel part="sync" />
               <!-- Sign out is not repeated here: it is the account's one action,

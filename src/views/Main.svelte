@@ -27,8 +27,9 @@
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
   import { prefs } from "../state/prefs.svelte";
   import { reading } from "../state/reading.svelte";
+  import { bodies } from "../state/bodies.svelte";
   import { reader } from "../state/reader.svelte";
-  import type { ReaderProfile } from "../api/profile";
+  import { localStoreOf, type ReaderProfile } from "../api/profile";
 
   let {
     profile,
@@ -249,6 +250,12 @@
     layout.reload();
     chrome.load();
     reading.load();
+    // Text this device keeps: the two choices are a device key, and the cache is
+    // pointed at whichever library is open — a local one, or none for a reader
+    // whose articles live on a server. Bound before the reader starts, so the
+    // first post opened has somewhere to read from.
+    bodies.load();
+    bodies.bind(localStoreOf(profile));
     // The account's copy of the remembered settings, read once behind the first
     // paint. It is started here rather than in `reader.start` because it spans
     // stores the reader does not own — the theme, the cards, the search toggle —

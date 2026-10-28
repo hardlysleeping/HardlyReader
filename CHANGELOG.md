@@ -19,6 +19,19 @@ All notable changes to HardlyReader are recorded here. The format follows
   three fixtures. `docs/local-acceptance.md` carries the same list as a
   two-minute pass to tap through on a phone, and says plainly what neither pass
   can prove: iOS killing the app, and IndexedDB eviction under storage pressure.
+### Local library
+
+- **A library on this device keeps the text of the posts you open.** Before this, a local library
+  held what each feed's XML carried — a summary, or the whole piece if the publisher sent one — and
+  the article behind a "continue reading" was fetched again every time the post was opened, and
+  lost on the way to another device. The body is now kept beside its entry, in the same store:
+  `extractions` gains the headline, byline, length, size and last-read stamp it needs to answer for
+  a post on its own. Three answers under the Aa panel's **Saved text** — off (the default), on
+  open, on open and ahead — with a ceiling of 8, 24 or 64 MB per device, least-recently-used when
+  it is full and never at the cost of the post on screen. The panel says who sees the request: a
+  body is fetched from the publisher's own page, so this device's address lands in that publisher's
+  log, and a library on this device has no server in between. Bodies are deliberately *not* in the
+  sync document. [`docs/article-bodies.md`](docs/article-bodies.md) has the whole shape.
 
 ### Licence
 
