@@ -130,25 +130,34 @@ refresh on return turns `cloudSync` on. A client that could grant the flag would
 subscription in two lines — `tests/unit/billing-client.mjs` asserts no card field, no price id
 and no key exists in that file.
 
-Two seams are intentionally *not* wired here, because they belong to two other cards:
-`WebStore` needs a token (`src/api/identity.ts` now provides one — `identity.token`) and a
-`ServerEntitlement` for its `current()` (`t_f1230503`). Until that reader lands, the default
-store stays `NativeStore` and the panel behaves exactly as it does today; composing the web
-store is one line at the point the entitlement is built:
+Two seams are intentionally *not* wired here. Both halves now exist — `RemoteStore.read()`
+(`t_f1230503`) and `identity.token` / `storedCloudSession()` — but where the composed store is
+*installed* is a decision, not a detail:
+
+- `src/state/entitlements.svelte.ts` cannot import `src/api/billing.ts`, because that capability
+  is held to "imports nothing from the app" (`tests/unit/entitlements.mjs`), and the import
+  would also be circular (`billing.ts` reads `SYNC_MONTHLY`, `SYNC_YEARLY`, `noEntitlement`).
+- So the composition belongs in a module that may import both, installed where the app starts
+  (`entitlement.use(...)`), not in the entitlement's own default store.
 
 ```ts
-entitlements.use(new WebStore({ token: () => identity.token ?? "", server: remote }));
+// somewhere that may import both — not state/entitlements.svelte.ts
+entitlement.use(
+  new WebStore({
+    base: envValue("PUBLIC_BILLING_URL"),
+    token: () => storedCloudSession(deviceStorage(), url)?.token ?? "",
+    server: reader, // the same RemoteStore the capability reads through
+  }),
+);
 ```
 
-One thing to decide when composing, and it is a decision rather than a detail: `RemoteStore`
-already takes its JWT from Supabase's own storage key (`storedCloudSession`), so the token
-handed to `beginCheckout` should come from the same place — otherwise the purchase and the
-read can disagree about who the reader is. `identity.token` and `storedCloudSession()` are
-both live today; use whichever one the entitlement's `session` option ends up using.
+Use the *same* token source the reader uses. `RemoteStore` takes its JWT from Supabase's own
+storage key (`storedCloudSession`); handing `beginCheckout` a token from somewhere else would let
+the purchase and the read disagree about who the reader is.
 
-`checkoutReturned()` is likewise exported and tested but has no call site yet: the "come back
-and refresh" hook belongs to the same entitlement refresh that `t_f1230503` owns, and wiring a
-second one here would refresh twice.
+`checkoutReturned()` is likewise exported and tested but has no call site yet: the "come back and
+refresh" hook belongs to the same entitlement refresh that `t_f1230503` owns, and wiring a second
+one here would refresh twice.
 
 ## 6. Running it
 
