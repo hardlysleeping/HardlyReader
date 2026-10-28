@@ -193,7 +193,19 @@ price pair and `4242 4242 4242 4242`:
    period end → the row stays true until that date; once Stripe ends it, `cloud_sync` goes
    false and the library on both devices is untouched.
 
-## 7. What is *not* tested here — plainly
+## 7. Deliberately not here
+
+- **No rate limit** on `/checkout`. A signed-in reader can create Checkout Sessions in a loop;
+  Stripe's own dashboard rate limits and the cost of an abandoned session are zero, so this waits
+  until something actually misbehaves.
+- **No receipts, emails or invoices** of our own. Stripe sends those; duplicating them would be a
+  second thing to keep true.
+- **No refunds, credit or plan-switch UI.** The Stripe portal (or the dashboard) is where a
+  subscription is changed; the app only ever learns *whether* sync is owned.
+- **No webhook replay endpoint.** Stripe's dashboard can resend a delivery, and
+  `stripe_events` records what happened to each one.
+
+## 8. What is *not* tested here — plainly
 
 This box has no Stripe account, no Supabase project and no browser session for the app, so the
 three acceptance items are proven at the layer below them and not end to end:
