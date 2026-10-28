@@ -80,10 +80,16 @@ is the right default; the app refreshes on launch and resume.
    them from the server.
 3. Checkout is created **server-side** with `client_reference_id = <supabase user id>`, so the
    webhook can attribute the payment without trusting the browser.
-4. Webhook endpoint: a Supabase **Edge Function** (or any small host) holding the
-   `service_role` key; subscribe to `checkout.session.completed`,
-   `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`.
-   It calls `set_entitlement(...)`. Idempotent on the Stripe event id.
+4. `server/billing/` is that server: `POST /checkout`, `GET /plans` and the
+   `POST /stripe/webhook` endpoint, which holds the `service_role` key and is the only writer of
+   `cloud_sync`. It subscribes to `checkout.session.completed`,
+   `customer.subscription.created`, `customer.subscription.updated`,
+   `customer.subscription.deleted` and `invoice.payment_failed`, and it is idempotent on the
+   Stripe event id. **`docs/billing.md` is the whole of it**, including the env names and the
+   checklist for one test-mode purchase.
+5. `supabase/schema.sql` grew `stripe_customers` (the customer ⇄ reader link, written at checkout
+   creation) and `stripe_events` (every event id, so a replay is a no-op) when it last changed —
+   re-run the whole file in the SQL editor; it is written to be safe to re-run.
 
 ## 7. What to hand back
 
