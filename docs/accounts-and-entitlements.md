@@ -105,3 +105,42 @@ launch
 
 Identity is fetched once and cached; the entitlement is re-checked on launch and on resume, and
 cached for offline launches so a plane does not pause somebody's subscription.
+
+## Where the keys live, and which one never ships
+
+The build is handed two values from its environment, never from source:
+
+| value | variable | secret? |
+|---|---|---|
+| project URL (`https://<ref>.supabase.co`) | `PUBLIC_SUPABASE_URL` | no |
+| `anon` `public` key | `PUBLIC_SUPABASE_ANON_KEY` | no — publishable by design; row-level security is what protects the data |
+| `service_role` key | **nowhere in the app** | **yes** |
+
+`.env.example` lists the two public names and `.env` is gitignored; `vite.config.ts` names the
+`PUBLIC_` prefix so Vite hands them to the client. **The service key never ships.** It bypasses
+row-level security, so one copy in a bundle is the whole database: it belongs to the payment
+webhook's environment and to nothing else, and it is never pasted into a chat, an issue or this
+repository. `src/api/identity.ts` refuses to build a client from a key whose own claims say
+`service_role`, which turns that mistake into "sign-in does not work in this build" instead of an
+incident.
+
+## An account exists only when sync is asked for
+
+`src/api/identity.ts` is the seam: `userId`, `token`, `signIn(provider)`, `signOut()`, plus
+`restore()` (storage) and `refresh()` (network). Three implementations — `SupabaseIdentity` (the
+real one, the only file in `src/` that names `@supabase/supabase-js`), `FakeIdentity` (the suite),
+and `NoIdentity` (a build with no project configured, which refuses by name and works fine).
+
+- **Nothing creates an account at launch.** A local library and a FreshRSS profile both run with
+  `userId === null` for the life of the install, and no reading path imports the module. Signing in
+  is something a person asks Settings for.
+- **No network call on the launch path.** `restore()` reads the token from `localStorage` —
+  the same device-key store the session already lives in, one key, `hardlyreader.identity.v1` —
+  and stops there. The one call that touches the network is `refresh()`, made when the window is
+  returned to and when a sync is about to run. A cold start therefore carries a token that may be
+  an hour old, which costs nothing: nothing a reader does with a post needs it.
+- **A failed refresh is signed out, not broken.** The record is cleared, one sentence says so, and
+  the library, its read state, its stars and the profile's own keys are untouched. Signing out
+  removes the identity key and nothing else — a FreshRSS session and a local library both survive it.
+- **One identity, one device.** The record is device-level, like the FreshRSS session beside it,
+  because a purchase follows the reader; the *library* stays per profile.

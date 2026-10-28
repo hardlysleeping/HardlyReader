@@ -6,6 +6,7 @@
   import { transport } from "./api/transport";
   import { accounts } from "./state/accounts.svelte";
   import { entitlement } from "./state/entitlements.svelte";
+  import { identity } from "./api/identity";
   import { layout } from "./state/layout.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
@@ -124,8 +125,21 @@
    */
   let stopWatchingEntitlement: (() => void) | null = null;
 
+  /**
+   * Removes the identity's return-to-window listener.
+   *
+   * The account is the one piece of state this app has that expires while it is
+   * open, so the token is renewed when the window comes back — and only then.
+   * There is deliberately **no request on this path at launch**: an identity is
+   * read from the device's storage when the module loads (no network), and a
+   * device with no account installs this listener and refreshes nothing for the
+   * whole session. A reader with a local library never meets any of it.
+   */
+  let stopWatchingIdentity: (() => void) | null = null;
+
   onMount(async () => {
     stopWatchingEntitlement = entitlement.watch();
+    stopWatchingIdentity = identity.watch();
 
     // Before anything reads the extension state: if the page is served by a host
     // that can forward for the server (the PWA on this box), the adapter's routes
@@ -202,6 +216,8 @@
   onDestroy(() => {
     stopWatchingEntitlement?.();
     stopWatchingEntitlement = null;
+    stopWatchingIdentity?.();
+    stopWatchingIdentity = null;
     if (unveilTimer !== null) clearTimeout(unveilTimer);
   });
 
