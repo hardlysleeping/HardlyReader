@@ -5,6 +5,7 @@
   import type { Session } from "./api/freshrss";
   import { transport } from "./api/transport";
   import { accounts } from "./state/accounts.svelte";
+  import { entitlement } from "./state/entitlements.svelte";
   import { layout } from "./state/layout.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
@@ -111,7 +112,21 @@
    */
   const CHECK_TIMEOUT_MS = 9000;
 
+  /**
+   * Removes the subscription's visibility listener.
+   *
+   * The paid capability is checked once here and again on every return to the
+   * window, because a window left open for a week is the normal case on a
+   * desktop and the store's answer can change underneath it. The check is not
+   * awaited and gates nothing on this screen: cloud sync stays off until an
+   * answer says otherwise, which is what a store that is missing or offline has
+   * proven.
+   */
+  let stopWatchingEntitlement: (() => void) | null = null;
+
   onMount(async () => {
+    stopWatchingEntitlement = entitlement.watch();
+
     // Before anything reads the extension state: if the page is served by a host
     // that can forward for the server (the PWA on this box), the adapter's routes
     // are reachable through it. A window with no such host answers nothing and
@@ -185,6 +200,8 @@
   }
 
   onDestroy(() => {
+    stopWatchingEntitlement?.();
+    stopWatchingEntitlement = null;
     if (unveilTimer !== null) clearTimeout(unveilTimer);
   });
 
