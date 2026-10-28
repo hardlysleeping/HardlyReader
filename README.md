@@ -194,6 +194,13 @@ the sidebar behaves the same way, and the one control that genuinely needs an
 extension says so instead of breaking. The extensions themselves are separate
 repos and stay optional on the server.
 
+**Settings → Extensions** tells you which of these your FreshRSS is actually running: a row per
+piece saying *working*, *not installed*, *waiting on the adapter*, or *could not tell*, with the
+link to grab the one that is absent. "Not installed" also covers an extension that is installed but
+switched off in FreshRSS, and an adapter older than the app — the server reports those three the
+same way, so the screen names them together instead of guessing which one it is. It configures
+nothing; it is there so a feature that quietly isn't working has a place to say why.
+
 ## Build from source
 
 ```sh

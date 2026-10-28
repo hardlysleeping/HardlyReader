@@ -206,7 +206,12 @@ const app = read("src/app.css");
     /SECTIONS\.filter\(\(section\) => section\.phone !== true \|\| layout\.device === "phone"\)/.test(panel),
   );
   check("the list the sheet draws is the filtered one", /\{#each sections as section \(section\.id\)\}/.test(panel));
-  check("it starts folded, like every section but Accounts", /accounts: true,\s*account: false,\s*feeds: false,/.test(panel));
+  check(
+    "it starts folded, like every section but Accounts",
+    // `extensions` sits between them because the section belongs with Accounts: both are about
+    // the server this reader signed in to, and both are hidden from a library on the device.
+    /accounts: true,\s*extensions: false,\s*account: false,\s*feeds: false,/.test(panel),
+  );
 
   const body = panel.slice(panel.indexOf('section.id === "feeds"'), panel.indexOf('section.id === "reading"'));
   check("the section has an Import control", /Import feeds|Importing…/.test(body));

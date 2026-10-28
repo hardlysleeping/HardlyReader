@@ -24,6 +24,7 @@
   import AccountsBody from "./AccountsBody.svelte";
   import CloudAccountPanel from "./CloudAccountPanel.svelte";
   import DeviceSyncPanel from "./DeviceSyncPanel.svelte";
+  import ExtensionsPanel from "./ExtensionsPanel.svelte";
   import IndentControl from "./IndentControl.svelte";
   import PostListPanel from "./PostListPanel.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
@@ -54,7 +55,7 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "account" | "feeds" | "appearance" | "reading" | "list" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
+  type SectionId = "accounts" | "extensions" | "account" | "feeds" | "appearance" | "reading" | "list" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
 
   /**
    * The sections, in the order someone looks for them: who I am, what is in the
@@ -84,6 +85,7 @@
    */
   const SECTIONS: { id: SectionId; label: string; note: string; phone?: boolean }[] = [
     { id: "accounts", label: "Accounts", note: "This account, this server" },
+    { id: "extensions", label: "Extensions", note: "Installed, working, or missing" },
     { id: "account", label: "Account", note: "HardlyReader account, devices" },
     { id: "feeds", label: "Feeds", note: "Indent, import and export", phone: true },
     { id: "appearance", label: "Appearance", note: "Colours, page, background" },
@@ -111,12 +113,16 @@
           section.id !== "device-sync" ||
           showsDeviceSync(reader.profile, reader.categories.length, reader.upgradePitch),
       )
-      .filter((section) => section.id !== "bodies" || showsSavedText(reader.profile)),
+      .filter((section) => section.id !== "bodies" || showsSavedText(reader.profile))
+      // Extensions are a server's business: a library on this device has nothing to probe, so the
+      // section is not drawn rather than drawn empty.
+      .filter((section) => section.id !== "extensions" || reader.session !== null),
   );
 
   /** Which sections are open. Accounts starts open: it is the shortest one. */
   let opened = $state<Record<SectionId, boolean>>({
     accounts: true,
+    extensions: false,
     account: false,
     feeds: false,
     appearance: false,
@@ -364,6 +370,8 @@
                    component exists nowhere else — and it is handed the profile the
                    window is reading so the folder is remembered per profile. -->
               <DeviceSyncPanel profile={reader.profile} />
+            {:else if section.id === "extensions"}
+              <ExtensionsPanel />
             {:else}
               <div class="row">
                 <span class="key">Version</span>
