@@ -206,7 +206,10 @@ const text = async (response) => {
     request("/checkout", { method: "POST", headers: { authorization: `Bearer ${TOKEN}` }, body: { plan: "monthly" } }),
   );
   const body = await text(response);
-  check("a Stripe that is down is a 500 and says nothing about the key", response.status === 500 && !/sk_/.test(JSON.stringify(body)));
+  check(
+    "a Stripe that is down is a 502 and says nothing about the key",
+    response.status === 502 && body.error === "billing_unavailable" && !/sk_/.test(JSON.stringify(body)),
+  );
 }
 
 /* --------------------------------------------------------------------------
