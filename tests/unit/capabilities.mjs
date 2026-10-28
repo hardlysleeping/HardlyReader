@@ -9,12 +9,18 @@ import {
   FRESHRSS_EXTENSION_CAPABILITIES,
   GREADER_CAPABILITIES,
   LOCAL_CAPABILITIES,
+  adapterCeiling,
+  capabilitiesFromState,
+  explainAuthority,
   features,
+  remember,
   resolveAll,
   resolveAuthority,
   upgradePitch,
+  wholeReport,
   withDefaults,
 } from "../../src/lib/capabilities.ts";
+import { GReaderBackend } from "../../src/api/greader-backend.ts";
 
 let checks = 0;
 let failures = 0;
@@ -116,7 +122,292 @@ check(
   Object.keys(resolveAll({ capabilities: GREADER_CAPABILITIES, paid: true })).length === features().length,
 );
 
-/* --------------------------------------------------------- what this must not do */
+/* ------------------------------------------------ a backend that can flip its answer
+ *
+ * The three states are only distinguishable by what a *failing* server does, so these
+ * checks drive the real probe (`GReaderBackend.probeCapabilities`) through a transport
+ * whose answer can be flipped between a live adapter, a 404, a restart, a timeout and an
+ * offline socket. Nothing here mocks the probe: the code under test is the code that
+ * ships, and the fake is the network.
+ */
+
+const SESSION = {
+  serverUrl: "https://reader.example",
+  apiPath: "/api/greader.php",
+  email: "someone@example.com",
+  token: "SECRET-TOKEN",
+};
+
+const EXTENDED = features().filter((feature) => !GREADER_CAPABILITIES[feature]);
+
+function json(status, body) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/** A live adapter's `/v1/state`, with both block extensions reporting themselves. */
+function stateBody(overrides = {}) {
+  return {
+    apiVersion: 1,
+    hiddenCategories: {
+      available: true,
+      mode: "",
+      view: "hidden",
+      effectiveView: "hidden",
+      hiddenIds: [1],
+      locked: false,
+      hasPasscode: false,
+      categories: [{ id: 1, name: "Design", hidden: true }],
+    },
+    favorites: { available: true, view: "all", ids: [2], categories: [{ id: 2, name: "Design", favorite: true }] },
+    sidebarIndent: { available: true, px: 12, max: 60 },
+    peopleAvailable: false,
+    pins: [],
+    ...overrides,
+  };
+}
+
+/** One transport per state of the world. A mode not listed here is a bug in the suite. */
+function flipTransport(mode) {
+  return async (url) => {
+    switch (mode) {
+      case "supports":
+        return json(200, stateBody());
+      case "disabled":
+        // The adapter is installed and enabled; the two block extensions are not.
+        return json(
+          200,
+          stateBody({
+            hiddenCategories: { available: false },
+            favorites: { available: false },
+          }),
+        );
+      case "old":
+        // An adapter from before the version field: it answers, but claims no version.
+        return json(200, stateBody({ apiVersion: undefined }));
+      case "missing":
+        return json(404, { error: { code: "route_not_found", message: "Unknown route." } });
+      case "restarting":
+        return new Response("<html>502 Bad Gateway</html>", { status: 502 });
+      case "offline":
+        throw new TypeError("fetch failed");
+      case "timeout":
+        throw Object.assign(new Error("This operation was aborted"), { name: "AbortError" });
+      case "unauthorized":
+        return json(401, { error: { code: "auth", message: "Token rejected" } });
+      default:
+        throw new Error(`flipTransport: no such mode ${mode}`);
+    }
+  };
+}
+
+/**
+ * A backend whose answer can be flipped, as the shape the app holds.
+ *
+ * It delegates to the real `GReaderBackend`, so `flip("restarting")` is a real 502
+ * travelling through the real probe.
+ */
+class FlipBackend {
+  constructor(mode = "supports") {
+    this.mode = mode;
+    this.kind = "greader";
+    this.probes = 0;
+  }
+
+  flip(mode) {
+    this.mode = mode;
+    return this;
+  }
+
+  probeCapabilities() {
+    this.probes += 1;
+    const inner = new GReaderBackend(flipTransport(this.mode), SESSION);
+    return inner.probeCapabilities();
+  }
+}
+
+{
+  // The walk every check below uses: probe, fold the answer into what we believe, then
+  // resolve each feature with *both* — the belief and the fresh report.
+  const state = async (backend, { believed = {}, paid = false } = {}) => {
+    const answer = await backend.probeCapabilities();
+    const belief = remember(believed, answer.report);
+    const authority = {};
+    for (const feature of features()) {
+      authority[feature] = resolveAuthority(feature, {
+        capabilities: belief,
+        paid,
+        observed: answer.report,
+      });
+    }
+    return { answer, belief, authority };
+  };
+
+  /* --------------------------------------------------------------- 1. supported */
+
+  const live = await state(new FlipBackend("supports"));
+  check(
+    "supported: a live adapter measures every extended feature as supported",
+    live.answer.outcome === "answer" && EXTENDED.every((f) => live.answer.report[f] === "supported"),
+  );
+  check(
+    "supported: and each one is the backend's, paid or not",
+    EXTENDED.every((f) => live.authority[f] === "backend"),
+  );
+
+  /* ------------------------------------------------------------- 2. unsupported */
+
+  const absent = await state(new FlipBackend("missing"), { paid: false });
+  check(
+    "unsupported: a 404 on the route is a definite no, not a failure to check",
+    absent.answer.outcome === "missing" && EXTENDED.every((f) => absent.answer.report[f] === "unsupported"),
+  );
+  check(
+    "unsupported: so a free reader keeps the feature on this device",
+    EXTENDED.every((f) => absent.authority[f] === "local"),
+  );
+  const absentPaid = await state(new FlipBackend("missing"), { paid: true });
+  check(
+    "unsupported: and a paid one may hand it to the cloud, because the server truly has nowhere to put it",
+    EXTENDED.every((f) => absentPaid.authority[f] === "cloud"),
+  );
+
+  const disabled = await state(new FlipBackend("disabled"), { paid: false });
+  check(
+    "unsupported: an extension installed but disabled is a no for its own feature only",
+    disabled.answer.report.hiddenCategories === "unsupported" &&
+      disabled.answer.report.pinnedCategories === "unsupported" &&
+      disabled.answer.report.preferences === "supported",
+  );
+
+  /* ----------------------------------------------------------------- 3. unknown */
+
+  // The trap: this server owns these features and is restarting for ten seconds.
+  const restarting = await state(new FlipBackend("restarting"), {
+    believed: FRESHRSS_EXTENSION_CAPABILITIES,
+    paid: true,
+  });
+  check(
+    "unknown: a 5xx is not an answer about capability",
+    restarting.answer.outcome === "unreachable" && EXTENDED.every((f) => restarting.answer.report[f] === "unknown"),
+  );
+  check(
+    "unknown: and the paid reader's server-owned features do NOT jump to the cloud",
+    EXTENDED.every((f) => restarting.authority[f] === "backend"),
+    `hiddenCategories=${restarting.authority.hiddenCategories}`,
+  );
+  check(
+    "unknown: the belief is left exactly as the last good read left it",
+    EXTENDED.every((f) => restarting.belief[f] === FRESHRSS_EXTENSION_CAPABILITIES[f]),
+  );
+
+  for (const mode of ["offline", "timeout", "unauthorized"]) {
+    const dark = await state(new FlipBackend(mode), { believed: FRESHRSS_EXTENSION_CAPABILITIES, paid: true });
+    check(
+      `unknown: ${mode} is an absence of an answer too, and nothing moves`,
+      dark.answer.outcome === "unreachable" && EXTENDED.every((f) => dark.authority[f] === "backend"),
+    );
+  }
+
+  // Nothing remembered yet: unknown must still not invent an authority. The answer has
+  // to equal the answer when no check ran at all.
+  const cold = await state(new FlipBackend("offline"), { believed: {}, paid: false });
+  check(
+    "unknown: with nothing remembered it changes nothing either",
+    features().every(
+      (f) => cold.authority[f] === resolveAuthority(f, { capabilities: {}, paid: false }),
+    ),
+  );
+  const coldPaid = await state(new FlipBackend("offline"), { believed: {}, paid: true });
+  check(
+    "unknown: including on a paid device, where the cloud would be the tempting answer",
+    features().every(
+      (f) => coldPaid.authority[f] === resolveAuthority(f, { capabilities: {}, paid: true }),
+    ),
+  );
+
+  /* ------------------------------------------------- 4. extension version negotiation */
+
+  const old = await state(new FlipBackend("old"), { believed: {}, paid: false });
+  check(
+    "version: an adapter that reports no version reports fewer capabilities",
+    old.answer.outcome === "answer" && EXTENDED.every((f) => old.answer.report[f] === "unsupported"),
+  );
+  check(
+    "version: so the extras stay where they were instead of 404ing at the first write",
+    EXTENDED.every((f) => old.authority[f] === "local"),
+  );
+  check(
+    "version: the ceiling only grows with the version",
+    adapterCeiling(0).length === 0 && EXTENDED.every((f) => adapterCeiling(1).includes(f)),
+    `v0=${adapterCeiling(0).length} v1=${adapterCeiling(1).length}`,
+  );
+  check(
+    "version: a version that carries the route still needs the extension's own available flag",
+    capabilitiesFromState({ apiVersion: 1, hiddenCategories: { available: false }, favorites: { available: true } })
+      .hiddenCategories === "unsupported",
+  );
+
+  /* --------------------------------------- 5. the fold, the explanation, the pitch */
+
+  check(
+    "remember: an answer moves a feature, and unknown is dropped on the floor",
+    remember({ hiddenCategories: true }, { hiddenCategories: "unknown", pinnedCategories: "unsupported" })
+      .hiddenCategories === true &&
+      remember({ hiddenCategories: true }, { pinnedCategories: "unsupported" }).pinnedCategories === false,
+  );
+  check(
+    "a fresh answer can raise a feature the declaration never named",
+    resolveAuthority("hiddenCategories", {
+      capabilities: {},
+      paid: true,
+      observed: { hiddenCategories: "supported" },
+    }) === "backend",
+  );
+  const explained = explainAuthority("hiddenCategories", {
+    capabilities: FRESHRSS_EXTENSION_CAPABILITIES,
+    paid: true,
+    observed: restarting.answer.report,
+  });
+  check(
+    "the UI may say 'could not check' while the authority stays where it was",
+    explained.couldNotCheck === true && explained.checked === "unknown" && explained.authority === "backend",
+  );
+  check(
+    "and the same answer read as a plain decision still says backend",
+    resolveAuthority("hiddenCategories", {
+      capabilities: FRESHRSS_EXTENSION_CAPABILITIES,
+      paid: true,
+      observed: restarting.answer.report,
+    }) === "backend",
+  );
+  check(
+    "a server nobody could check is not sold an upgrade for features it may already have",
+    upgradePitch({ capabilities: {}, paid: false, server: true, observed: wholeReport("unknown") }) === "nothing",
+  );
+
+  /* -------------------------------------- 6. a server that cannot host the adapter */
+
+  let asked = 0;
+  const notFreshRss = new GReaderBackend(
+    async () => {
+      asked += 1;
+      return json(200, {});
+    },
+    { ...SESSION, apiPath: "/v1/reader/api/0" },
+  );
+  const notAnAdapter = await notFreshRss.probeCapabilities();
+  check(
+    "a non-FreshRSS server is a definite no, and is not asked at all",
+    notAnAdapter.outcome === "missing" &&
+      asked === 0 &&
+      EXTENDED.every((f) => notAnAdapter.report[f] === "unsupported"),
+  );
+}
+
+
 
 check(
   "no provider name appears in the model",

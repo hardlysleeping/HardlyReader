@@ -38,6 +38,7 @@
  */
 import { normalizeApiPath, normalizeServerUrl, type Session, type Transport } from "./freshrss";
 import { transport } from "./transport";
+import { capabilitiesFromState, wholeReport, type CapabilityAnswer } from "../lib/capabilities";
 import { mergePositions, nextStamp, parsePositions, positionsBody, type Positions } from "../lib/positions";
 import { parseAddPerson, parsePeopleList, parsePeopleStatus, recordAvailability, type Person } from "../lib/people";
 import { parsePreferences, preferencesBody, type PrefsDoc } from "../lib/prefs-sync";
@@ -724,6 +725,50 @@ export async function getApiState(transport: Transport, session: Session): Promi
   // take a control away from a server that has it.
   recordAvailability(session.serverUrl, session.email, state.peopleAvailable);
   return state;
+}
+
+/**
+ * Asks the adapter what it can do, without letting a failure answer for it.
+ *
+ * The three answers a capability check can get, and why they are not one answer:
+ *
+ * - **The adapter replied.** `apiVersion` decides which extended routes exist at all
+ *   (`capabilitiesFromState`), and the two block-level extensions report their own
+ *   `available` flag. This is the only branch that may lower a feature.
+ * - **`404` — there is no such route.** A FreshRSS whose Hardly Read extension is not
+ *   installed or not enabled for this account, or a server that cannot host it. The
+ *   server answered; the answer is that the feature has nowhere to live, so it is
+ *   `unsupported` and may resolve as it did before any adapter existed.
+ * - **Anything else — nothing answered.** `5xx` while the server restarts, a proxy
+ *   error page, a timeout, an offline server, a dropped socket. Every state comes back
+ *   `unknown`, and the caller keeps whatever the last answer said: a restart must not
+ *   hand the server's features to the cloud, because when it returns there would be two
+ *   writers for one field.
+ *
+ * A `401` is `unknown` rather than `unsupported` on purpose: a rejected credential says
+ * nothing about which routes exist, and the session's own error handling is what
+ * reports it. This function never throws — an authority decision has to be made on the
+ * failure path too, and a throw here would leave the caller with no answer at all.
+ */
+export async function probeCapabilities(
+  transport: Transport,
+  session: Session,
+): Promise<CapabilityAnswer> {
+  // A server that cannot host the adapter is a definite no, and asking would only earn
+  // the same `404` from the choke point in `request()`. Not a network call: whether the
+  // GReader prefix is FreshRSS's is already known.
+  if (!supportsExtensionRoutes(session)) {
+    return { report: wholeReport("unsupported"), outcome: "missing" };
+  }
+  try {
+    const state = await getApiState(transport, session);
+    return { report: capabilitiesFromState(state), outcome: "answer" };
+  } catch (error) {
+    if (isRouteMissing(error)) {
+      return { report: wholeReport("unsupported"), outcome: "missing" };
+    }
+    return { report: wholeReport("unknown"), outcome: "unreachable" };
+  }
 }
 
 /**

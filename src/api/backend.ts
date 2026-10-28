@@ -79,6 +79,30 @@ export interface ReaderBackend {
    */
   readonly capabilities?: Partial<import("../lib/capabilities").Capabilities>;
 
+  /**
+   * Asks the backend **now** what it can store, when the backend can be asked at all.
+   *
+   * `capabilities` above is a declaration: what a backend says it is, decided once. This
+   * is the measurement, and the difference is the whole point of it existing —
+   *
+   * - an extension can be *installed but disabled*, which is a definite `404` on its
+   *   routes and therefore `unsupported`;
+   * - it can be *older than the route we would call*, which a version check turns into
+   *   fewer reported features instead of a `404` at the first write;
+   * - the server can be *restarting*, and a `5xx` or a timeout is not evidence about
+   *   what it can store — every feature comes back `unknown`.
+   *
+   * `unknown` must never move authority: it keeps whatever the last answer said, so the
+   * UI may say "could not check" without the feature travelling to the cloud and back.
+   * See `src/lib/capabilities.ts` (`remember`, `resolveAuthority`) and
+   * `probeCapabilities` in `src/api/hardlyread.ts` for the implementation that never
+   * throws.
+   *
+   * Optional: a backend with no probe is taken at its declaration, which is what a
+   * database on this device is entitled to.
+   */
+  probeCapabilities?(): Promise<import("../lib/capabilities").CapabilityAnswer>;
+
   /** The account behind this backend, for the header and the account panel. */
   profile(): Promise<UserInfo>;
 

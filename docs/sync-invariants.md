@@ -23,9 +23,9 @@ are in place; the fifth (identity for feeds and articles across redirects) is th
 | 11 | the same feed under a redirected URL | **card** `t_3321cf69` | `localItemId(feedUrl, guid)` keys on the URL as given, so a redirect makes a second feed |
 | 12 | messy GUIDs rebuilt differently per device | **held, one gap** | `localItemId` is one derivation shared by both devices; the gap is feeds whose GUID *is* the link (see #11) |
 | 13 | hard-coding "Miniflux supports X" | **held** | `ReaderBackend.capabilities`, declared per backend; undeclared means plain GReader |
-| 14 | an old extension supporting a part of the state | **card** `t_0c29e24e` | version negotiation instead of assuming every route exists |
+| 14 | an old extension supporting a part of the state | **held, one gap** | `ADAPTER_ROUTES` in `src/lib/capabilities.ts`: `apiVersion` on `/v1/state` decides which extended routes exist, so an adapter that reports no version claims nothing instead of answering `404` later; `capabilitiesFromState`. The gap: `API_VERSION` was never bumped when the arrangement and preferences routes arrived, so a v1 copy from before them and a v1 copy with them look identical |
 | 15 | local → FreshRSS silently merging libraries | **decision** `t_e43fdb0e` | two profiles, explicit import, never a silent merge |
-| 16 | a temporarily missing extension treated as unsupported | **card** `t_0c29e24e` | "unsupported" and "unreachable right now" must not resolve the same |
+| 16 | a temporarily missing extension treated as unsupported | **held** | `probeCapabilities` (`src/api/hardlyread.ts`) answers `unknown` for a `5xx`, a timeout, an offline socket or a `401`; `remember` + `resolveAuthority` keep the last good read, so `unknown` never moves a feature to the cloud — `tests/unit/capabilities.mjs` |
 | 17 | reading history and hidden categories in a provider's file | **decision** `t_fbca0887` | client-side encryption before this grows |
 | 18 | account deletion taking iCloud/Drive data with it | **card** `t_cb99e288` | revoke linkage, never touch provider files without an explicit request |
 | 19 | clock skew deciding conflicts | **card** `t_21b91dd5` | per-record `at` is all there is today; needs a revision alongside it |
