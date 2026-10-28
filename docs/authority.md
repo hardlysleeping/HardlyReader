@@ -47,6 +47,28 @@ otherwise, and `savePrefs` writes the same document (pins, hidden, collapsed, in
 order, categoryOrder, positions) whether the authority is a server or the device. Cloud
 sync extends the local side of that; it does not add a third authority.
 
+## What the sync document already carries
+
+Checked against the code, not assumed. `SidebarDoc` in `src/lib/sidebar-doc.ts` is exactly the
+owner's table for the local adapter:
+
+```
+hidden[]        hidden categories          pins[] / pinFeeds[]   pinned categories and feeds
+hiddenView      hidden | revealed | only   pinView               all | only | without
+indentPx        sidebar indent             feedOrder[]           feed order
+categoryOrder[] category order             (plus prefs and place in the snapshot)
+```
+
+`SyncSnapshot` (`src/api/local/sync.ts`) wraps that with `feeds`, `folders`, `marks` (read and
+starred as separate registers with their own stamps), `prefs` and `place` — so the whole feature
+set in the table above travels for a local profile without a second model.
+
+**The one row not yet carried: lock/passcode.** There is no lock field in `SidebarDoc` or
+`SyncSnapshot`. It also must not be carried naively: the passcode is a curtain, stored in plain
+text on the server today, and a synced document is a file sitting in a cloud provider's folder.
+The open question is whether the *locked flag* travels while the passcode stays device-local, or
+whether the lock is deliberately per-device — see card `t_55a62fab`.
+
 ## What is genuinely server-only
 
 Server enforcement cannot travel: the HiddenCategories extension changes what the FreshRSS

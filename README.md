@@ -1,9 +1,16 @@
 # HardlyReader
 
-A reading app for [FreshRSS](https://freshrss.org): three panes that fold to one,
-a keyboard that never needs the mouse, and no reflow while you scroll. Cards is
-built for reading comics one page after another — a page fills the pane at its
-own size, one push moves one post, and nothing is cropped.
+A feed reader that runs without a server, and reads your own one when you have it:
+three panes that fold to one, a keyboard that never needs the mouse, and no reflow
+while you scroll. Cards is built for reading comics one page after another — a page
+fills the pane at its own size, one push moves one post, and nothing is cropped.
+
+Point it at [FreshRSS](https://freshrss.org), Miniflux, Tiny Tiny RSS or The Old
+Reader and it syncs through your server, extension state included. Use it with no
+account at all: a library on the device, fed by the feeds you add or import, with
+read state, stars, folders and OPML. Optional sync of a local library across your
+own devices through your own cloud is the one paid feature — see *Free, and what a
+subscription would add* below.
 
 Svelte 5, TypeScript, Tauri 2. One codebase: a Linux desktop window, a browser
 build, and Android and iOS.
@@ -107,6 +114,28 @@ the password and either side can revoke it.
   scale, automatic read marking).
 - OPML import and export, feed icons with a drawn fallback, and a session and
   reading position that survive a restart.
+
+## Free, and what a subscription would add
+
+The app is two halves of the same thing, and which half owns your state depends only on which
+profile you are reading with:
+
+- **Free, with your own server.** Point HardlyReader at FreshRSS, Miniflux, Tiny Tiny RSS or The
+  Old Reader and everything syncs through it, as it always has — feeds, read state, stars, and,
+  when the extensions are installed, hidden categories, pins, sidebar indent, preferences and
+  reading position. Nothing in this path ever asks about a subscription.
+- **Free, on this device alone.** A local library needs no account and no server: feeds, folders,
+  read/star state, OPML and a real lock, stored in SQLite (or IndexedDB in a browser tab).
+
+There is one paid feature planned, and it is only for the second case: **HardlyReader Sync**,
+which mirrors a *local* library across your own devices through iCloud, Google Drive, Dropbox or
+OneDrive — one subscription for all four, because a provider is storage, not a product. It does
+not apply to a server-backed library and will not appear there; your server already does that job,
+for free.
+
+The rule that keeps this coherent: **one authority per profile.** FreshRSS and its extensions own
+a server-backed profile; the local database owns a local one. No state is ever written by two
+authorities, and `docs/authority.md` spells out which feature lives where.
 
 ## Extensions (optional)
 
