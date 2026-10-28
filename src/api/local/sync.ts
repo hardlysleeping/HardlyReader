@@ -112,12 +112,74 @@ import type { SyncProvider } from "./sync-provider";
 export const SYNC_VERSION = 1;
 
 /**
- * The file inside the reader's chosen folder.
+ * The single document v1 wrote, and the one file a provider without the
+ * path-scoped members still gets.
  *
  * `src-tauri/src/sync.rs` owns the name on the writing side; this copy is what
- * the panel shows and what the suite asserts the two against.
+ * the panel shows and what the suite asserts the two against. It is never
+ * deleted: a reader's data is not tidied up, so a folder that has one keeps it
+ * beside the file set written from it.
  */
 export const SYNC_FILE_NAME = "hardlyreader-sync.json";
+
+/* ---------------------------------------------------------------------------
+ * The canonical file set
+ *
+ * The folder is the interchange format (`docs/sync-format.md`): the same seven
+ * files on iCloud, Drive, Dropbox and OneDrive, so a reader can copy the folder
+ * and the library opens somewhere else without a conversion tool. A provider
+ * decides where the bytes go, never what is in them.
+ * ------------------------------------------------------------------------- */
+
+/** The format's own name, in the manifest and in every refusal that names it. */
+export const SYNC_FORMAT = "hardlyreader-sync";
+
+/**
+ * What the payload is encoded as.
+ *
+ * A required manifest field, and v1's only legal value. Encryption, when it
+ * arrives, sits above the provider layer and needs no interface change — but a
+ * reader that meets a value it does not know refuses the folder rather than
+ * guessing at bytes.
+ */
+export const SYNC_ENCRYPTION = "none";
+
+/** The folder's commit record: written last, read first. */
+export const MANIFEST_FILE = "manifest.json";
+/** Subscriptions, folders, ordering and the moves a feed made. */
+export const LIBRARY_FILE = "library.json";
+/** Read and starred marks. */
+export const STATE_FILE = "state.json";
+/** Reader settings — the same `PrefsDoc` the server path carries. */
+export const PREFERENCES_FILE = "preferences.json";
+/** The sidebar arrangement and where the reader was. */
+export const POSITIONS_FILE = "positions.json";
+/** Deleted feeds and folders, so an offline device cannot resurrect one. */
+export const TOMBSTONES_FILE = "tombstones.json";
+/** Which device wrote this copy last. A stamp, never merged. */
+export const DEVICES_FILE = "devices.json";
+
+/** The directory `library.json` spills feeds into once it is too big for one file. */
+export const SHARD_DIR = "feeds";
+
+/**
+ * Past this many bytes, `library.json` becomes a list of `feeds/<bucket>.json`.
+ *
+ * A cloud folder syncs every byte it is given, so the largest file is kept small
+ * enough that editing one feed does not upload the whole library. It is a layout
+ * change inside the format, not a version bump: `library.json` says which shard
+ * files it has, and a reader that only knows this layout reads them all.
+ */
+export const LIBRARY_SPLIT_BYTES = 512 * 1024;
+
+/**
+ * How many shard files a split library may use.
+ *
+ * Fixed, because a bucket's path must depend on the feed's address and nothing
+ * else: a library that shrank, or a device that saw a different set of feeds,
+ * still agrees on where each feed lives.
+ */
+const SHARD_BUCKETS = 64;
 
 /** How long a read/star record with no flags left on it is worth carrying. */
 export const MARK_RETENTION_SECONDS = 365 * 24 * 60 * 60;
@@ -557,13 +619,18 @@ export function parseSyncSnapshot(raw: string): SyncSnapshot {
   }
 
   const version = typeof parsed.version === "number" ? parsed.version : 0;
-  if (version > SYNC_VERSION) {
-    throw new LocalStorageError(
-      `The sync file was written by a newer version of HardlyReader (document ${version}). ` +
-        "Update this device, or the newer one's changes will be overwritten.",
-    );
-  }
+  if (version > SYNC_VERSION) throw refuseNewerVersion("file", "document", version);
+  return snapshotFrom(parsed);
+}
 
+/**
+ * One snapshot out of the fields a document or a file set carried.
+ *
+ * The file set assembles the same object the single document is, so there is one
+ * parser and one set of limits: a folder and a document cannot drift into two
+ * ideas of what a valid record is.
+ */
+function snapshotFrom(parsed: Record<string, unknown>): SyncSnapshot {
   const snapshot: SyncSnapshot = {
     version: SYNC_VERSION,
     device: text(parsed.device) ?? "",
@@ -602,6 +669,417 @@ export function parseSyncSnapshot(raw: string): SyncSnapshot {
 /** The document as it goes into the folder. Compact: a cloud folder syncs every byte. */
 export function serializeSnapshot(snapshot: SyncSnapshot): string {
   return JSON.stringify(snapshot);
+}
+
+/* ---------------------------------------------------------------------------
+ * The folder, file by file
+ *
+ * Everything below turns a snapshot into the seven canonical files and back. It
+ * is serialisation and nothing else: the merge, the tombstones and the stamps
+ * are above this line, so a provider's folder and a single document cannot
+ * disagree about what the library says — they are two encodings of one snapshot.
+ * ------------------------------------------------------------------------- */
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+function bytesOf(text: string): Uint8Array {
+  return encoder.encode(text);
+}
+
+function textOf(data: Uint8Array): string {
+  return decoder.decode(data);
+}
+
+/** Byte equality, so a write can be skipped when the file already says this. */
+function sameBytes(a: Uint8Array | null | undefined, b: Uint8Array): boolean {
+  if (a === null || a === undefined || a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return false;
+  }
+  return true;
+}
+
+/** What `manifest.json` says. Three answers, and all three are decisions. */
+export interface SyncManifest {
+  format: string;
+  version: number;
+  encryption: string;
+}
+
+/** The manifest as it is written: identical on every provider, for every folder. */
+export function manifestBytes(version = SYNC_VERSION): Uint8Array {
+  const manifest: SyncManifest = { format: SYNC_FORMAT, version, encryption: SYNC_ENCRYPTION };
+  return bytesOf(JSON.stringify(manifest));
+}
+
+/**
+ * Reads the manifest, or refuses the folder.
+ *
+ * This is the first file read for exactly this reason: a folder this build
+ * cannot understand must be refused before a byte of it is applied to a library.
+ * An unknown `encryption` is refused here too — guessing at ciphertext is worse
+ * than saying so, and a `"none"` folder and an encrypted one never merge.
+ */
+export function readManifest(data: Uint8Array): SyncManifest {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(textOf(data));
+  } catch {
+    parsed = undefined;
+  }
+  if (!isRecord(parsed)) {
+    throw new LocalStorageError(
+      "The sync folder's manifest.json is not readable — it is not the file HardlyReader writes. " +
+        "Nothing was changed; move the folder aside to start a new one.",
+    );
+  }
+  if (parsed.format !== SYNC_FORMAT) {
+    throw new LocalStorageError(
+      `This folder is not a HardlyReader sync folder (its manifest says ${JSON.stringify(
+        parsed.format ?? null,
+      )}). Nothing was changed.`,
+    );
+  }
+  const version =
+    typeof parsed.version === "number" && Number.isFinite(parsed.version) ? Math.floor(parsed.version) : 0;
+  if (version < 1) {
+    throw new LocalStorageError(
+      "The sync folder's manifest has no version, so this build cannot tell what it is looking at. " +
+        "Nothing was changed.",
+    );
+  }
+  if (version > SYNC_VERSION) throw refuseNewerVersion("folder", "folder", version);
+  if (typeof parsed.encryption !== "string") {
+    throw new LocalStorageError(
+      "The sync folder's manifest does not say what its bytes are (no encryption field). " +
+        "Nothing was changed; this build only reads folders written with encryption " +
+        `"${SYNC_ENCRYPTION}".`,
+    );
+  }
+  if (parsed.encryption !== SYNC_ENCRYPTION) {
+    throw new LocalStorageError(
+      `The sync folder is encrypted with "${parsed.encryption}", which this build cannot read. ` +
+        "Nothing was changed; update this device, or point it at a folder written with " +
+        `encryption "${SYNC_ENCRYPTION}".`,
+    );
+  }
+  return { format: SYNC_FORMAT, version, encryption: parsed.encryption };
+}
+
+/** A provider that can address one file at a time, which is what a folder needs. */
+export type FileSyncProvider = SyncProvider & {
+  readFile(path: string): Promise<Uint8Array | null>;
+  writeFile(path: string, data: Uint8Array): Promise<void>;
+};
+
+/**
+ * The provider as a folder, or null when it only speaks whole documents.
+ *
+ * Null is not a failure: the folder-backed v1 is a provider with `read`/`write`
+ * and nothing else, and it keeps working by carrying the whole document.
+ */
+export function fileSyncProvider(provider: SyncProvider): FileSyncProvider | null {
+  return typeof provider.readFile === "function" && typeof provider.writeFile === "function"
+    ? (provider as FileSyncProvider)
+    : null;
+}
+
+function sortedGroup<T>(group: Record<string, T>): Record<string, T> {
+  const ordered: Record<string, T> = {};
+  for (const key of Object.keys(group).sort()) {
+    const record = group[key];
+    if (record !== undefined) ordered[key] = record;
+  }
+  return ordered;
+}
+
+/**
+ * Which shard a feed belongs in.
+ *
+ * FNV-1a over the address, so the answer depends on that feed and nothing else:
+ * two devices bucket the same library the same way, and adding a feed does not
+ * move the others to different files.
+ */
+function shardBucket(url: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < url.length; index += 1) {
+    hash ^= url.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash % SHARD_BUCKETS;
+}
+
+/** The path of one shard file. */
+export function shardPath(bucket: number): string {
+  return `${SHARD_DIR}/${String(bucket).padStart(2, "0")}.json`;
+}
+
+/** The only shard paths this build will read: a declared file cannot name any path at all. */
+const SHARD_PATH = /^feeds\/[0-9]{2}\.json$/;
+
+/**
+ * The snapshot as the files of one folder.
+ *
+ * Fed by feeds bucket by bucket when the library is too big for one file, and
+ * the shard files are inserted before `library.json` because `library.json` is
+ * what names them: a reader that sees the list must find every file on it.
+ * `devices.json` and the manifest are the last two because a sync writes the
+ * stamp and the commit record after the content they describe.
+ */
+export function snapshotFiles(snapshot: SyncSnapshot): Map<string, Uint8Array> {
+  const files = new Map<string, Uint8Array>();
+
+  const feeds: Record<string, SyncedFeed> = {};
+  const feedTombstones: Record<string, SyncedFeed> = {};
+  for (const [url, record] of Object.entries(snapshot.feeds)) {
+    if (record.removed) feedTombstones[url] = record;
+    else feeds[url] = record;
+  }
+  const folders: Record<string, SyncedFolder> = {};
+  const folderTombstones: Record<string, SyncedFolder> = {};
+  for (const [name, record] of Object.entries(snapshot.folders)) {
+    if (record.removed) folderTombstones[name] = record;
+    else folders[name] = record;
+  }
+
+  const inline = { feeds: sortedGroup(feeds), folders: sortedGroup(folders), redirects: sortedGroup(snapshot.redirects) };
+  const split = bytesOf(JSON.stringify(inline)).length > LIBRARY_SPLIT_BYTES;
+  const library: Record<string, unknown> = {};
+
+  if (split) {
+    const buckets = new Map<number, Record<string, SyncedFeed>>();
+    for (const [url, record] of Object.entries(feeds)) {
+      const bucket = shardBucket(url);
+      const group = buckets.get(bucket) ?? {};
+      group[url] = record;
+      buckets.set(bucket, group);
+    }
+    const shards: string[] = [];
+    for (const bucket of [...buckets.keys()].sort((a, b) => a - b)) {
+      const path = shardPath(bucket);
+      shards.push(path);
+      files.set(path, bytesOf(JSON.stringify({ feeds: sortedGroup(buckets.get(bucket) ?? {}) })));
+    }
+    library.shards = shards;
+  } else {
+    library.feeds = inline.feeds;
+  }
+  library.folders = inline.folders;
+  library.redirects = inline.redirects;
+  files.set(LIBRARY_FILE, bytesOf(JSON.stringify(library)));
+
+  files.set(STATE_FILE, bytesOf(JSON.stringify({ marks: sortedGroup(snapshot.marks) })));
+  files.set(PREFERENCES_FILE, bytesOf(JSON.stringify({ prefs: snapshot.prefs })));
+  files.set(
+    POSITIONS_FILE,
+    bytesOf(JSON.stringify({ sidebar: snapshot.sidebar, place: snapshot.place })),
+  );
+  files.set(
+    TOMBSTONES_FILE,
+    bytesOf(
+      JSON.stringify({
+        feeds: sortedGroup(feedTombstones),
+        folders: sortedGroup(folderTombstones),
+      }),
+    ),
+  );
+  files.set(
+    DEVICES_FILE,
+    bytesOf(JSON.stringify({ device: snapshot.device, writtenAt: snapshot.writtenAt })),
+  );
+  return files;
+}
+
+/** One payload file, parsed — or a refusal that names the file. */
+function payloadOf(path: string, data: Uint8Array): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(textOf(data));
+  } catch {
+    parsed = undefined;
+  }
+  if (!isRecord(parsed)) {
+    throw new LocalStorageError(
+      `The sync folder's ${path} is not readable — it is not a file HardlyReader writes. ` +
+        "Nothing was changed; move that file aside to start a new one.",
+    );
+  }
+  return parsed;
+}
+
+/** What the folder said, and the bytes it said it with. */
+export interface FileSetRead {
+  /** The library it describes, or null when nothing has been committed there yet. */
+  snapshot: SyncSnapshot | null;
+  /** Every file read, by path — what a write compares itself against. */
+  files: Map<string, Uint8Array>;
+  manifest: Uint8Array | null;
+}
+
+export interface FileSetOptions {
+  /** The device doing the reading, for a set written out of a v1 document. */
+  device: string;
+  now: number;
+}
+
+/**
+ * Reads the canonical files, or null when the folder has never been committed.
+ *
+ * The manifest first, then the files it stands for. A payload file that is
+ * absent is empty — a set written by an older layout may have fewer of them —
+ * but a file that is present and unreadable refuses the whole folder: merging a
+ * hole is how a tombstone goes missing and a deletion comes back.
+ */
+export async function readFileSet(
+  provider: FileSyncProvider,
+  options: FileSetOptions,
+): Promise<FileSetRead> {
+  const manifest = await provider.readFile(MANIFEST_FILE);
+  if (manifest === null) return migrateDocument(provider, options);
+
+  const header = readManifest(manifest);
+  const files = new Map<string, Uint8Array>();
+  files.set(MANIFEST_FILE, manifest);
+
+  const readPart = async (path: string): Promise<Record<string, unknown>> => {
+    const data = await provider.readFile(path);
+    if (data === null) return {};
+    files.set(path, data);
+    return payloadOf(path, data);
+  };
+
+  const library = await readPart(LIBRARY_FILE);
+  const state = await readPart(STATE_FILE);
+  const preferences = await readPart(PREFERENCES_FILE);
+  const positions = await readPart(POSITIONS_FILE);
+  const tombstones = await readPart(TOMBSTONES_FILE);
+  const devices = await readPart(DEVICES_FILE);
+
+  const feeds: Record<string, unknown> = isRecord(library.feeds) ? { ...library.feeds } : {};
+  const shards = Array.isArray(library.shards) ? library.shards : [];
+  for (const declared of shards) {
+    if (typeof declared !== "string" || !SHARD_PATH.test(declared)) {
+      throw new LocalStorageError(
+        `The sync folder's library.json names a file this build will not read (${JSON.stringify(
+          declared ?? null,
+        )}). Nothing was changed.`,
+      );
+    }
+    const data = await provider.readFile(declared);
+    if (data === null) {
+      throw new LocalStorageError(
+        `The sync folder is incomplete: library.json names ${declared}, which is not there. ` +
+          "Nothing was changed; sync once from the device that wrote it.",
+      );
+    }
+    files.set(declared, data);
+    const shard = payloadOf(declared, data);
+    if (isRecord(shard.feeds)) Object.assign(feeds, shard.feeds);
+  }
+
+  const document: Record<string, unknown> = {
+    version: header.version,
+    device: devices.device,
+    writtenAt: devices.writtenAt,
+    feeds: { ...(isRecord(tombstones.feeds) ? tombstones.feeds : {}), ...feeds },
+    folders: {
+      ...(isRecord(tombstones.folders) ? tombstones.folders : {}),
+      ...(isRecord(library.folders) ? library.folders : {}),
+    },
+    redirects: library.redirects,
+    marks: state.marks,
+    prefs: preferences.prefs,
+    sidebar: positions.sidebar ?? null,
+    place: positions.place ?? null,
+  };
+
+  return { snapshot: snapshotFrom(document), files, manifest };
+}
+
+/**
+ * The set written out of a v1 single document, so a folder written before the
+ * split opens here.
+ *
+ * The old file is **left in place**: it is the reader's data, and a migration is
+ * not permission to tidy the folder up. One write of the set, commit record last,
+ * and the document's own snapshot is what the caller merges — the bytes on disk
+ * and the library in memory describe the same thing either way.
+ */
+async function migrateDocument(
+  provider: FileSyncProvider,
+  options: FileSetOptions,
+): Promise<FileSetRead> {
+  const legacy = await provider.readFile(SYNC_FILE_NAME);
+  if (legacy === null) return { snapshot: null, files: new Map(), manifest: null };
+
+  const snapshot = parseSyncSnapshot(textOf(legacy));
+  const write = await writeFileSet(
+    provider,
+    { snapshot: null, files: new Map(), manifest: null },
+    { ...snapshot, device: options.device },
+    options.now,
+  );
+  return {
+    snapshot,
+    files: write.files,
+    manifest: write.files.get(MANIFEST_FILE) ?? null,
+  };
+}
+
+/** What a write put in the folder. */
+export interface FileSetWrite {
+  /** Every canonical file as it now stands, by path — the manifest included. */
+  files: Map<string, Uint8Array>;
+  /** The paths written, in the order they were written. Empty when nothing changed. */
+  written: string[];
+}
+
+/**
+ * Writes the set, file by file, and only the files whose bytes changed.
+ *
+ * That is the whole reason the folder is a set: a device that moved its reading
+ * position uploads `positions.json`, the stamp and the manifest, and leaves
+ * `library.json` — usually the big one — exactly as it was. `devices.json` is
+ * written with every real change and never on its own, because it is a stamp
+ * rather than content; a sync that changed nothing writes nothing at all and
+ * says so.
+ *
+ * `manifest.json` goes last, always: a reader must never find a manifest
+ * promising files that are not there yet, which is also why the shard files are
+ * inserted before it in `snapshotFiles`.
+ */
+export async function writeFileSet(
+  provider: FileSyncProvider,
+  before: FileSetRead,
+  snapshot: SyncSnapshot,
+  now: number,
+): Promise<FileSetWrite> {
+  const files = snapshotFiles({ ...snapshot, writtenAt: now });
+  const changed = [...files].filter(
+    ([path, data]) => path !== DEVICES_FILE && !sameBytes(before.files.get(path), data),
+  );
+  const manifest = manifestBytes();
+  const manifestChanged = !sameBytes(before.manifest, manifest);
+  // The manifest is a canonical file too, and the caller's `before` for the next
+  // write is this map — so it is in here even when this write skipped it.
+  const canonical = new Map(files);
+  canonical.set(MANIFEST_FILE, manifest);
+  if (changed.length === 0 && !manifestChanged) return { files: canonical, written: [] };
+
+  const written: string[] = [];
+  for (const [path, data] of changed) {
+    await provider.writeFile(path, data);
+    written.push(path);
+  }
+  const devices = files.get(DEVICES_FILE);
+  if (devices !== undefined) {
+    await provider.writeFile(DEVICES_FILE, devices);
+    written.push(DEVICES_FILE);
+  }
+  await provider.writeFile(MANIFEST_FILE, manifest);
+  written.push(MANIFEST_FILE);
+  return { files: canonical, written };
 }
 
 /* ---------------------------------------------------------------------------
@@ -1672,18 +2150,32 @@ export async function syncOnce(options: SyncRunOptions): Promise<SyncRun> {
   const now = seconds(options.now);
   const local = await localSnapshot({ ...options, now });
 
-  const raw = await options.provider.read();
-  const remote = raw === null ? null : parseSyncSnapshot(raw);
-  const merged = await integrateSnapshot({ ...options, now }, local, remote);
+  const files = fileSyncProvider(options.provider);
+  if (files === null) {
+    const raw = await options.provider.read();
+    const remote = raw === null ? null : parseSyncSnapshot(raw);
+    const merged = await integrateSnapshot({ ...options, now }, local, remote);
 
-  const unchanged = remote !== null && sameContent(remote, merged.snapshot);
-  if (!unchanged) await options.provider.write(serializeSnapshot(merged.snapshot));
+    const unchanged = remote !== null && sameContent(remote, merged.snapshot);
+    if (!unchanged) await options.provider.write(serializeSnapshot(merged.snapshot));
+
+    return {
+      snapshot: merged.snapshot,
+      conflicts: merged.conflicts,
+      applied: merged.applied,
+      unchanged,
+    };
+  }
+
+  const before = await readFileSet(files, { device: options.device, now });
+  const merged = await integrateSnapshot({ ...options, now }, local, before.snapshot);
+  const write = await writeFileSet(files, before, merged.snapshot, now);
 
   return {
     snapshot: merged.snapshot,
     conflicts: merged.conflicts,
     applied: merged.applied,
-    unchanged,
+    unchanged: write.written.length === 0,
   };
 }
 

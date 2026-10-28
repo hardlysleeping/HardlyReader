@@ -3,9 +3,12 @@
 A **local** library has no server behind it, so two devices hold two libraries
 that know nothing about each other: the same feeds subscribed twice, the same
 article read on one and unread on the other. `src/api/local/sync.ts` closes that
-gap without inventing a server. Both devices write one document into a folder
-they can already see — an **iCloud Drive** folder, a **Google Drive** folder, a
-directory on a network share — and merge it whenever they open.
+gap without inventing a server. Both devices write the same small set of files
+into a folder they can already see — an **iCloud Drive** folder, a **Google
+Drive** folder, a directory on a network share — and merge it whenever they open.
+The set is the canonical format in `docs/sync-format.md`: the same seven files on
+every provider, so the folder can be copied from one cloud to another and the
+library opens there.
 
 The fetching engine is never part of it. Each device fetches its own feeds, on
 its own schedule, with its own validators.
@@ -25,19 +28,52 @@ A document carrying article bodies would grow without bound and sync every few
 minutes; a document carrying validators would have two devices contradicting
 each other about a feed neither of them fetched the same way.
 
-## The file
+## The files
 
-`hardlyreader-sync.json`, inside whichever folder the reader points at. Compact
-JSON, because a cloud folder uploads every byte.
+The canonical folder, from `docs/sync-format.md`:
 
-The webview names a **folder**; `src-tauri/src/sync.rs` names the file. A page
-that could name any path could write any file the app can reach, and this needs
-exactly one. The write is staged in `hardlyreader-sync.json.writing` and renamed
-onto the real name, so a second device reading at that moment sees the old
-document or the new one, never half of either. `~` is expanded in Rust, because
-the folder a panel suggests lives under the reader's home and no shell is in the
-loop; a relative path is refused rather than resolved against whatever directory
-the app was launched from.
+```
+manifest.json      format, version, encryption — written last, read first
+library.json       subscriptions, folders, ordering, a feed's moves
+state.json         read and starred marks
+preferences.json   reader settings (the same PrefsDoc the server path carries)
+positions.json     the sidebar arrangement and where the reader was
+tombstones.json    deleted feeds and folders
+devices.json       which device wrote this copy last
+```
+
+`manifest.json` is the commit record. A reader checks it before it reads a byte
+of anything else: a folder written by a newer build, an `encryption` this build
+does not know, or a `format` that is not `hardlyreader-sync` is refused whole,
+and refusing means nothing is applied and nothing is written. `devices.json` is a
+stamp rather than content, and it is written with a real change, never on its
+own — a sync that changed nothing writes nothing at all.
+
+Each file is written only when its bytes changed, which is the point of the
+split: moving the reading position uploads `positions.json`, the stamp and the
+manifest, and leaves `library.json` alone. Past `LIBRARY_SPLIT_BYTES` (512 KiB)
+`library.json` stops carrying the feeds and lists `feeds/<bucket>.json` files
+instead — a layout change inside the same format, not a version bump. The shard
+files are written before the list that names them, and the manifest after
+everything.
+
+A folder written by v1 (one `hardlyreader-sync.json`) is migrated on first read:
+the set is written from that document and **the old file is left where it is**. Deletions
+are never part of a tidy-up.
+
+### The folder-backed provider still writes one document
+
+Per-file writes need a provider with `readFile`/`writeFile`. The folder in this
+build (`src-tauri/src/sync.rs`) has `read`/`write` only, so on the desktop the
+folder still holds the single `hardlyreader-sync.json`, staged as
+`hardlyreader-sync.json.writing` and renamed onto the real name so a second
+device reading at that moment sees the old document or the new one, never half of
+either. A provider without the path members is handed the whole document and
+nothing else changes for it; the merge, the stamps and the tombstones are the
+same code either way. `~` is expanded in Rust, because the folder a panel
+suggests lives under the reader's home and no shell is in the loop; a relative
+path is refused rather than resolved against whatever directory the app was
+launched from.
 
 ## Where it lives: a provider
 
@@ -178,13 +214,16 @@ leaves the library, the agreement and the last-run time alone.
 
 | Situation | What happens |
 |---|---|
-| the folder has never been used | a document is written; this is the first device |
-| the document is unchanged by a merge | nothing is written, so cloud folders stay quiet |
-| the provider cannot be read (no permission, an unmounted drive) | refused before anything is applied or written: the library, the document and the last agreement are all left exactly as they were |
-| the document is from a newer build (`version` greater) | refused, nothing written — read it wrongly and a newer device's data is erased |
-| the file is not a document (truncated, hand-edited) | refused, nothing written; the panel can say to move it aside |
+| the folder has never been used | the files are written, manifest last; this is the first device |
+| the folder holds a v1 single document | the set is written from it and the old file is left in place |
+| nothing changed in the merge | nothing is written, so cloud folders stay quiet |
+| the provider cannot be read (no permission, an unmounted drive) | refused before anything is applied or written: the library, the folder and the last agreement are all left exactly as they were |
+| the folder is from a newer build (`version` greater) | refused before any other file is read, nothing written — read it wrongly and a newer device's data is erased |
+| the manifest is missing its `format`, `version` or `encryption`, or names an encryption this build does not know | refused whole, nothing written |
+| a payload file is not readable (truncated, hand-edited) | refused whole, nothing written; merging a hole is how a tombstone goes missing |
+| `library.json` names a shard file that is not there | refused, nothing written; sync once from the device that wrote it |
 | one record is unreadable | that record is dropped, the rest of the document still arrives |
-| a mark is for an article this device does not hold | skipped and kept in the document for the device that has it; counted in `ApplyReport.marksSkipped` |
+| a mark is for an article this device does not hold | skipped and kept in the folder for the device that has it; counted in `ApplyReport.marksSkipped` |
 
 ## What is not here yet
 
