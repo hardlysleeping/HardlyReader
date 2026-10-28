@@ -42,12 +42,37 @@ the format identity may not.
 ## manifest.json, from day one
 
 ```json
-{ "format": "hardlyreader-sync", "version": 1 }
+{ "format": "hardlyreader-sync", "version": 1, "encryption": "none" }
 ```
 
 Written **last**, read **first**: a reader must never see a manifest promising files that are absent.
 A newer version is refused, never half-applied. Migration `v1 → v2` lives in the shared engine —
 never `icloud-v2`, `google-v3`. The provider has no vote on the format.
+
+### Encryption: none in v1, ready from day one
+
+No app-level encryption ships in v1. The manifest still **declares** it, so the field is a decision
+the format makes rather than a version that has to be inferred later:
+
+```json
+{ "format": "hardlyreader-sync", "version": 2, "encryption": "xchacha20-poly1305" }
+```
+
+Rules that keep the door open without paying for it now:
+
+- `encryption` is a **required** field in v1 and its only legal value is `"none"`. A reader that
+  meets an unknown value refuses the folder and says so, instead of guessing at bytes.
+- If it is added, it goes **above the provider layer** — one implementation encrypts the canonical
+  files and every transport receives the same ciphertext. Never four implementations.
+- The provider interface already takes `Uint8Array`, so encrypted payloads need no interface change.
+- A `"none"` folder and an encrypted folder never merge. Switching is a migration, and the manifest
+  is what tells the engine which one it is looking at.
+
+Why v1 stays plaintext: the payload is deliberately small (feeds, folders, read and starred state,
+hidden and pinned state, ordering, preferences, positions — no bodies, no extracted text, no images),
+the files live in the reader's own cloud account, and a lost encryption key would make a *sync* file
+unreadable on every device at once. The local library is the source of truth, so this is survivable —
+but it is a cost worth deferring until someone asks for it.
 
 ## Provider neutrality
 
