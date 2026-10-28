@@ -24,7 +24,7 @@ import { compileModule } from "svelte/compiler";
 import ts from "typescript";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const GEN_DIR = join(ROOT, "tests/unit/.gen");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 
 let failures = 0;
 let checks = 0;

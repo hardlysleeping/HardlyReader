@@ -1,3 +1,5 @@
+tests/unit/.gen-*/
+tests/unit/.gen/
 .DS_Store
 node_modules
 /dist
@@ -41,7 +43,7 @@ pane-model-preview.html
 preview-*.png
 
 # Test scratch the suites regenerate.
-tests/unit/.gen/
+.gen-*/
 
 # working notes: private, never published
 BACKLOG.md

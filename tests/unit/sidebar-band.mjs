@@ -45,7 +45,7 @@ import { PIN_VIEW_LABELS, nextPinView } from "../../src/state/pins.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 /** Only this suite's own corner: siblings run in parallel and share `.gen`. */
-const GEN_DIR = join(ROOT, "tests/unit/.gen/sidebar-band");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}/sidebar-band`);
 
 let failures = 0;
 let checks = 0;

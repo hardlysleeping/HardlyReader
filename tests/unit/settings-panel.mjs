@@ -32,7 +32,7 @@ import { render } from "svelte/server";
 import ts from "typescript";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const GEN = join(ROOT, "tests/unit/.gen-settings");
+const GEN = join(ROOT, `tests/unit/.gen-${process.pid}/settings`);
 
 let failures = 0;
 let checks = 0;

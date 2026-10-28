@@ -21,7 +21,7 @@ import { parseState } from "../../src/api/hardlyread.ts";
 import { categoryMenu, feedMenu } from "../../src/lib/contextmenu.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const GEN_DIR = join(ROOT, "tests/unit/.gen");
+const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 
 let failures = 0;
 let checks = 0;

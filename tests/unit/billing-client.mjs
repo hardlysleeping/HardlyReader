@@ -23,7 +23,7 @@ import { compileModule } from "svelte/compiler";
 import ts from "typescript";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
-const GEN = join(ROOT, "tests/unit/.gen");
+const GEN = join(ROOT, `tests/unit/.gen-${process.pid}`);
 
 let checks = 0;
 let failures = 0;

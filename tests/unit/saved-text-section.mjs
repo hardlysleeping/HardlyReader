@@ -27,7 +27,7 @@ import { render } from "svelte/server";
 import ts from "typescript";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const GEN = join(ROOT, "tests/unit/.gen-saved-text");
+const GEN = join(ROOT, `tests/unit/.gen-${process.pid}/saved-text`);
 
 let checks = 0;
 let failures = 0;
