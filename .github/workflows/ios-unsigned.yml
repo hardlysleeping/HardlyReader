@@ -1,0 +1,158 @@
+name: iOS unsigned IPA
+
+# The macOS half of the release. The IPA is unsigned on purpose: AltStore/SideStore
+# re-sign every install, so no Apple credentials exist in CI. Same recipe as
+# codemagic.yaml's `ios-unsigned` workflow, on a runner this repo already has
+# access to, so a release is not blocked on a second service being awake.
+#
+# Produces: HardlyReader-<version>-ios-unsigned-<ref>.ipa
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or commit to build"
+        required: false
+        default: "master"
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ipa:
+    runs-on: macos-14
+    timeout-minutes: 120
+    env:
+      CARGO_TERM_COLOR: always
+      COREPACK_ENABLE_PROJECT_SPEC: "0"
+      COREPACK_ENABLE_STRICT: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || 'master' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Toolchain
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-apple-ios
+          rustc -V; cargo -V; xcodebuild -version
+          node -v
+          npm i -g pnpm@10 --force >/dev/null
+          pnpm -v
+          pnpm install --frozen-lockfile
+
+      - name: XcodeGen
+        run: |
+          set -euo pipefail
+          command -v xcodegen || brew install xcodegen
+          xcodegen --version
+
+      - name: Generate the Xcode project
+        run: |
+          set -euo pipefail
+          # tauri's iOS bootstrap asks Homebrew to reinstall libimobiledevice, and
+          # that formula's post-install can die on a machine where the keg is
+          # already linked. The package is only needed to deploy to a physical
+          # device, so answer that one call with success.
+          mkdir -p "$GITHUB_WORKSPACE/bin"
+          printf '%s\n' '#!/bin/bash' \
+            'if { [ "$1" = reinstall ] || [ "$1" = install ]; } && [ "$2" = libimobiledevice ]; then' \
+            '  echo "brew wrapper: libimobiledevice is already installed"; exit 0' \
+            'fi' \
+            'exec /opt/homebrew/bin/brew "$@"' > "$GITHUB_WORKSPACE/bin/brew"
+          chmod +x "$GITHUB_WORKSPACE/bin/brew"
+          export PATH="$GITHUB_WORKSPACE/bin:$PATH"
+          pnpm tauri ios init --ci
+          ls -la src-tauri/gen/apple
+
+      - name: Add the native share bridge
+        run: |
+          set -euo pipefail
+          # src-tauri/ios/ShareSheet.swift is the half that cannot be written in
+          # Rust. It lives outside the Xcode project because that project is a
+          # build product; `tauri ios init` regenerates it every run. Copy the
+          # file into the directory the template compiles Swift from, then re-run
+          # XcodeGen so it is in the app target's sources — a Swift file in no
+          # target compiles nowhere and fails silently, which is why the pbxproj
+          # and later the binary are both grepped.
+          cat src-tauri/gen/apple/project.yml
+          ls -la src-tauri/ios
+          EXISTING=$(find src-tauri/gen/apple -name '*.swift' -not -path '*/build/*' -print -quit)
+          if [ -n "$EXISTING" ]; then SOURCES=$(dirname "$EXISTING"); else SOURCES=src-tauri/gen/apple/Sources; fi
+          [ -d "$SOURCES" ] || { echo "no Swift source directory in gen/apple"; exit 1; }
+          echo "swift sources: $SOURCES"
+          cp -v src-tauri/ios/*.swift "$SOURCES/"
+          cd src-tauri/gen/apple
+          set -- *.xcodeproj
+          PROJ="$1"
+          [ -d "$PROJ" ] || { echo "no .xcodeproj was generated"; exit 1; }
+          echo "project: $PROJ"
+          XCODEGEN=$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)
+          "$XCODEGEN" generate --spec project.yml
+          grep -q 'ShareSheet.swift in Sources' "$PROJ/project.pbxproj" || {
+            echo "ShareSheet.swift is not in the app target's compile sources"
+            grep -n 'ShareSheet' "$PROJ/project.pbxproj" || true
+            exit 1
+          }
+          echo "the share bridge is in the app target"
+
+      - name: Build unsigned .app
+        run: |
+          set -euo pipefail
+          export PATH="$GITHUB_WORKSPACE/bin:$PATH"
+          # Xcode's Build Rust Code phase shells out to `tauri ios xcode-script`,
+          # which only works while `tauri ios build` drives it; a bare xcodebuild
+          # fails. Let the CLI orchestrate Xcode.
+          pnpm tauri ios build --ci --no-sign
+          echo "--- build products:"
+          find src-tauri/gen/apple/build src-tauri/target -maxdepth 6 -name '*.app' 2>/dev/null || true
+
+      - name: Package unsigned IPA
+        env:
+          # An input, not a payload: only users with write access can dispatch this
+          # workflow, and it still goes through env rather than into the script.
+          REF_INPUT: ${{ github.event.inputs.ref || 'master' }}
+        run: |
+          set -euo pipefail
+          # -print -quit, not `| head -1`: under pipefail head closes the pipe and
+          # find dies of SIGPIPE, which reads as a failed step.
+          APP=$(find src-tauri/gen/apple/build build -maxdepth 6 -name '*.app' -print -quit 2>/dev/null || true)
+          [ -n "$APP" ] || { echo "no .app was produced"; exit 1; }
+          APP="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
+          echo "app=$APP"
+          rm -rf build/ipa; mkdir -p build/ipa/Payload
+          cp -R "$APP" build/ipa/Payload/
+          ( cd build/ipa && zip -qry "$GITHUB_WORKSPACE/build/ipa-dir.ipa" Payload )
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")
+          REF="$REF_INPUT"
+          OUT="build/HardlyReader-${VERSION}-ios-unsigned-${REF//\//-}.ipa"
+          mv build/ipa-dir.ipa "$OUT"
+          unzip -l "$OUT" | head -20
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          echo "version: $VERSION"
+          # A static lib plus a Swift file that never got linked looks exactly like
+          # a successful build. Ask the binary itself.
+          BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          echo "binary: $BIN"
+          strings -a "$BIN" > build/binary-strings.txt
+          for symbol in hardlyreader-share-sheet-1 share_sheet; do
+            if grep -q -- "$symbol" build/binary-strings.txt; then
+              echo "found in the binary: $symbol"
+            else
+              echo "MISSING from the binary: $symbol — the share bridge was not linked"
+              exit 1
+            fi
+          done
+          echo "IPA=$OUT" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: build/*.ipa
+          if-no-files-found: error
+          retention-days: 14
