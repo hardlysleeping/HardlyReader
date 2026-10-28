@@ -369,7 +369,15 @@
                 <span class="key">Version</span>
                 <span class="value">{APP_VERSION}</span>
               </div>
-              <p class="hint">HardlyReader — a FreshRSS reader.</p>
+              <p class="hint">
+                HardlyReader — a feed reader that runs on its own, or reads your
+                FreshRSS.
+              </p>
+              <p class="hint">
+                Library on this device, no account needed: your feeds, marks and saved
+                text stay here. Moving it to another device is a hand-made archive, or
+                your own cloud with a subscription.
+              </p>
             {/if}
           </div>
         </details>
