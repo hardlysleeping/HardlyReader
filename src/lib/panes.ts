@@ -617,9 +617,16 @@ export function defaultModeFor(input: {
   /** The user's own thresholds, when they have any. */
   thresholds?: PaneThresholds;
 }): PaneMode {
-  // A phone still follows its orientation: portrait has no room for two columns
-  // and pretending otherwise would open a 390px screen "squeezed" every time.
-  if (input.phone) return input.width > input.height ? 3 : 1;
+  /**
+   * One column on a phone, in both orientations.
+   *
+   * It used to switch to three when the phone lay down, on the reasoning that a
+   * landscape screen is wider. It is also only ~390px tall: three columns at that
+   * height leave each pane under 300px and the article pane unreadable, which is
+   * how landscape came to look cropped. Landscape earns width, not height — the
+   * pane buttons still offer 2 and 3 for anyone who wants them there.
+   */
+  if (input.phone) return 1;
   /**
    * A desktop opens in three panes, whatever the window width.
    *

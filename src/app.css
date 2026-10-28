@@ -401,8 +401,19 @@ html.drag-panning :is(button, a, [role="button"]):active:not(.on):not([aria-pres
   --safe-left: env(safe-area-inset-left, 0px);
 }
 
+/* The page owns every pixel the app does not, so a strip left by a safe-area
+   inset — the notch, the home indicator, the gutter beside a rotated phone — is
+   the app's own colour rather than whatever the window paints (on iOS, black).
+   Declared on both elements: `html` is what a webview shows outside the body's
+   box, and `body` is what shows between the body and the first child. */
+html,
+body {
+  background: var(--bg);
+}
+
 #app {
   height: 100%;
+  background: var(--bg);
 }
 
 /* Phone surfaces, edge to edge.
