@@ -130,35 +130,52 @@ the password and either side can revoke it.
 
 ## Free, and what a subscription adds
 
-The app is two halves of the same thing, and which half owns your state depends only on which
-profile you are reading with:
+**Exporting and importing your data is free, always.** *Settings → Device sync → Archive* writes
+`HardlyReader-Sync.zip` and imports it back — no account, no trial, no subscription, on every build.
+If you would rather move your library by hand than pay for anything, that path never goes away.
 
-- **Free, with your own server.** Point HardlyReader at FreshRSS, Miniflux, Tiny Tiny RSS or The
-  Old Reader and everything syncs through it, as it always has — feeds, read state, stars, and,
-  when the extensions are installed, hidden categories, pins, sidebar indent, preferences and
-  reading position. Nothing in this path ever asks about a subscription.
-- **Free, on this device alone.** A local library needs no account and no server: feeds, folders,
-  read/star state, OPML and a real lock, stored in SQLite (or IndexedDB in a browser tab). It can
-  also keep the text of the posts you open, so a post read on the train reads the same in the
-  evening — [`docs/article-bodies.md`](docs/article-bodies.md) says what that costs, how much it
-  holds, and who sees the request.
+What the subscription adds is **automatic** mirroring for a *local* library: the app keeps the same
+data in a folder your own cloud client already syncs — iCloud Drive, Google Drive, Dropbox, OneDrive
+— and merges it when you open the app on the other device. No HardlyReader server is involved: that
+folder is your storage, and the app only reads and writes the files in it. Today all four are names
+for *a folder you pick*, because the app talks to the filesystem, not to CloudKit or the Drive API;
+picking `~/iCloud Drive/HardlyReader` or `~/Google Drive/HardlyReader` is the whole setup.
 
-**Moving a local library between devices is free.** Two ways, and neither asks for money:
+### What sync actually moves — and what it never does
 
-- **By hand, always.** *Settings → Device sync → Archive* writes `HardlyReader-Sync.zip` — feeds,
-  folders, hidden categories, pins and arrangements, read and starred marks, preferences, reading
-  positions — and imports one back. Import is a merge, not a replace: what the archive has is
-  added, what this device has is kept. The zip is the same canonical files the folder providers
-  write, so it also drops straight into an iCloud Drive or Google Drive folder by hand.
-- **Automatically**, if you subscribe: **HardlyReader Sync** mirrors a *local* library across your
-  devices through iCloud Drive, Google Drive, Dropbox or OneDrive, and keeps them merged in the
-  background — one subscription covers all four, because a provider is storage, not a product. It
-  does not apply to a server-backed library and does not appear there; your server already does
-  that job, for free.
+Sync carries **your reading state and arrangement**, never articles:
 
-So the subscription buys convenience, not access: no feature, no file and no way out of your own
-data is behind it. Unsubscribing stops the automatic mirroring and leaves the library, the folder
-and the zip exactly where they are.
+- feeds and folders, including feeds that moved address
+- read and starred marks, with timestamps
+- hidden categories, pins, pinned feeds, the eye's view, feed order, category order, sidebar indent
+- reading preferences, and where you were reading
+- deletions, so a device that was offline cannot resurrect what you removed
+
+Article text, extracted pages, images and fetch times stay on the device. A sync document that
+carried articles would grow without bound and upload every few minutes.
+
+**Feeds are fetched by whoever is reading.** In a server profile that is your FreshRSS — it polls
+the feeds, stores the articles, and every device reads from it. In a local library the app fetches
+the feeds itself (`src/api/local/refresh.ts`) on launch, on resume and when the OS grants a
+background moment — so a local library is not a library without feeds. What it does not have is a
+*shared* fetcher: two local devices each poll the feeds, and neither can read an article the other
+fetched unless the device fetches it too.
+
+### Which setup, what it costs, what you give up
+
+| Your situation | Best setup | What it costs | What you don't get |
+|---|---|---|---|
+| One device | Local library, no account | **Free** | nothing — sync has nothing to do |
+| Two or more devices, no server, a zip now and then is fine | Local library + manual export/import | **Free** | it is manual: you copy `HardlyReader-Sync.zip` across, and an import happens when you make it |
+| Two or more devices, no server, want it hands-free | Local library + **HardlyReader Sync** | subscription | article text still doesn't travel; needs a HardlyReader account; the folder has to be one your cloud client mirrors |
+| You already run FreshRSS (or another server that speaks the GReader API) | Server profile | **Free** (plus what your server costs you) | our paid sync does nothing here — it isn't offered, because your server already merges everything, articles included |
+| You pay for Feedbin, Feedly or Inoreader | read in their app; add HardlyReader only if you want a local library as well | their price, plus ours only if you also want local mirroring | HardlyReader does not speak their APIs — there is no two-way link. OPML moves between them; read state and stars do not |
+| Several devices **and** you want article text waiting for you offline on all of them | a server (FreshRSS, or a paid reader) — not our sync | server cost | — |
+
+So: pay for ours only if you deliberately keep no server and want a local library merged for you.
+If you run FreshRSS, our sync cannot help you and will not take your money. If you pay Feedbin or
+Feedly, our sync is not a cheaper substitute for it — theirs also fetches and stores the articles,
+which ours never does by design.
 
 The rule that keeps this coherent: **one authority per profile.** FreshRSS and its extensions own
 a server-backed profile; the local database owns a local one. No state is ever written by two
