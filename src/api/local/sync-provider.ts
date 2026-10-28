@@ -43,6 +43,24 @@ export interface SyncProvider {
   write(document: string): Promise<void>;
   /** For the UI: where it writes, in words a reader understands. */
   describe(): string;
+
+  /*
+   * Path-scoped members, for the canonical file set in `docs/sync-format.md`.
+   *
+   * Optional so that every provider written against the single document keeps working while the
+   * engine moves to `manifest.json`, `library.json`, `state.json`, `preferences.json` and
+   * `positions.json`. A provider that implements only `read`/`write` keeps handing over the whole
+   * document; one that implements these can be asked for one file at a time, which is what makes a
+   * position write not rewrite the library.
+   *
+   * `getRevision` is the change detector a provider can offer natively (an ETag, a version, a
+   * modified time). It is optional too: an engine that cannot ask compares the bytes it has.
+   */
+  readFile?(path: string): Promise<string | null>;
+  writeFile?(path: string, bytes: string): Promise<void>;
+  deleteFile?(path: string): Promise<void>;
+  list?(path: string): Promise<string[]>;
+  getRevision?(path: string): Promise<string | null>;
 }
 
 /**
