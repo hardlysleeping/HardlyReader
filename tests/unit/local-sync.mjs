@@ -33,6 +33,7 @@ import {
   syncOnce,
 } from "../../src/api/local/sync.ts";
 import { emptyPrefs, withEntry } from "../../src/lib/prefs-sync.ts";
+import { emptyPlace, emptySidebar } from "../../src/lib/sidebar-doc.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -659,6 +660,142 @@ await check("buildSnapshot leaves an unchanged record's stamp alone", async () =
     now: T + 500,
   });
   equal(again.feeds[FEED_A].at, T, "an unchanged feed keeps the time it was agreed by");
+});
+
+/* --------------------------------------------------------------------------
+ * The lock, which is per device and never in the document
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The document's own fields, written down.
+ *
+ * A sync document is a JSON file in a folder the reader's cloud client mirrors,
+ * so every field added here is a field copied into the provider, its version
+ * history and its backups. The lock is what settled the rule: `docs/authority.md`
+ * says the passcode is a curtain the reader keeps on the device, and these two
+ * lists make adding one a failing test rather than a diff nobody read. A field
+ * that is neither of these is a decision too — read the doc before extending
+ * either list.
+ */
+const DOCUMENT_FIELDS = [
+  "device",
+  "feeds",
+  "folders",
+  "marks",
+  "place",
+  "prefs",
+  "sidebar",
+  "version",
+  "writtenAt",
+];
+const SIDEBAR_FIELDS = [
+  "at",
+  "categoryOrder",
+  "feedOrder",
+  "hidden",
+  "hiddenView",
+  "indentPx",
+  "pinFeeds",
+  "pinView",
+  "pins",
+];
+
+/**
+ * A name a lock or a passcode would be carried under.
+ *
+ * Deliberately generous: `locked`, `passcode`, `passphrase`, `secret`, `salt`,
+ * `keypad` and the pad's own spelling all fail. `pins` and `pinFeeds` do not —
+ * a pin is a sidebar mark, not a code.
+ */
+const LOCK_SHAPED = /passcode|passphrase|password|lock|secret|salt|keypad|pinpad/i;
+
+/** Every object key in a document, at every depth, as `sidebar.hidden`. */
+function documentKeys(value, path = "", into = []) {
+  if (Array.isArray(value)) {
+    for (const entry of value) documentKeys(entry, `${path}[]`, into);
+    return into;
+  }
+  if (typeof value !== "object" || value === null) return into;
+  for (const [key, entry] of Object.entries(value)) {
+    const here = path === "" ? key : `${path}.${key}`;
+    into.push(here);
+    documentKeys(entry, here, into);
+  }
+  return into;
+}
+
+/** The lock-shaped keys in a document, by their own name, at any depth. */
+function lockShapedKeys(document) {
+  return documentKeys(document).filter((key) => LOCK_SHAPED.test(key.split(".").pop() ?? ""));
+}
+
+await check("the document carries no lock and no passcode, at any depth", async () => {
+  const a = device("laptop");
+  await addFeed(a, FEED_A, { title: "Comics", folder: "Funny books" });
+  const post = await addEntry(a, FEED_A, "p1");
+  await a.store.setRead([post], true);
+
+  // Every half of the document filled in, because the scan is only worth
+  // anything on a document that has somewhere to hide one. The sidebar and the
+  // place are built by spreading `emptySidebar()` / `emptyPlace()` rather than
+  // written out: a field added to the model must turn up here, and a literal
+  // would quietly keep passing while the app started carrying it.
+  const document = buildSnapshot({
+    rows: {
+      feeds: await a.store.feeds(),
+      folders: await a.store.folders(),
+      entries: await a.store.entryFlags(),
+    },
+    base: null,
+    prefs: emptyPrefs(),
+    device: "laptop",
+    now: T,
+    sidebar: { ...emptySidebar(), hidden: ["Filters"], pins: ["Comics"], indentPx: 12 },
+    place: {
+      ...emptyPlace(),
+      streamId: FEED_A,
+      streamTitle: "Comics",
+      articleId: post,
+      articleScroll: 40,
+    },
+  });
+
+  const written = JSON.parse(serializeSnapshot(document));
+  deepEqual(Object.keys(written).sort(), DOCUMENT_FIELDS, "the document's fields");
+  deepEqual(Object.keys(written.sidebar).sort(), SIDEBAR_FIELDS, "the arrangement's fields");
+  deepEqual(lockShapedKeys(written), [], "a lock-shaped field in the document");
+  // The categories are the feature and they do travel; only the code that lifts
+  // the curtain stays behind.
+  deepEqual(written.sidebar.hidden, ["Filters"], "the hidden categories in the document");
+});
+
+await check("a lock-shaped field found in the file is dropped, and gone when rewritten", async () => {
+  const folder = new MemorySyncProvider();
+  const a = device("laptop");
+  await addFeed(a, FEED_A, { title: "Comics" });
+  await a.sync(folder, T + 100);
+
+  // A newer build, or a person with a text editor, puts a lock in the file.
+  const raw = JSON.parse(folder.peek());
+  raw.passcode = "1234";
+  raw.locked = true;
+  raw.sidebar = { at: T + 100, locked: true, passcode: "1234", ...(raw.sidebar ?? {}) };
+  await folder.write(JSON.stringify(raw));
+
+  const parsed = parseSyncSnapshot(await folder.read());
+  deepEqual(lockShapedKeys(parsed), [], "a lock-shaped field after reading the file");
+  equal("passcode" in parsed, false, "a passcode on the parsed document");
+
+  // A change here, so the document is written again rather than left as it was.
+  await addFeed(a, FEED_B, { title: "Other" });
+  await a.sync(folder, T + 200);
+
+  // The lock never gets a foothold in the folder: what this build writes is
+  // what it read back into its own model, and that model has no such field.
+  const rewritten = folder.peek();
+  truthy(!rewritten.includes("1234"), "the passcode in the folder's copy");
+  truthy(!rewritten.includes('"locked"'), "the locked flag in the folder's copy");
+  deepEqual(lockShapedKeys(JSON.parse(rewritten)), [], "a lock-shaped field after a rewrite");
 });
 
 console.log(`\n${passed} checks passed`);
