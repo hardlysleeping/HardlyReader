@@ -9,14 +9,15 @@
  * article body dragged along for the ride.
  *
  * Every check drives two real `LocalStore`s over the in-memory driver and one
- * shared `MemorySyncFolder` — the same merge code the app runs, against the same
- * queries, with the clock passed in rather than waited for.
+ * shared `MemorySyncProvider` — the same merge code the app runs, against the
+ * same queries, with the clock passed in rather than waited for. The provider is
+ * the seam `syncOnce` takes; a memory one stands in for the shared folder.
  *
  *   node --experimental-strip-types --import ./register-ts.mjs tests/unit/local-sync.mjs
  */
 import { LocalStore, localItemId } from "../../src/api/local/store.ts";
 import { MemoryDatabase } from "../../src/api/local/memory-db.ts";
-import { MemorySyncFolder } from "../../src/api/local/sync-folder.ts";
+import { MemorySyncProvider } from "../../src/api/local/sync-provider.ts";
 import {
   MARK_RETENTION_SECONDS,
   SYNC_FILE_NAME,
@@ -82,10 +83,10 @@ function device(name) {
     base: null,
     prefs: emptyPrefs(),
     adopted: [],
-    async sync(folder, at) {
+    async sync(provider, at) {
       const run = await syncOnce({
         store,
-        folder,
+        provider,
         device: name,
         base: this.base,
         now: at,
@@ -138,7 +139,7 @@ async function feedUrls(dev) {
  * ----------------------------------------------------------------------- */
 
 await check("a first sync writes the document, and the second device adopts it", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -168,7 +169,7 @@ await check("a first sync writes the document, and the second device adopts it",
 });
 
 await check("a sync that changes nothing does not touch the folder", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   await addFeed(a, FEED_A, { title: "Comics" });
   await a.sync(folder, T + 100);
@@ -184,7 +185,7 @@ await check("a sync that changes nothing does not touch the folder", async () =>
 });
 
 await check("the document carries reading state and not the fetching engine", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   await addFeed(a, FEED_A, { title: "Comics" });
   await a.store.putEntries([
@@ -207,7 +208,7 @@ await check("the document carries reading state and not the fetching engine", as
 });
 
 await check("a feed adopted from the folder has not been fetched here", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
   await addFeed(a, FEED_A, { title: "Comics" });
@@ -226,7 +227,7 @@ await check("a feed adopted from the folder has not been fetched here", async ()
  * ----------------------------------------------------------------------- */
 
 await check("read on one device and starred on the other both survive", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -252,7 +253,7 @@ await check("read on one device and starred on the other both survive", async ()
 });
 
 await check("an unstar travels, and a newer mark wins over an older one", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -280,7 +281,7 @@ await check("an unstar travels, and a newer mark wins over an older one", async 
 });
 
 await check("an article that arrived after the agreement inherits the mark instead of clearing it", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -303,7 +304,7 @@ await check("an article that arrived after the agreement inherits the mark inste
 });
 
 await check("a mark for an article this device holds lands when it is fetched later", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -326,7 +327,7 @@ await check("a mark for an article this device holds lands when it is fetched la
  * ----------------------------------------------------------------------- */
 
 await check("a removed feed stays removed when the other device renames it", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -354,7 +355,7 @@ await check("a removed feed stays removed when the other device renames it", asy
 });
 
 await check("a device that has seen the tombstone can subscribe again", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -376,7 +377,7 @@ await check("a device that has seen the tombstone can subscribe again", async ()
 });
 
 await check("a URL-derived title is not adopted as a choice the reader made", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -394,7 +395,7 @@ await check("a URL-derived title is not adopted as a choice the reader made", as
 });
 
 await check("a refile on one device reaches the other", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -410,7 +411,7 @@ await check("a refile on one device reaches the other", async () => {
 });
 
 await check("an empty folder travels, and a folder emptied remotely goes", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -427,7 +428,7 @@ await check("an empty folder travels, and a folder emptied remotely goes", async
 });
 
 await check("a folder holding a feed is never forgotten", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   await addFeed(a, FEED_A, { title: "Comics", folder: "Funny books" });
   equal(await a.store.forgetFolder("Funny books"), false, "forgetting an occupied folder");
@@ -440,7 +441,7 @@ await check("a folder holding a feed is never forgotten", async () => {
  * ----------------------------------------------------------------------- */
 
 await check("a newer settings document wins, and the loser is told", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -460,7 +461,7 @@ await check("a newer settings document wins, and the loser is told", async () =>
 });
 
 await check("a settings namespace the other device never set travels without a fight", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -476,7 +477,7 @@ await check("a settings namespace the other device never set travels without a f
  * ----------------------------------------------------------------------- */
 
 await check("a document from a newer build is refused and left alone", async () => {
-  const folder = new MemorySyncFolder(JSON.stringify({ version: SYNC_VERSION + 1, feeds: {} }));
+  const folder = new MemorySyncProvider(JSON.stringify({ version: SYNC_VERSION + 1, feeds: {} }));
   const a = device("laptop");
   await addFeed(a, FEED_A, { title: "Comics" });
 
@@ -491,7 +492,7 @@ await check("a document from a newer build is refused and left alone", async () 
 });
 
 await check("a file that is not a document is refused and left alone", async () => {
-  const folder = new MemorySyncFolder("half a file, truncated by a cloud client");
+  const folder = new MemorySyncProvider("half a file, truncated by a cloud client");
   const a = device("laptop");
   let refused = "";
   try {
@@ -526,7 +527,7 @@ await check("a record this build cannot read is dropped and the rest still arriv
  * ----------------------------------------------------------------------- */
 
 await check("two devices editing the same field in the same second settle on one answer", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 
@@ -571,7 +572,7 @@ await check("the merge is decided by the record, not by which side it came from"
 });
 
 await check("a sync leaves the articles themselves alone", async () => {
-  const folder = new MemorySyncFolder();
+  const folder = new MemorySyncProvider();
   const a = device("laptop");
   const b = device("tablet");
 

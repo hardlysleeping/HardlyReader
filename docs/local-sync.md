@@ -38,6 +38,40 @@ the folder a panel suggests lives under the reader's home and no shell is in the
 loop; a relative path is refused rather than resolved against whatever directory
 the app was launched from.
 
+## Where it lives: a provider
+
+`syncOnce()` does not know about paths. It asks a **`SyncProvider`**
+(`src/api/local/sync-provider.ts`) for the document and hands the merged one
+back: `id`, `label`, `read()`, `write(document)`, `describe()`.
+
+**All five providers in this build are folder-backed, including the four
+clouds.** iCloud Drive, Google Drive, Dropbox and OneDrive are *names for a
+folder the reader's own sync client already mirrors* — the reader picks that
+folder, and the provider records which service it belongs to so a panel can say
+where the file went. There is no CloudKit, no Drive, Dropbox or OneDrive API, no
+OAuth and no account. When one of them grows into a real integration it grows a
+provider with the same four members, and the merge here does not change.
+
+| `id` | `label` | what `describe()` says |
+|---|---|---|
+| `icloud` | iCloud Drive | the iCloud Drive folder your Mac or iPhone already keeps in sync |
+| `gdrive` | Google Drive | the Google Drive folder your Drive app already keeps in sync |
+| `dropbox` | Dropbox | the Dropbox folder your Dropbox app already keeps in sync |
+| `onedrive` | OneDrive | the OneDrive folder your OneDrive app already keeps in sync |
+| `folder` | A folder | a folder on this device, or on a network share |
+
+`FolderSyncProvider` wraps the folder — `NativeSyncFolder` on the desktop — and
+adds the service's name plus the path, which is all `describe()` needs.
+`syncProviderAt(id, path)` builds one from a reader's pick and applies
+`syncFolderAt`'s rules: a path is required, and a build that cannot reach a
+folder on the device is refused rather than offered a switch that does nothing.
+`MemorySyncProvider` is the test double: a memory folder that says it is one, so
+two simulated devices can share it.
+
+The merge's vocabulary still says *"the folder's copy"* for the other side of a
+document (`SyncConflict.kept`). That is the merge's language; a provider changes
+where the bytes live, not how two libraries are reconciled.
+
 ## The merge
 
 Three-way, against the **last agreement**: the document as this device last saw
@@ -94,6 +128,7 @@ string past 2048 characters.
 |---|---|
 | the folder has never been used | a document is written; this is the first device |
 | the document is unchanged by a merge | nothing is written, so cloud folders stay quiet |
+| the provider cannot be read (no permission, an unmounted drive) | refused before anything is applied or written: the library, the document and the last agreement are all left exactly as they were |
 | the document is from a newer build (`version` greater) | refused, nothing written — read it wrongly and a newer device's data is erased |
 | the file is not a document (truncated, hand-edited) | refused, nothing written; the panel can say to move it aside |
 | one record is unreadable | that record is dropped, the rest of the document still arrives |
@@ -124,3 +159,9 @@ removals versus renames, re-subscriptions, empty folders, settings adoption,
 refusals, same-second ties, pruning, and the name this file and `sync.rs` agree
 on. `src-tauri/src/sync.rs` carries its own `cargo test` cases for the path rules
 and the atomic write.
+
+`tests/unit/sync-provider.mjs` — 6 checks on the seam itself: two devices merging
+through one `MemorySyncProvider`, a provider whose `read()` throws leaving the
+library, the document and the last agreement untouched, the four cloud ids writing
+to the folder they were handed and nowhere else, and a plain object with the four
+members standing in as a provider.

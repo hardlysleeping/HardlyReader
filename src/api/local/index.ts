@@ -40,6 +40,13 @@ export {
 } from "./sync";
 export { MemorySyncFolder, NativeSyncFolder, foldersAvailable, syncFolderAt } from "./sync-folder";
 export {
+  FolderSyncProvider,
+  MemorySyncProvider,
+  SYNC_PROVIDERS,
+  SYNC_PROVIDER_IDS,
+  syncProviderAt,
+} from "./sync-provider";
+export {
   REFRESH_POLICY,
   createRefresher,
   dueFeeds,
@@ -65,6 +72,7 @@ export type {
   SyncedMark,
 } from "./sync";
 export type { SyncFolder } from "./sync-folder";
+export type { SyncProvider, SyncProviderId } from "./sync-provider";
 export type {
   FeedFetcher,
   FeedRequest,

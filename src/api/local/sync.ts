@@ -8,6 +8,10 @@
  * folder, a synced directory on a network share — and merged whenever a device
  * opens it.
  *
+ * Which folder, or which service that folder belongs to, is not this file's
+ * business: `sync-provider.ts` owns the transport and `syncOnce` asks a
+ * `SyncProvider` for the document. That is why nothing below names a path.
+ *
  * Four decisions shape everything below.
  *
  * **Reading state travels; the fetching engine does not.** Subscriptions,
@@ -54,7 +58,7 @@ import {
 import { LocalStorageError } from "./driver";
 import type { EntryRow, FeedRow, FolderRow } from "./schema";
 import type { LocalStore } from "./store";
-import type { SyncFolder } from "./sync-folder";
+import type { SyncProvider } from "./sync-provider";
 
 /**
  * The document's own version.
@@ -832,7 +836,12 @@ export interface SyncPrefs {
 
 export interface SyncRunOptions {
   store: LocalStore;
-  folder: SyncFolder;
+  /**
+   * Where the document lives. This file does not know or care: a provider reads
+   * it and writes it back, and the folder it happens to be is `sync-provider.ts`'s
+   * business.
+   */
+  provider: SyncProvider;
   /** What to call this device in the document. */
   device: string;
   /** The last agreement, or null before the first sync. */
@@ -862,16 +871,19 @@ function sameContent(a: SyncSnapshot, b: SyncSnapshot): boolean {
 }
 
 /**
- * Reads the folder, merges both libraries and writes the result back.
+ * Reads the provider, merges both libraries and writes the result back.
  *
- * The order matters: the library is brought up to date *before* the file is
- * written, so a device that crashes mid-sync leaves the folder holding a
+ * The order matters: the library is brought up to date *before* the document is
+ * written, so a device that crashes mid-sync leaves the provider holding a
  * document it has not yet applied rather than the other way round — which is
- * the recoverable direction, because the next run merges it again.
+ * the recoverable direction, because the next run merges it again. A provider
+ * whose read throws therefore reaches nothing at all: the library is untouched
+ * because nothing has been applied yet, and the provider is untouched because
+ * nothing has been written.
  *
- * A file whose content the merge did not change is not rewritten. Cloud folders
- * upload every write, and a device that opens the app ten times a day should not
- * cost ten uploads of a document nothing changed in.
+ * A document whose content the merge did not change is not rewritten. Cloud
+ * folders upload every write, and a device that opens the app ten times a day
+ * should not cost ten uploads of a document nothing changed in.
  */
 export async function syncOnce(options: SyncRunOptions): Promise<SyncRun> {
   const now = seconds(options.now);
@@ -889,7 +901,7 @@ export async function syncOnce(options: SyncRunOptions): Promise<SyncRun> {
     now,
   });
 
-  const raw = await options.folder.read();
+  const raw = await options.provider.read();
   const remote = raw === null ? null : parseSyncSnapshot(raw);
   const merged = mergeSnapshots(local, remote ?? emptySnapshot(), options.base);
 
@@ -898,7 +910,7 @@ export async function syncOnce(options: SyncRunOptions): Promise<SyncRun> {
 
   const snapshot: SyncSnapshot = { ...merged.snapshot, device: options.device, writtenAt: now };
   const unchanged = remote !== null && sameContent(remote, snapshot);
-  if (!unchanged) await options.folder.write(serializeSnapshot(snapshot));
+  if (!unchanged) await options.provider.write(serializeSnapshot(snapshot));
 
   return { snapshot, conflicts: merged.conflicts, applied, unchanged };
 }
