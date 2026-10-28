@@ -164,6 +164,21 @@ export function withRun(setup: SyncSetup, base: SyncSnapshot, at: number): SyncS
 }
 
 /**
+ * The agreement after an archive was merged in.
+ *
+ * Deliberately not `withRun`: nothing was synced, so the "last synced" row must
+ * keep saying when a folder last agreed. The document is kept as the base for
+ * one reason — a mark for a post this device has not fetched yet has nowhere
+ * else to wait. `applySnapshot` skips it, the archive itself is a file the reader
+ * put away, and the base is the only place the engine looks when those articles
+ * arrive; without it an imported history would be lost the moment the zip was
+ * closed.
+ */
+export function withImport(setup: SyncSetup, base: SyncSnapshot): SyncSetup {
+  return { ...setup, base };
+}
+
+/**
  * How long ago the last run was, in the row's words.
  *
  * Rounded down and singular/plural in full ("1 minute ago", "3 days ago"), so the

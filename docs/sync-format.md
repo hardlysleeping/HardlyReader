@@ -166,6 +166,43 @@ step failed. Card `t_c9457710`.
 a sync, not a replace. Backup, recovery, provider migration, and protection against a provider's API
 changing under us. Card `t_f04b12d1`.
 
+```
+HardlyReader-Sync.zip
+  library.json        subscriptions, folders, the moves, the sidebar's arrangement
+  state.json          read and starred
+  preferences.json    the settings document, namespaces and their stamps
+  positions.json      where the reader was
+  tombstones.json     the feeds and folders that were deleted
+  manifest.json       format + version, written last, read first
+```
+
+`src/api/local/sync-archive.ts` writes and reads it; `src/lib/zip.ts` is the zip, by hand, so the
+binary gains no dependency. The manifest is the same three fields the folder's document carries
+(`hardlyreader-sync`, version, `encryption: "none"`), plus the device, the time and the file list.
+
+Refusals, each naming what it found rather than what it wanted:
+
+| found | what happens |
+|---|---|
+| no `manifest.json` | refused: the zip is not a HardlyReader archive |
+| a newer `version` | refused, naming the archive's version and this build's |
+| a different `format` | refused, naming the format in the file |
+| an `encryption` this build cannot undo | refused, naming the value |
+| a file the manifest lists and the zip lacks | refused, naming the file |
+| a damaged payload (CRC) | refused, naming the file — never half-imported |
+
+An import writes nothing anywhere except the local library: it builds this device's document,
+merges the archive into it with `mergeSnapshots`, and applies the result with `applySnapshot` — the
+same two calls a folder sync makes. Two consequences worth knowing:
+
+- A mark for an article this device has not fetched is **kept, not refused** — it waits in the
+  device's agreement and lands when the post does (the engine's arrival rule, not a new one).
+- The merged document becomes this device's base (`withImport`), so a later folder sync carries
+  what the archive brought instead of treating it as someone else's copy.
+
+Export needs no provider, no folder and no subscription: a library on this device is the whole
+requirement, because the point of the feature is a copy no provider can hold hostage.
+
 ## What does not travel, ever (v1)
 
 Extracted article HTML, image caches, thumbnails, temporary API responses, search indexes, stream

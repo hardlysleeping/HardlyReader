@@ -25,12 +25,21 @@
  *   only the section reads the entitlement.
  */
 import { SYNC_FILE_NAME, syncOnce, type SyncPrefs, type SyncRun } from "../api/local/sync";
+import {
+  exportArchive,
+  importArchive,
+  type ArchiveExport,
+  type ArchiveImport,
+} from "../api/local/sync-archive";
 import { SYNC_PROVIDERS, syncProviderAt, type SyncProvider, type SyncProviderId } from "../api/local/sync-provider";
 import { foldersAvailable } from "../api/local/sync-folder";
 import type { LocalStore } from "../api/local/store";
 import type { AccountIdentity } from "../lib/account-key";
 import type { ReaderProfile } from "../api/profile";
-import { describeLastSynced, emptySetup, folderFor, withFolder, withProvider, withRun, readSetup, writeSetup, type SyncSetup, SYNC_CHOICES } from "../lib/sync-setup";
+import { describeLastSynced, emptySetup, folderFor, withFolder, withImport, withProvider, withRun, readSetup, writeSetup, type SyncSetup, SYNC_CHOICES } from "../lib/sync-setup";
+
+/** What the paid tier adds for one backend — `upgradePitch` in `lib/capabilities`. */
+type UpgradePitch = ReturnType<typeof import("../lib/capabilities").upgradePitch>;
 
 /** Why something failed, as a line rather than a stack. */
 function reasonOf(error: unknown): string {
@@ -38,18 +47,33 @@ function reasonOf(error: unknown): string {
 }
 
 /**
- * Whether Settings draws the section at all.
+ * Whether Settings draws the section at all, and it is the ladder's answer.
  *
- * A library has to be **on this device** (a signed-in reader's library is
- * FreshRSS's, and it already keeps itself in step), and it has to **have feeds in
- * it**: nothing appears on first launch, because a reader with an empty library
- * has nothing to sync and must never be shown a price.
+ * Three cases, and they are three different sentences:
  *
- * A function rather than an expression inside the panel, so the two halves of
- * that sentence can be tested without drawing a sheet.
+ * - **A library on this device** has to have feeds in it: nothing appears on first
+ *   launch, because a reader with an empty library has nothing to sync and must
+ *   never be shown a price. What buying adds is the mirror of a library they
+ *   already own.
+ * - **A server that already carries every extra** (`pitch === "nothing"`) has
+ *   nothing to sell, and the section draws the one line that says so instead of a
+ *   price. Hiding it would leave a reader wondering what Sync is for; selling it
+ *   would be selling them what their own server does.
+ * - **A server missing some extras** is not offered the mirror yet: a run merges a
+ *   `LocalStore`, and a server profile has no library on this device to hand the
+ *   engine. The section stays away rather than selling a run that would refuse.
+ *
+ * A function rather than an expression inside the panel, so the four cases can be
+ * tested without drawing a sheet.
  */
-export function showsDeviceSync(profile: ReaderProfile | null, feeds: number): boolean {
-  return profile !== null && profile.kind === "local" && feeds > 0;
+export function showsDeviceSync(
+  profile: ReaderProfile | null,
+  feeds: number,
+  pitch: UpgradePitch,
+): boolean {
+  if (profile === null) return false;
+  if (profile.kind === "local") return feeds > 0;
+  return pitch === "nothing";
 }
 
 /** What to call this device in the document. */
@@ -233,6 +257,78 @@ export class DeviceSyncState {
       // The record is untouched: the agreement and the last-run time still
       // describe the last run that finished, so the next attempt compares
       // against the same base and nothing is lost.
+      this.note = reasonOf(error);
+      return null;
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /**
+   * This device's library as an archive, or null when nothing was written.
+   *
+   * Not a sync and not a provider: a backup is the reader's own document, so this
+   * needs a library and nothing else — no provider chosen, no folder, no
+   * entitlement. `note` says why when it refuses, in the same one line a failed
+   * run uses.
+   */
+  async exportArchiveNow(prefs: SyncPrefs): Promise<ArchiveExport | null> {
+    const store = this.library;
+    if (store === null) {
+      this.note = "There is no library on this device to export";
+      return null;
+    }
+    if (this.running) return null;
+    this.running = true;
+    try {
+      return await exportArchive({
+        store,
+        device: deviceName(),
+        base: this.setup.base,
+        prefs,
+      });
+    } catch (error) {
+      this.note = reasonOf(error);
+      return null;
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /**
+   * Merges an archive into this device's library.
+   *
+   * The same engine a sync runs — an import is a sync, not a replace — with the
+   * last agreement as the three-way base when there is one. Nothing is written
+   * to a provider: an archive is a file, not a place. The merged document
+   * becomes this device's base so marks for posts it has not fetched yet are
+   * still there when they arrive (`withImport`).
+   *
+   * A refusal — no library, a zip that is not an archive, a newer manifest —
+   * lands in `note` and leaves the library, the record and the reader's settings
+   * exactly as they were.
+   */
+  async importArchiveNow(bytes: Uint8Array, prefs: SyncPrefs): Promise<ArchiveImport | null> {
+    const store = this.library;
+    if (store === null) {
+      this.note = "There is no library on this device to import into";
+      return null;
+    }
+    if (this.running) return null;
+    this.running = true;
+    try {
+      const result = await importArchive({
+        store,
+        device: deviceName(),
+        base: this.setup.base,
+        prefs,
+        bytes,
+      });
+      this.setup = withImport(this.setup, result.snapshot);
+      this.note = null;
+      this.save();
+      return result;
+    } catch (error) {
       this.note = reasonOf(error);
       return null;
     } finally {

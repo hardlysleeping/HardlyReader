@@ -50,6 +50,10 @@
    *   all four providers; and
    * - `cloudSync` — the provider, its folder, when it last ran and the button.
    *
+   * Before either, one question the reader's own ladder answers (`reader.upgradePitch`):
+   * a server that already carries every extra has **nothing** to buy, and the section
+   * says so in a line rather than drawing a price for what that server does already.
+   *
    * The rows are the card's own words. Nothing here merges, writes a document or
    * knows what a product id costs: `state/device-sync.svelte.ts` owns the run,
    * `state/entitlements.svelte.ts` owns what was bought, and this file is the
@@ -68,6 +72,8 @@
    *   exactly as they were.
    */
   import { SYNC_PROVIDERS, type SyncProviderId } from "../api/local/sync-provider";
+  import { describeCounts, describeImport } from "../api/local/sync-archive";
+  import { saveArchiveFile } from "../lib/archive-file";
   import { localStoreOf, scopeIdentity, type ReaderProfile } from "../api/profile";
   import {
     SYNC_MONTHLY,
@@ -92,6 +98,58 @@
   /** The one button: hand the engine the three halves and let it run. */
   function runSync(): void {
     void deviceSync.syncNow(syncPrefs());
+  }
+
+  /**
+   * The archive rows: a copy the reader keeps, and one they bring back.
+   *
+   * Not a sync and not a provider — the export needs a library and nothing else,
+   * and the import merges through the same engine a sync runs. Which is the whole
+   * point: no service can hold this library hostage if the reader already has it
+   * in a file of their own. `archiveNote` is the one line under the buttons,
+   * because a settings sheet has room for one.
+   */
+  let archiveNote = $state<string | null>(null);
+  let archiveBusy = $state(false);
+
+  async function saveArchive(): Promise<void> {
+    if (archiveBusy) return;
+    archiveBusy = true;
+    archiveNote = null;
+    try {
+      const archive = await deviceSync.exportArchiveNow(syncPrefs());
+      if (archive === null) {
+        archiveNote = deviceSync.note;
+        return;
+      }
+      const saved = await saveArchiveFile(archive.bytes, describeCounts(archive.counts));
+      archiveNote = saved.note;
+    } catch (error) {
+      archiveNote = error instanceof Error ? error.message : "The archive was not written.";
+    } finally {
+      archiveBusy = false;
+    }
+  }
+
+  async function openArchive(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    // Cleared at once, so choosing the same file twice is two presses rather
+    // than a file input that has nothing to report the second time.
+    input.value = "";
+    if (file === undefined) return;
+    if (archiveBusy) return;
+    archiveBusy = true;
+    archiveNote = null;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const result = await deviceSync.importArchiveNow(bytes, syncPrefs());
+      archiveNote = result === null ? deviceSync.note : describeImport(result);
+    } catch (error) {
+      archiveNote = error instanceof Error ? error.message : "The archive was not read.";
+    } finally {
+      archiveBusy = false;
+    }
   }
 
   /** The path being typed. Seeded from the chosen provider's folder. */
@@ -223,9 +281,27 @@
 
   /** The row's path, in one line: the tail is what tells the services apart. */
   const where = $derived(deviceSync.filePath);
+
+  /**
+   * What buying would add here, asked of the ladder rather than assumed.
+   *
+   * `nothing` is not a failure and not an empty section: it is the honest answer
+   * for a server whose extensions already keep the hidden categories, the pins,
+   * the ordering, the indent and the reading position.
+   */
+  const pitch = $derived(reader.upgradePitch);
 </script>
 
-{#if entitlement.cloudSync}
+{#if pitch === "nothing"}
+  <!-- A server that carries every extra already: nothing to buy, and saying so is
+       the whole of the section. -->
+  <p class="lede">Nothing to buy</p>
+  <p class="hint">
+    This server's Hardly Read extensions keep hidden categories, pinned categories, the
+    ordering, the sidebar indent and your reading position already. There is nothing for a
+    subscription to add here.
+  </p>
+{:else if entitlement.cloudSync}
   <!-- Entitled: the four services, one folder each, and the run. -->
   <div class="active">
     <span class="name">HardlyReader Sync</span>
@@ -362,6 +438,42 @@
          press that cannot charge anything. -->
     <p class="hint bad" role="status">{note}</p>
   {/if}
+{/if}
+
+{#if deviceSync.attached}
+  <!-- Portability, drawn whatever the entitlement says: a copy of the reader's
+       own sync data is not something a subscription can gate, and the whole
+       point of the feature is a library no provider can hold hostage. -->
+  <div class="portable">
+    <div class="row end">
+      <span class="key">Archive</span>
+      <div class="archive-actions">
+        <button
+          class="do"
+          disabled={archiveBusy || deviceSync.running}
+          title="Write a zip of your sync data"
+          onclick={() => void saveArchive()}>Export archive</button>
+        <label
+          class="do"
+          class:off={archiveBusy || deviceSync.running}
+          title="Merge an archive into this library — nothing here is replaced">
+          Import archive
+          <input
+            type="file"
+            accept=".zip,application/zip"
+            disabled={archiveBusy || deviceSync.running}
+            onchange={(event) => void openArchive(event)}
+          />
+        </label>
+      </div>
+    </div>
+    <p class="hint">
+      A copy of your sync data you can keep, or move to another provider.
+    </p>
+    {#if archiveNote !== null}
+      <p class="hint" role="status">{archiveNote}</p>
+    {/if}
+  </div>
 {/if}
 
 <style>
@@ -589,6 +701,35 @@
     flex-wrap: wrap;
     gap: 6px;
     padding: 2px 0 4px;
+  }
+
+  /* The two archive buttons, side by side where they fit and stacked where they
+     do not: a phone held upright has 390px and neither label shortens. */
+  .archive-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  /* The import is a label around a hidden input — the file picker cannot be
+     styled, so the label is the control and the input is what it opens. */
+  .portable input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .do {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .do.off {
+    opacity: 0.45;
+    cursor: default;
   }
 
   .actions .do {

@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod base64;
 mod files;
 mod lan;
 mod share;
@@ -29,8 +30,10 @@ pub fn run() {
             // chose. The page names the folder; `sync.rs` names the file.
             sync::sync_read,
             sync::sync_write,
-            // The OPML export: the dialog picks the path, this writes the bytes.
+            // The OPML export and the sync archive: the dialog picks the path,
+            // these write the bytes.
             files::save_text,
+            files::save_bytes,
 
             // The phone's own share sheet. Registered on every platform so the
             // page has one name to call; it answers "no sheet here" everywhere
