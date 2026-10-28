@@ -143,6 +143,87 @@ export async function openCheckout(
   return url;
 }
 
+/* ------------------------------- the portal -------------------------------- */
+
+/** What the service said when it would not open the portal. */
+export type PortalFailure = "not_signed_in" | "no_customer" | "billing_unreachable" | "no_url";
+
+/** A refusal with a name, so the account sheet can say something true and short. */
+export class PortalError extends Error {
+  readonly code: PortalFailure;
+
+  constructor(code: PortalFailure, message?: string) {
+    super(message ?? code);
+    this.name = "PortalError";
+    this.code = code;
+  }
+}
+
+export interface BeginPortalOptions {
+  /** The reader's Supabase access token. Never stored, never logged. */
+  token: string;
+  /** Defaults to the configured service; the suite passes its own. */
+  base?: string;
+  fetch?: typeof fetch;
+}
+
+/**
+ * Asks the service for the billing portal's URL.
+ *
+ * This is where a reader goes when `delete_my_account()` answered `cancel_first`:
+ * the account cannot be deleted while Stripe is still charging, and cancelling is
+ * the reader's own action at the payment provider. Stripe's portal is that action
+ * — cancel, change the card, read the invoices — and this app never sees a card.
+ *
+ * The only thing sent is the reader's token; the customer is resolved from it
+ * server-side, so nothing here can name somebody else's subscription. The only
+ * thing accepted back is an `https://` URL, because the next thing that happens is
+ * that URL being opened for the reader.
+ */
+export async function beginPortal(options: BeginPortalOptions): Promise<string> {
+  const base = (options.base ?? billingUrl()).replace(/\/$/, "");
+  if (base === "") throw new PortalError("billing_unreachable", "no billing service is configured");
+  if (options.token === "") throw new PortalError("not_signed_in");
+
+  const call = options.fetch ?? fetch;
+  let response: Response;
+  try {
+    response = await call(`${base}/portal`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${options.token}`,
+        Accept: "application/json",
+      },
+    });
+  } catch (cause) {
+    throw new PortalError("billing_unreachable", String(cause));
+  }
+
+  if (response.status === 401) throw new PortalError("not_signed_in");
+  if (response.status === 404) throw new PortalError("no_customer");
+  const body = await readJson(response);
+  if (!response.ok) throw new PortalError("billing_unreachable", `billing answered ${response.status}`);
+  if (typeof body?.url !== "string" || !/^https:\/\//i.test(body.url)) {
+    throw new PortalError("no_url", "the service returned no portal page");
+  }
+  return body.url;
+}
+
+/**
+ * Opens the portal in the reader's browser, and returns the URL it opened.
+ *
+ * Returning the URL rather than nothing is for the sheet's own test: it can watch
+ * what was opened without a browser. `open` is injected for the same reason
+ * `openCheckout` injects it.
+ */
+export async function openBillingPortal(
+  options: BeginPortalOptions & { open?: (url: string) => Promise<void> | void },
+): Promise<string> {
+  const url = await beginPortal(options);
+  await (options.open ?? openExternal)(url);
+  return url;
+}
+
 /** What a return from Checkout means, read off `location.search`. */
 export type CheckoutReturn = { kind: "success"; sessionId: string | null } | { kind: "cancelled" };
 

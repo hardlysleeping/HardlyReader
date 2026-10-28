@@ -123,6 +123,15 @@ export interface Identity {
   /** The address the account answers to, when there is one. */
   readonly email: string | null;
   /**
+   * Which door this device signed in through, or null with no account.
+   *
+   * "Signed in with Google" is this value and nothing else. It is the door that
+   * was pressed here, not a list: `providers` is the list, and the difference is
+   * the whole of "add a door" — the account came through one of them and answers
+   * to all of them.
+   */
+  readonly provider: IdentityProvider | null;
+  /**
    * Every door into this account — at least the one this device signed in
    * through. Empty when there is no account.
    */
@@ -729,9 +738,19 @@ export class SupabaseIdentity extends StoredIdentity {
    * Never throws. An expired refresh token, an offline laptop and a provider
    * outage all land in the same place — no account on this device, a sentence
    * saying so, and a library that does not notice.
+   *
+   * With no record yet it is a **storage read, not a renewal**: the redirect back
+   * from Google or Apple is picked up by `supabase-js`'s own `detectSessionInUrl`,
+   * which runs after this app read its storage, so the record a return needs does
+   * not exist until somebody asks the client. A device with nothing stored answers
+   * `{ session: null }` and no request is made, which is why this is only asked
+   * for from the account sheet — never from the launch path.
    */
   async refresh(): Promise<void> {
-    if (this.record === null) return;
+    if (this.record === null) {
+      await this.adoptFromClient();
+      return;
+    }
     try {
       const { data, error } = await this.client.auth.refreshSession();
       if (error !== null) throw error;
@@ -812,10 +831,29 @@ export class SupabaseIdentity extends StoredIdentity {
       const { data, error } = await this.client.auth.getSession();
       if (error !== null) return;
       const session = (data as { session?: SupabaseSessionLike | null } | null)?.session ?? null;
-      if (session !== null) this.adopt(sessionRecord(session, this.pending ?? this.provider ?? "email"));
+      if (session !== null) this.adopt(sessionRecord(session, this.doorFor(session)));
     } catch {
       /* A window on its way to the provider has no session yet, and that is not an error. */
     }
+  }
+
+  /**
+   * Which door a session arrived through.
+   *
+   * The button that was pressed, when this window pressed one. A session that came
+   * back through the provider's redirect after a page load pressed nothing here, so
+   * the next best answer is the account's own identity list — the provider's fact,
+   * not a guess — and only then the fallback door. Getting this wrong is cosmetic
+   * but it is the difference between "signed in with Google" and "signed in with an
+   * email address" on the return from Google.
+   */
+  private doorFor(session: SupabaseSessionLike): IdentityProvider {
+    if (this.pending !== null) return this.pending;
+    if (this.provider !== null) return this.provider;
+    for (const identity of session.user?.identities ?? []) {
+      if (isProvider(identity?.provider)) return identity.provider;
+    }
+    return "email";
   }
 }
 

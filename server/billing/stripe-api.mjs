@@ -1,7 +1,8 @@
 /**
- * Stripe, the four calls this shop actually makes.
+ * Stripe, the five calls this shop actually makes.
  *
- * No SDK. The four requests are form-encoded `POST`s and one `GET`, and the
+ * The four requests are form-encoded `POST`s and one `GET` — five now that the
+ * portal is here — and the
  * signature check (the part an SDK would be genuinely useful for) is already in
  * `signature.mjs` as twenty lines of `node:crypto`. A dependency here would be
  * updated by somebody else's release schedule, which is how a payment path
@@ -74,6 +75,30 @@ export class StripeApi {
     const session = await this.post("/v1/checkout/sessions", form);
     if (typeof session.url !== "string" || !/^https:\/\//.test(session.url)) {
       throw new StripeError("checkout session came back without a url", { code: "no_url" });
+    }
+    return { id: String(session.id ?? ""), url: session.url };
+  }
+
+  /**
+   * A Stripe billing-portal session, so the reader can cancel what they bought.
+   *
+   * The portal is Stripe's page: cancelling, changing the card and downloading an
+   * invoice all happen there, and this service only ever holds the URL. It exists
+   * because deleting an account that is still being charged is refused
+   * (`delete_my_account()` answers `cancel_first`), and a refusal has to point
+   * somewhere: this is the somewhere.
+   *
+   * `customer` comes from the link table, never from the request, so a token can
+   * only reach the portal of the reader it belongs to. The return URL is the
+   * app's own origin, for the same reason checkout's is.
+   */
+  async createBillingPortalSession({ customerId, returnUrl }) {
+    const form = new URLSearchParams();
+    form.set("customer", customerId);
+    form.set("return_url", returnUrl);
+    const session = await this.post("/v1/billing_portal/sessions", form);
+    if (typeof session.url !== "string" || !/^https:\/\//.test(session.url)) {
+      throw new StripeError("portal session came back without a url", { code: "no_url" });
     }
     return { id: String(session.id ?? ""), url: session.url };
   }
@@ -158,6 +183,7 @@ export class FakeStripe {
     this.fail = fail;
     this.customers = [];
     this.sessions = [];
+    this.portals = [];
     this.priceCalls = 0;
     this.customerCounter = 0;
   }
@@ -182,6 +208,14 @@ export class FakeStripe {
     const subscription = this.subscriptions[id];
     if (subscription === undefined) throw new StripeError(`no subscription ${id}`, { status: 404 });
     return subscription;
+  }
+
+  /** Stripe's own portal page, so a reader can cancel where the card is. */
+  async createBillingPortalSession(params) {
+    this.refuse();
+    const id = `bps_test_${this.portals.length + 1}`;
+    this.portals.push({ id, ...params });
+    return { id, url: `https://billing.stripe.com/p/session/${id}` };
   }
 
   async getPrice(id) {

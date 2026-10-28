@@ -1,7 +1,8 @@
 /**
- * The billing service: four routes, and the webhook that writes the row.
+ * The billing service: five routes, and the webhook that writes the row.
  *
  * `POST /checkout`      — verified JWT in, Checkout URL out. The only route the app calls.
+ * `POST /portal`        — verified JWT in, billing-portal URL out, so a reader can cancel.
  * `GET  /plans`         — what is for sale, priced by Stripe.
  * `POST /stripe/webhook`— signed events in, `cloud_sync` written.
  * `GET  /health`        — is this process up, and is it configured.
@@ -12,6 +13,8 @@
  *   customer id or a user id;
  * - checkout creation writes the **customer ⇄ reader link**, from the JWT —
  *   the same transaction that makes a payment attributable;
+ * - the portal route reads that link and nothing else: a cancellation can only be
+ *   asked for by the reader whose customer it is;
  * - the webhook never reads a user id from the body. It reads a customer id,
  *   looks the reader up in the link table, and refuses to guess (`unknown_customer`);
  * - not one byte of card data passes through anything here: Checkout is a page
@@ -66,6 +69,10 @@ export function createBillingApp({ config, db, stripe, auth, offer, now = () => 
 
       if (method === "POST" && url.pathname === "/checkout") {
         return withCors(request, await handleCheckout({ request, config, db, stripe, auth, log }), origins);
+      }
+
+      if (method === "POST" && url.pathname === "/portal") {
+        return withCors(request, await handlePortal({ request, config, db, stripe, auth, log }), origins);
       }
 
       if (method === "POST" && url.pathname === "/stripe/webhook") {
@@ -148,6 +155,50 @@ async function handleCheckout({ request, config, db, stripe, auth, log }) {
     // well-formed and the reader did nothing wrong; the message is ours, not
     // Stripe's, so nothing about the account leaks into a browser.
     log.error("checkout_failed", { plan, error: String(cause) });
+    return json(502, { error: "billing_unavailable" });
+  }
+}
+
+/* --------------------------------- /portal --------------------------------- */
+
+/**
+ * Where a reader cancels, changes their card, or reads an invoice.
+ *
+ * The reason this route exists at all is `delete_my_account()`: deleting an
+ * identity while Stripe still holds a card is refused (`cancel_first`), and a
+ * refusal has to send the reader somewhere. That somewhere is Stripe's own
+ * portal, and the only thing this service does is hand the browser a URL.
+ *
+ * No body is read. The customer comes from the link table, keyed by the verified
+ * JWT — the same rule as checkout — so a reader can only ever open the portal of
+ * the account they are signed in as. A reader who has never bought anything has
+ * no customer and is told so (`no_customer`) rather than being given a portal for
+ * a customer row this service would have had to invent.
+ */
+async function handlePortal({ request, config, db, stripe, auth, log }) {
+  const token = bearer(request.headers.get("authorization"));
+  const userId = await auth.userId(token);
+  if (userId === null) return json(401, { error: "not_signed_in" });
+
+  let customerId;
+  try {
+    customerId = await db.customerOf(userId);
+  } catch (cause) {
+    log.error("portal_failed", { step: "customer", error: String(cause) });
+    return json(502, { error: "billing_unavailable" });
+  }
+  if (customerId === null) return json(404, { error: "no_customer" });
+
+  try {
+    const session = await stripe.createBillingPortalSession({
+      customerId,
+      returnUrl: `${config.appUrl}/?portal=done`,
+    });
+    log.info("portal_created", { customer: customerId, session: session.id });
+    // Only the URL crosses the wire. No customer, no price, no secret.
+    return json(200, { url: session.url });
+  } catch (cause) {
+    log.error("portal_failed", { step: "session", error: String(cause) });
     return json(502, { error: "billing_unavailable" });
   }
 }

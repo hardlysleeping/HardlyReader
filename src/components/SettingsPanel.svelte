@@ -11,7 +11,8 @@
    * So this file is the frame, not the settings. Nothing here is a control the
    * app did not already have: each section mounts the component that owns those
    * rows — `ThemePanel` for appearance, layout and the sync interval,
-   * `ReadingPanel` for the Aa rows, `AccountsBody` for the account list. Two copies of
+   * `ReadingPanel` for the Aa rows, `AccountsBody` for the account list,
+   * `CloudAccountPanel` for the HardlyReader account itself. Two copies of
    * a slider is how the same setting ends up with two answers, so the rule is
    * one control per setting and this panel borrows all of them.
    *
@@ -21,6 +22,7 @@
    * working if this file's script never runs.
    */
   import AccountsBody from "./AccountsBody.svelte";
+  import CloudAccountPanel from "./CloudAccountPanel.svelte";
   import DeviceSyncPanel from "./DeviceSyncPanel.svelte";
   import IndentControl from "./IndentControl.svelte";
   import PostListPanel from "./PostListPanel.svelte";
@@ -52,7 +54,7 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "feeds" | "appearance" | "reading" | "list" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
+  type SectionId = "accounts" | "account" | "feeds" | "appearance" | "reading" | "list" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
 
   /**
    * The sections, in the order someone looks for them: who I am, what is in the
@@ -82,6 +84,7 @@
    */
   const SECTIONS: { id: SectionId; label: string; note: string; phone?: boolean }[] = [
     { id: "accounts", label: "Accounts", note: "This account, this server" },
+    { id: "account", label: "Account", note: "HardlyReader account, devices" },
     { id: "feeds", label: "Feeds", note: "Indent, import and export", phone: true },
     { id: "appearance", label: "Appearance", note: "Colours, page, background" },
     { id: "reading", label: "Reading", note: "Text, pictures, read state" },
@@ -114,6 +117,7 @@
   /** Which sections are open. Accounts starts open: it is the shortest one. */
   let opened = $state<Record<SectionId, boolean>>({
     accounts: true,
+    account: false,
     feeds: false,
     appearance: false,
     reading: false,
@@ -280,6 +284,12 @@
                    switching and signing out can never disagree between the two
                    frames. -->
               <AccountsBody onadd={() => onaddaccount?.()} onsignout={signOut} />
+            {:else if section.id === "account"}
+              <!-- The HardlyReader account itself: sign-in, the doors it has, the
+                   devices it is signed in on, and the deletion. A separate component
+                   because `Accounts` above is the FreshRSS roster — two different
+                   questions that only look alike. -->
+              <CloudAccountPanel />
             {:else if section.id === "appearance"}
               <!-- The colours are the theme panel's rows, mounted — not a second
                    set written here. -->

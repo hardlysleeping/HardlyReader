@@ -206,7 +206,7 @@ const app = read("src/app.css");
     /SECTIONS\.filter\(\(section\) => section\.phone !== true \|\| layout\.device === "phone"\)/.test(panel),
   );
   check("the list the sheet draws is the filtered one", /\{#each sections as section \(section\.id\)\}/.test(panel));
-  check("it starts folded, like every section but Accounts", /accounts: true,\s*feeds: false,/.test(panel));
+  check("it starts folded, like every section but Accounts", /accounts: true,\s*account: false,\s*feeds: false,/.test(panel));
 
   const body = panel.slice(panel.indexOf('section.id === "feeds"'), panel.indexOf('section.id === "reading"'));
   check("the section has an Import control", /Import feeds|Importing…/.test(body));

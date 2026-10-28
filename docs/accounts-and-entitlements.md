@@ -252,9 +252,18 @@ Two details worth keeping in mind:
   session the reader has: signing out on the phone would sign out the desktop, and the device list
   would never have a second row to revoke. One option is the difference.
 
-The list itself is a later card; the layer, the SQL and the wording are here, and
-`tests/unit/account.mjs` holds them. Revoking the device you are reading on is allowed and says what it
-means (`REVOKE_THIS_DEVICE`): you are signing this device out, and your library stays where it is.
+The list is drawn in Settings → **Account** (`src/components/CloudAccountPanel.svelte`, over
+`src/state/cloud-account.svelte.ts`), one row per session: the label, the platform, when it was last
+seen, and **This device** on the row the token's `session_id` claim names. Revoking another device
+says `DEVICE_REVOKED`; revoking this one says `REVOKE_THIS_DEVICE` and *then* signs this device out
+locally, which is what makes the sentence true. `tests/unit/cloud-account.mjs` drives both, and
+`tests/unit/account-panel.mjs` holds the markup.
+
+`registerDevice` is called **once per sign-in**, with `describeDevice(navigator.userAgent)`: at the
+moment a sign-in completes, and never on a launch that is already registered —
+`lib/account-device.ts` keeps the session id it registered under, so a reload asks the server nothing
+and a registration that failed is retried the next time the section is opened, rather than the device
+being missing from its own list forever.
 
 ## Deleting an account
 
@@ -285,3 +294,32 @@ the library on this device, not the rest of the folder.
 
 After a deletion the device signs itself out locally — `identity.signOut()`, a storage clear — and the
 reader keeps reading.
+
+**The refusal has somewhere to go.** `CANCEL_FIRST` used to point only at a receipt in an inbox,
+because `server/billing/` had no way to reach a subscription. It now has `POST /portal`: the same
+JWT-in pattern as `/checkout`, the customer read from the link table (never from the request), and
+Stripe's own billing portal returned as a URL the app opens outside itself. So a refused deletion
+offers **Manage subscription** and the reader cancels where the card is; pressing delete again then
+works. The SQL is untouched — an account that is still charging is still refused.
+
+## The surface: Settings → Account
+
+One section, one component, and its four states are the four paragraphs above
+(`src/components/CloudAccountPanel.svelte`, decisions in `src/state/cloud-account.svelte.ts`):
+
+| state | what is drawn |
+|---|---|
+| signed out | the three doors — Google, Apple, and an address for an emailed link — one button each, after one sentence saying the library on this device needs no account |
+| signed in | "Signed in with Google", **Add Apple** for each door the account *does not* have, and a change of address. The add buttons call `link()`; there is no second sign-in on the screen at all |
+| devices | one row per session, **This device** marked, and one Revoke each |
+| deleting | two presses. `deleted` → sign out and `ACCOUNT_DELETED`; `cancel_first` → `CANCEL_FIRST` plus the way to the payment portal, and nothing changed |
+
+Two things are deliberately absent, and a suite holds both: **no "also delete my cloud files"
+checkbox** (`tests/unit/account-panel.mjs` asserts `PROVIDER_FILES_ACTION`'s text and any checkbox are
+nowhere in the markup), and **no `signIn()` while signed in** (`tests/unit/cloud-account.mjs` asserts
+one `signIn:` call for the whole session, however many doors are added).
+
+The section reconciles one thing nothing else can: a session that arrived on the redirect back from a
+provider was written by `supabase-js`'s own `detectSessionInUrl` *after* this app read its storage, so
+`refresh()` with no record is a storage read that adopts it — asked for when the section is opened,
+never on the launch path.

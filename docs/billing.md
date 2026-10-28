@@ -32,8 +32,8 @@ The three files that matter:
 |---|---|
 | `supabase/schema.sql` | `apply_stripe_event()`: event id spent once, customer → reader, late events lose |
 | `server/billing/subscription-state.mjs` | a Stripe status, read as `cloud_sync` + `expires_at` |
-| `server/billing/app.mjs` | four routes, and which reader an event belongs to |
-| `src/api/billing.ts` | the app's four lines: ask, open, come back, refresh |
+| `server/billing/app.mjs` | five routes, and which reader an event belongs to |
+| `src/api/billing.ts` | the app's four lines: ask, open, come back, refresh — plus the portal |
 
 ## 1. Prices live at Stripe
 
@@ -212,8 +212,11 @@ price pair and `4242 4242 4242 4242`:
   until something actually misbehaves.
 - **No receipts, emails or invoices** of our own. Stripe sends those; duplicating them would be a
   second thing to keep true.
-- **No refunds, credit or plan-switch UI.** The Stripe portal (or the dashboard) is where a
-  subscription is changed; the app only ever learns *whether* sync is owned.
+- **No refunds, credit or plan-switch UI of our own.** The Stripe portal is where a subscription
+  is changed, and `POST /portal` opens it (a session for the customer the JWT names, made from the
+  link table, never from the request). The app only ever learns *whether* sync is owned.
+  It exists because deleting an account that is still charging is refused — see
+  `docs/accounts-and-entitlements.md` — and a refusal needs somewhere to send the reader.
 - **No webhook replay endpoint.** Stripe's dashboard can resend a delivery, and
   `stripe_events` records what happened to each one.
 

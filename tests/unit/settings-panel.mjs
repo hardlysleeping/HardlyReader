@@ -176,7 +176,7 @@ try {
   // State first: the components import them by the names the compiler rewrites.
   // Libraries first: a `.ts` module Node loads in place cannot resolve its own
   // extensionless imports, so anything below them is built and rewritten too.
-  for (const lib of ["src/lib/article-filter.ts", "src/lib/version.ts", "src/lib/list-view.ts", "src/lib/sync-setup.ts", "src/lib/prefs-sync.ts"]) {
+  for (const lib of ["src/lib/article-filter.ts", "src/lib/version.ts", "src/lib/list-view.ts", "src/lib/sync-setup.ts", "src/lib/prefs-sync.ts", "src/lib/account-device.ts"]) {
     buildRunes(lib);
   }
 
@@ -200,6 +200,13 @@ try {
   // which is what lets its rewritten imports point at their generated copies.
   buildRunes("src/state/reader.svelte.ts");
 
+  // The Account section mounts `CloudAccountPanel`, which asks the account store,
+  // which composes Checkout and the entitlement reader. Built bottom-up like
+  // everything else here: billing imports `entitlements.svelte.ts`, so that one is
+  // already compiled above and billing's import of it points at the copy.
+  buildRunes("src/api/billing.ts");
+  buildRunes("src/state/cloud-account.svelte.ts");
+
   // The roster is a list; the harness supplies it rather than pulling the network in.
   mkdirSync(GEN, { recursive: true });
   stubAccounts();
@@ -208,6 +215,7 @@ try {
   // Then the components, children before the panel that mounts them.
   await buildComponent("src/components/AccountsBody.svelte");
   await buildComponent("src/components/BodyPanel.svelte");
+  await buildComponent("src/components/CloudAccountPanel.svelte");
   await buildComponent("src/components/DeviceSyncPanel.svelte");
   await buildComponent("src/components/IndentControl.svelte");
   await buildComponent("src/components/PostListPanel.svelte");
@@ -256,18 +264,18 @@ try {
   }
 
   // -------------------------------------------------------------------------
-  // The sections: six disclosures, each with its own rows inside it.
+  // The sections: seven disclosures, each with its own rows inside it.
   // -------------------------------------------------------------------------
-  const SECTIONS = ["Accounts", "Appearance", "Reading", "Layout", "Refreshing", "About"];
+  const SECTIONS = ["Accounts", "Account", "Appearance", "Reading", "Layout", "Refreshing", "About"];
   {
     const body = draw();
     // Sections carry `class="sec"`. Counted by that class, not by every
     // `<details>` in the panel: a section's own content may hold a disclosure of
-    // its own (Accounts holds the pairing block), and the question here is how
-    // many *sections* there are.
+    // its own (Accounts holds the pairing block, Account the address change), and
+    // the question here is how many *sections* there are.
     const sections = (markup) => (markup.match(/<details[^>]*class="sec/g) ?? []).length;
-    check("there are six sections", sections(body) === 6, String(sections(body)));
-    check("every one is a disclosure with a summary", count(body, 'class="sum') === 6, String(count(body, 'class="sum')));
+    check("there are seven sections", sections(body) === 7, String(sections(body)));
+    check("every one is a disclosure with a summary", count(body, 'class="sum') === 7, String(count(body, 'class="sum')));
     check("every section is named", SECTIONS.every((label) => new RegExp(`<span class="label[^"]*">${label}</span>`).test(body)));
     check("and says what is in it", SECTIONS.every((label) => hasClass(section(body, label), "note")));
     // Native `<details>` is the mechanism: the content is inside the disclosure,
@@ -304,6 +312,15 @@ try {
         part.includes("Sign out")
       );
     })(), prose(section(body, "Accounts")).slice(0, 140));
+
+    check("Account is the HardlyReader account, not the roster", (() => {
+      const part = prose(section(body, "Account"));
+      return (
+        part.includes("An account is only for HardlyReader Sync") &&
+        part.includes("Continue with Google") &&
+        part.includes("Continue with Apple")
+      );
+    })(), prose(section(body, "Account")).slice(0, 140));
 
     check("Appearance is the theme's rows", (() => {
       const part = section(body, "Appearance");
@@ -449,7 +466,7 @@ try {
     // every row in them is one the app already had — the same slider, the same
     // `reading` writes.
     const sectionsOn = (body) => (body.match(/<details[^>]*class="sec/g) ?? []).length;
-    check("a phone is offered both sections its chrome gives up", sectionsOn(phone) === 8, String(sectionsOn(phone)));
+    check("a phone is offered both sections its chrome gives up", sectionsOn(phone) === 9, String(sectionsOn(phone)));
 
     const feeds = section(phone, "Feeds");
     check(
