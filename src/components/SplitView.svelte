@@ -98,6 +98,7 @@
         class:away={index >= drawn}
         data-pane={view.id}
         data-pane-focused={view.id === split.focusedId ? "" : undefined}
+        style:grid-column={`${index * 2 + 1}`}
         role="group"
         aria-label={`Pane ${index + 1}: ${view.reader.activeTitle}`}
         onpointerdown={() => split.focus(view.id)}
@@ -159,6 +160,7 @@
   .split {
     position: relative;
     display: flex;
+    flex: 1 1 0px;
     flex-direction: column;
     min-width: 0;
     min-height: 0;

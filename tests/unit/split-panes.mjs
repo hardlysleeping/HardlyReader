@@ -5,6 +5,7 @@
  * Pure model, no reader and no DOM: what a pane is holding is the reader's
  * business, and the arrangement is this file's.
  */
+import { readFileSync } from "node:fs";
 import {
   SPLIT_GUTTER,
   SPLIT_MAX,
@@ -155,6 +156,24 @@ check("a two-pane row cannot close, and three can", !canClose(2) && canClose(3))
 }
 
 check("indexOf answers -1 for nothing", indexOf(four(), null) === -1 && indexOf(four(), "c") === 2);
+
+// A pane must take the track BESIDE a gutter, not the gutter itself. `splitTracks` emits
+// `1fr 6px 1fr 6px 1fr`, and without an explicit column each pane is auto-placed into the next
+// track — so pane 2 lands in a 6px gutter and is drawn 6 pixels wide, while the frame's right edge
+// fills with tracks no pane occupies. Measured on a real window at 4 panes: widths 386, 6, 386, 6.
+{
+  const view = readFileSync(new URL("../../src/components/SplitView.svelte", import.meta.url), "utf8");
+  check(
+    "a pane is placed on a track, not into the gutter beside it",
+    /style:grid-column=\{`\$\{index \* 2 \+ 1\}`\}/.test(view),
+  );
+  check(
+    "the pane's column is the same arithmetic the tracks use",
+    /if \(i > 0\) tracks\.push\(`\$\{SPLIT_GUTTER\}px`\);/.test(
+      readFileSync(new URL("../../src/lib/split.ts", import.meta.url), "utf8"),
+    ),
+  );
+}
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);
