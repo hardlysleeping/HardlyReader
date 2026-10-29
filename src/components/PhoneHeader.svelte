@@ -19,16 +19,29 @@
    * the decision — if this button and the gesture could ever disagree, one of
    * them would be wrong.
    *
-   * Everything that is not navigation is behind one `•••`: the consolidated
+   * Everything that is not navigation is behind one gear: the consolidated
    * settings sheet, which already holds Reading, Layout, Accounts, Sync and
-   * About. No new menu and no new panel. Sync stays out in the open at the
-   * trailing edge, because it is the one control here that means "ask the
-   * server", and it keeps its two arrows and its progress readout.
+   * About. No new menu and no new panel — and a gear, because `•••` is what a
+   * phone uses for "more of this row", which is not what this opens.
+   *
+   * Day and night sits beside it, on the same side of the bar and one press
+   * away. It used to live in the sidebar's strip under the search field, where
+   * a whole-screen change was one thumb-width from the search field and two
+   * from the lock; the bar is where a phone keeps the things that change the
+   * whole screen.
+   *
+   * Sync stays out in the open at the trailing edge, because it is the one
+   * control here that means "ask the server". It answers a finished sync the
+   * way the desktop bar does: a tick for a moment, then the arrows again — see
+   * the effect below.
    *
    * Presentation only: the reader, the layout and the nav store, and the same
-   * `refresh()`, the same settings sheet, the same `back()`. It draws 42px of
+   * `refresh()`, the same settings sheet, the same `back()`. It draws 36px of
    * visible height plus whatever the status bar needs, which `app.css` pays for
-   * with `--safe-top` — see the phone block there.
+   * with `--safe-top` — see the phone block there. 36 rather than 42: a title
+   * bar on a phone holds one line of text and three glyphs, and the 42 it used
+   * to hold was a desktop toolbar's height, which on a phone reads as a gap
+   * between the clock and the app rather than as a bar.
    *
    * It is also the phone's *only* bar. The sliding stack used to draw a second,
    * 42px strip of its own while a pane was slid over another; that state is a
@@ -40,6 +53,7 @@
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
   import { reader } from "../state/reader.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
+  import ThemeToggle from "./ThemeToggle.svelte";
 
   let {
     subtitle = "",
@@ -166,6 +180,49 @@
   const readout = $derived(syncReadout(reader.sync));
   const description = $derived(syncDescription(reader.sync));
 
+  /**
+   * The bar answers a finished sync the way the desktop bar answers one: one
+   * thin ring on its own edge, in the sync colour, gone in a third of a second,
+   * and a tick in place of the arrows for a moment after.
+   *
+   * The turning arrows this bar used to draw were the desktop bar's older
+   * answer, and on a phone they read as a control that had stopped rather than
+   * one that had finished: the same mark, in the same place, only now still.
+   * A tick cannot be mistaken for either.
+   */
+  let pulse = $state(false);
+  let justFinished = $state(false);
+  let tickTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let wasActive = reader.sync.active;
+  $effect(() => {
+    const activeNow = reader.sync.active;
+    if (wasActive && !activeNow) {
+      wasActive = false;
+      pulse = true;
+      justFinished = true;
+      if (tickTimer !== null) clearTimeout(tickTimer);
+      tickTimer = setTimeout(() => {
+        tickTimer = null;
+        justFinished = false;
+      }, 1200);
+    } else if (!wasActive && activeNow) {
+      wasActive = true;
+      justFinished = false;
+      if (tickTimer !== null) {
+        clearTimeout(tickTimer);
+        tickTimer = null;
+      }
+    }
+  });
+
+  $effect(() => () => {
+    if (tickTimer !== null) clearTimeout(tickTimer);
+  });
+
+  /** What the control says it is, which is also what it just did. */
+  const syncLabel = $derived(justFinished ? "Synced" : description);
+
   /** The reader owns the sync; this button only asks for it. */
   async function refresh() {
     await reader.refresh();
@@ -173,6 +230,9 @@
 </script>
 
 <header class="phone-header">
+  {#if pulse}
+    <span class="pulse" aria-hidden="true" onanimationend={() => (pulse = false)}></span>
+  {/if}
   {#if atRoot}
     <!-- The root: the app's own name, and no control to the left of it. -->
     <span class="wordmark">HardlyReader</span>
@@ -204,6 +264,9 @@
 
   <span class="spacer"></span>
 
+  <!-- Day and night, one press from the gear it changes the look of. -->
+  <ThemeToggle size={30} />
+
   <!-- One door to everything that is not navigation. It opens the sheet the
        desktop bar opens from its menu row, so Reading, Layout, Accounts, Sync
        and About are the same controls with the same state. -->
@@ -215,7 +278,14 @@
     aria-haspopup="dialog"
     aria-expanded={settingsOpen}
     title="Settings and accounts"
-  >•••</button>
+  >
+    <svg class="gear" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2" />
+      <path
+        d="M19.1 14.6a1.6 1.6 0 0 0 .3 1.8l.1.1a1.9 1.9 0 1 1-2.7 2.7l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a1.9 1.9 0 1 1-3.8 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a1.9 1.9 0 1 1-2.7-2.7l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1h-.2a1.9 1.9 0 1 1 0-3.8h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a1.9 1.9 0 1 1 2.7-2.7l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 1-1.5v-.2a1.9 1.9 0 1 1 3.8 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a1.9 1.9 0 1 1 2.7 2.7l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5 1h.2a1.9 1.9 0 1 1 0 3.8h-.1a1.6 1.6 0 0 0-1.5 1z"
+      />
+    </svg>
+  </button>
 
   {#if refreshing}
     <!-- The count and the percentage, for as long as the sync lasts, in the same
@@ -240,17 +310,24 @@
     type="button"
     class="sync"
     class:busy={refreshing}
+    class:done={justFinished}
     onclick={refresh}
     disabled={refreshing}
-    aria-label={description}
-    title={description}
+    aria-label={syncLabel}
+    title={syncLabel}
   >
-    <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M20.5 12a8.5 8.5 0 0 1-14.8 5.7" />
-      <path d="M3.5 12a8.5 8.5 0 0 1 14.8-5.7" />
-      <path d="M18.3 2.9v3.8h-3.8" />
-      <path d="M5.7 21.1v-3.8h3.8" />
-    </svg>
+    {#if justFinished}
+      <svg class="glyph tick" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 12.5 10.2 17.7 19 7.5" />
+      </svg>
+    {:else}
+      <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20.5 12a8.5 8.5 0 0 1-14.8 5.7" />
+        <path d="M3.5 12a8.5 8.5 0 0 1 14.8-5.7" />
+        <path d="M18.3 2.9v3.8h-3.8" />
+        <path d="M5.7 21.1v-3.8h3.8" />
+      </svg>
+    {/if}
   </button>
 </header>
 
@@ -265,7 +342,7 @@
 />
 
 <style>
-  /* 42px of visible bar. The status bar's own height is padding, paid by
+  /* 36px of visible bar. The status bar's own height is padding, paid by
      `app.css` from `--safe-top`, so the bar keeps the height it has on the
      desktop and the surface behind the clock is still the header's.
 
@@ -281,7 +358,7 @@
     align-items: center;
     gap: 6px;
     flex: 0 0 auto;
-    height: calc(var(--safe-top) + 42px);
+    height: calc(var(--safe-top) + 36px);
     background: var(--surface);
     overflow: hidden;
   }
@@ -351,8 +428,8 @@
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     padding: 0;
     border: 1px solid transparent;
     border-radius: 10px;
@@ -363,6 +440,17 @@
     letter-spacing: 1px;
     line-height: 1;
     cursor: pointer;
+  }
+
+  .gear {
+    display: block;
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   .more:hover,
@@ -377,8 +465,8 @@
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     margin-left: 2px;
     padding: 0;
     border: 1px solid color-mix(in srgb, var(--tone-sync) 28%, var(--border));
@@ -415,16 +503,18 @@
     overflow: visible;
   }
 
-  /* While syncing the mark turns, and only the mark: the same signal the
-     desktop bar gives. */
-  .sync.busy .glyph {
-    animation: turn 820ms linear infinite;
+  .glyph.tick {
+    stroke-width: 2.3;
   }
 
-  @keyframes turn {
-    to {
-      transform: rotate(360deg);
-    }
+  /* A finished sync: the same ring the band draws on a lock or an unlock, in
+     the sync colour, on the bar's own edge. */
+  .pulse {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    --pulse-tone: var(--tone-sync);
+    animation: hrs-bar-pulse 360ms ease-out both;
   }
 
   .progress {
@@ -445,8 +535,9 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .sync.busy .glyph {
+    .pulse {
       animation: none;
+      box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--tone-sync) 45%, transparent);
     }
   }
 </style>

@@ -35,6 +35,7 @@
   import { theme } from "../state/theme.svelte";
   import { chrome } from "../state/chrome.svelte";
   import { layout } from "../state/layout.svelte";
+  import { mobileNav } from "../state/mobile-nav.svelte";
 
   const words = pinWords();
 
@@ -379,6 +380,21 @@
    */
   let pickedCategory = $state<string | null>(null);
 
+  /**
+   * The last tap on a category's name, so a double tap can mean one thing.
+   *
+   * Tapping the name is two operations stacked on one row — it folds, and it
+   * opens — so a fast second tap used to undo the first: on a window the pair
+   * toggled twice and landed back where it started, and in one panel the posts
+   * were fetched behind a sidebar that never moved. A double tap now means the
+   * one thing a reader does it for: open this category's posts, folded open and
+   * in front of them.
+   */
+  let lastCategoryTap = { id: "", at: 0 };
+
+  /** How long two taps count as one gesture; iOS's own double tap is ~300ms. */
+  const DOUBLE_TAP_MS = 320;
+
   function toggle(id: string) {
     reader.toggleCategory(id);
   }
@@ -409,6 +425,18 @@
    */
   function clickCategory(category: CategoryGroup, folded: boolean) {
     if (categoryDrag.justDropped()) return;
+    const now = Date.now();
+    const doubled = lastCategoryTap.id === category.id && now - lastCategoryTap.at < DOUBLE_TAP_MS;
+    lastCategoryTap = doubled ? { id: "", at: 0 } : { id: category.id, at: now };
+    if (doubled) {
+      // Unfolded first, because a folded category has no feeds to show and the
+      // posts it opens are its feeds'. Then the posts, whichever layout this is:
+      // one panel has to be *shown* them, since its sidebar does not move.
+      if (folded) toggle(category.id);
+      openCategory(category);
+      if (inlinePosts) mobileNav.show(2);
+      return;
+    }
     if (!inlinePosts) {
       toggle(category.id);
       openCategory(category);
@@ -861,14 +889,14 @@
     >¶</button>
   </div>
 
-  <!-- The band, and — on a phone — the day / night switch beside it. The rail is
-       `display: contents` everywhere else, so on a window the band's margins and
-       stacking are exactly what they were: the wrapper makes no box. -->
+  <!-- The band, and nothing else. The day / night switch used to sit beside it on
+       a phone; it lives in the title bar now, next to the gear (see
+       `PhoneHeader`), so the band has the whole row and the switch is one press
+       from the settings it belongs with. The rail is `display: contents`
+       everywhere else, so on a window the band's margins and stacking are
+       exactly what they were: the wrapper makes no box. -->
   <div class="rail">
     <SidebarBand />
-    {#if phoneSidebar}
-      <ThemeToggle />
-    {/if}
   </div>
 
   {#if search.deep}
@@ -889,22 +917,22 @@
        `Settings → Feeds` there, and it is the same slider — same store, same
        write — so the tree starts that many pixels higher instead of the row
        costing them. -->
-  {#if !phoneSidebar}
-    <div class="indent" class:open={chrome.indentOpen}>
+  {#if !phoneSidebar && chrome.indentOpen}
+    <!-- The row is the slider's home, not a heading for it: hiding the indent
+         used to leave "Indent 12" behind, which is a row saying nothing about
+         anything. Hiding it now puts the whole strip away and hands its 30-odd
+         pixels to the tree; the same slider is still in `Settings → Feeds`,
+         where the switch that brings this row back sits beside it. -->
+    <div class="indent open">
       <button
         class="indent-label"
-        aria-expanded={chrome.indentOpen}
-        aria-controls="feed-indent-row"
-        title={chrome.indentOpen ? "Hide the indent slider" : "Show the indent slider"}
-        onclick={() => chrome.toggleIndentOpen()}
+        title="Hide the indent row"
+        onclick={() => chrome.setIndentOpen(false)}
       >
         Indent
         <span class="px">{reader.sidebarIndent.px}</span>
-        <svg class="caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5 8 10.5l4-4" /></svg>
       </button>
-      {#if chrome.indentOpen}
-        <IndentControl />
-      {/if}
+      <IndentControl />
       <span class="right"><ThemeToggle /></span>
     </div>
   {/if}
@@ -1448,6 +1476,14 @@
     border-right: 1px solid var(--edge);
   }
 
+  /* On a phone the feeds column runs to the glass edge and pays the home
+     indicator itself (see `app.css`, ".slot.feeds"): the slot used to stop
+     above the band, which left the window's own colour under a footer that
+     looked like it had run out of list. */
+  :global(html[data-device="phone"]) .sidebar {
+    padding-bottom: calc(var(--safe-bottom) + 8px);
+  }
+
   /* The one scrollable part: the tree. `min-height: 0` is what lets a flex child
      shrink below its content so this actually scrolls instead of pushing the
      footer out. */
@@ -1878,34 +1914,35 @@
   }
 
   /* A phone's search field is the size of a thumb, not of a mouse pointer.
-     28px with three 18px marks inside it is a field you hit by luck: the field
-     grows to 44 and its marks to 36, which leaves the two mode marks 4px apart
-     so their 44px hit boxes (see app.css) touch rather than overlap. The glyphs
-     are drawn bigger with the boxes, since a 13px magnifier in a 44px field
-     reads as a mistake rather than as restraint. Desktop keeps 28 and 18. */
+     28px with three 18px marks inside it is a field you hit by luck, so it grows
+     on a phone — but it grew to 44, which is a toolbar's height spent on a field
+     that is usually not being typed in, and on a short list it was the biggest
+     thing in the column. 38 with 30px marks is still a thumb's target (the hit
+     boxes in `app.css` are unchanged and still 40 wide by 40 tall), and it
+     hands 6px back to the tree. Desktop keeps 28 and 18. */
   :global(html[data-device="phone"]) .find {
-    height: 44px;
-    gap: 4px;
-    margin: 8px 10px 4px;
-    padding: 0 4px 0 10px;
-    border-radius: 11px;
+    height: 38px;
+    gap: 3px;
+    margin: 7px 10px 3px;
+    padding: 0 3px 0 9px;
+    border-radius: 10px;
   }
 
   :global(html[data-device="phone"]) .find-input {
-    font-size: 15px;
+    font-size: 13.5px;
   }
 
   :global(html[data-device="phone"]) .glass {
-    width: 15px;
-    height: 15px;
+    width: 14px;
+    height: 14px;
   }
 
   :global(html[data-device="phone"]) .find-clear,
   :global(html[data-device="phone"]) .find-deep {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    font-size: 15px;
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    font-size: 13.5px;
   }
 
   :global(html[data-device="phone"]) .find-deep {

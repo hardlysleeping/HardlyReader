@@ -992,6 +992,22 @@ export class ReaderState {
     return this.hiddenCategories.available && this.hiddenCategories.hasPasscode;
   }
 
+  /**
+   * How many digits the passcode has, when this device knows.
+   *
+   * The device's own code is in `LocalHidden.passcode`, so its length is right
+   * here. The extension's code lives on the server and the app never sees it —
+   * `null` says so, and the pad draws its full six rather than inventing a
+   * length. The pad is a keypad, and a keypad with the wrong number of dots is
+   * telling the reader something false about their own code.
+   */
+  get hiddenPasscodeLength(): number | null {
+    if (this.hiddenAuthority === "local") {
+      return this.localHidden.passcode === "" ? null : this.localHidden.passcode.length;
+    }
+    return null;
+  }
+
   get hiddenLocked(): boolean {
     // A curtain with no code behind it is not a curtain: `locked` alone can be left over from a
     // cleared passcode, so it only counts when there is something to type.

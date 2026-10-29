@@ -213,8 +213,8 @@ const phoneHeader = read("src/components/PhoneHeader.svelte");
       /html\[data-device="phone"\] \.phone-header :is\(\.step, \.more, \.sync\)::after \{/.test(app),
   );
   check(
-    "and every box in that bar stops at the bar's 42px, not at the panes",
-    /--tap44-h: 42px/.test(
+    "and every box in that bar stops at the bar's 36px, not at the panes",
+    /--tap44-h: 36px/.test(
       ruleBody(app, 'html[data-device="phone"] .phone-header :is(.step, .more, .sync)', "app.css"),
     ),
   );
@@ -222,9 +222,11 @@ const phoneHeader = read("src/components/PhoneHeader.svelte");
     "the menu is the smallest thing it has to grow: 28 in a 42 bar",
     px(ruleBody(header, ".icon", "Header"), "width", "icon") === 28,
   );
+  // Named in a comment where the day / night switch went, which is where the
+  // reason belongs; what must not happen is a second bar being drawn here.
   check(
-    "PhoneHeader is not in this tree, so nothing here pretends to be it",
-    !/PhoneHeader/.test(panel + sidebar + header),
+    "PhoneHeader is not mounted in this tree, so nothing here pretends to be it",
+    !/<PhoneHeader/.test(panel + sidebar + header),
   );
 }
 
@@ -443,7 +445,7 @@ function noOverlaps(label, controls) {
     "and its box stops at the bar's edges",
     // The bar's own Sync is `PhoneHeader`'s now; the cap lives in the one rule
     // that names the bar's three controls, so a 44px box cannot reach the panes.
-    /--tap44-h: 42px/.test(
+    /--tap44-h: 36px/.test(
       ruleBody(app, 'html[data-device="phone"] .phone-header :is(.step, .more, .sync)', "app.css"),
     ),
   );
@@ -539,8 +541,8 @@ function noOverlaps(label, controls) {
 // The search field, which a phone types into
 // ---------------------------------------------------------------------------
 
-// A phone's field is 44 tall with three marks inside it. The marks are 36 wide
-// and sit 4 apart, so each box takes its own 36 plus that gap and stops — the
+// A phone's field is 38 tall with three marks inside it. The marks are 30 wide
+// and sit 3 apart, so each box takes its own 30 plus that gap and stops — the
 // same rule as every other crowded pair here, and the reason a thumb aiming at
 // the paragraph mark cannot toggle people instead.
 {
@@ -555,9 +557,9 @@ function noOverlaps(label, controls) {
   const markWidth = px(phoneMark, "width", "phone mark");
   const gap = px(phoneFind, "gap", "phone field gap");
 
-  check("a phone's search field is 44 tall", phoneHeight === 44, `${phoneHeight}`);
+  check("a phone's search field is 38 tall", phoneHeight === 38, `${phoneHeight}`);
   check("and a desktop's is still 28", desktopHeight === 28, `${desktopHeight}`);
-  check("the marks in it grow to 36, not to the 18 a pointer gets", markWidth === 36, `${markWidth}`);
+  check("the marks in it grow to 30, not to the 18 a pointer gets", markWidth === 30, `${markWidth}`);
   check(
     "their boxes take the mark and the gap beside it, so two of them touch and stop",
     px(box, "--tap44-w", "search box width") === markWidth + gap,

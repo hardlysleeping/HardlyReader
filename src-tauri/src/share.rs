@@ -23,7 +23,7 @@
 //! by the Codemagic workflow, since `tauri ios init` regenerates the Xcode
 //! project on the runner.
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 /// The command the webview calls. Arguments arrive from `share.ts`.
 ///
@@ -55,6 +55,63 @@ pub async fn share_sheet(
         let _ = (app, title, url, image);
         Err("This platform has no native share sheet.".into())
     }
+}
+
+/// A document the app made, handed to the sheet as a file.
+///
+/// The OPML export is the caller: a phone has no downloads folder a webview may
+/// write to, and Web Share — the other way a file leaves a page — is absent in
+/// the packaged app for the same reason the link sheet is (see the module note).
+/// So the bytes are written here, to the app's own cache directory, and UIKit is
+/// handed the file's URL. The sheet's own "Save to Files" is then the reader's
+/// prompt, and every app that takes an OPML is one row below it.
+///
+/// The name is a name, never a path: a caller that could pass `../../x` would
+/// have the app write outside its cache, and the one caller that exists builds
+/// the name from a date. Anything with a separator or a leading dot is refused
+/// rather than cleaned, because a silent rewrite of a name the reader will see in
+/// the sheet is worse than a refusal they can read.
+#[tauri::command]
+pub async fn share_file(app: AppHandle, name: String, contents: String) -> Result<(), String> {
+    if name.is_empty() || name.starts_with('.') || name.contains('/') || name.contains('\\') {
+        return Err("That is not a file name.".into());
+    }
+    // A feed list is kilobytes. A cap keeps a mistake in the caller from staging
+    // a hundred megabytes in a directory the system prunes on its own schedule.
+    if contents.len() > 8 * 1024 * 1024 {
+        return Err("That document is too large to share.".into());
+    }
+
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("There is nowhere to stage the file: {error}"))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("The staging folder could not be made: {error}"))?;
+    let path = dir.join(&name);
+    std::fs::write(&path, contents.as_bytes())
+        .map_err(|error| format!("The file could not be written: {error}"))?;
+
+    let shown = path.to_string_lossy().to_string();
+
+    #[cfg(target_os = "ios")]
+    {
+        present_file(&app, &shown)
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (app, shown);
+        Err("This platform has no native share sheet.".into())
+    }
+}
+
+/// Whether a share sheet is worth trying at all, for the page's own decision.
+///
+/// Registered on every platform like `share_sheet`; the page only asks where
+/// `src/lib/platform.ts` says a sheet exists.
+#[tauri::command]
+pub fn share_available() -> bool {
+    cfg!(target_os = "ios")
 }
 
 fn is_http(url: &str) -> bool {
@@ -95,6 +152,34 @@ fn present(
     }
 }
 
+/// Hands one staged file to UIKit, on the main thread.
+#[cfg(target_os = "ios")]
+fn present_file(app: &AppHandle, path: &str) -> Result<(), String> {
+    use std::sync::mpsc;
+
+    let (sender, receiver) = mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = sender.send(ios::present_file(path));
+    })
+    .map_err(|error| format!("The share sheet could not be reached: {error}"))?;
+
+    match receiver.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(PRESENTED) => Ok(()),
+        Ok(status) => Err(describe_file(status)),
+        Err(_) => Err("The share sheet did not answer in time.".into()),
+    }
+}
+
+/// The failure a file share's status code stands for.
+#[cfg(target_os = "ios")]
+fn describe_file(status: i32) -> String {
+    match status {
+        1 => "There is no window to present the share sheet on.".into(),
+        2 => "The file was gone before the sheet could carry it.".into(),
+        other => format!("The share sheet failed ({other})."),
+    }
+}
+
 /// The failure a status code stands for, in the reader's words.
 #[cfg(target_os = "ios")]
 fn describe(status: i32) -> String {
@@ -118,6 +203,10 @@ mod ios {
         /// pointer is a NUL-terminated string and may be null; the answer is the
         /// status documented in `PRESENTED` and `describe`.
         fn hardlyreader_share(title: *const c_char, url: *const c_char, image: *const c_char) -> i32;
+
+        /// `src-tauri/ios/ShareSheet.swift`, the document half: one absolute path.
+        /// The answer is the status documented in `describe_file`.
+        fn hardlyreader_share_file(path: *const c_char) -> i32;
     }
 
     /// Hand one post to UIKit, on the main thread.
@@ -137,5 +226,17 @@ mod ios {
         // either a live `CString` or null — which the Swift side reads as
         // "absent" and never dereferences.
         unsafe { hardlyreader_share(headline.as_ptr(), link.as_ptr(), picture_ptr) }
+    }
+
+    /// Hand one file to UIKit, on the main thread.
+    pub fn present_file(path: &str) -> i32 {
+        // A path with an interior NUL cannot cross into C. There is nothing to
+        // fall back to here — the file is the whole point — so it is refused.
+        let Ok(staged) = CString::new(path) else {
+            return 2;
+        };
+
+        // SAFETY: `staged` outlives the call and is a live `CString`.
+        unsafe { hardlyreader_share_file(staged.as_ptr()) }
     }
 }

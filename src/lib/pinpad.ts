@@ -45,7 +45,14 @@ export function canSubmit(code: string): boolean {
 /**
  * One flag per slot, so the dots are drawn from the code rather than counted
  * alongside it — a second counter is a second thing that can drift.
+ *
+ * `count` is how many dots to draw, which is not always `PIN_MAX`: a pad that
+ * knows the passcode is four digits draws four, and one that does not know draws
+ * six. The code can never make it draw fewer than it holds, because a digit the
+ * reader typed has to have somewhere to appear.
  */
-export function slots(code: string, max: number = PIN_MAX): boolean[] {
-  return Array.from({ length: max }, (_, index) => index < code.length);
+export function slots(code: string, count: number = PIN_MAX): boolean[] {
+  const drawn = Math.max(1, Math.min(PIN_MAX, Math.round(count)));
+  const width = Math.max(drawn, Math.min(code.length, PIN_MAX));
+  return Array.from({ length: width }, (_, index) => index < code.length);
 }

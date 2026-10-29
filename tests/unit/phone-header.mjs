@@ -130,9 +130,11 @@ check(
   !/\.where \{[^}]*transition/.test(header) && !/\.where \{[^}]*animation/.test(header),
 );
 
-// 42px of visible bar, plus the status bar's own height — which `app.css` pays
-// as padding, so the surface behind the clock is still the header's.
-check("the visible height stays 42px", /height: calc\(var\(--safe-top\) \+ 42px\)/.test(header));
+// 36px of visible bar, plus the status bar's own height — which `app.css` pays
+// as padding, so the surface behind the clock is still the header's. It was 42,
+// which is a desktop toolbar's height; on a phone that reads as a gap between
+// the clock and the app rather than as a bar.
+check("the visible height is 36px", /height: calc\(var\(--safe-top\) \+ 36px\)/.test(header));
 
 /* ---------------------------------------------------------------- *
  * Sync, and the door to everything else
@@ -144,12 +146,24 @@ check(
   "there is no second sync path",
   !/from "\.\.\/api\//.test(header) && !/\bfetch\(/.test(header) && !/transport/.test(header),
 );
-check("Sync keeps its two arrows", (sync.match(/<path /g) ?? []).length === 4, String((sync.match(/<path /g) ?? []).length));
+check("Sync keeps its two arrows", (sync.match(/<path /g) ?? []).length === 5, String((sync.match(/<path /g) ?? []).length));
+check("...and answers a finished sync with a tick, not a stopped spinner", /#if justFinished[\s\S]{0,200}?class="glyph tick"/.test(header));
+check("...which names itself when it lands", /justFinished \? "Synced" : description/.test(header));
+check("...and pulses the bar, as the desktop bar does", /class="pulse"/.test(header) && /hrs-bar-pulse/.test(header));
+check("no turning arrows on the phone bar", !/animation: turn/.test(header));
 check("and its progress readout", /role="progressbar"[\s\S]{0,200}?syncReadout\(reader\.sync\)/.test(header) || /const readout = \$derived\(syncReadout\(reader\.sync\)\)/.test(header) && /role="progressbar"/.test(header));
 check("Sync is the trailing control", /<\/button>\s*<\/header>/.test(header) && !/class="step"|class="more"/.test(sync));
 
 const more = between(header, 'class="more"', "</button>");
-check("••• is the app's settings door", /•••/.test(more) && /settingsOpen = true/.test(more));
+check("the gear is the app's settings door", /class="gear"/.test(more) && /settingsOpen = true/.test(more));
+// The comment above the button still names the glyph it replaced, which is where
+// the reason belongs; what must not draw it is the bar itself.
+check(
+  "...and no longer a •••, which a phone uses for more of the same row",
+  !between(header, "<header", "</header>").includes("•••"),
+);
+check("day and night sits beside it", /<ThemeToggle size=\{30\} \/>\s*<!--[\s\S]{0,400}?class="more"/.test(header));
+check("...the same switch the sidebar's strip draws", /import ThemeToggle from "\.\/ThemeToggle\.svelte"/.test(header));
 check("it is announced as opening a dialog", /aria-haspopup="dialog"/.test(more));
 check("and it opens the consolidated sheet", /bind:open=\{settingsOpen\}/.test(header) && /<SettingsPanel/.test(header));
 check(
@@ -172,7 +186,7 @@ check(
   /\{#if layout\.device === "phone"\}\s*<PhoneHeader[\s\S]{0,200}?\{:else\}\s*<Header/.test(main),
 );
 check("the desktop bar does not know about phones", !/PhoneHeader|data-device|device === "phone"/.test(desktopHeader));
-check("and ••• is not part of the desktop bar", !/•••/.test(desktopHeader));
+check("and the phone's own controls are not part of the desktop bar", !/PhoneHeader/.test(desktopHeader) && !/ThemeToggle size=/.test(desktopHeader));
 // One back strip per screen: on a phone the bar above is the strip, so the
 // one-column crumb row is not drawn there. Desktop keeps it.
 check("the phone draws no second back strip", /mode === 1 && level !== "feeds" && layout\.device !== "phone"/.test(main));

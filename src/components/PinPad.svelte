@@ -1,6 +1,9 @@
 <script lang="ts">
   /**
-   * A number pad for the passcode: twelve keys, six dots, nothing to type.
+   * A number pad for the passcode: twelve keys, one dot per digit, nothing to
+   * type. The dots follow the passcode's length where it is known — see `length`
+   * — because six dots under a four-digit code reads as a code that is two
+   * digits short.
    *
    * Built for a thumb first. The buttons are laid out in the order a phone
    * dials — 1 to 9, then backspace, 0, go — because that arrangement is already
@@ -15,6 +18,7 @@
   let {
     value,
     label,
+    length = PIN_MAX,
     tone = "var(--accent)",
     submitLabel = "Unlock",
     busy = false,
@@ -25,6 +29,12 @@
     value: string;
     /** Spoken name for the pad as a whole; each key is labelled by its digit. */
     label: string;
+    /**
+     * How many dots to draw: the passcode's own length when the app knows it,
+     * `PIN_MAX` when it does not. Six dots under a four-digit code is a pad
+     * telling the reader their code is two digits longer than it is.
+     */
+    length?: number;
     /** Colour of the ready state — red for the lock, accent when setting one. */
     tone?: string;
     submitLabel?: string;
@@ -47,7 +57,7 @@
     pad?.focus();
   });
 
-  const filled = $derived(slots(value, PIN_MAX));
+  const filled = $derived(slots(value, length));
   const ready = $derived(canSubmit(value) && !busy);
 
   function key(event: KeyboardEvent): void {

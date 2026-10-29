@@ -100,6 +100,20 @@ class ChromeState {
     writeIndentOpen(browserStorage(), this.indentOpen, this.account());
   }
 
+  /**
+   * Puts the indent row away, or brings it back.
+   *
+   * A separate setter because the row is now drawn only while it is open: the
+   * sidebar can only close it (its own label is the close), so the switch in
+   * `Settings → Feeds` is the one that can open it again, and a toggle that
+   * wrote `!this.indentOpen` would depend on which surface pressed it.
+   */
+  setIndentOpen(open: boolean): void {
+    if (this.indentOpen === open) return;
+    this.indentOpen = open;
+    writeIndentOpen(browserStorage(), this.indentOpen, this.account());
+  }
+
   setPinPad(on: boolean): void {
     if (this.pinPad === on) return;
     this.pinPad = on;

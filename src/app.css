@@ -582,6 +582,24 @@ html[data-device="phone"] .panes > .slot.article {
   padding-bottom: calc(var(--safe-bottom) + 8px);
 }
 
+/* The feeds column paints through the home indicator instead of stopping above
+   it.
+
+   Every other column can end at the inset: a list that stops is a list, and the
+   band under it is the window's own colour. The feeds column is the one with a
+   footer — the counts, the fold and `+ Add feed` — and a footer that stops 42px
+   above the glass edge with the window's black underneath it reads as a list
+   that ran out rather than as a column that ended. So the inset moves inside
+   the column: the surface reaches the edge, and the footer sits the 8px above
+   the indicator that every other footer does.
+
+   The slot keeps the width it had — `layout.setAvailable()` reads its
+   `clientWidth`, which padding does not touch. */
+html[data-device="phone"] .panes > .slot.feeds {
+  padding-bottom: 0;
+  background: var(--surface);
+}
+
 @media (orientation: landscape) {
   html[data-device="phone"] .panes > .slot.feeds {
     padding-left: var(--safe-left);
@@ -643,13 +661,13 @@ html[data-device="phone"] .tap44 {
 
 /* The phone bar's own controls need no class of their own: the bar has exactly
    three, and naming them here keeps the markup of a component that is already
-   phone-only free of a rule about phones. Their boxes stop at the bar's 42px so
+   phone-only free of a rule about phones. Their boxes stop at the bar's 36px so
    none of them hangs over the seam into the panes, where nothing is a control. */
 html[data-device="phone"] .phone-header :is(.step, .more, .sync) {
   position: relative;
   touch-action: manipulation;
   --tap44-w: 44px;
-  --tap44-h: 42px;
+  --tap44-h: 36px;
 }
 
 /* The stack's own bar is gone: the phone's bar is the one strip, and its three
@@ -667,15 +685,18 @@ html[data-device="phone"] .tap44::after {
 }
 
 
-/* The search field's own controls, which are 36px marks in a 44px field on a
-   phone. Two of them sit 4px apart, so their boxes take that gap and stop: a box
+/* The search field's own controls, which are 30px marks in a 38px field on a
+   phone. Two of them sit 3px apart, so their boxes take that gap and stop: a box
    that grew to a full 44 would sit over its neighbour and a thumb aiming at the
-   paragraph mark would toggle people. */
+   paragraph mark would toggle people. The field shrank to 38 when 44 proved to
+   be a toolbar's height spent on a field that is usually not being typed in, so
+   the boxes shrank with it — they still cover the mark and the gap beside it,
+   and they still stop at the field's own edge. */
 html[data-device="phone"] .find :is(.find-clear, .find-deep) {
   position: relative;
   touch-action: manipulation;
-  --tap44-w: 40px;
-  --tap44-h: 44px;
+  --tap44-w: 33px;
+  --tap44-h: 38px;
 }
 
 html[data-device="phone"] .find :is(.find-clear, .find-deep)::after {

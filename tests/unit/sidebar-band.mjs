@@ -254,6 +254,31 @@ const source = readFileSync(join(ROOT, "src/components/SidebarBand.svelte"), "ut
     /outcome\?\.kind === "reconciled" && outcome\.status === 423/.test(source) && source.includes("openPasscode()"),
   );
   check("the folded band still has its toggle", /aria-expanded=\{!chrome\.bandCollapsed\}/.test(source));
+  // The locked row is the way back in, and nothing else: a pin beside it changed
+  // a list the lock had just covered.
+  // The pad draws the dots the passcode has, when this device knows them: the
+  // device's own code is in `LocalHidden.passcode`, the extension's is not.
+  check(
+    "the pad is told the passcode's length when unlocking",
+    /length=\{locked \? \(reader\.hiddenPasscodeLength \?\? undefined\) : undefined\}/.test(source),
+  );
+  check(
+    "...and is not told one when setting a code",
+    /length=\{locked \?[^}]*: undefined\}/.test(source),
+  );
+
+  check(
+    "the pin is rendered once, in the open row",
+    (source.match(/\{@render pinControl\(\)\}/g) ?? []).length === 1,
+  );
+  check(
+    "...and a phone folds the band when the lock lands",
+    /lockedNow && layout\.device === "phone"\) chrome\.setBandCollapsed\(true\)/.test(source),
+  );
+  check(
+    "...without folding it on a window",
+    /layout\.device === "phone"/.test(source) && /import \{ layout \} from "\.\.\/state\/layout\.svelte"/.test(source),
+  );
   check("the band is drawn from the one model", /bandFacts\(\{/.test(source));
   // The ring is removed on `animationend`, so under reduced motion it must not be
   // drawn at all — otherwise it stays on the band.
@@ -319,7 +344,15 @@ try {
   get bandCollapsed() { return globalThis.__band.collapsed; },
   get pinPad() { return false; },
   toggleBand() {},
+  setBandCollapsed(collapsed) { globalThis.__band.foldedByLock = collapsed; },
 };
+`,
+  );
+  // The band folds itself on a phone when a lock lands, so it reads the device
+  // the same way every other phone-only behaviour does.
+  const layoutStub = stub(
+    "layout",
+    `export const layout = { get device() { return globalThis.__band.device ?? "desktop"; } };
 `,
   );
   const pinPadStub = stub("PinPad", "export default function PinPad() {}\n");
@@ -352,6 +385,7 @@ try {
       .replaceAll('"../state/hidden"', JSON.stringify(absolute("src/state/hidden.ts")))
       .replaceAll('"../state/chrome.svelte"', JSON.stringify(chromeStub))
       .replaceAll('"../state/reader.svelte"', JSON.stringify(readerStub))
+      .replaceAll('"../state/layout.svelte"', JSON.stringify(layoutStub))
       .replaceAll('"./PinPad.svelte"', JSON.stringify(pinPadStub)),
   );
   ({ default: Band } = await import(pathToFileURL(component).href));
@@ -365,6 +399,7 @@ try {
       pinnedCount: 2,
       pinView: "all",
       hasPasscode: true,
+      device: "desktop",
       ...overrides,
     };
     return render(Band, {}).body;
@@ -392,8 +427,11 @@ try {
     check("locked: the row is drawn", /class="band[ "]/.test(body));
     check("locked: ...compacted", body.includes("compact"));
     check("locked: the lock is the way back in", body.includes('aria-label="Unlock"'));
-    check("locked: the pin is still there", body.includes('class="ctl pin'));
-    check("locked: the pin is named by its count", body.includes('aria-label="Pinned: 2"'));
+    // The pin used to stay beside the lock. It filters the list the lock just
+    // covered, so a press on it changes something nobody can check the result of.
+    check("locked: the pin is gone", !body.includes('class="ctl pin'));
+    check("locked: ...and its count is not drawn", !body.includes('aria-label="Pinned: 2"'));
+    check("locked: the row is one control", (body.match(/class="ctl /g) ?? []).length === 1);
     check("locked: no eye", !body.includes('class="ctl hidden'));
     check("locked: no count of hidden things", !body.includes("1009"));
     check("locked: no ENFORCED badge", !body.toLowerCase().includes("enforced"));

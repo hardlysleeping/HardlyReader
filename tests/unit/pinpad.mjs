@@ -64,6 +64,18 @@ check("a full code fills every dot", slots(full).every((on) => on));
 check("the dot count follows backspace", slots(backspace("1234")).filter(Boolean).length === 3);
 check("slots can be drawn at another size", slots("12", 4).length === 4);
 
+/* A pad that knows the passcode is four digits draws four dots. Six dots under a
+   four-digit code tells the reader their code is two digits longer than it is. */
+{
+  check("a four-digit code draws four dots", slots("", 4).length === 4);
+  check("...and fills them one press at a time", slots("12", 4).filter(Boolean).length === 2);
+  check("a six-digit code still draws six", slots("", 6).length === 6);
+  check("an unknown length draws the maximum", slots("").length === PIN_MAX);
+  check("the pad never draws fewer dots than it holds", slots("123456", 2).length === 6);
+  check("a silly count is clamped, not drawn", slots("", 0).length === 1 && slots("", 99).length === PIN_MAX);
+  check("a fractional count does not become a fractional dot", slots("", 3.6).length === 4);
+}
+
 if (failures === 0) {
   console.log(`ok ${checks} checks — passcode keypad rules`);
 } else {

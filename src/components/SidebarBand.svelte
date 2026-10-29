@@ -3,6 +3,7 @@
   import { lockHint, lockOpensPanel, lockState, lockTitle, lockUsable } from "../lib/lock-title";
   import { appendDigit, backspace } from "../lib/pinpad";
   import { chrome } from "../state/chrome.svelte";
+  import { layout } from "../state/layout.svelte";
   import { nextHiddenView } from "../state/hidden";
   import { reader } from "../state/reader.svelte";
   import PinPad from "./PinPad.svelte";
@@ -45,6 +46,11 @@
     if (lockedNow !== wasLocked) {
       wasLocked = lockedNow;
       if (mayPulse()) pulse = lockedNow ? "lock" : "unlock";
+      // A lock on a phone folds the band away as it locks it. The curtain is
+      // already down; leaving the controls on screen beside it says the
+      // categories are still one press away, which is the opposite of the
+      // point. The fold handle stays — it is how the band comes back.
+      if (lockedNow && layout.device === "phone") chrome.setBandCollapsed(true);
     }
   });
 
@@ -317,8 +323,14 @@
     {#if locked}
       <!-- Locked: the band compacts to low-key glyphs on a quieter face. The
            eye is not among them — a bare eye still says a filter exists — and
-           no word is drawn. Only the lock (the way back in) and the pin (what to
-           show, not what is in it) stay. -->
+           no word is drawn. Only the lock stays, because it is the way back in
+           and the one thing a locked band is for.
+
+           The pin used to stay beside it as "what to show, not what is in it".
+           That reads well on paper and badly on a phone: the pin filters the
+           list, the list is what the lock just covered, and a control that
+           changes a hidden thing while the band is locked is a control nobody
+           can check the result of. It is one fold away with everything else. -->
       <div class="band compact">
         <span class="seat" aria-hidden="true"></span>
         <button
@@ -335,7 +347,6 @@
             <path d="M8 11V8a4 4 0 0 1 8 0v3" />
           </svg>
         </button>
-        {@render pinControl()}
       </div>
     {:else}
       <div class="band">
@@ -403,6 +414,7 @@
             <PinPad
               value={code}
               label={locked ? "Passcode" : "New passcode"}
+              length={locked ? (reader.hiddenPasscodeLength ?? undefined) : undefined}
               tone={locked ? "var(--tone-lock-closed)" : "var(--accent)"}
               submitLabel={locked ? "Unlock" : "Save passcode"}
               busy={reader.hiddenBusy}
@@ -553,6 +565,13 @@
     height: 12px;
   }
 
+  /* Folded on a phone it is the whole band, so it is a row: 20px of handle above
+     a 34px target would be a hairline you have to find. */
+  :global(html[data-device="phone"]) .bandbox.collapsed .bar {
+    height: 20px;
+    opacity: 0.85;
+  }
+
   /* On a phone the band shares a row with the day / night switch (the rail in
      `Sidebar`), so it takes the width that is left instead of a margin of its
      own on the right: the rail's padding is what keeps the pair off the edge. */
@@ -578,13 +597,22 @@
     margin-bottom: 4px;
   }
 
+  /* 34px, not 22: the handle is the only way back to the band, and at 22 it was
+     the smallest thing on the row it sits in — narrower than the gap between two
+     feed rows, and dim enough at 0.6 that it read as a decoration rather than a
+     control. The glyph grows with it so the press has something to aim at. */
   :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .bar {
     grid-column: 2;
     grid-row: 1;
-    width: 22px;
+    width: 34px;
     height: auto;
-    min-height: 26px;
-    opacity: 0.6;
+    min-height: 34px;
+    opacity: 0.85;
+  }
+
+  :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .bar .caret {
+    width: 14px;
+    height: 14px;
   }
 
   :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .reveal {

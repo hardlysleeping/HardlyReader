@@ -175,6 +175,112 @@ async function xkcdPosts(count) {
   return posts;
 }
 
+/**
+ * Full comic pages, from the Internet Archive.
+ *
+ * A newspaper strip is wide — xkcd's is about 1:0.4 — and the shape a comic *page* has, the
+ * Archie-like portrait page at roughly 1:1.4, is the one a reader's shelf is actually full of. Cards
+ * only show what they are for when the pictures disagree about their shape, and nothing in the feed
+ * list above is a page.
+ *
+ * The Archive addresses its page images directly (`page/nN_w800.jpg`), they are same-origin once
+ * downloaded, and both items carry a public-domain mark, so the demo can quote them. Page numbers
+ * skip the covers and blank versos; the ratio filter below drops whatever else is not a page.
+ */
+const PAGE_FEEDS = [
+  {
+    item: "LittleNemo1905-1914ByWinsorMccay",
+    title: "Little Nemo in Slumberland",
+    author: "Winsor McCay",
+    folder: "Comics",
+    pages: [3, 5, 7, 9, 11, 13],
+    note: "1905–1914, public domain",
+  },
+  {
+    item: "BootsAndSaddlesComic1029",
+    title: "Boots and Saddles",
+    author: "1950s western comic",
+    folder: "Comics",
+    pages: [3, 5, 7, 9],
+    note: "public-domain mark on the Internet Archive",
+  },
+  {
+    item: "AtomicAttack08195310",
+    title: "Atomic Attack! No. 8",
+    author: "1953 comic book",
+    folder: "Comics",
+    pages: [2, 4, 6, 8],
+    note: "1953, public-domain mark on the Internet Archive",
+  },
+];
+
+/** A portrait page, not a strip and not a cover: the Archie-like ratio, with room either side. */
+const PAGE_RATIO = { min: 1.2, max: 1.75 };
+
+/**
+ * The pixel size of a JPEG, read from its own frame header.
+ *
+ * A page is worth keeping only if it is a page: the ratio decides that, and the file has to be
+ * measured before it is written. Node has no image decoder here and a dependency for two numbers
+ * would be silly, so this walks the marker segments to the start-of-frame.
+ */
+function jpegSize(bytes) {
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < bytes.length) {
+    if (bytes[i] !== 0xff) {
+      i += 1;
+      continue;
+    }
+    const marker = bytes[i + 1];
+    const length = (bytes[i + 2] << 8) | bytes[i + 3];
+    // SOF0–SOF15, minus the four that are not frames.
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      const height = (bytes[i + 5] << 8) | bytes[i + 6];
+      const width = (bytes[i + 7] << 8) | bytes[i + 8];
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+    i += 2 + length;
+  }
+  return null;
+}
+
+async function archivePages(source) {
+  const posts = [];
+  let index = 0;
+  for (const page of source.pages) {
+    try {
+      const url = `https://archive.org/download/${source.item}/page/n${page}_w800.jpg`;
+      const response = await fetch(url, { headers: { "user-agent": UA }, redirect: "follow" });
+      if (!response.ok) continue;
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength < 40_000 || bytes.byteLength > MAX_IMAGE) continue;
+      const size = jpegSize(bytes);
+      if (size === null) continue;
+      const ratio = size.height / size.width;
+      if (ratio < PAGE_RATIO.min || ratio > PAGE_RATIO.max) continue;
+      const name = `${hash(url)}.jpg`;
+      writeFileSync(join(IMG, name), bytes);
+      index += 1;
+      posts.push({
+        title: `${source.title} — page ${page}`,
+        link: `https://archive.org/details/${source.item}/page/n${page}/mode/2up`,
+        author: source.author,
+        // Pages have no publication order worth trusting. They lead the comics category instead:
+        // a demo whose first card is a full page shows what a reader's shelf is full of, and a
+        // demo whose first card is a wide strip shows the one shape nobody's shelf is full of.
+        published: Date.now() - index * 25 * 60 * 1000,
+        summary: `${source.note}. ${size.width}×${size.height}, a ${ratio.toFixed(2)}:1 page — the shape a comic page has.`,
+        image: `demo/img/${name}`,
+        ratio: Number(ratio.toFixed(2)),
+      });
+    } catch {
+      // a page that will not come is one page, not the feed
+    }
+  }
+  return posts;
+}
+
 const library = [];
 const attribution = [];
 for (const feed of FEEDS) {
@@ -218,6 +324,31 @@ try {
   }
 } catch (error) {
   console.warn(`skip xkcd: ${String(error)}`);
+}
+
+for (const source of PAGE_FEEDS) {
+  try {
+    const posts = await archivePages(source);
+    if (posts.length === 0) {
+      console.warn(`skip ${source.title}: no pages`);
+      continue;
+    }
+    library.push({
+      url: `https://archive.org/details/${source.item}`,
+      title: source.title,
+      folder: source.folder,
+      site: `archive.org/details/${source.item}`,
+      posts,
+    });
+    attribution.push(
+      `- **${source.title}** — <archive.org/details/${source.item}> (${source.note}); pages quoted from the Internet Archive's scan.`,
+    );
+    console.log(
+      `${source.title}: ${posts.length} pages, ratios ${posts.map((p) => p.ratio.toFixed(2)).join(", ")}`,
+    );
+  } catch (error) {
+    console.warn(`skip ${source.title}: ${String(error)}`);
+  }
 }
 
 if (library.length === 0) {
