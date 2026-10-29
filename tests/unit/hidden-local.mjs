@@ -176,7 +176,14 @@ const { emptyHidden, hiddenStore, isLocallyHidden, parseHidden, resolveHidden, v
   check("...and its labels as the hidden ones", isHiddenCategory(scope, "Technology"));
   check("...one hidden id per label, for the count", scope.hiddenIds.length === 1);
   check("a label it does not hold is not hidden", !isHiddenCategory(scope, "Art"));
-  check("a local set can never be locked", scope.locked === false);
+  // The lock used to be the extension's alone. It is not: a library with no server keeps its own
+  // passcode, so the rule is now "a curtain needs a code behind it" — no passcode, no lock.
+  check("a local set with no passcode is never locked", scope.locked === false && scope.hasPasscode === false);
+  const locked = resolveHidden(parseState({ available: false }), parseHidden({ categories: ["Technology"], view: "only", passcode: "0000", locked: true }), "local");
+  check("...and one with a passcode can be", locked.locked === true && locked.hasPasscode === true);
+  check("...which shows the hidden list, whatever the eye was on", locked.effectiveView === "hidden");
+  const noCode = resolveHidden(parseState({ available: false }), parseHidden({ categories: ["Technology"], view: "only", locked: true }), "local");
+  check("a locked flag with no passcode is ignored, not obeyed", noCode.locked === false && noCode.effectiveView === "only");
 }
 
 {
@@ -668,12 +675,13 @@ try {
     await reader.setHiddenView("only");
     check("the eye's three views are the eye's here too", labels(reader.categories) === "Technology", labels(reader.categories));
 
-    // The lock is a passcode store, and a server with no Hidden Categories has
-    // none: the control says that rather than claiming the server went quiet.
+    // The lock used to need the extension to hold the passcode. It does not any more: this
+    // server keeps the set on the device, and the device keeps the code with it. So the control
+    // offers to set one instead of claiming a piece is missing.
     const lock = lockState(reader.hiddenAvailable, reader.hiddenHasPasscode, reader.session !== null, reader.hiddenAuthority);
-    check("the lock is not offered a passcode it cannot keep", lock === "missing", lock);
-    check("...and says which piece is missing", /Hidden Categories/.test(lockTitle(lock)), lockTitle(lock));
-    check("...and opens nothing", lockOpensPanel(lock) === false);
+    check("a server without the extension is offered the lock", lock === "none", lock);
+    check("...by asking for a passcode", lockTitle(lock) === "Set a passcode first", lockTitle(lock));
+    check("...and that press opens the panel to set one", lockOpensPanel(lock) === true);
   }
 
   /* -------------------------------------------------------------------------
@@ -760,8 +768,8 @@ try {
     check("...and the sidebar is filtered by it again", again.isCategoryHidden("Technology") === true);
 
     const lock = lockState(again.hiddenAvailable, again.hiddenHasPasscode, again.session !== null, again.hiddenAuthority);
-    check("the lock says what it is missing, not that a server is silent", lock === "local", lock);
-    check("...in the band's own words", lockTitle(lock) === "Locking needs a connected service");
+    check("a library on this device answers the lock itself", lock === "none" || lock === "ready", lock);
+    check("...never with a sentence about a server it does not have", lockTitle(lock) !== lockTitle("unknown"));
     check("...and nothing was written to storage by asking", device.getItem(deviceKey) === keptAfterView);
   }
 } finally {

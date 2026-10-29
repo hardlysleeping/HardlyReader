@@ -211,7 +211,10 @@ try {
 
   check("allCategories lists every group", labels(reader.allCategories) === "Art,Technology,Uncategorized", labels(reader.allCategories));
   check("an install without the extension filters nothing", labels(reader.categories) === "Art,Technology,Uncategorized");
-  check("no extension means hiddenAvailable is false", reader.hiddenAvailable === false);
+  // "Available" means there is a set to speak of, and a library with no extension keeps one here.
+  // What the extension would have supplied is the *authority*, not the existence.
+  check("no extension still means a hidden set, kept here", reader.hiddenAvailable === true);
+  check("...and this device is its authority", reader.hiddenAuthority === "local", reader.hiddenAuthority);
   check("no extension means the default view", reader.hiddenView === "hidden");
   check("a feed without categories lands in Uncategorized", reader.allCategories.some((group) => group.label === "Uncategorized"));
 
@@ -629,7 +632,12 @@ try {
   floods.clear();
 
   reader.stop();
-  check("stop() resets hidden state", reader.hiddenAvailable === false && reader.hiddenError === null);
+  // The server's block goes; the device's own set is the device's and survives a sign-out, so the
+  // thing to assert is that nothing from the server is still being believed.
+  check(
+    "stop() drops the server's hidden state",
+    reader.hiddenCategories.available === false && reader.hiddenError === null,
+  );
 
   // FreshRSS answers unread-count per label and per feed, and leaves the starred
   // stream out. A row that prints `countFor` there prints a zero nobody said.

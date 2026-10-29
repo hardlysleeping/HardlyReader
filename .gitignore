@@ -47,3 +47,5 @@ preview-*.png
 
 # working notes: private, never published
 BACKLOG.md
+# the demo's fetched feeds and pictures (scripts/demo-feeds.mjs writes them at build time)
+public/demo/

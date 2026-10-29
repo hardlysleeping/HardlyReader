@@ -39,6 +39,13 @@ jobs:
           npm i -g pnpm@10 --force >/dev/null
           pnpm install --frozen-lockfile
 
+      - name: Fetch the demo's feeds
+        # The demo reads real publishers, and a browser cannot fetch their RSS across origins — so
+        # the fetching happens here, once, and the posts and pictures ship in the bundle. A failure
+        # is not fatal: the app carries a built-in fallback library.
+        continue-on-error: true
+        run: node scripts/demo-feeds.mjs
+
       - name: Build the demo
         env:
           VITE_DEMO: "1"

@@ -604,6 +604,9 @@ await check("nothing in the app writes the local hidden set from a server's", as
     // not a server's: `seedFrom` copies the account the pane is reading as, and
     // nothing else. The check below still refuses a copy out of `hiddenCategories`.
     "this.localHidden = other.localHidden",
+    // Adopting a local document keeps THIS device's passcode: the code is never in the document,
+    // so reading one must not read as "clear it" (that would lift a curtain on a phrase).
+    "this.localHidden = parseHiddenKeepingPasscode(", 
   ];
   for (const line of lines) {
     const trimmed = line.trim();
