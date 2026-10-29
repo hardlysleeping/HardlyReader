@@ -1080,6 +1080,7 @@
       server={profile.session?.serverUrl ?? "On this device"}
       {onsignout}
       {onaddaccount}
+      controls={layoutSwitch}
     />
   {:else}
     <Header

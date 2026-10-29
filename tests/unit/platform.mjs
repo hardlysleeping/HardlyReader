@@ -16,8 +16,10 @@ function check(name, ok, detail = "") {
   }
 }
 
-// A desktop window is the only shape with a pane count to choose, edges to
-// drag, thresholds to set and a window to resize. Everything else follows.
+// A desktop window is the only shape with edges to drag, thresholds to set and a
+// window to resize. The pane count is different: a phone draws the feeds and the
+// list side by side in portrait and the stacked three in landscape, so it has a
+// count to choose as well.
 const desktopWindow = capabilitiesFor("desktop", true);
 check("desktop can choose a pane count", desktopWindow.paneCount);
 check("desktop can drag a pane edge", desktopWindow.paneResize);
@@ -29,9 +31,11 @@ const desktopTab = capabilitiesFor("desktop", false);
 check("a browser tab keeps the layout controls", desktopTab.paneThresholds);
 check("a browser tab cannot resize the window", desktopTab.windowFit === false);
 
-// The phone gets none of the layout controls: one column, as wide as the screen.
+// The phone keeps the pane count and loses everything that needs a window.
 const phone = capabilitiesFor("phone", true);
-check("a phone has no pane-count switch", phone.paneCount === false);
+check("a phone can choose a pane count, because it draws more than one", phone.paneCount === true);
+check("a phone has no split view", phone.splitView === false);
+check("a window does", desktopWindow.splitView === true);
 check("a phone has nothing to drag", phone.paneResize === false);
 check("a phone has no pane thresholds", phone.paneThresholds === false);
 check("a phone has no window to fit, even in the app", phone.windowFit === false);
@@ -74,12 +78,12 @@ const a = JSON.stringify(capabilitiesFor("phone", false));
 const b = JSON.stringify(capabilitiesFor("phone", false));
 check("capabilities are stable", a === b);
 check(
-  "the phone set is exactly the two flags a phone has",
+  "the phone set is exactly the flags a phone has",
   JSON.stringify(
     Object.entries(capabilitiesFor("phone", false))
       .filter(([, on]) => on)
       .map(([name]) => name),
-  ) === JSON.stringify(["articleExtract", "share"]),
+  ) === JSON.stringify(["paneCount", "articleExtract", "share"]),
 );
 
 // The app is a layout, not a document: a pinch zoomed the header and the panes

@@ -163,6 +163,14 @@ check(
   !between(header, "<header", "</header>").includes("•••"),
 );
 check("day and night sits beside it", /<ThemeToggle size=\{30\} \/>\s*<!--[\s\S]{0,400}?class="more"/.test(header));
+
+// The two settings a reader reaches for while reading are in the bar, not two
+// levels down in the sheet: the arrangement, and the text.
+check("the bar carries the arrangement switch", /\{#if controls\}\s*\{@render controls\(\)\}\s*\{\/if\}/.test(header));
+check("...passed in by the view, not imported", /controls\?: Snippet/.test(header) && /<PhoneHeader[\s\S]{0,300}?controls=\{layoutSwitch\}/.test(main));
+check("and the Aa panel opens from it", /<ReadingControls bind:this=\{readingControls\}/.test(header));
+check("...closing the sheet on its way open", /onopen=\{\(\) => \(settingsOpen = false\)\}/.test(header));
+check("the Aa panel clears the bar it opens under", /top: calc\(46px \+ var\(--safe-top, 0px\)\)/.test(read("src/components/ReadingControls.svelte")));
 check("...the same switch the sidebar's strip draws", /import ThemeToggle from "\.\/ThemeToggle\.svelte"/.test(header));
 check("it is announced as opening a dialog", /aria-haspopup="dialog"/.test(more));
 check("and it opens the consolidated sheet", /bind:open=\{settingsOpen\}/.test(header) && /<SettingsPanel/.test(header));

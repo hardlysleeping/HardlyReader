@@ -194,7 +194,11 @@
      because the header clips its own overflow. */
   .panel {
     position: fixed;
-    top: 46px;
+    /* Below the bar that opened it. 46 is a window's bar (42) plus a breath; the
+       status bar's own inset is added on top, because a phone's bar starts below
+       it and a panel at 46 would open over the bar's own controls. `--safe-top`
+       is 0 in a window, so the number there is unchanged. */
+    top: calc(46px + var(--safe-top, 0px));
     right: 12px;
     z-index: 61;
     width: 252px;
