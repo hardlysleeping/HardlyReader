@@ -55,10 +55,18 @@ jobs:
           pnpm build
           # A demo build that failed to take the flag would publish an empty app under a banner
           # promising sample feeds. Ask the bundle.
-          grep -rq "Demo library — sample feeds" dist/assets/*.js || {
+          grep -rq "Nothing you do is saved" dist/assets/*.js || {
             echo "the demo flag did not reach the bundle"
             exit 1
           }
+          # The feeds are fetched, not vendored, so a run where every publisher refused still
+          # publishes a demo — it just falls back to the built-in library. Say which happened
+          # rather than failing a page over a publisher's bad afternoon.
+          if [ -f dist/demo/feeds.json ]; then
+            node -e 'const d=require("./dist/demo/feeds.json");const p=d.feeds.flatMap(f=>f.posts);const withPictures=p.filter(x=>x.image).length;console.log(`demo library: ${d.feeds.length} feeds, ${p.length} posts, ${withPictures} with a picture`);if(d.feeds.length===0)process.exit(1)'
+          else
+            echo "::warning::no fetched feeds in this build — the demo fell back to its built-in library"
+          fi
           grep -q "/${{ github.event.repository.name }}/assets/" dist/index.html || {
             echo "the base path is missing from index.html"
             exit 1
