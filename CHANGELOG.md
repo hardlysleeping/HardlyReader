@@ -6,6 +6,31 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.6.11] — 2026-10-29
+
+### Added
+
+- **Split view: up to four reading panes.** Beside the 1/2/3 column layouts there is
+  now a split family, entered from the button beside them. A pane is a whole reader
+  of its own — its stream, its post, its scroll — the sidebar's next press goes to
+  the pane holding the focus (a hairline, not a wash), read marks and stars are shared
+  across all of them, a pane can be split again or closed, and the arrangement you
+  leave is the one you get back. A frame too narrow for the panes draws fewer and
+  says so rather than scrolling sideways.
+- **Subscriptions can be bought from the app.** The billing service is live at
+  `https://billing.hardlysleep.ing` — Stripe Checkout for the two plans, the customer
+  portal for changing or cancelling, and a signed webhook that records the
+  entitlement. Article text, feeds and reading state never leave the device; only the
+  entitlement is server-side.
+
+### Fixed
+
+- **Split view's panes were auto-placed into the gutters.** `splitTracks` emits
+  `1fr 6px 1fr …` and each pane took the next track, so at four panes the widths were
+  386, 6, 386, 6 with the frame's right edge full of tracks no pane occupied, and
+  `.split` had no flex growth so it measured 26px while its panes overflowed outside
+  it. Both fixed; measured after at four panes on a 1800px window: 386 each.
+
 ## [0.6.10] — 2026-10-28
 
 ### Added
