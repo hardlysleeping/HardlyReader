@@ -157,9 +157,12 @@ fn present(
 fn present_file(app: &AppHandle, path: &str) -> Result<(), String> {
     use std::sync::mpsc;
 
+    // The path is handed over owned: the closure outlives this function's
+    // borrow of it, and `run_on_main_thread` wants a `'static` job.
+    let staged = path.to_string();
     let (sender, receiver) = mpsc::channel();
     app.run_on_main_thread(move || {
-        let _ = sender.send(ios::present_file(path));
+        let _ = sender.send(ios::present_file(&staged));
     })
     .map_err(|error| format!("The share sheet could not be reached: {error}"))?;
 
