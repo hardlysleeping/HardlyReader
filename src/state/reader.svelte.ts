@@ -252,7 +252,55 @@ export function lockFailure(error: unknown): string {
   return "Could not lock. Nothing was changed.";
 }
 
+/**
+ * What a reader is made with.
+ *
+ * The account's reader is made with nothing and builds its own cache. A split
+ * pane is made with `pane: true` and the account's cache, so two panes on one
+ * feed cost one fetch and hold the same rows — and so the pane knows it is not
+ * the one that owns the sidebar, the remembered place or the extension state.
+ */
+export interface ReaderDeps {
+  /** The stream cache to share with the reader beside this one. */
+  cache?: StreamCache;
+  /** True for a reader drawn beside the account's own, in a split. */
+  pane?: boolean;
+}
+
 export class ReaderState {
+  /**
+   * What a reader needs from whatever made it.
+   *
+   * The one in `src/state/reader.svelte.ts`'s export is the account's own; a
+   * split pane makes a second one beside it, and the only things it must share
+   * are the articles already fetched and the answer about one post's read or
+   * starred state. Everything else it copies at birth (see `seedFrom`).
+   */
+  private readonly isPane: boolean;
+  /**
+   * Articles already fetched, keyed by stream.
+   *
+   * Switching category or feed used to wait for a round-trip every time, which is
+   * what made the sidebar feel slow. A cached stream paints immediately and is
+   * revalidated in the background, so the common case costs nothing.
+   *
+   * Handed in by `deps` for the readers beside this one in a split: two panes on
+   * one feed are one fetch, and the rows they hold are the same rows.
+   *
+   * Filled by the constructor rather than here, so a pane can be handed the
+   * account's own cache (see `ReaderDeps`).
+   */
+  private streamCache: StreamCache;
+  /** Told when a pane's scroll moved, so the arrangement is written down. */
+  onPanePlace: (() => void) | null = null;
+  /** The readers showing the same posts, for a read or a star made in one of them. */
+  private mirrors: ReaderState[] = [];
+
+  constructor(deps: ReaderDeps = {}) {
+    this.isPane = deps.pane === true;
+    this.streamCache = deps.cache ?? new StreamCache(STREAM_CACHE_TTL_MS, STREAM_CACHE_MAX);
+  }
+
   session = $state<Session | null>(null);
 
   /**
@@ -275,6 +323,17 @@ export class ReaderState {
    */
   private get scope(): AccountIdentity | null {
     return scopeIdentity(this.profile) ?? this.session;
+  }
+
+  /**
+   * Who this reader is reading as, for a store that keeps its own document.
+   *
+   * The split writes an arrangement per account and has to name the account the
+   * same way everything else on the device does — by slug, never by the address
+   * in the key.
+   */
+  get identity(): AccountIdentity | null {
+    return this.scope;
   }
 
   /**
@@ -2282,6 +2341,12 @@ export class ReaderState {
    * are silent by design.
    */
   private savePlace(): void {
+    // A pane is not the account's place: the arrangement it belongs to is its
+    // own document, written through `onPanePlace` by whoever owns the split.
+    if (this.isPane) {
+      this.onPanePlace?.();
+      return;
+    }
     if (typeof localStorage === "undefined") return;
     writeStoredPlace(localStorage, this.scope, {
       streamId: this.activeStream,
@@ -2455,6 +2520,10 @@ export class ReaderState {
   }
 
   async loadSidebar(report?: SyncReport): Promise<boolean> {
+    // A pane reads the account's sidebar, it does not fetch one: four panes
+    // asking for the same three feed reads is three requests paid four times,
+    // and the rows are the account's, not one pane's.
+    if (this.isPane) return false;
     if (!this.canRead) return false;
     const backend = this.source();
     // Captured before the four reads: the answer is only this account's.
@@ -2861,14 +2930,6 @@ export class ReaderState {
     return true;
   }
 
-  /**
-   * Articles already fetched, keyed by stream.
-   *
-   * Switching category or feed used to wait for a round-trip every time, which is
-   * what made the sidebar feel slow. A cached stream paints immediately and is
-   * revalidated in the background, so the common case costs nothing.
-   */
-  private streamCache = new StreamCache(STREAM_CACHE_TTL_MS, STREAM_CACHE_MAX);
   /**
    * Which load is allowed to paint.
    *
@@ -3447,8 +3508,14 @@ export class ReaderState {
   articleScrollRestore = $state<number | null>(null);
   listScrollRestore = $state<number | null>(null);
 
-  /** Where the reader is scrolled to now, written to the place on a pause. */
-  private liveScroll = { article: 0, list: 0 };
+  /**
+   * Where the reader is scrolled to now, written to the place on a pause.
+   *
+   * Read by the split as well: a pane's place in its own list is one of the
+   * things the arrangement remembers, and it is the same number the ordinary
+   * layout restores.
+   */
+  liveScroll = { article: 0, list: 0 };
   private scrollSave: ReturnType<typeof setTimeout> | null = null;
 
   /**
@@ -3472,6 +3539,104 @@ export class ReaderState {
   clearScrollRestore(part: "article" | "list"): void {
     if (part === "article") this.articleScrollRestore = null;
     else this.listScrollRestore = null;
+  }
+
+  /**
+   * Reads one post's read/starred state from a reader beside this one.
+   *
+   * Four panes showing one feed hold the same post, and marking it read in one
+   * of them has to mark it read in all of them — but each pane's list is its own
+   * reactive array, so the write in the pane it happened in does not wake the
+   * others. This is that wake-up: the same change applied through *this* pane's
+   * rows, and the unread count moved with it. It never writes to the server —
+   * the panes are looking at the same account, so the one that made the change
+   * already did.
+   */
+  applyItemState(id: string, change: { read?: boolean; starred?: boolean }): void {
+    const item = this.items.find((entry) => entry.id === id);
+    if (item === undefined) return;
+    const categories = item.categories ?? [];
+    if (change.read !== undefined) {
+      const has = categories.includes(STATE_READ);
+      if (change.read !== has) {
+        item.categories = change.read
+          ? [...categories.filter((c) => c !== STATE_READ), STATE_READ]
+          : categories.filter((c) => c !== STATE_READ);
+        this.adjustUnread(item, change.read ? -1 : 1);
+      }
+    }
+    if (change.starred !== undefined) {
+      const has = categories.includes(STATE_STARRED);
+      if (change.starred !== has) {
+        item.categories = change.starred
+          ? [...(item.categories ?? []).filter((c) => c !== STATE_STARRED), STATE_STARRED]
+          : (item.categories ?? []).filter((c) => c !== STATE_STARRED);
+      }
+    }
+  }
+
+  /** The readers drawn beside this one, so a read or a star is theirs too. */
+  attachMirror(other: ReaderState): void {
+    if (other === this || this.mirrors.includes(other)) return;
+    this.mirrors = [...this.mirrors, other];
+  }
+
+  detachMirror(other: ReaderState): void {
+    this.mirrors = this.mirrors.filter((mirror) => mirror !== other);
+  }
+
+  /** Says what one post's state is now, to every reader showing it. */
+  private broadcast(id: string, change: { read?: boolean; starred?: boolean }): void {
+    for (const mirror of this.mirrors) mirror.applyItemState(id, change);
+  }
+
+  /**
+   * Becomes a pane of an account that is already reading.
+   *
+   * A pane is not a second sign-in: it reads as the same account, through the
+   * same backend, and draws the same sidebar state. What it must not do is fetch
+   * any of that again, so it starts from the account's own answer — the feed
+   * list, the unread counts, the hidden set and its lock, the pins, the orders
+   * and the indent.
+   *
+   * The copy is a copy: a pane does not see a change the account makes later
+   * (a category hidden from the sidebar while four panes are open), and nothing
+   * in the split depends on it. Closing and reopening the split is what re-reads
+   * it.
+   */
+  seedFrom(other: ReaderState): void {
+    this.session = other.session;
+    this.profile = other.profile;
+    this.backend = other.backend;
+    this.paid = other.paid;
+    this.believed = other.believed;
+    this.observed = other.observed;
+    this.subscriptions = other.subscriptions;
+    this.tags = other.tags;
+    this.counts = new SvelteMap(other.counts);
+    this.hiddenCategories = other.hiddenCategories;
+    this.hiddenError = other.hiddenError;
+    this.stateRouteMissing = other.stateRouteMissing;
+    this.favorites = other.favorites;
+    this.localPins = other.localPins;
+    this.localHidden = other.localHidden;
+    this.feedOrder = other.feedOrder;
+    this.categoryOrder = other.categoryOrder;
+    this.sidebarIndent = other.sidebarIndent;
+    this.localIndentPx = other.localIndentPx;
+    this.collapsedCategories = other.collapsedCategories;
+    this.positionsRoute = other.positionsRoute;
+    this.feedExtractVersion = other.feedExtractVersion;
+  }
+
+  /**
+   * The cache this reader fetches streams into.
+   *
+   * Exposed so a pane can be handed the account's own, which is what makes two
+   * panes on one feed cost one request rather than two.
+   */
+  get streamCacheRef(): StreamCache {
+    return this.streamCache;
   }
 
   /**
@@ -3624,9 +3789,11 @@ export class ReaderState {
 
     try {
       await this.source().setRead([item.id], read);
+      this.broadcast(item.id, { read });
     } catch (error) {
       item.categories = previous;
       this.adjustUnread(item, read ? 1 : -1);
+      this.broadcast(item.id, { read: wasRead });
       this.error = message(error);
     } finally {
       this.busyItems.delete(item.id);
@@ -3646,6 +3813,7 @@ export class ReaderState {
 
     try {
       await this.source().setStarred([item.id], !starred);
+      this.broadcast(item.id, { starred: !starred });
       if (starred && this.activeStream === STATE_STARRED) {
         this.items = this.items.filter((entry) => entry.id !== item.id);
         this.cacheActiveStream();
@@ -3654,6 +3822,7 @@ export class ReaderState {
       void this.loadSidebar();
     } catch (error) {
       item.categories = previous;
+      this.broadcast(item.id, { starred });
       this.error = message(error);
     } finally {
       this.busyItems.delete(item.id);

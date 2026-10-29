@@ -161,7 +161,7 @@ const stops = list.match(/stopPropagation\(\)/g) ?? [];
 check("no control on a row also opens the post", stops.length === 4, String(stops.length));
 check(
   "the handlers are the reader's own writes",
-  /void reader\.toggleStar\(item\)/.test(list) && /void reader\.setRead\(item, !isRead\(item\)\)/.test(list),
+  /void store\.toggleStar\(item\)/.test(list) && /void store\.setRead\(item, !isRead\(item\)\)/.test(list),
 );
 
 const main = read("src/views/Main.svelte");
@@ -206,11 +206,11 @@ check("collapsing keeps the dragged widths", !/toggleSidebar\(\)[\s\S]{0,200}wid
 
 // The feed's own mark, in the posts pane: the same local pin the sidebar row
 // shows, so a feed can be pinned while reading it rather than by going back.
-check("the posts pane knows which feed it is showing", /reader\.subscriptions\.find\(\(candidate\) => candidate\.id === reader\.activeStream\)/.test(list));
-check("it reads the pin state", /reader\.isFeedPinned\(feed\.id\)/.test(list));
-check("and writes it", /reader\.setFeedPinned\(feed\.id, !reader\.isFeedPinned\(feed\.id\)\)/.test(list));
+check("the posts pane knows which feed it is showing", /store\.subscriptions\.find\(\(candidate\) => candidate\.id === store\.activeStream\)/.test(list));
+check("it reads the pin state", /store\.isFeedPinned\(feed\.id\)/.test(list));
+check("and writes it", /store\.setFeedPinned\(feed\.id, !store\.isFeedPinned\(feed\.id\)\)/.test(list));
 check("the mark is only drawn for a feed", /\{#if feed\}/.test(list));
-check("it is a pressed toggle, not a one-way button", /aria-pressed=\{reader\.isFeedPinned\(feed\.id\)\}/.test(list));
+check("it is a pressed toggle, not a one-way button", /aria-pressed=\{store\.isFeedPinned\(feed\.id\)\}/.test(list));
 check("and it marks, rather than restyling the row", /class="mark"/.test(list));
 
 
@@ -221,7 +221,7 @@ check("and it marks, rather than restyling the row", /class="mark"/.test(list));
 const sidebar = read("src/components/Sidebar.svelte");
 check("the one-pane posts are the real list", /<ArticleList nested \/>/.test(sidebar));
 check("and there is no second post row implementation", !/class="post-title"/.test(sidebar));
-check("the nested flag exists", /nested = false \}: \{ onOpen\?: \(\) => void; nested\?: boolean \}/.test(list));
+check("the nested flag exists", /nested = false,/.test(list) && /nested\?: boolean;/.test(list) && /onOpen\?: \(\) => void;/.test(list));
 check("nesting drops the second title", /\{#if !nested[^}]*\}[\s\S]{0,80}<h1>/.test(list));
 check("and the nested block does not make its own scrollbar", /\.list\.nested \.items \{[\s\S]{0,80}overflow: visible/.test(list));
 check("touch gets a real target for the toggles", /@media \(pointer: coarse\)[\s\S]{0,120}width: 34px/.test(list));
@@ -516,8 +516,8 @@ check(
   (() => {
     const derive = listSource.slice(listSource.indexOf("const entries = $derived"));
     return (
-      /view === "list"\s*\? tabbed\(reader\.listItems, closedTabs\)/.test(derive) &&
-      /: reader\.listItems\.map/.test(derive)
+      /view === "list"\s*\? tabbed\(store\.listItems, closedTabs\)/.test(derive) &&
+      /: store\.listItems\.map/.test(derive)
     );
   })(),
 );
@@ -570,7 +570,7 @@ check(
     return (
       // Offered in two plain panes only: three panes have an article column to
       // open into, and one pane is a walk down its own levels.
-      /\{#if layout\.mode === 2 && !layout\.sidebarCollapsed\}[\s\S]{0,320}?aria-label="Read posts here in the list"/.test(
+      /\{#if store === reader && layout\.mode === 2 && !layout\.sidebarCollapsed\}[\s\S]{0,320}?aria-label="Read posts here in the list"/.test(
         group,
       ) &&
       /onclick=\{\(\) => reading\.toggleReadInPane\(\)\}/.test(group) &&
@@ -590,7 +590,7 @@ const inlineSource = readFileSync(join(root, "src/components/InlineArticle.svelt
 check(
   "the post opens inside its own row, not over the list",
   /import InlineArticle from "\.\/InlineArticle\.svelte";/.test(listViewSource) &&
-    /\{#if readHere && reader\.selectedId === item\.id\}\s*<!--[\s\S]{0,400}?<InlineArticle \{item\} oncollapse=\{\(\) => reader\.closeReader\(\)\} \/>/.test(
+    /\{#if readHere && store\.selectedId === item\.id\}\s*<!--[\s\S]{0,400}?<InlineArticle \{item\} oncollapse=\{\(\) => store\.closeReader\(\)\} \/>/.test(
       listViewSource,
     ) &&
     // The row grows a second line and the page fills it: the list around it is
@@ -614,7 +614,7 @@ check(
 );
 check(
   "the same press folds it away again, and another post still opens",
-  /if \(readHere && reader\.selectedId === item\.id\) \{\s*reader\.closeReader\(\);\s*onOpen\?\.\(\);\s*return;\s*\}\s*reader\.select\(item\);/.test(
+  /if \(readHere && store\.selectedId === item\.id\) \{\s*store\.closeReader\(\);\s*onOpen\?\.\(\);\s*return;\s*\}\s*store\.select\(item\);/.test(
     listViewSource,
   ),
 );
@@ -628,8 +628,8 @@ check(
 );
 check(
   "marking read ends the visit; marking unread does not",
-  /if \(isRead\(item\)\) \{\s*reader\.setRead\(item, false\);\s*return;\s*\}/.test(readerSource) &&
-    /reader\.markRead\(item\);\s*onRead\?\.\(\);/.test(readerSource),
+  /if \(isRead\(item\)\) \{\s*store\.setRead\(item, false\);\s*return;\s*\}/.test(readerSource) &&
+    /store\.markRead\(item\);\s*onRead\?\.\(\);/.test(readerSource),
 );
 
 /* ---- how a row ends: half a turn, or the pill it used to be ---------------- */

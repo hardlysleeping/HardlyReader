@@ -39,7 +39,7 @@
   import { wantsFullText } from "../lib/full-text";
   import { bodies } from "../state/bodies.svelte";
   import { picture as drawPicture, pictures as pictureCache } from "../state/pictures.svelte";
-  import { reader } from "../state/reader.svelte";
+  import { reader, type ReaderState } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
 
@@ -52,7 +52,23 @@
    * implementation with a title, a time and a picture, which is why a phone had
    * no way to star a post and no way to change how the posts were drawn.
    */
-  let { onOpen, nested = false }: { onOpen?: () => void; nested?: boolean } = $props();
+  let {
+    onOpen,
+    nested = false,
+    store = reader,
+  }: {
+    onOpen?: () => void;
+    nested?: boolean;
+    /**
+     * The reader this column draws.
+     *
+     * The account's own by default, so every existing caller is unchanged. A
+     * split hands its pane's reader in here: same rows, same views, same star
+     * and read toggles, and the posts the pane is holding rather than the
+     * sidebar's.
+     */
+    store?: ReaderState;
+  } = $props();
 
   /**
    * The post's opening words. A row shows a line or two under the headline; a
@@ -314,8 +330,8 @@
    */
   const entries = $derived<Tabbed<StreamItem>[]>(
     view === "list"
-      ? tabbed(reader.listItems, closedTabs)
-      : reader.listItems.map((item) => ({ kind: "post" as const, item })),
+      ? tabbed(store.listItems, closedTabs)
+      : store.listItems.map((item) => ({ kind: "post" as const, item })),
   );
 
 
@@ -343,7 +359,7 @@
 
   /** Load the pictures of the posts that come after this one. */
   function prefetchFrom(id: string | undefined): void {
-    const items = reader.listItems;
+    const items = store.listItems;
     const index = items.findIndex((candidate) => candidate.id === id);
     if (index < 0) {
       aheadIds = {};
@@ -378,11 +394,11 @@
    * own text costs no request.
    */
   $effect(() => {
-    const items = reader.listItems;
+    const items = store.listItems;
     const open =
-      reader.selectedId === null
+      store.selectedId === null
         ? -1
-        : items.findIndex((item) => item.id === reader.selectedId);
+        : items.findIndex((item) => item.id === store.selectedId);
     // Past the post in hand — the pane is already fetching that one — or at the
     // first post on screen when nothing is open. A list too short to have
     // measured anything yet starts at the top, which is what is on screen then.
@@ -405,9 +421,9 @@
         const feedId = item.origin?.streamId ?? null;
         return wantsFullText({
           post: ledger.choice(candidate.id),
-          feed: reader.feedExtract(feedId),
+          feed: store.feedExtract(feedId),
           accountWide,
-          remembered: reader.feedTruncated(feedId),
+          remembered: store.feedTruncated(feedId),
           // The feed's own markup, unsanitised: this decides one fetch, and
           // `looksTruncated()` reads words and a marker, neither of which
           // sanitising changes. Sanitising ten posts per step is not worth that
@@ -598,19 +614,19 @@
    *
    * A step is *consumed* once the column can act on it, never before: a step
    * whose card has not been rendered yet is still owed, so the effect waits for
-   * the rows (`reader.items.length`) rather than dropping it. A step taken in
+   * the rows (`store.items.length`) rather than dropping it. A step taken in
    * another view is consumed, because there was no card to place.
    */
   $effect(() => {
-    const seq = reader.stepSeq;
+    const seq = store.stepSeq;
     void view;
-    void reader.items.length;
+    void store.items.length;
     if (seq === lastStep) return;
     if (view !== "cards") {
       lastStep = seq;
       return;
     }
-    const id = reader.selectedId;
+    const id = store.selectedId;
     if (id === null) {
       lastStep = seq;
       return;
@@ -745,7 +761,7 @@
   }
 
   function onCardsScroll(): void {
-    if (itemsEl !== null) reader.rememberScroll("list", itemsEl.scrollTop);
+    if (itemsEl !== null) store.rememberScroll("list", itemsEl.scrollTop);
     if (view !== "cards" || snapFrame) return;
     snapFrame = requestAnimationFrame(() => {
       snapFrame = 0;
@@ -759,9 +775,9 @@
   // A launch reopens the stream where it was left, so the rows under the port
   // are the ones that were being looked at.
   $effect(() => {
-    const top = reader.listScrollRestore;
+    const top = store.listScrollRestore;
     if (top === null) return;
-    reader.clearScrollRestore("list");
+    store.clearScrollRestore("list");
     resumeAt = top;
   });
 
@@ -770,7 +786,7 @@
   // stays pending until it sticks: a scroll by hand gives it up instead, because
   // then the reader is somewhere of their choosing.
   $effect(() => {
-    void reader.items.length;
+    void store.items.length;
     const want = resumeAt;
     const el = itemsEl;
     if (el === null || want === null) return;
@@ -860,7 +876,7 @@
   // port, and neither fires a scroll event of its own. A resize is `cardResize`.
   $effect(() => {
     void view;
-    void reader.items.length;
+    void store.items.length;
     if (view !== "cards") {
       tallCard = false;
       heldId = null;
@@ -1093,7 +1109,7 @@
    * to mark; this is null for those, and the header stays as it was.
    */
   const feed = $derived(
-    reader.subscriptions.find((candidate) => candidate.id === reader.activeStream) ?? null,
+    store.subscriptions.find((candidate) => candidate.id === store.activeStream) ?? null,
   );
 
   /** "Pin" / "Unpin" / "Pinned", the same three words the sidebar uses. */
@@ -1120,7 +1136,8 @@
    * the question — the switch is not drawn there and the flag is not read.
    */
   const readHere = $derived(
-    reading.readInPane &&
+    store === reader &&
+      reading.readInPane &&
       view === "regular" &&
       (layout.mode === 2 ? !layout.sidebarCollapsed : layout.mode === 1),
   );
@@ -1133,12 +1150,12 @@
    * other press still selects, so a post opening elsewhere is unchanged.
    */
   function open(item: StreamItem) {
-    if (readHere && reader.selectedId === item.id) {
-      reader.closeReader();
+    if (readHere && store.selectedId === item.id) {
+      store.closeReader();
       onOpen?.();
       return;
     }
-    reader.select(item);
+    store.select(item);
     onOpen?.();
   }
 
@@ -1149,12 +1166,12 @@
    */
   function toggleStar(item: StreamItem, event: MouseEvent): void {
     event.stopPropagation();
-    void reader.toggleStar(item);
+    void store.toggleStar(item);
   }
 
   function toggleRead(item: StreamItem, event: MouseEvent): void {
     event.stopPropagation();
-    void reader.setRead(item, !isRead(item));
+    void store.setRead(item, !isRead(item));
   }
 
   /** Where the post lives on its own site, if the feed said. */
@@ -1177,7 +1194,7 @@
   }
 </script>
 
-<section class="list" data-pane="posts" class:nested aria-label={reader.activeTitle}>
+<section class="list" data-pane="posts" class:nested aria-label={store.activeTitle}>
   <header class="list-header">
     <div class="headline">
       <!-- The bar above a phone already names this stream, one line up: drawing
@@ -1185,7 +1202,7 @@
            nothing new. The count, the feed's own mark and the filter rows stay —
            they are about this list, not about where you are. -->
       {#if !nested && layout.device !== "phone"}
-        <h1>{reader.activeTitle}</h1>
+        <h1>{store.activeTitle}</h1>
       {/if}
       {#if feed}
         <!-- The feed you are reading, marked from where you are reading it: the
@@ -1194,22 +1211,22 @@
              and smart streams are not feeds, so they get no mark. -->
         <button
           class="mark"
-          class:on={reader.isFeedPinned(feed.id)}
-          aria-pressed={reader.isFeedPinned(feed.id)}
-          aria-label={`${reader.isFeedPinned(feed.id) ? words.remove : words.add} ${feed.title}`}
-          title={reader.isFeedPinned(feed.id) ? `${words.remove} this feed` : `${words.add} this feed`}
-          onclick={() => reader.setFeedPinned(feed.id, !reader.isFeedPinned(feed.id))}
+          class:on={store.isFeedPinned(feed.id)}
+          aria-pressed={store.isFeedPinned(feed.id)}
+          aria-label={`${store.isFeedPinned(feed.id) ? words.remove : words.add} ${feed.title}`}
+          title={store.isFeedPinned(feed.id) ? `${words.remove} this feed` : `${words.add} this feed`}
+          onclick={() => store.setFeedPinned(feed.id, !store.isFeedPinned(feed.id))}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d={MARKER_PATH} /></svg>
         </button>
       {/if}
       <span class="meta">
-        {#if reader.loadingList}
+        {#if store.loadingList}
           Loading…
-        {:else if reading.articleFilter === "all" && reader.authorFilter === null}
-          {reader.listItems.length} item{reader.listItems.length === 1 ? "" : "s"}
+        {:else if reading.articleFilter === "all" && store.authorFilter === null}
+          {store.listItems.length} item{store.listItems.length === 1 ? "" : "s"}
         {:else}
-          {reader.listItems.length} of {reader.items.length}
+          {store.listItems.length} of {store.items.length}
         {/if}
       </span>
     </div>
@@ -1218,13 +1235,13 @@
          field that set this can be a pane away, and a short list with no reason
          on it reads as posts that have gone missing. The button is the way back
          from here, as the sidebar's own row is from there. -->
-    {#if reader.authorFilter !== null}
+    {#if store.authorFilter !== null}
       <div class="byline-filter">
-        <span class="byline-name">Only posts by <b>{reader.authorFilter}</b></span>
+        <span class="byline-name">Only posts by <b>{store.authorFilter}</b></span>
         <button
           class="byline-clear"
           title="Show every post in this stream again"
-          onclick={() => reader.setAuthorFilter(null)}
+          onclick={() => store.setAuthorFilter(null)}
         >Show all</button>
       </div>
     {/if}
@@ -1274,7 +1291,7 @@
           <!-- Only in two plain panes: three panes have an article column of
                their own to open into, and one pane is a walk through its own
                levels. -->
-          {#if layout.mode === 2 && !layout.sidebarCollapsed}
+          {#if store === reader && layout.mode === 2 && !layout.sidebarCollapsed}
           <span class="viewsplit" aria-hidden="true"></span>
           <button
             class="viewicon pane"
@@ -1438,11 +1455,11 @@
     use:pullDown={{
       label: "Pull down to check for new posts",
       readyLabel: "Release to check for new posts",
-      enabled: () => !reader.loadingList,
-      onPull: () => void reader.reloadStream({ force: true }),
+      enabled: () => !store.loadingList,
+      onPull: () => void store.reloadStream({ force: true }),
     }}
   >
-    {#if reader.loadingList && reader.items.length === 0}
+    {#if store.loadingList && store.items.length === 0}
       <div class="skeleton" aria-hidden="true">
         {#each Array(6) as _, index (index)}
           <div class="skeleton-row">
@@ -1483,11 +1500,11 @@
       {@const source = sourceUrl(item)}
       <div
         class="row"
-        class:selected={reader.selectedId === item.id}
+        class:selected={store.selectedId === item.id}
         class:read={isRead(item)}
         class:starred={isStarred(item)}
         class:held={heldId === item.id}
-        class:open={readHere && reader.selectedId === item.id}
+        class:open={readHere && store.selectedId === item.id}
         class:stacked={placement === "top"}
         data-id={item.id}
         use:near={{ root: itemsEl, near: (isNear: boolean) => markNear(item.id, isNear) }}
@@ -1596,10 +1613,10 @@
              finger the pan is the only scroll there is, so `lib/drag-scroll.ts`
              reads this attribute for the mouse only and lets a finger pan from
              here, at a wider threshold so a shaky tap still lands. -->
-        {#if readHere && reader.selectedId === item.id}
+        {#if readHere && store.selectedId === item.id}
           <!-- The post, opened out of its row: the list is still the list, and
                the page is the bottom half of the row it belongs to. -->
-          <InlineArticle {item} oncollapse={() => reader.closeReader()} />
+          <InlineArticle {item} oncollapse={() => store.closeReader()} />
         {/if}
 
         <div class="acts" data-no-drag-scroll>
@@ -1653,11 +1670,11 @@
       {/if}
     {/each}
 
-    {#if !reader.loadingList && reader.listItems.length === 0}
+    {#if !store.loadingList && store.listItems.length === 0}
       <p class="empty">
-        {#if reader.authorFilter !== null && reader.items.length > 0}
-          Nothing in this stream by {reader.authorFilter}.
-        {:else if reader.items.length > 0}
+        {#if store.authorFilter !== null && store.items.length > 0}
+          Nothing in this stream by {store.authorFilter}.
+        {:else if store.items.length > 0}
           Nothing matches “{ARTICLE_FILTER_LABELS[reading.articleFilter]}”.
         {:else}
           Nothing here.
@@ -1665,9 +1682,9 @@
       </p>
     {/if}
 
-    {#if reader.continuation}
-      <button class="more" onclick={() => reader.loadMore()} disabled={reader.loadingMore}>
-        {reader.loadingMore ? "Loading…" : "Load more"}
+    {#if store.continuation}
+      <button class="more" onclick={() => store.loadMore()} disabled={store.loadingMore}>
+        {store.loadingMore ? "Loading…" : "Load more"}
       </button>
     {/if}
   </div>
