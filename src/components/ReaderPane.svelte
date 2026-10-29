@@ -39,7 +39,7 @@
   import { pullDown } from "../lib/pull";
   import { shareArticle } from "../lib/share";
   import { layout } from "../state/layout.svelte";
-  import { reader } from "../state/reader.svelte";
+  import { reader, type ReaderState } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
 
   /**
@@ -58,9 +58,18 @@
     onClose,
     onLock,
     onRead,
+    store = reader,
   }: {
     onClose?: () => void;
     onLock?: () => void;
+    /**
+     * The reader whose post is drawn.
+     *
+     * The account's own by default. A split pane passes its own, so four panes
+     * can each be reading something different — the page, its byline, its
+     * pictures and its read mark all come from the reader in hand.
+     */
+    store?: ReaderState;
     /**
      * Called when this pane marks the post read.
      *
@@ -72,7 +81,7 @@
   } = $props();
 
   /** Locking needs something to lock with; without a passcode, say so instead. */
-  const canLock = $derived(reader.hiddenAvailable && reader.hiddenHasPasscode && !reader.hiddenLocked);
+  const canLock = $derived(store.hiddenAvailable && store.hiddenHasPasscode && !store.hiddenLocked);
 
   let scroller = $state<HTMLElement | null>(null);
 
@@ -334,8 +343,8 @@
     const el = scroller;
     if (!el) return;
     const end = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
-    reader.setArticleScroll(el.scrollTop <= 2, end);
-    reader.rememberScroll("article", el.scrollTop);
+    store.setArticleScroll(el.scrollTop <= 2, end);
+    store.rememberScroll("article", el.scrollTop);
     // Leaving the bottom gives the pull back: it is a gesture, not a latch.
     if (!end) pull = 0;
   }
@@ -393,7 +402,7 @@
     const direction = pull > 0 ? 1 : -1;
     resetPull();
     settleUntil = performance.now() + SETTLE_MS;
-    void reader.advanceArticle(direction);
+    void store.advanceArticle(direction);
   }
 
   // A new article opens at the edge you arrived from: its top when moving
@@ -406,14 +415,14 @@
   let openedPost: string | null = null;
 
   $effect(() => {
-    const id = reader.selectedId;
-    const resume = reader.articleScrollRestore;
+    const id = store.selectedId;
+    const resume = store.articleScrollRestore;
     if (id === null) return;
     const el = scroller;
     if (!el) return;
     if (resume !== null) {
       openedPost = id;
-      reader.clearScrollRestore("article");
+      store.clearScrollRestore("article");
       resetPull();
       // The body is laid out over the next frames — pictures especially — so the
       // offset is re-applied until it sticks, and given up if the post changes.
@@ -422,7 +431,7 @@
       el.scrollTop = resume;
       const deadline = performance.now() + 2500;
       const put = (): void => {
-        if (reader.selectedId !== id) return;
+        if (store.selectedId !== id) return;
         el.scrollTop = resume;
         if (Math.abs(el.scrollTop - resume) <= 1) return;
         if (performance.now() < deadline) setTimeout(put, 60);
@@ -432,22 +441,22 @@
     }
     if (openedPost === id) return;
     openedPost = id;
-    const edge = reader.landingEdge;
+    const edge = store.landingEdge;
     resetPull();
     el.scrollTop = edge === "bottom" ? el.scrollHeight : 0;
-    reader.setArticleScroll(el.scrollTop <= 2, el.scrollHeight <= el.clientHeight + 2);
+    store.setArticleScroll(el.scrollTop <= 2, el.scrollHeight <= el.clientHeight + 2);
   });
 
   // The read-after-dwell timer follows the open post and the preference: moving
   // on re-arms it, and turning the preference off disarms it without marking
   // whatever happened to be open.
   $effect(() => {
-    reader.selectedId;
+    store.selectedId;
     reading.autoMarkRead;
-    reader.syncDwell();
+    store.syncDwell();
   });
 
-  const item = $derived(reader.selected);
+  const item = $derived(store.selected);
 
   const link = $derived(item?.alternate?.[0]?.href ?? item?.canonical?.[0]?.href ?? "");
 
@@ -592,9 +601,9 @@
     // and the ledger decides whether that fetch is worth making at all.
     const wanted = wantsFullText({
       post: choice,
-      feed: reader.feedExtract(feedId),
+      feed: store.feedExtract(feedId),
       accountWide: reading.extract,
-      remembered: reader.feedTruncated(feedId),
+      remembered: store.feedTruncated(feedId),
       html: feedBody,
     });
 
@@ -602,8 +611,8 @@
     // feed sends stops short, so its later posts need no second test. Silent on
     // purpose — it changes nothing that is drawn, and the fetch below is the
     // answer to the post on screen.
-    if (wanted && reader.feedExtract(feedId) === "auto" && looksTruncated(feedBody)) {
-      reader.noteFeedTruncated(feedId);
+    if (wanted && store.feedExtract(feedId) === "auto" && looksTruncated(feedBody)) {
+      store.noteFeedTruncated(feedId);
     }
 
     if (!current || url === "") {
@@ -793,13 +802,13 @@
         class="icon"
         aria-label="Previous article"
         title="Previous article — moves through posts and into the previous feed, wrapping round before the first"
-        onclick={() => void reader.advanceArticle(-1)}
+        onclick={() => void store.advanceArticle(-1)}
       >↑</button>
       <button
         class="icon"
         aria-label="Next article"
         title="Next article — continues into the next feed at the end of this one, and wraps round after the last"
-        onclick={() => void reader.advanceArticle(1)}
+        onclick={() => void store.advanceArticle(1)}
       >↓</button>
       <div class="spacer"></div>
       <button
@@ -839,7 +848,7 @@
         class:on={isStarred(item)}
         aria-pressed={isStarred(item)}
         aria-label={isStarred(item) ? "Remove star" : "Add star"}
-        onclick={() => reader.toggleStar(item)}
+        onclick={() => store.toggleStar(item)}
         title={isStarred(item) ? "Starred" : "Star"}
       >★</button>
       <button
@@ -848,10 +857,10 @@
         title={isRead(item) ? "Mark unread" : "Mark read"}
         onclick={() => {
           if (isRead(item)) {
-            reader.setRead(item, false);
+            store.setRead(item, false);
             return;
           }
-          reader.markRead(item);
+          store.markRead(item);
           onRead?.();
         }}
       >{isRead(item) ? "◯" : "●"}</button>
@@ -907,7 +916,7 @@
       use:pullDown={{
         label: reading.advanceOnScroll ? "Pull down for the previous post" : "Pull down to go back",
         readyLabel: reading.advanceOnScroll ? "Release for the previous post" : "Release to go back",
-        onPull: () => (reading.advanceOnScroll ? void reader.advanceArticle(-1) : onClose?.()),
+        onPull: () => (reading.advanceOnScroll ? void store.advanceArticle(-1) : onClose?.()),
       }}
     >
       <h1>{item.title || "(untitled)"}</h1>
@@ -961,7 +970,7 @@
       <p>Select an article.</p>
     </div>
   {/if}
-  {#if reader.traversalEnded}
+  {#if store.traversalEnded}
     <p class="ended" role="status">That is every post in this view.</p>
   {/if}
   {#if opened}

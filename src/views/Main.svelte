@@ -13,6 +13,7 @@
   import PhoneHeader from "../components/PhoneHeader.svelte";
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
+  import SplitView from "../components/SplitView.svelte";
   import { startAutoSync } from "../lib/auto-sync";
   import { DEMO } from "../lib/demo";
   import { refreshDueOnLaunch, refreshDueOnReturn } from "../lib/refresh-on-return";
@@ -31,6 +32,7 @@
   import { bodies } from "../state/bodies.svelte";
   import { pictures } from "../state/pictures.svelte";
   import { reader } from "../state/reader.svelte";
+  import { split } from "../state/split.svelte";
   import { localStoreOf, type ReaderProfile } from "../api/profile";
 
   let {
@@ -190,6 +192,16 @@
   const mode = $derived(layout.mode);
 
   /**
+   * The reader the keyboard is talking to.
+   *
+   * In the column layouts there is one of them, so this is the account's own and
+   * nothing changes. In a split every pane is a reader, and the one that was
+   * last pressed in owns the keys — "the arrows are shaped like the panes" is
+   * what makes a press in a pane mean anything.
+   */
+  const focused = $derived(split.active ? split.focused : reader);
+
+  /**
    * The phone's sliding stack, instead of the columns.
    *
    * True only for a phone held upright whose preference says `stack`. Everything
@@ -271,7 +283,12 @@
     // stores the reader does not own — the theme, the cards, the search toggle —
     // and this view is mounted once per session, so the switch is the moment.
     if (session !== null) prefs.start(session);
-    void reader.start(profile).finally(() => (launched = true));
+    void reader
+      .start(profile)
+      // The split is read after the account has started: its panes are copies of
+      // that reader, and a copy of nothing is four empty columns.
+      .then(() => split.restore())
+      .finally(() => (launched = true));
 
     // The mode is drawn from the real container width rather than from an
     // `innerWidth` guess, and the observer has one job: report that width.
@@ -343,9 +360,23 @@
    * because `lib/keys.ts` stops claiming those keys once focus is inside it.
    */
   function focusArticle(): void {
-    const el = document.querySelector<HTMLElement>('[data-scroll="article"]');
+    const el = articleScroller();
     if (el === null) return;
     el.focus({ preventScroll: true });
+  }
+
+  /**
+   * The article scroller the keys mean.
+   *
+   * One app, one article column, except in a split — where four posts can be on
+   * screen and Right has to hand the keyboard to the one you are reading. The
+   * focused pane is marked on the DOM (`data-pane-focused`), and this reads that
+   * mark instead of taking the first scroller in the document.
+   */
+  function articleScroller(): HTMLElement | null {
+    const pane = document.querySelector<HTMLElement>('[data-pane-focused]');
+    if (pane !== null) return pane.querySelector<HTMLElement>('[data-scroll="article"]');
+    return document.querySelector<HTMLElement>('[data-scroll="article"]');
   }
 
   /** Whether the key event came from inside the article pane. */
@@ -356,7 +387,7 @@
   }
 
   function pageArticle(direction: -1 | 1): void {
-    const el = document.querySelector<HTMLElement>('[data-scroll="article"]');
+    const el = articleScroller();
     if (el === null) return;
     el.scrollBy({
       top: direction * el.clientHeight * 0.85,
@@ -374,9 +405,9 @@
     const context = {
       typing: isTypingTarget(event.target),
       menuOpen: reader.menu !== null,
-      hasArticle: reader.selectedId !== null,
-      atArticleStart: reader.articleAtStart,
-      atArticleEnd: reader.articleAtEnd,
+      hasArticle: focused.selectedId !== null,
+      atArticleStart: focused.articleAtStart,
+      atArticleEnd: focused.articleAtEnd,
       inArticle: inArticlePane(event.target),
     };
     const intent = event.shiftKey
@@ -392,19 +423,19 @@
         // the posts, and with the feed list in hand they walk the feeds, which is
         // what they have always done here. Same list, same order as the view on
         // screen, so the step lands on something you can see.
-        if (reader.selectedId !== null) {
-          void reader.stepItem(intent.delta);
+        if (focused.selectedId !== null) {
+          void focused.stepItem(intent.delta);
           return;
         }
-        void reader.stepStream(intent.delta);
+        void focused.stepStream(intent.delta);
         return;
       case "first":
         event.preventDefault();
-        void reader.firstStream();
+        void focused.firstStream();
         return;
       case "last":
         event.preventDefault();
-        void reader.lastStream();
+        void focused.lastStream();
         return;
       case "enter":
         event.preventDefault();
@@ -412,11 +443,11 @@
         // open, the third press hands the keyboard to the article pane itself
         // instead of doing nothing — that pane is where reading happens, and a
         // key with no answer at the end of the walk reads as a dead key.
-        if (reader.selectedId !== null) {
+        if (focused.selectedId !== null) {
           focusArticle();
           return;
         }
-        void reader.enter();
+        void focused.enter();
         return;
       case "back":
         event.preventDefault();
@@ -429,7 +460,14 @@
         // Out of the article. In one column that is the feed list again, with
         // the feed you were reading still open where you left it.
         if (stackBack()) return;
-        if (reader.back()) return;
+        if (focused.back()) return;
+        // A split's columns are panes, not roles: Left gives up the one you are
+        // in, exactly as it gives up a column in the layouts beside this one.
+        if (split.active) {
+          if (split.count > 2) split.closePane(split.focusedId ?? "");
+          else void split.leave();
+          return;
+        }
         // Nothing open: Left still means "one column to the left", so the panes
         // give one up instead of the key doing nothing. The window is not asked
         // to shrink here — that belongs to the 1/2/3 buttons, and a key that
@@ -457,18 +495,25 @@
           event.preventDefault();
           return;
         }
-        if (reader.back()) event.preventDefault();
+        if (focused.back()) {
+          event.preventDefault();
+          return;
+        }
+        if (split.active && split.count > 2) {
+          event.preventDefault();
+          split.closePane(split.focusedId ?? "");
+        }
         return;
       case "page":
         event.preventDefault();
-        if (intent.advance) void reader.advanceArticle(intent.direction);
+        if (intent.advance) void focused.advanceArticle(intent.direction);
         else pageArticle(intent.direction);
         return;
     }
   }
 
   function closeReader() {
-    reader.closeReader();
+    focused.closeReader();
   }
 
     /**
@@ -495,6 +540,17 @@
    * rather than removed.
    */
   const stackDrawn = $derived(layout.stacked && mode === 3);
+
+  /**
+   * The measurement follows the grid back when the split closes.
+   *
+   * The resize observer is created once, against the element the session started
+   * with; the split draws a different frame, so the grid's element is a new one
+   * when it returns and nothing would tell the layout how wide it is.
+   */
+  $effect(() => {
+    if (!split.active && panes !== null) layout.setAvailable(panes.clientWidth);
+  });
 
   /**
    * A phone with nothing open in the article column.
@@ -978,7 +1034,7 @@
 
   /** Left-swipe: onward, into the first post of what is open. */
   function gestureForward(): void {
-    if (reader.selectedId === null) void reader.enter();
+    if (focused.selectedId === null) void focused.enter();
   }
 
   /** The hamburger is the one-column way back to the feeds. */
@@ -1096,7 +1152,17 @@
     </nav>
   {/if}
 
-  {#if slideStack}
+  {#if split.active}
+    <!-- The split family: one sidebar, and up to four whole readers beside it.
+         It replaces the grid rather than living inside it, the way the phone's
+         stack does, because its panes are not the grid's roles. -->
+    <div class="splitframe" style:--split-sidebar={`${layout.shown.sidebar}px`}>
+      <div class="splitfeeds">
+        <Sidebar {focused} {onconnect} />
+      </div>
+      <SplitView />
+    </div>
+  {:else if slideStack}
     <!-- The phone's sliding stack: the same three panes, one screen each, moved
          with transforms instead of drawn as columns. It replaces the grid below
          rather than living inside it, which is why a portrait phone that chose
@@ -1146,7 +1212,7 @@
          than a second component, so the walk does not have to rebuild the list
          it is walking out of. -->
     <div class="slot feeds" class:away={!slots.sidebar} bind:this={feedsSlot}>
-      <Sidebar inlinePosts={mode === 1} {onconnect} />
+      <Sidebar inlinePosts={mode === 1} {focused} {onconnect} />
     </div>
 
     <div class="slot seam-x gut-feeds" class:away={!slots.seam}>
@@ -1256,7 +1322,7 @@
   <!-- Fold the feeds pane away. It lives beside the pane switch because both
        answer "what do I want on screen", and it is drawn only where there is a
        sidebar to fold: one column has nothing to collapse. -->
-  {#if mode === 3}
+  {#if mode === 3 && !split.active}
     <button
       class="fold"
       class:on={layout.collapsed}
@@ -1282,6 +1348,31 @@
 {/snippet}
 
 <style>
+  /* The split family's frame: the one sidebar, and the panes beside it.
+     The sidebar keeps the width it has in three panes — it is the same list —
+     and everything left over is divided between the readers. */
+  .splitframe {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .splitfeeds {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    width: var(--split-sidebar, 280px);
+    min-height: 0;
+    border-right: 1px solid var(--edge-soft);
+  }
+
+  .splitfeeds > :global(*) {
+    flex: 1;
+    min-height: 0;
+  }
+
   /* The fold toggle: the same quiet weight as the pane switch beside it. */
   .fold {
     display: inline-flex;

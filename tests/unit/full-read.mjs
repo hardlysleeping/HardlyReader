@@ -58,9 +58,9 @@ check("a choice only ever has two values", /export type BodyChoice = "feed" \| "
 // and Auto's read of it — and never a page the ledger has parked.
 check("the pane asks the one rule where the text comes from", /const wanted = wantsFullText\(\{/.test(pane));
 check("...with this post's own press", /post: choice,/.test(pane));
-check("...the feed's answer", /feed: reader\.feedExtract\(feedId\),/.test(pane));
+check("...the feed's answer", /feed: store\.feedExtract\(feedId\),/.test(pane));
 check("...the account-wide switch", /accountWide: reading\.extract,/.test(pane));
-check("...what Auto already knows about the feed", /remembered: reader\.feedTruncated\(feedId\),/.test(pane));
+check("...what Auto already knows about the feed", /remembered: store\.feedTruncated\(feedId\),/.test(pane));
 check("...and this post's own markup", /html: feedBody,/.test(pane));
 check("the rule lives in its own module, not in a component", /export function wantsFullText/.test(fullText));
 check("an automatic fetch goes through the ledger", /void extractFor\(id, url\)\.then/.test(pane));
@@ -70,8 +70,8 @@ check("a page that answers is forgiven", /ledger\.forgive\(url\)/.test(extract))
 
 // Auto's read of a feed is remembered per feed, once, and never as a change to
 // what is on screen: the post that proved it is already being fetched.
-check("Auto writes what it found against the feed", /reader\.noteFeedTruncated\(feedId\)/.test(pane) && /ledger\.noteTruncated\(streamId\)/.test(reader));
-check("...and only when the feed is on Auto", /reader\.feedExtract\(feedId\) === "auto" && looksTruncated\(feedBody\)/.test(pane));
+check("Auto writes what it found against the feed", /store\.noteFeedTruncated\(feedId\)/.test(pane) && /ledger\.noteTruncated\(streamId\)/.test(reader));
+check("...and only when the feed is on Auto", /store\.feedExtract\(feedId\) === "auto" && looksTruncated\(feedBody\)/.test(pane));
 check("the note is silent, so it cannot re-run the fetch it came from", /noteFeedTruncated\(streamId: string \| null \| undefined\): void \{\s*if \(!streamId \|\| ledger\.truncated\(streamId\)\) return;\s*ledger\.noteTruncated\(streamId\);\s*\}/.test(reader));
 
 // One feed, one answer, written by the menu and read by both surfaces.

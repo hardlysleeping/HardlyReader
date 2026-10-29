@@ -35,7 +35,7 @@ check("nonsense in, zero out", resist(NaN) === 0 && resist(Infinity) === MAX_PUL
 const readerPane = read("src/components/ReaderPane.svelte");
 check("the article listens for a pull", /use:pullDown=\{\{/.test(readerPane));
 check("the article pull leaves when there is nothing higher",
-  /reading\.advanceOnScroll \? void reader\.advanceArticle\(-1\) : onClose\?\.\(\)/.test(readerPane));
+  /reading\.advanceOnScroll \? void store\.advanceArticle\(-1\) : onClose\?\.\(\)/.test(readerPane));
 check("the article pull says which of the two it will do",
   /Pull down to go back/.test(readerPane) && /Pull down for the previous post/.test(readerPane));
 check("advance-on-scroll decides, not the wheel alone",
@@ -44,13 +44,13 @@ check("advance-on-scroll decides, not the wheel alone",
 // --- the posts: ask the feed for news, keep the list
 const articleList = read("src/components/ArticleList.svelte");
 check("the posts column listens for a pull", /use:pullDown=\{\{/.test(articleList));
-check("the posts pull reloads the stream", /onPull:\s*\(\)\s*=>\s*void reader\.reloadStream\(\{\s*force:\s*true\s*\}\)/.test(articleList));
-check("the posts pull does not stack up", /enabled:\s*\(\)\s*=>\s*!reader\.loadingList/.test(articleList));
+check("the posts pull reloads the stream", /onPull:\s*\(\)\s*=>\s*void store\.reloadStream\(\{\s*force:\s*true\s*\}\)/.test(articleList));
+check("the posts pull does not stack up", /enabled:\s*\(\)\s*=>\s*!store\.loadingList/.test(articleList));
 
 // --- one column: the feed list is the feed view
 const sidebar = read("src/components/Sidebar.svelte");
 check("the feed list listens for a pull", /use:pullDown=\{\{/.test(sidebar));
-check("the feed list pull refreshes the open feed", /reader\.activeStream !== ""\)\s*void reader\.reloadStream/.test(sidebar));
+check("the feed list pull refreshes the open feed", /openStreamId !== ""\)\s*void focused\.reloadStream/.test(sidebar));
 check("...and the whole account when none is open", /else void reader\.refresh\(\)/.test(sidebar));
 
 // --- the feed stays unfolded, because the reader took the panel away

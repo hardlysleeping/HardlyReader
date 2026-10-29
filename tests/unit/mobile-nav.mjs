@@ -230,7 +230,7 @@ const layoutSrc = readFileSync(join(ROOT, "src/state/layout.svelte.ts"), "utf8")
 const navSrc = readFileSync(join(ROOT, "src/state/mobile-nav.svelte.ts"), "utf8");
 const panel = readFileSync(join(ROOT, "src/components/ThemePanel.svelte"), "utf8");
 
-check("the stack replaces the grid only when it is asked for", /\{#if slideStack\}[\s\S]{0,400}<MobilePaneStack[\s\S]{0,400}\{:else\}/.test(main));
+check("the stack replaces the grid only when it is asked for", /\{:else if slideStack\}[\s\S]{0,400}<MobilePaneStack[\s\S]{0,400}\{:else\}/.test(main));
 check("and the grid is the else, untouched", /\{:else\}[\s\S]{0,900}<div\s+class="panes"/.test(main));
 check("one grid, still", (main.match(/class="panes"/g) ?? []).length === 1);
 // The drawer, the crumb strip and the inline feed list are the *grid's*: they

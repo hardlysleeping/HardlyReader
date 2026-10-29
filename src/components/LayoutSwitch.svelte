@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PaneMode } from "../lib/panes";
   import { layout } from "../state/layout.svelte";
+  import { split } from "../state/split.svelte";
 
   /**
    * A mode button records the choice, then asks the window to fit it.
@@ -17,7 +18,17 @@
    * mode still changed, so nothing is lost but the resize.
    */
   async function choose(mode: PaneMode) {
+    // A split is a layout of its own: choosing a column layout leaves it on the
+    // pane that was being read, which is what `leave` hands back to the account's
+    // reader. The press is answered either way.
+    if (split.active) await split.leave();
     await layout.chooseMode(mode);
+  }
+
+  /** The split family: on, and off again to the columns it was entered from. */
+  async function chooseSplit() {
+    if (split.active) await split.leave();
+    else split.enter();
   }
 
   const modes: { mode: PaneMode; label: string; hint: string }[] = [
@@ -31,8 +42,8 @@
   {#each modes as item (item.mode)}
     <button
       class="mode"
-      class:on={layout.mode === item.mode}
-      aria-pressed={layout.mode === item.mode}
+      class:on={!split.active && layout.mode === item.mode}
+      aria-pressed={!split.active && layout.mode === item.mode}
       title={layout.squeezed && layout.desired === item.mode
         ? `${item.hint} — this window cannot get wide enough, showing ${layout.mode}`
         : item.hint}
@@ -41,6 +52,29 @@
       {item.label}
     </button>
   {/each}
+  <!-- The split family beside the column layouts. A pane there is a whole reader
+       with a stream of its own, so it is a different way to run the app rather
+       than a fourth column — which is why its button says so with a picture
+       instead of a number. Not offered where the frame cannot hold two panes: a
+       phone draws one column and its stack is the answer there. -->
+  {#if layout.caps.paneCount}
+    <span class="viewsplit" aria-hidden="true"></span>
+    <button
+      class="mode split"
+      class:on={split.active}
+      aria-pressed={split.active}
+      aria-label="Split view"
+      title={split.active
+        ? "Split view: up to four panes, each on its own stream — press to go back to the columns"
+        : "Split view: up to four panes, each on its own stream; the sidebar opens feeds in the pane you last pressed"}
+      onclick={() => void chooseSplit()}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2.5" y="3" width="11" height="10" rx="1.6" />
+        <path d="M8 3v10" />
+      </svg>
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -77,5 +111,29 @@
     background: var(--bg);
     color: var(--text);
     box-shadow: inset 0 0 0 1px var(--edge);
+  }
+
+  /* The hairline the pane switch already draws between groups of buttons. */
+  .viewsplit {
+    width: 1px;
+    align-self: stretch;
+    margin: 2px 1px;
+    background: var(--edge-soft);
+  }
+
+  .mode.split {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+  }
+
+  .mode.split svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.3;
+    stroke-linecap: round;
   }
 </style>

@@ -207,7 +207,7 @@ const block = gate > 0 ? sidebar.slice(gate, gateEnd) : "";
   );
   check(
     "the view hands its own `onconnect` to the sidebar",
-    /<Sidebar inlinePosts=\{mode === 1\} \{onconnect\} \/>/.test(main),
+    /<Sidebar inlinePosts=\{mode === 1\} \{focused\} \{onconnect\} \/>/.test(main),
   );
   check(
     "and nothing is offered when there is no connect screen to open",
