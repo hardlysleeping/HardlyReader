@@ -600,6 +600,10 @@ await check("nothing in the app writes the local hidden set from a server's", as
     "this.localHidden = parseHidden(raw?.hidden)",
     "this.localHidden = parseHidden({ categories: doc.hidden, view: doc.hiddenView })",
     "this.localHidden = { ...this.localHidden, ...change }",
+    // A split pane starts from the reader beside it — the *same* account's set,
+    // not a server's: `seedFrom` copies the account the pane is reading as, and
+    // nothing else. The check below still refuses a copy out of `hiddenCategories`.
+    "this.localHidden = other.localHidden",
   ];
   for (const line of lines) {
     const trimmed = line.trim();

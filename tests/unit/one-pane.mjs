@@ -125,11 +125,11 @@ check("a choice is not", /setMode[\s\S]{0,600}this\.settle\(false\);/.test(layou
 // out one, and Up/Down belong to whichever pane is in hand.
 check(
   "Left closes the article before it gives up a pane",
-  /case "back":[\s\S]{0,700}if \(reader\.back\(\)\) return;/.test(main),
+  /case "back":[\s\S]{0,700}if \(focused\.back\(\)\) return;/.test(main),
 );
 check(
   "Left with nothing open drops a column",
-  /if \(reader\.back\(\)\) return;[\s\S]{0,700}layout\.collapseOne\(\);/.test(main),
+  /if \(focused\.back\(\)\) return;[\s\S]{0,700}layout\.collapseOne\(\);/.test(main),
 );
 check(
   "a column collapse never resizes the window",
@@ -139,9 +139,9 @@ check(
 check("Left stops at one pane", /collapseOne\(\): boolean \{[\s\S]{0,200}return false;/.test(layout));
 check(
   "Down in the posts pane steps the post, not the feed",
-  /case "stream":[\s\S]{0,700}reader\.selectedId !== null[\s\S]{0,200}reader\.stepItem\(intent\.delta\)/.test(main),
+  /case "stream":[\s\S]{0,700}focused\.selectedId !== null[\s\S]{0,200}focused\.stepItem\(intent\.delta\)/.test(main),
 );
-check("with no post open they still step the feed", /case "stream":[\s\S]{0,1000}reader\.stepStream\(intent\.delta\)/.test(main));
+check("with no post open they still step the feed", /case "stream":[\s\S]{0,1000}focused\.stepStream\(intent\.delta\)/.test(main));
 
 // Pressing 3 from two panes extends the columns on screen — but only when the
 // window cannot grow to the three columns it already has. Otherwise the press

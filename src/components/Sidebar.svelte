@@ -25,7 +25,7 @@
   import { pullDown } from "../lib/pull";
   import { createFeedDrag, LIST_CATEGORIES } from "../lib/feed-drag";
   import { reading } from "../state/reading.svelte";
-  import { reader, type CategoryGroup } from "../state/reader.svelte";
+  import { reader, type CategoryGroup, type ReaderState } from "../state/reader.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
   import { statusFacts } from "../lib/band";
   import { groupHits, searchFeeds } from "../lib/search";
@@ -280,9 +280,20 @@
     inlinePosts = false,
     iconProvider = DEFAULT_ICON_PROVIDER,
     onconnect,
+    focused = reader,
   }: {
     inlinePosts?: boolean;
     iconProvider?: FeedIconProvider;
+    /**
+     * The reader this sidebar is navigating.
+     *
+     * The account's own by default, which is every caller today. A split hands
+     * in the pane that holds the focus: a feed press opens *there*, and the row
+     * that reads as open is that pane's stream rather than whichever pane came
+     * first. Everything else — the feeds, the counts, hidden, the pins — stays
+     * the account's, because it is.
+     */
+    focused?: ReaderState;
     /**
      * Opens the connect-a-service screen. It is the same one the account panel
      * presses, handed down rather than rebuilt here: syncing is an offer the
@@ -298,6 +309,15 @@
    * away entirely while an article is open.
    */
   const expandedFeed = $derived(reader.expandedFeedId);
+
+  /**
+   * The stream that reads as open in the list.
+   *
+   * The pane in hand's, which is the account reader's unless a split is drawing
+   * more than one of them. One derivation rather than six comparisons, so the
+   * highlight cannot follow one reader while the press follows another.
+   */
+  const openStreamId = $derived(focused.activeStream);
 
 
   /** The add-feed form: closed until asked for, so the sidebar stays a list. */
@@ -364,7 +384,7 @@
   }
 
   async function open(streamId: string, title: string) {
-    await reader.openStream(streamId, title);
+    await focused.openStream(streamId, title);
   }
 
   function openCategory(category: CategoryGroup) {
@@ -399,7 +419,7 @@
       if (folded) toggle(category.id);
       return;
     }
-    if (reader.activeStream !== category.id) {
+    if (openStreamId !== category.id) {
       if (folded) toggle(category.id);
       openCategory(category);
       return;
@@ -456,7 +476,7 @@
    * feed", so it is the whole account — the same thing the sync button does.
    */
   function pullRefresh(): void {
-    if (reader.activeStream !== "") void reader.reloadStream({ force: true });
+    if (openStreamId !== "") void focused.reloadStream({ force: true });
     else void reader.refresh();
   }
 
@@ -1028,7 +1048,7 @@
             {#each group.hits as hit (hit.feed.id)}
               <button
                 class="row feed hit"
-                class:active={reader.activeStream === hit.feed.id}
+                class:active={openStreamId === hit.feed.id}
                 onclick={() => (inlinePosts ? jumpTo(hit.feed) : open(hit.feed.id, hit.feed.title))}
               >
                 <span class="label">{hit.feed.title}</span>
@@ -1049,7 +1069,7 @@
   <div class="section">
     <button
       class="row strong"
-      class:active={reader.activeStream === READING_LIST}
+      class:active={openStreamId === READING_LIST}
       onclick={() => open(READING_LIST, "Reading list")}
     >
       <span class="label">Reading list</span>
@@ -1057,7 +1077,7 @@
     </button>
     <button
       class="row strong"
-      class:active={reader.activeStream === STATE_STARRED}
+      class:active={openStreamId === STATE_STARRED}
       bind:this={starredRow}
       onclick={() => open(STATE_STARRED, "Starred")}
     >
@@ -1082,7 +1102,7 @@
       <div class="group" class:pinned>
         <button
           class="row group-title"
-          class:active={reader.activeStream === category.id}
+          class:active={openStreamId === category.id}
           class:pinned
           class:is-hidden={hiddenCat}
           class:drop-into={drop !== null && drop.target === category.label && drop.before === null}
@@ -1153,7 +1173,7 @@
           {@const mark = feedIconImage(icon, brokenIcons)}
           <button
             class="row feed"
-            class:active={reader.activeStream === feed.id}
+            class:active={openStreamId === feed.id}
             class:pinned={reader.isFeedPinned(feed.id)}
             class:unfolded={inlinePosts && expandedFeed === feed.id}
             class:drop-before={drop !== null && drop.target === category.label && drop.before === feed.id}

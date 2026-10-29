@@ -180,7 +180,7 @@ check(
 );
 check(
   "the posts pane stops drawing that same title on a phone",
-  /\{#if !nested && layout\.device !== "phone"\}[\s\S]{0,80}<h1>\{reader\.activeTitle\}<\/h1>/.test(list),
+  /\{#if !nested && layout\.device !== "phone"\}[\s\S]{0,80}<h1>\{store\.activeTitle\}<\/h1>/.test(list),
 );
 check(
   "the count, the feed's mark and the filters are not part of that",

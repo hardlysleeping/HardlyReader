@@ -59,9 +59,9 @@ function functionBody(source, name) {
   return source.slice(open);
 }
 
-/** The step effect: the `$effect` that reads `reader.stepSeq`. */
+/** The step effect: the `$effect` that reads `store.stepSeq`. */
 function selectionEffect(source) {
-  const marker = "const seq = reader.stepSeq;";
+  const marker = "const seq = store.stepSeq;";
   const at = source.indexOf(marker);
   if (at === -1) return "";
   const open = source.lastIndexOf("$effect(() => {", at);
@@ -116,7 +116,7 @@ check(
 );
 check(
   "a click is not a step: the effect keys on stepSeq, not on selectedId alone",
-  /const seq = reader\.stepSeq/.test(effectSource) && /seq === lastStep/.test(effectSource),
+  /const seq = store\.stepSeq/.test(effectSource) && /seq === lastStep/.test(effectSource),
 );
 
 // 3. Its guards: Cards only, once per selection, never during a launch restore.
@@ -129,7 +129,7 @@ check(
 );
 check(
   "the rows landing re-runs it",
-  /void reader\.items\.length/.test(effectSource),
+  /void store\.items\.length/.test(effectSource),
 );
 
 // 4. The key map itself is unchanged: Up/Down still mean "the post in hand".

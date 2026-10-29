@@ -151,7 +151,7 @@ check(
   /if \(pickedCategory !== category\.id\) \{\s*pickedCategory = category\.id;\s*if \(folded\) toggle\(category\.id\);\s*return;\s*\}/.test(
     sidebar,
   ) &&
-    /if \(reader\.activeStream !== category\.id\) \{\s*if \(folded\) toggle\(category\.id\);\s*openCategory\(category\);\s*return;\s*\}/.test(
+    /if \(openStreamId !== category\.id\) \{\s*if \(folded\) toggle\(category\.id\);\s*openCategory\(category\);\s*return;\s*\}/.test(
       sidebar,
     ),
 );

@@ -257,7 +257,10 @@ function method(source, name) {
   );
   check(
     "the three-pane fold stays in the header, where it was",
-    /\{#if mode === 3\}\s*<button\s+class="fold"/.test(main) && /ontogglesidebar=\{showFeeds\}/.test(main),
+    // Three panes fold the feeds; a split is a different family and has no fold
+    // to offer, so the button is the three-pane header's alone.
+    /\{#if mode === 3 && !split\.active\}\s*<button\s+class="fold"/.test(main) &&
+      /ontogglesidebar=\{showFeeds\}/.test(main),
   );
   check(
     "the stacked pair keeps its own three controls, untouched by the fold",
