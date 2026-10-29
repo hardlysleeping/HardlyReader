@@ -6,6 +6,37 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.6.10] — 2026-10-28
+
+### Added
+
+- **Pictures a library has drawn are kept on the device**, at the size the pane
+  draws them. Three settings (Off / Thumbnails / Everything), their own ceiling
+  (100 / 200 / 500 MB, 200 by default), LRU by last use. A 73,527 B PNG comes
+  back as a 14,624 B 192 px WebP and draws from the device. A server-backed
+  library attaches no cache and makes no new request; the sync folder is
+  untouched, so pictures never travel.
+- **Hidden categories, the eye's three views and the lock work with no extension
+  and on any server.** Hiding used to no-op when the adapter was absent, which
+  meant a Miniflux — or a FreshRSS without the extension — could not hide a
+  category at all. The set now lives on the device per account, survives a
+  restart, and renders identically to the extension's answer.
+- **A demo build on GitHub Pages.** <https://hardlysleeping.github.io/HardlyReader/>
+  — the app with a sample library and a banner. It cannot fetch your feeds
+  (Pages serves files, and a browser cannot fetch a publisher's RSS across
+  origins), so it ships four sample feeds and says so.
+
+### Changed
+
+- **Settings → Extensions** tells you which of the three extensions your
+  instance has, which are working, and links the one that is missing.
+- **The README's setup table** no longer claims paid sync is pointless on a
+  server profile because "your server merges everything". Sync mirrors a library
+  *on this device*, which a server profile does not have, so it is not offered
+  there — and a FreshRSS only carries hidden categories, pins, indent,
+  preferences and position when the adapter and the category extensions are
+  installed, which the table now says.
+
 ## [0.6.9] — 2026-10-27
 
 The first release since 0.6.7: this section is 0.6.8's unpublished notes, cut
