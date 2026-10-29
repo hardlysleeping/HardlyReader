@@ -74,7 +74,7 @@ is the right default; the app refreshes on launch and resume.
 ## 6. Payments — the part after auth works
 
 1. Stripe → **Products** → one product `HardlyReader Sync`, two prices:
-   `$0.99 / month` and `$9.99 / year`, both recurring.
+   `$1.00 / month` and `$10.00 / year`, both recurring.
 2. Record the two price IDs (`price_…`); the app never hardcodes them — the checkout endpoint reads
    them from the server.
 3. Checkout is created **server-side** with `client_reference_id = <supabase user id>`, so the

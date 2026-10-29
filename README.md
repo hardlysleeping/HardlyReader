@@ -176,7 +176,7 @@ folder.
 | On a feed server — FreshRSS, Inoreader, The Old Reader, Tiny Tiny RSS | The server is the meeting point: it polls the feeds and every device reads from it | **Free** |
 | On a service with no GReader API — Feedbin, Feedly | **Import OPML** into a local library, then let **HardlyReader Sync** carry what the service has no place for: hidden categories, pins, order, indent, read marks, stars | **Free** to import; Sync is a subscription |
 | On this device, by hand | **Export archive** on one, **Import archive** on the other | **Free**, always |
-| On this device, automatically | **HardlyReader Sync** — the same files, merged through a folder in your own cloud | $0.99/month or $9.99/year |
+| On this device, automatically | **HardlyReader Sync** — the same files, merged through a folder in your own cloud | $1/month or $10/year |
 
 Read the second row carefully, because it is most of why Sync exists: a service like Feedbin or Feedly
 carries feeds and read state and nothing else. Hidden categories, pins, category order, the indent —

@@ -24,7 +24,7 @@
  */
 import { verifySignature, SIGNATURE_HEADER } from "./signature.mjs";
 import { mapSubscription, planOf, priceIdsOf } from "./subscription-state.mjs";
-import { isPlanKey, priceIdFor } from "./plans.mjs";
+import { configuredPriceIds, isPlanKey, priceIdFor } from "./plans.mjs";
 import { StripeError } from "./stripe-api.mjs";
 
 /** The largest body either route will read, in bytes. */
@@ -60,7 +60,14 @@ export function createBillingApp({ config, db, stripe, auth, offer, now = () => 
 
     try {
       if (method === "GET" && url.pathname === "/health") {
-        return withCors(request, json(200, { ok: true, plans: offer.plans().length }), origins);
+        // What the shop is SET UP to sell, not what it has cached: `offer.plans()` is empty until
+        // something asks `/plans`, so a health check called first would report a shop with no
+        // prices on a deployment that has both. The priced count is the configured ids.
+        return withCors(
+          request,
+          json(200, { ok: true, plans: configuredPriceIds(config.prices).length }),
+          origins,
+        );
       }
 
       if (method === "GET" && url.pathname === "/plans") {
