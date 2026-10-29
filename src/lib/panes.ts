@@ -1144,6 +1144,16 @@ export interface PaneTemplate {
    * keeps the column, empty or not, because a desktop has the room for it.
    */
   articleless?: boolean;
+  /**
+   * The article is the only pane on screen.
+   *
+   * A phone sets this, in two panes, while a post is open. Its frame is banded
+   * down to the feeds plus one column, so the article used to be drawn at half
+   * the width of the phone with a feed list beside it — 210px of prose, and a
+   * 954px comic bled to the edges of it. Reading takes the frame; the bar's 1 is
+   * the walk back to the feeds.
+   */
+  solo?: boolean;
 }
 
 /**
@@ -1170,6 +1180,9 @@ export function tracks(mode: PaneMode, widths: PaneWidths, template: PaneTemplat
   const lead = collapsed ? 0 : widths.sidebar;
   const gap = collapsed ? 0 : GUTTER;
   if (mode === 2) {
+    // A phone reading an article draws it as the whole frame (see `solo`): the
+    // feeds are the screen behind this one, not a column beside the prose.
+    if (template.solo === true) return [0, 0, size(total), 0, 0];
     if (!collapsed) {
       // Two panes: the posts column is the elastic one, so it takes the frame.
       return [size(lead), size(gap), size(total - lead - gap), 0, 0];
@@ -1257,6 +1270,8 @@ export interface SlotsInput {
   collapsed: boolean;
   tuck: StackTuck;
   swapped: boolean;
+  /** The article is the only pane on screen: a phone reading (see `solo`). */
+  solo?: boolean;
 }
 
 const NO_SLOTS: PaneSlots = {
@@ -1281,6 +1296,7 @@ export function paneSlots(input: SlotsInput): PaneSlots {
     return { ...NO_SLOTS, article: true };
   }
   if (mode === 2) {
+    if (input.solo === true) return { ...NO_SLOTS, article: true };
     if (collapsed) {
       // The feeds are folded: the rail stands where their seam was, and the two
       // panes that remain — the posts and the article — are drawn together.

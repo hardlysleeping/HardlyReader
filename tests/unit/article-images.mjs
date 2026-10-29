@@ -345,7 +345,26 @@ check(
 );
 check(
   "a fitted picture is centred on the pane, not on the prose column",
-  /img\.style\.marginInline = `calc\(\(100% - \$\{width\}px\) \/ 2\)`;/.test(pane),
+  /img\.style\.marginInline = phone \? "auto" : `calc\(\(100% - \$\{width\}px\) \/ 2\)`;/.test(pane),
+);
+// The phone's rule: the picture fits the box it sits in, so the prose and its
+// pictures share a left edge, and a picture already most of the way across the
+// frame is drawn all the way across it.
+check(
+  "a phone fits the picture to its own container, not to the pane",
+  /const frame = phone\s*\n\s*\? \{ width: contentWidth\(img\) \?\? pageWidth, height: pageHeight \}/.test(pane),
+);
+check(
+  "and asks the fit to fill that container",
+  /reading\.imageScale,\s*\n\s*phone,\s*\n\s*\)/.test(pane),
+);
+check(
+  "the article itself has one axis",
+  /overflow-x: clip;/.test(pane),
+);
+check(
+  "a code block wraps instead of sliding the page",
+  /data-device="phone"[^\n]*:global\(pre\)/.test(pane) && pane.includes("white-space: pre-wrap;"),
 );
 check(
   "the size control is in the article's own toolbar and steps the saved setting",

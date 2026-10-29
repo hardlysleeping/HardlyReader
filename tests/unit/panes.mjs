@@ -852,5 +852,30 @@ check("a tall column allows the full range", clampShare(0.1, 900) === STACK_SHAR
   );
 }
 
+// ---- a phone reading takes the frame ----
+// The frame bands down to the feeds plus one column, so an open article used to
+// be drawn at half the width of the phone with a feed list beside it.
+{
+  const widths = { sidebar: 150, list: 210, article: 240 };
+  const solo = tracks(2, widths, { available: 390, solo: true });
+  check("a phone reading an article gives it the whole frame", JSON.stringify(solo) === JSON.stringify([0, 0, 390, 0, 0]), JSON.stringify(solo));
+  check(
+    "and the template says the same thing",
+    gridTemplate(2, widths, { available: 390, solo: true }) === "0px 0px 390px 0px 0px",
+  );
+  const slots = paneSlots({ mode: 2, level: "article", stacked: false, collapsed: false, tuck: null, swapped: false, solo: true });
+  check(
+    "with the feeds and their seam not drawn at all",
+    slots.article === true && slots.sidebar === false && slots.seam === false && slots.posts === false,
+    JSON.stringify(slots),
+  );
+  // The rule is the article's, not the frame's: a phone on the list still draws
+  // the two columns it always did.
+  const list = tracks(2, widths, { available: 390 });
+  check("a phone on the list keeps its two columns", list[0] === 150 && list[2] === 234, JSON.stringify(list));
+  const desktop = tracks(2, { sidebar: 240, list: 260, article: 320 }, { available: 1200 });
+  check("a desktop is untouched by it", desktop[0] === 240 && desktop[2] === 954, JSON.stringify(desktop));
+}
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

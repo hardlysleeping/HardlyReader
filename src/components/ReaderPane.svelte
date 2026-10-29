@@ -171,17 +171,45 @@
     // file's own width instead is what drew a 684px comic 684px wide inside a
     // 390px pane and clipped it.
     if (pageWidth <= 0) return;
+    // A phone fits a picture inside the article's own margins, and the article's
+    // margins are what the text column has: a page bled to the edges of a 390px
+    // screen has no margin left to be inside of, and the prose and its pictures
+    // then start at two different places. Measured from the picture's own
+    // container, so it is the room it has rather than the room the pane has.
+    const phone = layout.device === "phone";
+    const frame = phone
+      ? { width: contentWidth(img) ?? pageWidth, height: pageHeight }
+      : { width: pageWidth, height: pageHeight };
     const width = fittedWidth(
       { width: img.naturalWidth, height: img.naturalHeight },
-      { width: pageWidth, height: pageHeight },
+      frame,
       reading.imageScale,
+      phone,
     );
     if (width === null) return;
     img.style.width = `${width}px`;
     img.style.height = "auto";
     img.style.maxWidth = "none";
     img.style.maxHeight = "none";
-    img.style.marginInline = `calc((100% - ${width}px) / 2)`;
+    // Centred in the column it belongs to on a phone; bled out of the 780px
+    // measure and centred on the pane everywhere else.
+    img.style.marginInline = phone ? "auto" : `calc((100% - ${width}px) / 2)`;
+  }
+
+  /**
+   * The width a picture has to work with, from its own container.
+   *
+   * The pane's width is the frame for a desktop picture, which is allowed to
+   * bleed past the 780px prose measure; a phone's pictures are not, so what they
+   * are fitted to is the box they sit in, less its padding.
+   */
+  function contentWidth(img: HTMLImageElement): number | null {
+    const box = img.parentElement;
+    if (box === null) return null;
+    const style = getComputedStyle(box);
+    const px = (value: string): number => Number.parseFloat(value) || 0;
+    const room = box.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
+    return room > 0 ? Math.round(room) : null;
   }
 
   /** Fit every picture on the page, and keep fitting the ones still loading. */
@@ -1186,6 +1214,10 @@
     --gutter: clamp(16px, 5vw, 48px);
     flex: 1;
     overflow-y: auto;
+    /* Nothing in an article is wider than an article: a table, a code block or a
+       video that cannot fit is a thing to shrink, and the sideways scroll that
+       came with them was a second axis on a screen that has one. */
+    overflow-x: clip;
     /* The article is panned by the app's drag module like the lists: the browser
        would take the pointer on the first move and then stop dead on release. */
     touch-action: none;
@@ -1283,6 +1315,32 @@
     object-fit: contain;
     margin-block: 1em;
     margin-inline: auto;
+  }
+
+  /* A phone has one axis. A code block that cannot wrap is a code block to wrap
+     anyway: the alternative is a page that slides sideways under the thumb that
+     is trying to read it. */
+  :global(html[data-device="phone"]) .content :global(pre) {
+    overflow-x: visible;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* A table cannot be wrapped into a column, so it scrolls in its own box and
+     the article keeps its width. Nothing else here may run past the margins. */
+  :global(html[data-device="phone"]) .content :global(table) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  :global(html[data-device="phone"]) .content :global(iframe),
+  :global(html[data-device="phone"]) .content :global(video),
+  :global(html[data-device="phone"]) .content :global(embed),
+  :global(html[data-device="phone"]) .content :global(object),
+  :global(html[data-device="phone"]) .content :global(svg) {
+    max-width: 100%;
+    height: auto;
   }
 
   .content :global(pre) {
