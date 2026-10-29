@@ -19,6 +19,20 @@ const THRESHOLD = 5;
 /** How long after a drop a click is still considered part of the drag. */
 const CLICK_GRACE = 250;
 
+/**
+ * How long a finger rests on a row before it lifts it.
+ *
+ * Before the long press that opens the menu (500ms), because the two share the
+ * same press: a hold lifts the row and the menu's timer is cancelled on the way,
+ * so a hold that then moves is a reorder and a hold that lets go without moving
+ * is the menu. A finger that moves inside this window was scrolling, and the
+ * list keeps the gesture.
+ */
+const TOUCH_HOLD = 380;
+
+/** Pixels a finger may drift inside the hold before it is a scroll, not a press. */
+const TOUCH_DRIFT = 8;
+
 /** Edge band, in px, that scrolls the list while dragging near it. */
 const EDGE = 28;
 
@@ -268,6 +282,14 @@ export interface RowDragHandlers {
   onDrop: (drop: RowDrop) => void;
   /** A drag started, so a long-press menu can be cancelled. */
   onStart?: () => void;
+  /**
+   * A finger held a row and let go without moving it.
+   *
+   * On a touch screen the hold is the lift and the menu both, and this is the
+   * half that says which: the row never moved, so the press was a question
+   * rather than a filing instruction.
+   */
+  onHold?: (id: string, point: { x: number; y: number }) => void;
   /** A drag ended or was cancelled. */
   onEnd?: () => void;
 }
@@ -396,10 +418,22 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
   function onMove(event: PointerEvent) {
     if (pointer === null || event.pointerId !== pointer) return;
     if (!dragging) {
-      if (Math.hypot(event.clientX - startX, event.clientY - startY) < THRESHOLD) return;
-      const row = event.target instanceof Element
-        ? (event.target.closest<HTMLElement>(`[${options.rowAttr}]`) ?? null)
-        : null;
+      const drift = Math.hypot(event.clientX - startX, event.clientY - startY);
+      if (!held && holdTimer !== null) {
+        // Still inside the hold: a real move means the finger was scrolling, so
+        // the row is put down before it was ever lifted and the pan keeps it.
+        if (drift > TOUCH_DRIFT) {
+          clearHold();
+          finish(false);
+        }
+        return;
+      }
+      if (drift < THRESHOLD) return;
+      const row =
+        pressed ??
+        (event.target instanceof Element
+          ? (event.target.closest<HTMLElement>(`[${options.rowAttr}]`) ?? null)
+          : null);
       if (row === null) return;
       begin(event, row);
     }
@@ -415,6 +449,9 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
   }
 
   function finish(dropped: boolean) {
+    clearHold();
+    held = false;
+    pressed = null;
     const moved = dragging;
     const destination = target;
     const id = moving;
@@ -457,8 +494,17 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
     }
   }
 
-  function onUp() {
+  function onUp(event: PointerEvent) {
+    // A finger lifted the row and let go without moving it: that was the menu,
+    // asked for with a hold instead of a right-click.
+    const asked = held && !dragging;
+    const id = moving;
+    const point = { x: event.clientX, y: event.clientY };
     finish(true);
+    if (asked && id !== null) {
+      endedAt = performance.now();
+      handlers.onHold?.(id, point);
+    }
   }
 
   function onCancel() {
@@ -472,13 +518,29 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
     }
   }
 
+  /** The row the press landed on, and whether a finger has lifted it yet. */
+  let pressed: HTMLElement | null = null;
+  let held = false;
+  let holdTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearHold(): void {
+    if (holdTimer !== null) globalThis.clearTimeout(holdTimer);
+    holdTimer = null;
+  }
+
   function arm(event: PointerEvent, id: string) {
     if (event.button !== 0) return;
-    // A finger on a row is scrolling the list, not filing it. Touch and pen keep
-    // the gesture the browser already does well; dragging a feed is a mouse
-    // gesture until there is a touch affordance designed for it.
-    if (event.pointerType === "touch") return;
     if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+    // A finger cannot hover, so it has to say "this row" before the list stops
+    // scrolling under it: a hold lifts the row, and a hold that never moves is
+    // the menu (see `onHold`). A press that moves inside the hold was a scroll.
+    const finger = event.pointerType === "touch" || event.pointerType === "pen";
+    pressed =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>(`[${options.rowAttr}]`)
+        : null;
+    held = false;
+    clearHold();
     moving = id;
     pointer = event.pointerId;
     dragging = false;
@@ -486,6 +548,15 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
     startX = event.clientX;
     startY = event.clientY;
     scroller = scrollParentOf(event.target instanceof Element ? event.target : null);
+    if (finger) {
+      holdTimer = globalThis.setTimeout(() => {
+        holdTimer = null;
+        held = true;
+        // The hold is the lift, so the menu's own timer stands down: the two are
+        // one press, and whichever fires first is what the press means.
+        handlers.onStart?.();
+      }, TOUCH_HOLD);
+    }
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);

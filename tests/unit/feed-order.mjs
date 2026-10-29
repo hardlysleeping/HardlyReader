@@ -83,7 +83,15 @@ check("dropping to the end of the list is a move when it is not last", !isNoopDr
   check("the upper and lower half mean different slots", /lowerHalf \? \(next \?\? null\) : here/.test(drag));
   check("a row dropped on itself is not a move", /landedOnSelf/.test(drag));
   check("escape cancels a drag", /event\.key === "Escape"/.test(drag));
-  check("a finger scrolls instead of filing", /event\.pointerType === "touch"/.test(drag));
+  // A finger files too, but it has to say so first: the hold is the lift, and a
+  // move inside the hold was the list scrolling rather than the row being taken.
+  check("a finger holds a row before it lifts it", /const TOUCH_HOLD = 380;/.test(drag));
+  check("and the hold beats the menu's own timer", /const TOUCH_HOLD = 380;/.test(drag) && 380 < 500);
+  check("the lift is a timer on the press", /holdTimer = (?:globalThis|window)\.setTimeout\(\(\) => \{/.test(drag));
+  check("a move inside the hold puts the row back down", /if \(drift > TOUCH_DRIFT\) \{\s*\n\s*clearHold\(\);\s*\n\s*finish\(false\);/.test(drag));
+  check("a hold that lets go without moving is the menu", /handlers\.onHold\?\.\(id, point\)/.test(drag));
+  check("the hold cancels the menu's own press", /held = true;[\s\S]{0,400}?handlers\.onStart\?\.\(\);/.test(drag));
+  check("the rows refuse a text selection", /-webkit-touch-callout: none/.test(sidebar) && /user-select: none/.test(sidebar));
   check("a category move is a real server edit", /ac: "edit"/.test(api) && /subscription\/edit/.test(api));
   check(
     "Uncategorized is the absence of a label, sent by removing the old one only",
