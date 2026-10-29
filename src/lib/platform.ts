@@ -33,6 +33,13 @@ export interface Capabilities {
    */
   articleExtract: boolean;
   /**
+   * The split family — several whole readers side by side.
+   *
+   * A window's, and only a window's: a phone's two panes are a column and a
+   * list, and four readers on 390px is four readers nobody can read.
+   */
+  splitView: boolean;
+  /**
    * Offering a post through the device's share sheet.
    *
    * A phone, and only a phone. The desktop window is the finished layout: a
@@ -48,15 +55,20 @@ export interface Capabilities {
 /**
  * The flags for one shape and host.
  *
- * A phone gets none of the layout controls: there is one column, it is as wide
- * as the screen, and nothing can be dragged or thresholded. Article extraction
- * survives on a phone because it is the feature most useful there — reading a
- * summary-only feed on a small screen is exactly what it is for.
+ * The pane count is the one layout control a phone keeps, because a phone is no
+ * longer one column: it draws the feeds and the list side by side in portrait
+ * and the stacked three in landscape, so "how many panes" is a real question
+ * there and hiding the switch only hid the answer. What a phone still cannot do
+ * is split view, four readers side by side on 390px, and dragging or
+ * thresholding a column that has nowhere to go. Article extraction survives on a
+ * phone because it is the feature most useful there — reading a summary-only
+ * feed on a small screen is exactly what it is for.
  */
 export function capabilitiesFor(shape: DeviceShape, tauri: boolean): Capabilities {
   const desktop = shape === "desktop";
   return {
-    paneCount: desktop,
+    paneCount: true,
+    splitView: desktop,
     paneResize: desktop,
     paneThresholds: desktop,
     windowFit: desktop && tauri,

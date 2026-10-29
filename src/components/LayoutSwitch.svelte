@@ -57,7 +57,7 @@
        than a fourth column — which is why its button says so with a picture
        instead of a number. Not offered where the frame cannot hold two panes: a
        phone draws one column and its stack is the answer there. -->
-  {#if layout.caps.paneCount}
+  {#if layout.caps.splitView}
     <span class="viewsplit" aria-hidden="true"></span>
     <button
       class="mode split"

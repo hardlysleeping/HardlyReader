@@ -48,10 +48,12 @@
    * depth this bar can already name (`atRoot`), so the strip is gone and the
    * one step out lives here — one strip, one step, one place to look.
    */
+  import type { Snippet } from "svelte";
   import { syncDescription, syncReadout } from "../lib/sync-progress";
   import { layout } from "../state/layout.svelte";
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
   import { reader } from "../state/reader.svelte";
+  import ReadingControls from "./ReadingControls.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
   import ThemeToggle from "./ThemeToggle.svelte";
 
@@ -60,6 +62,7 @@
     server = "",
     onsignout,
     onaddaccount,
+    controls,
   }: {
     /** The account's display name, for the settings sheet's Accounts section. */
     subtitle?: string;
@@ -69,6 +72,15 @@
     onsignout?: () => void;
     /** Sign a second account in without touching the one in use. */
     onaddaccount?: () => void;
+    /**
+     * The arrangement controls the desktop bar draws — the pane switch, and the
+     * fold beside it.
+     *
+     * The same snippet, so the phone cannot offer a different set of shapes from
+     * the window. It is passed in rather than imported because the switch is the
+     * view's: it knows which modes this screen can honour, and the bar does not.
+     */
+    controls?: Snippet;
   } = $props();
 
   /**
@@ -176,6 +188,9 @@
   /** The settings sheet, which is the same one the desktop bar opens. */
   let settingsOpen = $state(false);
 
+  /** The Aa panel, so its trigger and its rows are the desktop bar's own. */
+  let readingControls = $state<{ openPanel: () => void; closePanel: () => void } | undefined>();
+
   const refreshing = $derived(reader.sync.active);
   const readout = $derived(syncReadout(reader.sync));
   const description = $derived(syncDescription(reader.sync));
@@ -263,6 +278,19 @@
   {/if}
 
   <span class="spacer"></span>
+
+  <!-- The arrangement, then the text: the two settings a reader reaches for
+       while reading, out of the sheet and in the bar. The pane switch is the
+       view's own snippet — the same one the desktop bar draws — so a phone
+       offers exactly the shapes its screen can honour. -->
+  {#if controls}
+    {@render controls()}
+  {/if}
+
+  <!-- The Aa panel: text size, leading, alignment and the thumbnails, the same
+       rows the desktop bar opens. Opening it puts the sheet away, because two
+       panels on one screen is one too many. -->
+  <ReadingControls bind:this={readingControls} onopen={() => (settingsOpen = false)} />
 
   <!-- Day and night, one press from the gear it changes the look of. -->
   <ThemeToggle size={30} />
@@ -458,6 +486,15 @@
   .more[aria-expanded="true"] {
     color: var(--text);
     background: var(--hover);
+  }
+
+  /* The passed-in arrangement switch is a desktop control: 26px buttons in a
+      bordered group. On a 36px bar it keeps its size and loses the border, so the
+     bar reads as one row of glyphs rather than a row with a widget in it. */
+  .phone-header :global(.switch) {
+    height: 26px;
+    border-color: transparent;
+    background: none;
   }
 
   .sync {
