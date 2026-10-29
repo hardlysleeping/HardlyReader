@@ -11,7 +11,9 @@
   import { reader } from "./state/reader.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
+  import { DEMO, DEMO_NOTE, seedDemoLibrary } from "./lib/demo";
   import {
+    localStoreOf,
     openLocalProfile,
     syncProfile,
     type LocalProfile,
@@ -176,7 +178,16 @@
       // ask for a server URL. The reader opens on the empty local library, and
       // connecting a service stays one optional step away.
       try {
-        local = await openLocalProfile();
+        // The demo build arrives with a library (`VITE_DEMO=1`, src/lib/demo.ts): Pages cannot
+        // fetch a publisher's RSS across origins, so the sample feeds are what a visitor sees.
+        // Seeded BEFORE the profile is handed to the reader: the reader reads its subscriptions
+        // once per profile, so a library filled afterwards would draw as empty until a reload.
+        const opened = await openLocalProfile();
+        if (DEMO) {
+          const store = localStoreOf(opened);
+          if (store !== null) await seedDemoLibrary(store);
+        }
+        local = opened;
       } catch (cause) {
         startupNote = `The library on this device could not be opened: ${String(cause)}`;
       } finally {
@@ -264,6 +275,9 @@
       <p class="status-hint">Signing in with the session saved on this device.</p>
     </div>
   {:else}
+    {#if DEMO}
+      <div class="demo-banner" role="note">{DEMO_NOTE}</div>
+    {/if}
     {#if profile && !adding}
       {#key profile.slug + (session?.token ?? "")}
         <Main
@@ -300,6 +314,21 @@
 </main>
 
 <style>
+  .demo-banner {
+    position: fixed;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    z-index: 60;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--panel, #16181d);
+    color: var(--text-dim);
+    border: 1px solid var(--border-soft);
+    font-size: 0.85em;
+    pointer-events: none;
+  }
+
   .shell {
     height: 100%;
     min-height: 0;

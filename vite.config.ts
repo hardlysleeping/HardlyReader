@@ -7,6 +7,10 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [svelte()],
 
+  // A project page on GitHub Pages is served from /<repo>/, so the demo build needs its asset
+  // URLs prefixed. `VITE_BASE` is the knob; every other build keeps "/".
+  base: process.env.VITE_BASE ?? "/",
+
   // Vite only exposes `VITE_`-prefixed variables to the client by default. The
   // identity's two values are spelled `PUBLIC_SUPABASE_URL` / `PUBLIC_SUPABASE_ANON_KEY`
   // in `.env.example`, because "public" is the whole point of them: the anon key

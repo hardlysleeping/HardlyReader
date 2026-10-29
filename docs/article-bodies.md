@@ -6,8 +6,11 @@ feed XML is a library of what each feed chose to say, and the article itself is
 fetched again every time it is opened. This document is the copy that is kept
 instead: where it lives, what it costs, and who sees the request.
 
-Out of scope here: pictures (a separate, larger cache) and the sync document
-(bodies never go into it — see below).
+Out of scope here: the sync document (bodies never go into it — see below) and
+pictures, which are a **separate cache with its own ceiling, its own three
+answers and its own table** — `src/lib/images.ts`, `src/lib/image-cache.ts`,
+Settings → **Saved pictures**. The last section is what it keeps, and what it
+will not.
 
 ## What is kept, and where
 
@@ -88,3 +91,42 @@ nothing in between. The panel says so under the rows, in those words.
 Nothing about a body goes into the sync document. Bodies grow without bound, and
 a document carrying them is a document nobody could sync: the library travels
 between devices and each device fetches the text it wants to keep.
+
+## Pictures are a separate cache
+
+Every picture in the app used to be an `<img>` pointed straight at the publisher:
+a scroll cost one request per picture, and a scroll back cost them all again. The
+picture cache keeps what a pane has drawn, at the size it drew it.
+
+| concern | answer |
+|---|---|
+| the copy | the `images` table (one row per variant, `thumb` or `full`) and `image_data` (the bytes, base64) in `src/api/local/schema.ts` |
+| downscaled at fetch | `thumb` is 192px; `full` is the article column's width × the screen's density, capped at 1600 |
+| the policy | `src/lib/images.ts` — three answers, 100 / 200 / 500 MB (200 default), 2 MB per picture |
+| the budget | `bytes` is the UTF-8 size of the stored text (about a third more than the file), `used_at` is the last draw, LRU when full |
+| the adapter | `src/lib/image-cache.ts` — fetch, downscale, keep, evict; one promise per picture, four downloads at a time |
+| the preference | `src/state/pictures.svelte.ts`, device key `hardlyreader.pictures.v1` |
+| the element | `use:picture` — the action that hands an `<img>` its address |
+| the suites | `picture-budget.mjs`, `picture-cache.mjs` |
+
+- **Three answers.** *Off* keeps no copy and every draw fetches from the
+  publisher, exactly as the app did before; *Thumbnails* (the default) keeps the
+  post list's pictures, which is what a scroll pays for; *Everything* also keeps
+  the article's lead picture.
+- **The device's copy is the loader, not a second request.** On a miss the
+  `<img>` is given no address until the fetch settles, so a picture is downloaded
+  once and drawn from disk from then on — the fallback is the publisher's own
+  address, used when there is nothing to keep (a server's library, keeping off, a
+  refused fetch) and never a blank box.
+- **A picture on screen is never evicted.** Every draw holds its key until the
+  element goes; a pass that cannot get under the ceiling without taking one says
+  `overLimit` instead.
+- **What it does not keep:** the pictures inside an article's body (that is the
+  article's own markup), and nothing at all for a library on a server.
+- **In a browser tab** a picture can only be read if the publisher allows this
+  origin to read it (CORS). Where it does not, the download is a miss and the
+  hotlink is drawn as before, so the cache fills in the desktop app — whose
+  request is made by Rust and carries neither the webview's origin nor its
+  referrer. That is a real limit of the browser build, not a bug.
+- Nothing about a picture enters the sync document: `docs/sync-format.md` says
+  image caches never travel, and this cache does not change the format.

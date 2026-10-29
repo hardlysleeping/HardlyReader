@@ -28,6 +28,8 @@ import type {
   ExtractionRow,
   FeedRow,
   FolderRow,
+  ImageDataRow,
+  ImageRow,
   MetaRow,
   PositionRow,
   RedirectRow,
@@ -37,6 +39,11 @@ import {
   type BodyRecord,
   type BodyUsage,
 } from "../../lib/bodies";
+import {
+  planPictureEviction,
+  type PictureRecord,
+  type PictureUsage,
+} from "../../lib/images";
 
 /** One article, as a feed poll hands it over. */
 export interface EntryInput {
@@ -120,6 +127,53 @@ export interface BodyPruned {
   bytes: number;
   /** True when everything left is protected: the limit was not reachable. */
   overLimit: boolean;
+}
+
+/** One picture, as the cache hands it over: a downscaled copy and where it came from. */
+export interface ImageInput {
+  /** `lib/images.ts` mints it: the variant and the address. */
+  key: string;
+  /** The publisher's address, kept for a row that has to be explained. */
+  url: string;
+  /** `thumb` or `full`. */
+  variant: string;
+  mime: string;
+  /** The stored copy's own pixels. */
+  width: number;
+  height: number;
+  /** The bytes, base64: what is written to `image_data`. */
+  data: string;
+}
+
+/** What keeping one picture changed. `bytes` is the stored text's UTF-8 cost. */
+export interface ImageSaved {
+  bytes: number;
+  delta: number;
+  /** True when this key had no picture before this call. */
+  added: boolean;
+}
+
+/** A kept picture, read back whole: the row and its bytes. */
+export interface KeptImage {
+  url: string;
+  variant: string;
+  mime: string;
+  width: number;
+  height: number;
+  bytes: number;
+  /** Base64, as it went in. */
+  data: string;
+}
+
+/** What one pass of the picture budget deleted. */
+export interface PicturePruned {
+  dropped: number;
+  freed: number;
+  count: number;
+  bytes: number;
+  overLimit: boolean;
+  /** The keys that went, so the cache can drop its own copies of them. */
+  keys: string[];
 }
 
 export interface ReadingPosition {
@@ -1243,6 +1297,155 @@ export class LocalStore {
     const row = await this.db.get<ExtractionRow>("extractions", itemId);
     if (row === null || row.status !== "ok" || row.html === null) return 0;
     return row.bytes ?? byteLength(row.html);
+  }
+
+  /* -------------------------------------------------------------------------
+   * Kept pictures, and the budget they live under
+   * ----------------------------------------------------------------------- */
+
+  /**
+   * Records a picture this device fetched, and what it cost.
+   *
+   * Two rows in one transaction: the metadata the budget reads, and the bytes it
+   * never needs. A write that left the metadata without the bytes would be a
+   * picture the cache promises and cannot draw, so they land together or not at
+   * all.
+   *
+   * `bytes` is the UTF-8 size of the base64 payload — the disk this device spends
+   * on the picture, which is about a third more than the file itself. `used_at`
+   * starts at the same moment as `fetched_at`: a picture just fetched is the
+   * newest thing held, not the oldest.
+   */
+  async saveImage(input: ImageInput): Promise<ImageSaved> {
+    if (input.data === "") {
+      throw new LocalStorageError(`Nothing to keep for ${input.key}: a picture needs bytes`);
+    }
+    const previous = await this.imageBytes(input.key);
+    const at = seconds();
+    const bytes = byteLength(input.data);
+    const row: ImageRow = {
+      key: input.key,
+      url: input.url,
+      variant: input.variant,
+      mime: input.mime,
+      width: input.width,
+      height: input.height,
+      bytes,
+      fetched_at: at,
+      used_at: at,
+    };
+    await this.db.write([
+      { type: "put", table: "images", row },
+      { type: "put", table: "image_data", row: { key: input.key, data: input.data } },
+    ]);
+    return { bytes, delta: bytes - previous, added: previous === 0 && bytes > 0 };
+  }
+
+  /**
+   * One kept picture, row and bytes together.
+   *
+   * A row whose payload has gone (a library written by a version that kept the
+   * metadata and not the bytes) is a miss rather than half a picture: the cache
+   * then fetches it again, which is exactly what it does when nothing is kept.
+   */
+  async keptImage(key: string): Promise<KeptImage | null> {
+    const row = await this.db.get<ImageRow>("images", key);
+    if (row === null) return null;
+    const data = await this.db.get<ImageDataRow>("image_data", key);
+    if (data === null || data.data === "") return null;
+    return {
+      url: row.url,
+      variant: row.variant,
+      mime: row.mime ?? "",
+      width: row.width ?? 0,
+      height: row.height ?? 0,
+      bytes: row.bytes,
+      data: data.data,
+    };
+  }
+
+  /**
+   * Notes that a kept picture was just drawn.
+   *
+   * Least-recently-used is only true if drawing counts: a thumbnail a reader
+   * scrolls past every morning must outlive one fetched once in March. Does
+   * nothing for a key with no picture — a touch is a fact about a row, never a
+   * reason to create one.
+   */
+  async touchImage(key: string, at: number = seconds()): Promise<void> {
+    const row = await this.db.get<ImageRow>("images", key);
+    if (row === null) return;
+    await this.db.write([{ type: "put", table: "images", row: { ...row, used_at: at } }]);
+  }
+
+  /**
+   * Every kept picture, as the budget sees it: size and last use, no bytes.
+   *
+   * This is the cheap half of the pair — `images` holds no payload, so the pass
+   * that decides what to delete never reads a megabyte of base64 to count it.
+   */
+  async pictures(): Promise<PictureRecord[]> {
+    const rows = await this.db.all<ImageRow>("images");
+    const kept: PictureRecord[] = [];
+    for (const row of rows) {
+      kept.push({
+        key: row.key,
+        bytes: row.bytes,
+        usedAt: row.used_at ?? row.fetched_at,
+        storedAt: row.fetched_at,
+      });
+    }
+    return kept;
+  }
+
+  /** How many pictures are kept, and what they cost. */
+  async imageUsage(): Promise<PictureUsage> {
+    const kept = await this.pictures();
+    let bytes = 0;
+    for (const picture of kept) bytes += picture.bytes;
+    return { count: kept.length, bytes };
+  }
+
+  /**
+   * Deletes pictures until the library is back under `limitBytes`.
+   *
+   * Least recently drawn first, and only as many as the ceiling needs. `keep` is
+   * what must survive this pass — the pictures a pane is drawing right now, and
+   * the one just written — and when honouring it leaves the library over the
+   * limit the answer says `overLimit` rather than taking the picture on screen.
+   *
+   * Both rows go for every key: a metadata row without its bytes is a picture the
+   * cache would promise and fail to draw. Nothing else is touched — a picture is
+   * a copy, and deleting one never changes a feed, a post or a read mark.
+   */
+  async pruneImages(
+    limitBytes: number,
+    options: { keep?: Iterable<string> } = {},
+  ): Promise<PicturePruned> {
+    const kept = await this.pictures();
+    const plan = planPictureEviction(kept, { limitBytes, keep: options.keep });
+    if (plan.drop.length > 0) {
+      const operations: WriteOperation[] = [];
+      for (const key of plan.drop) {
+        operations.push({ type: "delete", table: "images", key });
+        operations.push({ type: "delete", table: "image_data", key });
+      }
+      await this.db.write(operations);
+    }
+    return {
+      dropped: plan.drop.length,
+      freed: plan.freed,
+      count: kept.length - plan.drop.length,
+      bytes: plan.remaining,
+      overLimit: plan.overLimit,
+      keys: [...plan.drop],
+    };
+  }
+
+  /** What one stored picture costs, or 0 when there is none. */
+  private async imageBytes(key: string): Promise<number> {
+    const row = await this.db.get<ImageRow>("images", key);
+    return row === null ? 0 : row.bytes;
   }
 
   /* -------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { bandFacts } from "../lib/band";
-  import { lockHint, lockOpensPanel, lockState, lockTitle } from "../lib/lock-title";
+  import { lockHint, lockOpensPanel, lockState, lockTitle, lockUsable } from "../lib/lock-title";
   import { appendDigit, backspace } from "../lib/pinpad";
   import { chrome } from "../state/chrome.svelte";
   import { nextHiddenView } from "../state/hidden";
@@ -115,9 +115,19 @@
    * read the adapter's state at all, and claiming "no passcode" in that case
    * told the reader something false about their own server.
    */
-  const lock = $derived(lockState(reader.hiddenAvailable, reader.hiddenHasPasscode, reader.session !== null));
+  const lock = $derived(
+    lockState(
+      reader.hiddenAvailable,
+      reader.hiddenHasPasscode,
+      reader.session !== null,
+      reader.hiddenAuthority,
+    ),
+  );
   const hint = $derived(lockHint(lock));
   const lockTip = $derived(lockTitle(lock));
+  // Bound here rather than called from the markup: an import used only inside a
+  // template expression is pruned by the compiler and the call then throws.
+  const lockEnabled = $derived(lockUsable(lock));
 
   /**
    * The band with nothing engaged: no curtain, the eye on its own default view,
@@ -357,7 +367,7 @@
           class="ctl lock"
           bind:this={lockBtn}
           onclick={pressLock}
-          disabled={!reader.hiddenAvailable}
+          disabled={!lockEnabled}
           aria-expanded={lockOpen}
           aria-controls={lockOpen ? "band-passcode" : undefined}
           title={lockTip}

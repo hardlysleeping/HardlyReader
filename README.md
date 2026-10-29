@@ -166,19 +166,32 @@ fetched unless the device fetches it too.
 
 ### Which setup, what it costs, what you give up
 
-| Your situation | Best setup | What it costs | What you don't get |
-|---|---|---|---|
-| One device | Local library, no account | **Free** | nothing — sync has nothing to do |
-| Two or more devices, no server, a zip now and then is fine | Local library + manual export/import | **Free** | no background merge: you press **Export archive** on one device and **Import archive** on the other — a save dialog or share sheet on the way out, a file picker on the way in |
-| Two or more devices, no server, want it hands-free | Local library + **HardlyReader Sync** | subscription | article text still doesn't travel; needs a HardlyReader account; the folder has to be one your cloud client mirrors |
-| You already run FreshRSS (or another server that speaks the GReader API) | Server profile | **Free** (plus what your server costs you) | our paid sync does nothing here — it isn't offered, because your server already merges everything, articles included |
-| You pay for Feedbin, Feedly or Inoreader | read in their app; add HardlyReader only if you want a local library as well | their price, plus ours only if you also want local mirroring | HardlyReader does not speak their APIs — there is no two-way link. OPML moves between them; read state and stars do not |
-| Several devices **and** you want article text waiting for you offline on all of them | a server (FreshRSS, or a paid reader) — not our sync | server cost | — |
+| Your situation | Best setup | Cost | What crosses between your devices | What you don't get |
+|---|---|---|---|---|
+| One device | Local library, no account | **Free** | nothing — there is nothing to sync | — |
+| Several devices, no server, a zip now and then is fine | Local library + **Export/Import archive** | **Free** | feeds, folders, hidden categories, pins and order, indent, read and starred marks, preferences, position — each time you press the two buttons | no background merge; nothing new arrives until you press |
+| Several devices, no server, hands-free | Local library + **HardlyReader Sync** | subscription | the same set, merged automatically through a folder in your own cloud | article text still doesn't travel; needs a HardlyReader account |
+| **FreshRSS with the three extensions** | Server profile | **Free** (your server's cost) | feeds, read state, stars, **and the articles** — the server is the meeting point — plus hidden categories, pins, indent, preferences and position through the adapter | nothing HardlyReader-side: this is the full setup |
+| **FreshRSS without the extensions** | Server profile | **Free** | feeds, read state, stars and the articles | hidden categories, pins and the indent are kept **per device** (the app does not need the extension to hide a category, it just cannot share that with your other devices); install the extensions to share them |
+| Miniflux, Tiny Tiny RSS, The Old Reader, any other GReader server | Server profile | **Free** (their cost) | feeds, read state, stars, and whatever articles that server will serve | those servers have no extension routes at all: hidden categories, pins and indent stay per device, and there is no server-side copy of them |
+| Feedbin, Feedly or Inoreader | read in their app; add HardlyReader only if you also want a local library | their price | their own | HardlyReader does not speak their APIs — no two-way link. OPML moves between them; read state and stars do not |
+| You want article text waiting for you offline on **every** device | a server (FreshRSS, or a paid reader) | server cost | the articles themselves | our sync never carries article text — by design, not as a limitation to be fixed |
+
+Two things that table is careful about, because both are easy to get wrong:
+
+- **The paid tier is not "your server but better".** The mirror engine merges a *library on this
+  device*; a server profile has no such library to hand it, so Sync is not offered there — the
+  section says "your server already carries this" instead of taking your money. That is a boundary
+  of the architecture, not a judgement about your server.
+- **A FreshRSS is not automatically the full setup.** Feeds, read state and stars cross devices the
+  moment you sign in. Hidden categories, pins, the indent, the preferences and the position need the
+  adapter and (for the first two) the category extensions — and `Settings → Extensions` is where you
+  see which of those your instance is actually running.
 
 So: pay for ours only if you deliberately keep no server and want a local library merged for you.
-If you run FreshRSS, our sync cannot help you and will not take your money. If you pay Feedbin or
-Feedly, our sync is not a cheaper substitute for it — theirs also fetches and stores the articles,
-which ours never does by design.
+If you run FreshRSS with the extensions, our sync cannot help you and will not take your money. If
+you pay Feedbin or Feedly, our sync is not a cheaper substitute — theirs also fetches and stores the
+articles, which ours never does.
 
 The rule that keeps this coherent: **one authority per profile.** FreshRSS and its extensions own
 a server-backed profile; the local database owns a local one. No state is ever written by two

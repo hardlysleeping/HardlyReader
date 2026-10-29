@@ -141,9 +141,14 @@ function buildReaderModule() {
 const { isHiddenCategory, parseState } = await import(absolute("src/api/hardlyread.ts"));
 const { accountSlug } = await import(absolute("src/lib/account-key.ts"));
 const { bandFacts, statusFacts } = await import(absolute("src/lib/band.ts"));
-const { emptyHidden, isLocallyHidden, parseHidden, resolveHidden, withHidden } = await import(
-  absolute("src/state/hidden.ts")
+const { categoryMenu } = await import(absolute("src/lib/contextmenu.ts"));
+const { lockOpensPanel, lockState, lockTitle } = await import(absolute("src/lib/lock-title.ts"));
+const { GREADER_CAPABILITIES, LOCAL_CAPABILITIES } = await import(
+  absolute("src/lib/capabilities.ts")
 );
+const { LOCAL_PROFILE_SLUG } = await import(absolute("src/api/profile.ts"));
+const { emptyHidden, hiddenStore, isLocallyHidden, parseHidden, resolveHidden, visibleGroups, withHidden } =
+  await import(absolute("src/state/hidden.ts"));
 
 /* ---------------------------------------------------------------------------
  * The pure layer: one resolution, two sources, no merge
@@ -172,6 +177,60 @@ const { emptyHidden, isLocallyHidden, parseHidden, resolveHidden, withHidden } =
   check("...one hidden id per label, for the count", scope.hiddenIds.length === 1);
   check("a label it does not hold is not hidden", !isHiddenCategory(scope, "Art"));
   check("a local set can never be locked", scope.locked === false);
+}
+
+{
+  // Which store answers is the ladder plus one fact the ladder does not carry:
+  // whether there is a server at all. A library on this device *is* its own
+  // backend, so `backend` there means this device's store — not an extension it
+  // has no way to run.
+  check("an extension on a server is the store", hiddenStore("backend", true) === "extension");
+  check("a server the ladder gives to this device is this device's store", hiddenStore("local", true) === "local");
+  check("a paid mirror is still this device's store", hiddenStore("cloud", true) === "local");
+  check("a library on this device owns its own set", hiddenStore("backend", false) === "local");
+  check("...and the two-argument reading stays the server's", hiddenStore("backend") === "extension");
+
+  const own = resolveHidden(
+    parseState({ available: false }),
+    { categories: ["Art"], view: "revealed" },
+    "backend",
+    false,
+  );
+  check("a local library draws its own set", own.mode === "local" && isHiddenCategory(own, "Art"));
+}
+
+{
+  // The point of one shape for both stores: the sidebar cannot tell them apart.
+  // The same category set, once from the extension and once from this device,
+  // draws the same rows in the same order in all three views.
+  const groups = [{ label: "Art" }, { label: "Technology" }, { label: "Uncategorized" }];
+  const names = (state) => visibleGroups(groups, state).map((group) => group.label).join(",");
+  const fromServer = resolveHidden(
+    parseState({
+      available: true,
+      mode: "strict",
+      view: "hidden",
+      effectiveView: "hidden",
+      hiddenIds: [12],
+      categories: [
+        { id: 12, name: "Technology", hidden: true },
+        { id: 7, name: "Art", hidden: false },
+      ],
+    }),
+    { categories: [], view: "hidden" },
+    "backend",
+  );
+  const fromDevice = resolveHidden(
+    parseState({ available: false }),
+    { categories: ["Technology"], view: "hidden" },
+    "local",
+  );
+  for (const view of ["hidden", "revealed", "only"]) {
+    const a = visibleGroups(groups, { ...fromServer, view, effectiveView: view });
+    const b = visibleGroups(groups, { ...fromDevice, view, effectiveView: view });
+    check(`the ${view} view draws the same rows from either source`, names({ ...fromServer, view, effectiveView: view }) === names({ ...fromDevice, view, effectiveView: view }), names({ ...fromDevice, view, effectiveView: view }));
+    check(`...and neither one invents or drops a row`, Math.max(a.length, b.length) <= groups.length);
+  }
 }
 
 {
@@ -574,6 +633,136 @@ try {
     collect(strip);
     const leaked = said.filter((word) => /hidden|reveal|enforced/i.test(word));
     check("and nothing either model says names hidden content", leaked.length === 0, leaked.join(" | "));
+  }
+
+  /* -------------------------------------------------------------------------
+   * A server with no Hidden Categories at all — Miniflux, Tiny Tiny RSS, The
+   * Old Reader, a stock FreshRSS: same set, same eye, kept here
+   * ----------------------------------------------------------------------- */
+
+  {
+    device = makeStorage();
+    const reader = readerFor({ email: "miniflux@example.test" });
+    // A non-FreshRSS backend declares the GReader baseline and nothing more, and
+    // has no extension routes to answer with: the ladder answers `local`, which
+    // is the whole of the difference from the case above.
+    reader.profile = {
+      kind: "greader",
+      slug: accountSlug({ serverUrl: SERVER, email: "miniflux@example.test" }),
+      label: "Miniflux",
+      backend: { kind: "greader", capabilities: GREADER_CAPABILITIES },
+      session: reader.session,
+    };
+    reader.backend = reader.profile.backend;
+
+    check("a server with no extension keeps the set here", reader.hiddenAuthority === "local");
+    check("...so the row menu offers Hide, and explains nothing away",
+      categoryMenu(reader.hiddenScope, "Technology", false, reader.hiddenAuthority).toggle?.disabled === false &&
+        categoryMenu(reader.hiddenScope, "Technology", false, reader.hiddenAuthority).note === null);
+
+    await reader.setCategoryHidden("Technology", true);
+    check("hiding works there too", labels(reader.categories) === "Art", labels(reader.categories));
+    check("...and sends nothing to a server that has nowhere to put it", calls.length === 0, `${calls.length} request(s)`);
+    check("...and is stored under this account", storedHidden("miniflux@example.test")?.categories.join(",") === "Technology");
+
+    await reader.setHiddenView("only");
+    check("the eye's three views are the eye's here too", labels(reader.categories) === "Technology", labels(reader.categories));
+
+    // The lock is a passcode store, and a server with no Hidden Categories has
+    // none: the control says that rather than claiming the server went quiet.
+    const lock = lockState(reader.hiddenAvailable, reader.hiddenHasPasscode, reader.session !== null, reader.hiddenAuthority);
+    check("the lock is not offered a passcode it cannot keep", lock === "missing", lock);
+    check("...and says which piece is missing", /Hidden Categories/.test(lockTitle(lock)), lockTitle(lock));
+    check("...and opens nothing", lockOpensPanel(lock) === false);
+  }
+
+  /* -------------------------------------------------------------------------
+   * A library on this device: no session at all, and the backend *is* the store
+   * ----------------------------------------------------------------------- */
+
+  {
+    device = makeStorage();
+    globalThis.localStorage = device;
+    const reader = new ReaderState();
+    // The real shape `start()` builds for a local profile: a local backend that
+    // declares every feature (it has nowhere to send them, and no need to), and
+    // no session, because there is no server.
+    reader.profile = {
+      kind: "local",
+      slug: LOCAL_PROFILE_SLUG,
+      label: "On this device",
+      backend: { kind: "local", capabilities: LOCAL_CAPABILITIES },
+      session: null,
+    };
+    reader.backend = reader.profile.backend;
+    reader.session = null;
+    reader.subscriptions = [
+      subscription("feed/1", "Ars Technica", "Technology"),
+      subscription("feed/2", "MoMA", "Art"),
+    ];
+    reader.hiddenCategories = parseState({ available: false });
+    calls = [];
+    reply = () => ({ status: 200, body: {} });
+
+    check("a library with no server keeps the set here", reader.hiddenAuthority === "local");
+    check("...and draws from it", reader.hiddenScope.mode === "local");
+    check("every category is drawn to begin with", labels(reader.categories) === "Art,Technology", labels(reader.categories));
+
+    const pending = reader.setCategoryHidden("Technology", true);
+    check("the row goes before anything resolves", labels(reader.categories) === "Art", labels(reader.categories));
+    const outcome = await pending;
+    check("the hide is accepted, not ignored", outcome === null && reader.isCategoryHidden("Technology") === true);
+    check("nothing is sent: there is no server to send to", calls.length === 0, `${calls.length} request(s)`);
+    check("the count the strip reads is the local one", reader.hiddenCount === 1);
+    check("and the menu offers Show, rather than a disabled Hide",
+      categoryMenu(reader.hiddenScope, "Technology", false, reader.hiddenAuthority).toggle?.label === "Show");
+
+    const deviceKey = `${PREFS_BASE}:${LOCAL_PROFILE_SLUG}`;
+    const kept = device.getItem(deviceKey);
+    check("the device's own key holds it", kept !== null && JSON.parse(kept).hidden.categories.join(",") === "Technology");
+
+    const eye = bandFacts({
+      collapsed: false,
+      locked: reader.hiddenLocked,
+      available: reader.hiddenAvailable,
+      authority: reader.hiddenAuthority,
+      view: reader.hiddenView,
+      pinnedCount: reader.pinnedCount,
+      pinView: reader.pinView,
+    });
+    check("the band's eye is not a dead control without a server", eye.hidden?.enabled === true);
+    check("...and says the set is this device's", eye.hidden?.authority === "local");
+    const strip = statusFacts({
+      locked: reader.hiddenLocked,
+      available: reader.hiddenAvailable,
+      authority: reader.hiddenAuthority,
+      hiddenCount: reader.hiddenCount,
+      enforced: reader.hiddenEnforced,
+      pinnedCount: reader.pinnedCount,
+    });
+    check("the strip counts it and wears the badge", strip.hiddenCount === 1 && strip.enforced === true);
+
+    await reader.setHiddenView("revealed");
+    check("the eye works with no server", reader.hiddenView === "revealed" && labels(reader.categories) === "Art,Technology");
+    const keptAfterView = device.getItem(deviceKey);
+    check("the view is kept beside the set", JSON.parse(keptAfterView).hidden.view === "revealed");
+
+    // A reload: `loadPrefs` is the first thing a launch does.
+    const again = new ReaderState();
+    again.profile = reader.profile;
+    again.backend = reader.backend;
+    again.session = null;
+    again.subscriptions = reader.subscriptions;
+    again.hiddenCategories = parseState({ available: false });
+    again.loadPrefs();
+    check("the set survives a restart", again.localHidden.categories.join(",") === "Technology");
+    check("...and so does the view", again.localHidden.view === "revealed");
+    check("...and the sidebar is filtered by it again", again.isCategoryHidden("Technology") === true);
+
+    const lock = lockState(again.hiddenAvailable, again.hiddenHasPasscode, again.session !== null, again.hiddenAuthority);
+    check("the lock says what it is missing, not that a server is silent", lock === "local", lock);
+    check("...in the band's own words", lockTitle(lock) === "Locking needs a connected service");
+    check("...and nothing was written to storage by asking", device.getItem(deviceKey) === keptAfterView);
   }
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });

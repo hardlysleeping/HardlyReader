@@ -34,13 +34,17 @@
  *                             there for feed HTML: `sanitizeArticle()` forbids
  *                             `style` as a tag and as an attribute.
  *   img-src 'self'            Article pictures come from arbitrary feed hosts
- *     data: http: https:      (enclosure, media:thumbnail, or the first <img>),
+ *     data: blob:             (enclosure, media:thumbnail, or the first <img>),
  *                             from the server's own icon/ImageCache proxy, and
  *                             — `data:` — from the theme's wallpaper, which
  *                             `background-image.ts` stores as a data URL and
  *                             draws through an inline `background-image`. The
  *                             browser build may be plain http on a LAN, so http:
- *                             is deliberate.
+ *                             is deliberate. `blob:` is the picture cache: a
+ *                             kept copy is a Blob in memory and the webview
+ *                             draws it through a `blob:` address
+ *                             (`lib/image-cache.ts`); without this every kept
+ *                             picture in the desktop app is refused.
  *   media-src http: https:    DOMPurify's `html` profile keeps <video>, <audio>
  *                             and <source>, so a feed that carries one plays
  *                             today. Without this it would silently stop, because
@@ -183,6 +187,7 @@ check("and nothing else is trusted for styles", () => style.every((s) => s === "
 const img = src("img-src");
 check("feed pictures from any host load", img.includes("http:") && img.includes("https:"));
 check("the theme wallpaper (a data URL) can be drawn", img.includes("data:"));
+check("a picture the device kept is drawn from its blob: address", img.includes("blob:"), img.join(" "));
 check("a relative picture resolves to the app itself", img.includes("'self'"));
 
 /* media-src: DOMPurify keeps <video>/<audio>, so keep them working. */
@@ -258,7 +263,8 @@ if (existsSync(join(root, "dist/index.html"))) {
   );
   check(
     "the bundle is loaded by URL, not injected as text",
-    () => /<script[^>]+src="\/assets\/[^"]+\.js"/.test(builtHtml),
+    // The script must be a URL, and a demo build prefixes it with its Pages base (/<repo>/assets/).
+    () => /<script[^>]+src="(?:\/[^"]*)?\/assets\/[^"]+\.js"/.test(builtHtml),
   );
 } else {
   console.log("SKIP  dist/ is not built, so the bundle checks did not run");

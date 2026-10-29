@@ -38,6 +38,7 @@
   import { ledger } from "../lib/extract-ledger";
   import { wantsFullText } from "../lib/full-text";
   import { bodies } from "../state/bodies.svelte";
+  import { picture as drawPicture, pictures as pictureCache } from "../state/pictures.svelte";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
@@ -417,22 +418,18 @@
     );
   });
 
-  /*
-   * Files being fetched for a card that has not been scrolled to yet. The
-   * references are held because an `Image` with no other handle can be
-   * collected, and a collected prefetch takes its request with it.
+  /**
+   * Start the fetch the card will want, so arriving there is not a blank.
+   *
+   * It goes through the picture cache rather than through a bare `Image`: a
+   * picture warmed here is fetched once, downscaled to the row's box and kept, so
+   * the scroll that arrives at the card draws it from this device — and the
+   * second scroll to the same card costs nothing at all.
    */
-  const warming: HTMLImageElement[] = [];
-
-  /** Start the fetch the card will want, so arriving there is not a blank. */
   function warm(item: StreamItem): void {
     const first = pictures(item)[0] ?? thumbnail(item);
     if (first === null || first === undefined || first === "") return;
-    const img = new Image();
-    img.decoding = "async";
-    img.src = shown(first);
-    warming.push(img);
-    if (warming.length > 4) warming.shift();
+    pictureCache.preload(shown(first), "thumb");
   }
   const markNear = (id: string, isNear: boolean): void => {
     if ((nearIds[id] === true) === isNear) return;
@@ -1505,7 +1502,7 @@
                   <img
                     class="panel"
                     style:width={scale === undefined ? null : `${(scale.widths[page] / scale.widest) * 100}%`}
-                    src={shown(strip[page])}
+                    use:drawPicture={{ url: shown(strip[page]), variant: "thumb" }}
                     alt=""
                     loading={aheadIds[item.id] ? "eager" : "lazy"}
                     decoding="async"
@@ -1515,7 +1512,7 @@
                   />
                 {:else}
                   <img
-                    src={shown(picture ?? "")}
+                    use:drawPicture={{ url: shown(picture ?? ""), variant: "thumb" }}
                     alt=""
                     loading={aheadIds[item.id] ? "eager" : "lazy"}
                     decoding="async"
@@ -1560,7 +1557,7 @@
             <span class="thumb" class:left={reading.thumbSide === "left"} aria-hidden="true">
               {#if loadNow(item.id)}
                 <img
-                  src={picture}
+                  use:drawPicture={{ url: picture ?? "", variant: "thumb" }}
                   alt=""
                   loading="lazy"
                   decoding="async"

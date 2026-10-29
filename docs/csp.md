@@ -4,7 +4,7 @@ The policy lives in `src-tauri/tauri.conf.json` under `app.security.csp`. As shi
 
 ```
 default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';
-img-src 'self' data: http: https:; media-src http: https:;
+img-src 'self' data: blob: http: https:; media-src http: https:;
 connect-src 'self' ipc: http://ipc.localhost http: https:;
 object-src 'none'; frame-src 'none'; worker-src 'none';
 base-uri 'none'; form-action 'none'; manifest-src 'self'
@@ -24,7 +24,7 @@ invariants, and this rationale, are asserted in `tests/unit/csp.mjs`.
 | `default-src` | `'none'` | Nothing is allowed that is not named below. The window is one bundle plus feed content: no plugin, no embed, no second origin of its own. |
 | `script-src` | `'self'` | Vite emits one module bundle, loaded from `index.html` by `<script type="module" src>`. No inline script, so no `'unsafe-inline'`; nothing in `src/` or the dependencies compiles code at runtime, so no `'unsafe-eval'`. Tauri will add `'sha256-…'` for any inline script it finds in the HTML and `'nonce-…'` for its own nonce tokens; this `index.html` has neither, so the header that reaches the webview is exactly the string above. |
 | `style-src` | `'self' 'unsafe-inline'` | `'self'` is the built CSS bundle. `'unsafe-inline'` is **required and deliberate**: Svelte's `style:` directives and every dynamic CSS variable (`style:--row-scale`, `style:--card-window`, the theme colours) become style *attributes* at runtime, and CSP counts an attribute under `style-src` unless it carries a nonce — which an attribute cannot. Dropping it turns the app into unstyled text. It is not there to let feed HTML style itself: `sanitizeArticle()` forbids `style` both as a tag and as an attribute. |
-| `img-src` | `'self' data: http: https:` | Article pictures come from arbitrary feed hosts (enclosure, `media:thumbnail`, or the first `<img>` in the body, see `thumb.ts`), from the server's own icon/ImageCache proxy (`/f.php`, `piccache.php`), and — `data:` — from the theme wallpaper, which `background-image.ts` stores as a data URL and draws through an inline `background-image`. `http:` is deliberate: a LAN server, and the images it proxies, can be plain http. |
+| `img-src` | `'self' data: blob: http: https:` | Article pictures come from arbitrary feed hosts (enclosure, `media:thumbnail`, or the first `<img>` in the body, see `thumb.ts`), from the server's own icon/ImageCache proxy (`/f.php`, `piccache.php`), and — `data:` — from the theme wallpaper, which `background-image.ts` stores as a data URL and draws through an inline `background-image`. `http:` is deliberate: a LAN server, and the images it proxies, can be plain http. `blob:` is the picture cache — a kept copy is a `Blob` in the page and the webview draws it through an object URL (`lib/image-cache.ts`), so a policy without it refuses every picture the device kept. |
 | `media-src` | `http: https:` | DOMPurify's `html` profile keeps `<video>`, `<audio>` and `<source>`, so a feed that carries one plays today. Media falls back to `default-src`, so without this it would silently stop. |
 | `connect-src` | `'self' ipc: http://ipc.localhost http: https:` | `ipc:` / `http://ipc.localhost` are Tauri's own invoke channel: `@tauri-apps/api` reaches the backend with a `fetch()` to an ipc-scheme URL (`ipc://localhost/…` on Linux, `http://ipc.localhost/…` on Windows and Android). A policy without them renders a window that then cannot talk to its host. `http:`/`https:` stay open because the server is whatever the user types — including plain http on a LAN — and because the browser build talks to it with a real `fetch` (`src/api/transport.ts`). In the Tauri window the request itself goes through `plugin-http`, i.e. Rust, which CSP never sees; the scope for that is the capability, below. |
 | `object-src` | `'none'` | No `<object>`/`<embed>` in the app, and DOMPurify does not produce them from feed HTML. |
@@ -58,7 +58,8 @@ No `upgrade-insecure-requests`, on purpose: it would rewrite a LAN server's
   build is served by the app's own `tiny_http` server and is unaffected.
 - **Downloads.** The OPML export builds a `blob:` and clicks a `download` link
   (`Sidebar.svelte`). That is a download, not a fetch or a frame, so no directive
-  here governs it and `blob:` is deliberately absent from `img-src`.
+  here governs it. (`blob:` is in `img-src` for a different reason: the picture
+  cache's kept copies.)
 - **`tauri dev` on the desktop.** The page comes from Vite (`devUrl`), not from
   the asset protocol, so the CSP is not attached and a dev session proves
   nothing about it. `devCsp` is deliberately unset; it is the lever if a future

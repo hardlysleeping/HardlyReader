@@ -5,7 +5,7 @@
  * adapter's `/v1/state` at all (no CORS on that route), so `available` came back
  * false and the tooltip said "Set a passcode first" on an account that had one.
  */
-import { lockHint, lockOpensPanel, lockState, lockTitle } from "../../src/lib/lock-title.ts";
+import { lockHint, lockOpensPanel, lockState, lockTitle, lockUsable } from "../../src/lib/lock-title.ts";
 
 let failures = 0;
 let checks = 0;
@@ -41,6 +41,20 @@ check("the panel opens only when there is provably no passcode", lockOpensPanel(
 check("not when one exists", lockOpensPanel("ready") === false);
 check("and not when the server said nothing", lockOpensPanel("unknown") === false);
 
+// A server with no Hidden Categories at all (Miniflux, a stock FreshRSS) has
+// nowhere to keep a passcode: that is a fact about this backend, not a server
+// that has not answered, and the sentence has to be its own.
+check("a backend with no extension is missing the piece, not silent", lockState(false, false, true, "local") === "missing");
+check("...and says which piece", /Hidden Categories/.test(lockTitle("missing")), lockTitle("missing"));
+check("...without claiming the server never spoke", !/has not said/.test(lockTitle("missing")));
+check("...and opens nothing: there is no passcode to set", lockOpensPanel("missing") === false);
+check("a library with no server keeps its own answer", lockState(false, false, false, "local") === "local");
+check("an extension that answered stays ready", lockState(true, true, true, "extension") === "ready");
+
+check("the lock is usable only where it can lock or ask for a code", lockUsable("ready") === true);
+check("...including the press that opens the panel", lockUsable("none") === true);
+check("...and not where it cannot act", lockUsable("missing") === false && lockUsable("local") === false && lockUsable("unknown") === false);
+
 check("the hint appears only in the none case", lockHint("none") !== null);
 check("not while ready", lockHint("ready") === null);
 check("and not while unknown", lockHint("unknown") === null);
@@ -52,6 +66,13 @@ check("the band asks the helper for its title", /lockTip = \$derived\(lockTitle\
 check("the band never branches on hiddenHasPasscode for the title", !/title=\{reader\.hiddenHasPasscode/.test(band));
 check("the band gates the panel on the helper", /lockOpensPanel\(lock\)/.test(band));
 check("the band renders the hint from the helper", /\{hint\}/.test(band));
+check("the band tells the helper where the set lives", /lockState\([\s\S]{0,200}reader\.hiddenAuthority,\s*\)/.test(band));
+check(
+  "the band disables the lock from the helper, not from `available`",
+  /const lockEnabled = \$derived\(lockUsable\(lock\)\)/.test(band) &&
+    /disabled=\{!lockEnabled\}/.test(band) &&
+    !/disabled=\{!reader\.hiddenAvailable\}/.test(band),
+);
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -20,7 +20,15 @@
     BODY_KEEP_TITLES,
     describeBodies,
   } from "../lib/bodies";
+  import {
+    PICTURE_BUDGET_CHOICES_MB,
+    PICTURE_KEEP_LABELS,
+    PICTURE_KEEP_MODES,
+    PICTURE_KEEP_TITLES,
+    describePictures,
+  } from "../lib/images";
   import { bodies } from "../state/bodies.svelte";
+  import { pictures } from "../state/pictures.svelte";
 
   /** Bytes, as the three buttons name them. */
   const MIB = 1024 * 1024;
@@ -38,9 +46,23 @@
 
   const budgetChoices = BODY_BUDGET_CHOICES_MB;
 
+  /** The same three shapes for the pictures, whose words are their own. */
+  const pictureChoices = PICTURE_KEEP_MODES.map((mode) => ({
+    mode,
+    label: PICTURE_KEEP_LABELS[mode],
+    title: PICTURE_KEEP_TITLES[mode],
+  }));
+
+  const pictureBudgets = PICTURE_BUDGET_CHOICES_MB;
+
   /** "12 articles, 1.2 MB of 24 MB" — or that nothing is kept yet. */
   const keptText = $derived(
     describeBodies({ count: bodies.count, bytes: bodies.bytes }, bodies.limit),
+  );
+
+  /** "204 pictures, 12 MB of 200 MB" — the same sentence one row down. */
+  const pictureText = $derived(
+    describePictures({ count: pictures.count, bytes: pictures.bytes }, pictures.limit),
   );
 </script>
 
@@ -86,6 +108,52 @@
   <p class="hint" role="status">{bodies.note}</p>
 {/if}
 
+<!-- Pictures: their own row, their own words, their own ceiling. The list's
+     thumbnails are what a scroll costs, so "Thumbnails" is the answer that pays
+     and the one a fresh device starts on; "Everything" adds the article's own
+     lead picture. Off keeps no copy — the pictures are still drawn, straight
+     from the publisher, every time. -->
+<div class="row">
+  <span class="key">Saved pictures</span>
+  <div class="seg" role="group" aria-label="What pictures this device keeps">
+    {#each pictureChoices as choice (choice.mode)}
+      <button
+        class="segbtn"
+        class:on={pictures.mode === choice.mode}
+        aria-pressed={pictures.mode === choice.mode}
+        title={choice.title}
+        onclick={() => pictures.setMode(choice.mode)}>{choice.label}</button>
+    {/each}
+  </div>
+</div>
+
+<p class="hint">
+  Saved pictures are kept at the size the pane draws them — a thumbnail for the
+  post list, the article's own picture at the width of the column — so a feed
+  read once scrolls back with no requests. Off keeps no copy: every draw fetches
+  the picture from the publisher again, exactly as it always did.
+</p>
+
+<div class="row">
+  <span class="key">Space for pictures</span>
+  <div class="seg" role="group" aria-label="How many picture bytes this device keeps">
+    {#each pictureBudgets as mb (mb)}
+      <button
+        class="segbtn"
+        class:on={pictures.limit === mb * MIB}
+        aria-pressed={pictures.limit === mb * MIB}
+        title={`Keep up to ${mb} MB of pictures, clearing the least recently drawn when it is full`}
+        onclick={() => pictures.setLimit(mb * MIB)}>{mb} MB</button>
+    {/each}
+  </div>
+</div>
+
+<p class="hint" role="status">{pictureText}</p>
+
+{#if pictures.note}
+  <p class="hint" role="status">{pictures.note}</p>
+{/if}
+
 <p class="hint">
   A saved body is fetched from the publisher's own page, so the request carries
   this device's address into that publisher's log. A reader with a server has
@@ -93,8 +161,15 @@
 </p>
 
 <p class="hint">
-  Text stays on the device that fetched it: the sync file carries feeds, read
-  marks, stars, preferences and positions, never articles.
+  A saved picture comes from the same server, once, at the size the pane draws
+  it — and only for a post the list or the article is actually showing. Nothing
+  is fetched for a feed you have not scrolled to.
+</p>
+
+<p class="hint">
+  Text and pictures stay on the device that fetched them: the sync file carries
+  feeds, read marks, stars, preferences and positions, never articles or
+  pictures.
 </p>
 
 <style>

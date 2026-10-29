@@ -1,0 +1,72 @@
+name: pages-demo
+
+# The demo build, published as a GitHub Pages site: the app with a sample library, so a visitor can
+# try the panes, the four list views, the picture fit and the settings without installing anything.
+#
+# Two build flags do the work (src/lib/demo.ts): `VITE_DEMO=1` seeds the sample feeds and turns off
+# fetching, and `VITE_BASE` prefixes asset URLs for a project page (`/<repo>/`).
+#
+# What a visitor does NOT get is their own feeds: Pages serves files only, and a browser cannot
+# fetch a publisher's RSS across origins. The demo says so on its own banner and in the sidebar.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-demo
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: |
+          set -euo pipefail
+          npm i -g pnpm@10 --force >/dev/null
+          pnpm install --frozen-lockfile
+
+      - name: Build the demo
+        env:
+          VITE_DEMO: "1"
+          VITE_BASE: /${{ github.event.repository.name }}/
+        run: |
+          set -euo pipefail
+          pnpm build
+          # A demo build that failed to take the flag would publish an empty app under a banner
+          # promising sample feeds. Ask the bundle.
+          grep -rq "Demo library — sample feeds" dist/assets/*.js || {
+            echo "the demo flag did not reach the bundle"
+            exit 1
+          }
+          grep -q "/${{ github.event.repository.name }}/assets/" dist/index.html || {
+            echo "the base path is missing from index.html"
+            exit 1
+          }
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

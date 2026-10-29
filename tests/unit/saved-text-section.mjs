@@ -106,12 +106,16 @@ async function buildComponent(relative) {
 let Panel;
 
 try {
+  buildRunes("src/lib/images.ts");
+  buildRunes("src/lib/image-cache.ts");
   buildRunes("src/state/bodies.svelte.ts");
+  buildRunes("src/state/pictures.svelte.ts");
   ({ default: Panel } = await import(await buildComponent("src/components/BodyPanel.svelte")));
 
   const { bodies, showsSavedText } = await import(
     built.get(join(ROOT, "src/state/bodies.svelte.ts"))
   );
+  const { pictures } = await import(built.get(join(ROOT, "src/state/pictures.svelte.ts")));
 
   const MIB = 1024 * 1024;
   const draw = () => render(Panel).body;
@@ -151,6 +155,50 @@ try {
   }
 
   // -------------------------------------------------------------------------
+  // The pictures: their own row, their own words, their own ceiling.
+  // -------------------------------------------------------------------------
+  {
+    pictures.mode = "thumbs";
+    pictures.limit = 200 * MIB;
+    pictures.count = 0;
+    pictures.bytes = 0;
+    pictures.note = null;
+
+    const body = draw();
+    const words = text(body);
+
+    check(
+      "the pictures are their own row, with their own three answers",
+      words.includes("Saved pictures Off Thumbnails Everything"),
+      words.slice(0, 200),
+    );
+    check("thumbnails is what a fresh device keeps", pressed(body).includes("Thumbnails"), pressed(body).join(","));
+    check(
+      "the pictures have their own ceiling",
+      count(body, ">100 MB<") === 1 && count(body, ">200 MB<") === 1 && count(body, ">500 MB<") === 1,
+    );
+    check("and their own sentence about what is held", words.includes("No saved pictures — up to 200 MB can be kept"));
+    check(
+      "the group is labelled for a screen reader",
+      count(body, 'aria-label="What pictures this device keeps"') === 1 &&
+        count(body, 'aria-label="How many picture bytes this device keeps"') === 1,
+    );
+
+    pictures.setMode("all");
+    pictures.setLimit(100 * MIB);
+    pictures.count = 204;
+    pictures.bytes = Math.round(2.4 * MIB);
+    const chosen = draw();
+    check("a choice made elsewhere is what is drawn", pressed(chosen).includes("Everything") && pressed(chosen).includes("100 MB"), pressed(chosen).join(","));
+    check("and what is held is said in pictures and bytes", text(chosen).includes("204 pictures, 2.4 MB of 100 MB"), text(chosen).slice(-200));
+
+    pictures.mode = "thumbs";
+    pictures.limit = 200 * MIB;
+    pictures.count = 0;
+    pictures.bytes = 0;
+  }
+
+  // -------------------------------------------------------------------------
   // The disclosure: who sees the request. Not a tooltip, not a link.
   // -------------------------------------------------------------------------
   {
@@ -159,6 +207,7 @@ try {
     check("...that the address is in that publisher's log", words.includes("this device's address into that publisher's log"));
     check("...and that nothing stands in between here", words.includes("a library on this device has nothing in between"));
     check("ahead says what it costs", words.includes("prepares the posts just after the one you are reading"));
+    check("a picture's request is disclosed in words too", words.includes("A saved picture comes from the same server"));
     check("and the sync file is said to carry no articles", words.includes("the sync file carries feeds"));
   }
 

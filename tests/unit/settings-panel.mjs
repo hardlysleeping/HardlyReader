@@ -176,7 +176,7 @@ try {
   // State first: the components import them by the names the compiler rewrites.
   // Libraries first: a `.ts` module Node loads in place cannot resolve its own
   // extensionless imports, so anything below them is built and rewritten too.
-  for (const lib of ["src/lib/article-filter.ts", "src/lib/version.ts", "src/lib/list-view.ts", "src/lib/sync-setup.ts", "src/lib/prefs-sync.ts", "src/lib/account-device.ts"]) {
+  for (const lib of ["src/lib/article-filter.ts", "src/lib/version.ts", "src/lib/list-view.ts", "src/lib/sync-setup.ts", "src/lib/prefs-sync.ts", "src/lib/account-device.ts", "src/lib/images.ts", "src/lib/image-cache.ts"]) {
     buildRunes(lib);
   }
 
@@ -191,6 +191,7 @@ try {
     "src/state/entitlements.svelte.ts",
     "src/state/device-sync.svelte.ts",
     "src/state/bodies.svelte.ts",
+    "src/state/pictures.svelte.ts",
   ]) {
     buildRunes(state);
   }

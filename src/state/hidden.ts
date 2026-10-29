@@ -65,14 +65,25 @@ export type HiddenAuthority = "extension" | "local";
  * The store behind one resolved authority.
  *
  * `backend` is the only answer that means "something other than this device
- * keeps it", and for hidden categories the backend's store for them is the
- * extension's. `cloud` lands here too, deliberately: a paid mirror is a copy of
- * this device's set, merged into it by `state/device-sync` — there is no third
- * reader for hidden categories and no second place to look. So the store is
- * decided by the resolver's answer and nothing here re-derives it from
- * `available`, a session, or a product name.
+ * keeps it" — and only when there is a server to keep it. A library *on this
+ * device* declares every feature `true` because the local database is its
+ * backend (`LOCAL_CAPABILITIES`), so `backend` there means this device's own
+ * store, which is exactly where `localHidden` lives. Reading it as "the
+ * extension" is how a local library ended up with no way to hide a category:
+ * it was told an extension it cannot run already owned the feature.
+ *
+ * `onAServer` is the one fact the ladder does not carry, and it is the same
+ * fact `upgradePitch` asks for — not a second answer about ownership, just
+ * whether there is a server at all. With it, `cloud` and `local` land here too:
+ * a paid mirror is a copy of this device's set, merged into it by
+ * `state/device-sync` — there is no third reader for hidden categories and no
+ * second place to look.
+ *
+ * The default is the server reading, which is what every caller that has a
+ * session means and what the two-argument form has always meant.
  */
-export function hiddenStore(authority: Authority): HiddenAuthority {
+export function hiddenStore(authority: Authority, onAServer = true): HiddenAuthority {
+  if (!onAServer) return "local";
   return authority === "backend" ? "extension" : "local";
 }
 
@@ -124,9 +135,10 @@ export function isLocallyHidden(local: LocalHidden, label: string): boolean {
  * from this device's labels, shaped like the extension's so the view rules, the
  * count and the band need no second code path.
  *
- * `authority` is the resolver's answer, and the only thing that decides which of
- * the two is drawn — not `available`, which is what the *extension* reports about
- * itself and cannot speak for a store this device keeps instead.
+ * `authority` is the resolver's answer, and `onAServer` says whether there is a
+ * server under it (`hiddenStore` is where the two become one answer) — not
+ * `available`, which is what the *extension* reports about itself and cannot
+ * speak for a store this device keeps instead.
  *
  * `available` on the local block means "this block is the authority and must be
  * obeyed", not "the extension is installed" — the reader answers that question
@@ -140,8 +152,9 @@ export function resolveHidden(
   server: HiddenCategoriesState,
   local: LocalHidden,
   authority: Authority,
+  onAServer = true,
 ): HiddenCategoriesState {
-  if (hiddenStore(authority) === "extension" && server.available) return server;
+  if (hiddenStore(authority, onAServer) === "extension" && server.available) return server;
   const categories = local.categories.map((label, index) => ({
     id: -(index + 1),
     name: label,

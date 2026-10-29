@@ -14,6 +14,7 @@
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
   import { startAutoSync } from "../lib/auto-sync";
+  import { DEMO } from "../lib/demo";
   import { refreshDueOnLaunch, refreshDueOnReturn } from "../lib/refresh-on-return";
   import { startChangeWatch } from "../lib/watch-changes";
   import { transport } from "../api/transport";
@@ -28,6 +29,7 @@
   import { prefs } from "../state/prefs.svelte";
   import { reading } from "../state/reading.svelte";
   import { bodies } from "../state/bodies.svelte";
+  import { pictures } from "../state/pictures.svelte";
   import { reader } from "../state/reader.svelte";
   import { localStoreOf, type ReaderProfile } from "../api/profile";
 
@@ -124,7 +126,9 @@
     // resetting the period each time the user pressed sync themselves.
     const run = untrack(() =>
       startAutoSync({
-        enabled: () => chrome.autoSync,
+        // A demo library has sample feeds and no network: refreshing them would only spend a
+        // request to learn that a `demo://` URL is not a feed.
+        enabled: () => !DEMO && chrome.autoSync,
         hours: () => hours,
         sync: () => reader.refresh(),
         busy: () => reader.sync.active,
@@ -160,10 +164,11 @@
       // interval timer when the reader turned it on: that one fires at its own
       // `launch` check, and five requests twice is not more current than five
       // requests once. Exactly one of the two owns the launch sync.
-      if (!chrome.autoSync && !reader.sync.active && refreshDueOnLaunch(reader.lastSyncAt)) {
+      if (!DEMO && !chrome.autoSync && !reader.sync.active && refreshDueOnLaunch(reader.lastSyncAt)) {
         void reader.refresh();
       }
       const onReturn = (): void => {
+        if (DEMO) return;
         if (document.visibilityState !== "visible") return;
         if (reader.sync.active) return;
         if (!refreshDueOnReturn(chrome.refreshOnReturn, reader.lastSyncAt)) return;
@@ -256,6 +261,11 @@
     // first post opened has somewhere to read from.
     bodies.load();
     bodies.bind(localStoreOf(profile));
+    // Pictures this device keeps: the same two choices, their own ceiling, and
+    // the same rule — a library on a server detaches the cache, so every picture
+    // is drawn from the publisher exactly as it was before this existed.
+    pictures.load();
+    pictures.bind(localStoreOf(profile));
     // The account's copy of the remembered settings, read once behind the first
     // paint. It is started here rather than in `reader.start` because it spans
     // stores the reader does not own — the theme, the cards, the search toggle —
