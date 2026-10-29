@@ -66,7 +66,16 @@ check("a state read retries it", /this\.retryUnsentIndent\(state\.sidebarIndent\
 check("and a value the server already has is not written again", /if \(unsent === serverPx\)/.test(reader));
 check("only one write is in flight", /if \(session === null \|\| this\.indentWriting\) return;/.test(reader));
 check("a server that cannot write is remembered, not rediscovered", /indentLocal: this\.indentLocalOnly/.test(reader) && /this\.indentLocalOnly = raw\?\.indentLocal === true/.test(reader));
-check("releasing the slider writes at once instead of waiting out the debounce", /onchange=\{\(event\) => reader\.setSidebarIndentPx\(Number\(event\.currentTarget\.value\), true\)\}/.test(indent));
+check(
+  "releasing the slider writes at once instead of waiting out the debounce",
+  /onchange=\{\(event\) => \{[\s\S]{0,160}?reader\.setSidebarIndentPx\(Number\(event\.currentTarget\.value\), true\)/.test(
+    indent,
+  ),
+);
+check(
+  "...and brings the sidebar's indent row back, if it was put away",
+  /chrome\.setIndentOpen\(true\)/.test(indent),
+);
 check("the release also stores this device's copy", /if \(flush\) this\.savePrefs\(\);/.test(reader));
 
 // Without the extension the number is still the reader's: the slider used to be

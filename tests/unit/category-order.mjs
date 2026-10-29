@@ -159,6 +159,32 @@ check(
   "and a tap on the category that is already open folds it, as it always did",
   /\n    toggle\(category\.id\);\n  \}/.test(sidebar),
 );
+// A double tap is one gesture, not two taps that undo each other. On a window
+// the pair used to toggle twice and land back where it started; in one panel the
+// posts were fetched behind a sidebar that never moved.
+check(
+  "a double tap on a category opens its posts",
+  /const doubled = lastCategoryTap\.id === category\.id && now - lastCategoryTap\.at < DOUBLE_TAP_MS/.test(
+    sidebar,
+  ) &&
+    /if \(doubled\) \{[\s\S]{0,400}?if \(folded\) toggle\(category\.id\);\s*openCategory\(category\);/.test(
+      sidebar,
+    ),
+);
+check(
+  "...and does not fold the group it just opened",
+  /if \(doubled\) \{[\s\S]{0,400}?return;\s*\}/.test(sidebar) &&
+    sidebar.indexOf("if (doubled)") < sidebar.indexOf("if (!inlinePosts) {\n      toggle"),
+);
+check(
+  "...and one panel is shown the posts, since its sidebar does not move",
+  /if \(inlinePosts\) mobileNav\.show\(2\)/.test(sidebar),
+);
+check(
+  "the double-tap window is a phone's own",
+  /const DOUBLE_TAP_MS = 320/.test(sidebar),
+);
+
 check(
   "the count button still opens the same stream",
   /onclick=\{\(\) => openCategory\(category\)\}/.test(sidebar),

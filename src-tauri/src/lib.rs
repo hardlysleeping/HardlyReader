@@ -38,7 +38,14 @@ pub fn run() {
             // The phone's own share sheet. Registered on every platform so the
             // page has one name to call; it answers "no sheet here" everywhere
             // but iOS, where `src/lib/share.ts` never asks it in the first place.
-            share::share_sheet
+            share::share_sheet,
+            // The document half of the same sheet: the OPML export stages its
+            // bytes in the app's cache and hands UIKit the file, whose "Save to
+            // Files" is the only way a file leaves a phone.
+            share::share_file,
+            // Whether a sheet exists here at all, so the page asks once instead
+            // of treating every platform's refusal as a failure to report.
+            share::share_available
         ])
         // A window that is gone is not a server: closing the reader stops the
         // share rather than leaving a socket open behind a closed window.

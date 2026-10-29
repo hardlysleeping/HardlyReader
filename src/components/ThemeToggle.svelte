@@ -9,6 +9,13 @@
    */
   import { theme } from "../state/theme.svelte";
 
+  /**
+   * How big the button is. The sidebar's strip gives it 20px because it sits
+   * among 20px marks; the phone's title bar gives it 30, because there it is one
+   * of three controls a thumb aims at. The glyph keeps its proportion.
+   */
+  let { size = 20 }: { size?: number } = $props();
+
   const isDark = $derived(
     theme.current.mode === "dark" ||
       (theme.current.mode === "system" &&
@@ -23,6 +30,7 @@
 
 <button
   class="mode"
+  style="--mode-size: {size}px; --mode-glyph: {Math.round(size * 0.6)}px"
   onclick={swap}
   aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
   title={isDark ? "Light mode" : "Dark mode"}
@@ -44,8 +52,8 @@
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    width: 20px;
-    height: 20px;
+    width: var(--mode-size, 20px);
+    height: var(--mode-size, 20px);
     padding: 0;
     border: 0;
     border-radius: 5px;
@@ -66,8 +74,8 @@
   }
 
   .mode svg {
-    width: 12px;
-    height: 12px;
+    width: var(--mode-glyph, 12px);
+    height: var(--mode-glyph, 12px);
     fill: none;
     stroke: currentColor;
     stroke-width: 1.6;

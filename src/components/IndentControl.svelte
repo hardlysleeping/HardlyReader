@@ -12,7 +12,13 @@
    * The label, the number and the fold belong to the row around it — a settings
    * section has nothing to fold — so this component is the input and nothing
    * else.
+   *
+   * It is also the way back to that row. The row is drawn only while it is open,
+   * so its own label can put it away and nothing in the sidebar can bring it
+   * back; using the slider here does, because someone moving the indent is
+   * someone who wants to see it. No second switch, and the panel stays a frame.
    */
+  import { chrome } from "../state/chrome.svelte";
   import { reader } from "../state/reader.svelte";
 
   let {
@@ -34,7 +40,10 @@
       ? "Feed name indent, kept on this device — Sidebar Feed Indent is not storing it on the server"
       : "Feed name indent, shared with the Sidebar Feed Indent extension")}
   oninput={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value))}
-  onchange={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value), true)}
+  onchange={(event) => {
+    reader.setSidebarIndentPx(Number(event.currentTarget.value), true);
+    chrome.setIndentOpen(true);
+  }}
 />
 
 <style>

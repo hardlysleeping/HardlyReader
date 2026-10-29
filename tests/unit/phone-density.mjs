@@ -62,9 +62,22 @@ function between(source, start, end) {
  * ------------------------------------------------------------------------- */
 
 check("the sidebar owns the row gate", /const phoneSidebar = \$derived\(layout\.device === "phone"\)/.test(sidebar));
+// A window draws it only while it is open: hiding the indent used to leave the
+// "Indent 12" label behind, which is a row saying nothing about anything.
 check(
-  "a phone does not draw the indent row, a window still does",
-  /\{#if !phoneSidebar\}[\s\S]{0,900}class="indent"[\s\S]{0,900}<ThemeToggle \/>/.test(sidebar),
+  "a phone does not draw the indent row, a window draws it while it is open",
+  /\{#if !phoneSidebar && chrome\.indentOpen\}[\s\S]{0,900}class="indent open"/.test(sidebar),
+);
+check(
+  "...and its own label is the close",
+  /class="indent-label"[\s\S]{0,300}?chrome\.setIndentOpen\(false\)/.test(sidebar),
+);
+// The way back is the slider itself, not a second switch: the panel defines no
+// control of its own (see `settings-panel.mjs`), and someone moving the indent is
+// someone who wants to see it.
+check(
+  "moving the indent in the sheet brings its row back",
+  /chrome\.setIndentOpen\(true\)/.test(read("src/components/IndentControl.svelte")),
 );
 check(
   "...and the row mounts the shared slider rather than an input of its own",
@@ -87,15 +100,19 @@ check(
     /reader\.indentDeviceOnly/.test(indentControl),
 );
 
-// The day / night switch lost its row, not its place: it sits beside the band in
-// the same rail, and on a window the rail makes no box at all.
+// The day / night switch left the sidebar for the title bar, beside the gear, so
+// the rail is the band's alone now — and on a window it makes no box at all.
 check(
-  "the band and the phone's day / night switch share one rail",
-  /<div class="rail">\s*<SidebarBand \/>\s*\{#if phoneSidebar\}\s*<ThemeToggle \/>/.test(sidebar),
+  "the rail is the band's alone",
+  /<div class="rail">\s*<SidebarBand \/>\s*<\/div>/.test(sidebar) && !/rail"[\s\S]{0,200}<ThemeToggle/.test(sidebar),
+);
+check(
+  "...because the switch is in the phone's title bar",
+  /<ThemeToggle size=\{30\} \/>/.test(read("src/components/PhoneHeader.svelte")),
 );
 check("the rail is no box on a window", /\.rail \{\s*display: contents;/.test(sidebar));
 check(
-  "and one row on a phone, with a thumb's target for the switch",
+  "and the rail's phone geometry stays with the band",
   /:global\(html\[data-device="phone"\]\) \.rail \{[^}]*display: flex;/.test(sidebar) &&
     /:global\(html\[data-device="phone"\]\) \.rail > :global\(\.mode\) \{[^}]*width: 34px/.test(sidebar),
 );

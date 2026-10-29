@@ -18,6 +18,13 @@
 //      0  the sheet was handed to the system
 //      1  no window (and so no view controller) to present it on
 //      2  the link was not a URL; nothing was presented
+
+//  The document half is one more symbol, `hardlyreader_share_file`, taking the
+//  absolute path of a file the app staged in its own cache directory. A file the
+//  sheet can carry is the only way an OPML export leaves a phone: Web Share is
+//  absent here for the same reason the link sheet is, and a webview has no
+//  downloads folder. Its answer uses the same numbers, with 2 meaning "the file
+//  was gone before the sheet could carry it".
 //
 //  The title and the image are optional by being null, never by being empty, so
 //  an untitled post shares its link alone rather than a blank subject line.
@@ -92,6 +99,20 @@ private func presentSheet(_ items: [Any]) -> Int32 {
 
     presenter.present(controller, animated: true)
     return 0
+}
+
+/// The document half: `hardlyreader_share_file(path)` from Rust.
+///
+/// One item, the file's own URL. Nothing is read or rewritten here — the bytes
+/// were staged by `share_file` — and "Save to Files", AirDrop, Mail and every app
+/// that opens an OPML are the sheet's own rows, not this file's.
+@_cdecl("hardlyreader_share_file")
+public func hardlyreader_share_file(_ path: UnsafePointer<CChar>?) -> Int32 {
+    guard let pathPointer = path else { return 2 }
+    let file = URL(fileURLWithPath: String(cString: pathPointer))
+    guard FileManager.default.fileExists(atPath: file.path) else { return 2 }
+    NSLog("%@ present file %@", HardyReaderShareMarker, file.lastPathComponent)
+    return presentSheet([file])
 }
 
 /// The bridge itself: `hardlyreader_share(title, url, image)` from Rust.

@@ -14,6 +14,7 @@
  * a phone, and the app has to answer all three the same way from one place.
  */
 import { buildOpml, opmlFileName, parseOpml, type OpmlFeed, type OpmlFolder } from "./opml";
+import { nativeShareAvailable } from "./platform";
 
 /** What to put on the line under the controls: the file in play, and what happened. */
 export interface FeedsFileResult {
@@ -113,6 +114,31 @@ async function saveThroughDialog(name: string, xml: string): Promise<string | nu
 }
 
 /**
+ * The app's own sheet, carrying the file rather than a link.
+ *
+ * This is the one that runs in the packaged iOS app, and it runs *first*: the
+ * page there is served from `tauri://localhost`, which WebKit does not count as
+ * a secure context, so `navigator.canShare` is absent and the Web Share call
+ * below can only ever answer "no". The export used to stop at that answer and
+ * land on the clipboard — a copy of the XML, in a place with no file in it.
+ *
+ * The bytes go over the bridge, `share_file` writes them into the app's own
+ * cache and hands UIKit the file's URL, and the sheet's "Save to Files" is the
+ * phone's own prompt. `false` means the bridge refused; the caller then tries
+ * Web Share (a browser tab on a phone has it) and finally the clipboard.
+ */
+async function shareThroughApp(name: string, xml: string): Promise<boolean> {
+  if (!nativeShareAvailable()) return false;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("share_file", { name, contents: xml });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The share sheet, which is the only way a file leaves a phone.
  *
  * Its "Save to Files" is the phone's own prompt; there is no downloads folder a
@@ -165,6 +191,12 @@ export async function exportFeedsOpml(
   }
 
   if (onPhone()) {
+    // The app's own sheet first: on iOS it is the only one that exists, and it
+    // is the one whose "Save to Files" puts the file where the reader can find
+    // it. Web Share is the browser tab's answer, and comes second.
+    if (await shareThroughApp(name, xml)) {
+      return { name, note: `Exported ${feeds} — choose where to save it.` };
+    }
     if (await shareThroughSheet(name, xml)) {
       return { name, note: `Exported ${feeds} — saved from the share sheet.` };
     }
