@@ -209,7 +209,7 @@ check(
 );
 check(
   "and the view draws them from the same flag as the columns",
-  /style:grid-template-rows=\{layout\.rows\(stackDrawn\)\}/.test(main),
+  /style:grid-template-rows=\{layout\.rows\(stackDrawn \|\| articlePair\)\}/.test(main),
 );
 check(
   "one getter, so nothing can build a second rows string",
@@ -313,7 +313,7 @@ check(
 );
 check(
   "the grid carries four row tracks whether or not anything is split",
-  /style:grid-template-rows=\{layout\.rows\(stackDrawn\)\}/.test(main) &&
+  /style:grid-template-rows=\{layout\.rows\(stackDrawn \|\| articlePair\)\}/.test(main) &&
     /grid-template-columns: minmax\(0, 1fr\) 0 0 0 0;/.test(main),
 );
 

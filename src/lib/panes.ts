@@ -1147,13 +1147,23 @@ export interface PaneTemplate {
   /**
    * The article is the only pane on screen.
    *
-   * A phone sets this, in two panes, while a post is open. Its frame is banded
-   * down to the feeds plus one column, so the article used to be drawn at half
-   * the width of the phone with a feed list beside it — 210px of prose, and a
-   * 954px comic bled to the edges of it. Reading takes the frame; the bar's 1 is
-   * the walk back to the feeds.
+   * A phone sets this, in two panes, while a post is open, when the reader asked
+   * for articles to open as their own page. Its frame is banded down to the
+   * feeds plus one column, so the article used to be drawn at half the width of
+   * the phone with a feed list beside it — 210px of prose, and a 954px comic
+   * bled to the edges of it.
    */
   solo?: boolean;
+  /**
+   * The posts and the article share the frame as two rows.
+   *
+   * A phone sets this, in two panes, while a post is open, when the reader asked
+   * for articles to open in place. The pair takes the whole width — the feeds
+   * fold to their rail, one press from coming back — because a list and an
+   * article sharing 390px between a feed column and themselves is a list and an
+   * article neither of which fits.
+   */
+  pair?: boolean;
 }
 
 /**
@@ -1183,6 +1193,9 @@ export function tracks(mode: PaneMode, widths: PaneWidths, template: PaneTemplat
     // A phone reading an article draws it as the whole frame (see `solo`): the
     // feeds are the screen behind this one, not a column beside the prose.
     if (template.solo === true) return [0, 0, size(total), 0, 0];
+    // ...or the pair shares the frame as rows (see `pair`): the rail takes the
+    // feeds' place at the far left, and the two panes get the rest.
+    if (template.pair === true) return [0, size(RAIL), size(total - RAIL), 0, 0];
     if (!collapsed) {
       // Two panes: the posts column is the elastic one, so it takes the frame.
       return [size(lead), size(gap), size(total - lead - gap), 0, 0];
@@ -1272,6 +1285,8 @@ export interface SlotsInput {
   swapped: boolean;
   /** The article is the only pane on screen: a phone reading (see `solo`). */
   solo?: boolean;
+  /** The posts and the article share the frame as rows: a phone's pair. */
+  pair?: boolean;
 }
 
 const NO_SLOTS: PaneSlots = {
@@ -1297,6 +1312,11 @@ export function paneSlots(input: SlotsInput): PaneSlots {
   }
   if (mode === 2) {
     if (input.solo === true) return { ...NO_SLOTS, article: true };
+    // The pair: the rail where the feeds were, the two panes in the third track
+    // split into rows, and the seam between them.
+    if (input.pair === true) {
+      return { ...NO_SLOTS, rail: true, posts: true, article: true, seamStack: true };
+    }
     if (collapsed) {
       // The feeds are folded: the rail stands where their seam was, and the two
       // panes that remain — the posts and the article — are drawn together.

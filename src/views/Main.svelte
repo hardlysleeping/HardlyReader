@@ -575,7 +575,29 @@
    * the walk back, and pressing 2 returns to the list.
    */
   const articleSolo = $derived(
-    layout.device === "phone" && mode === 2 && !stackDrawn && reader.selectedId !== null,
+    layout.device === "phone" &&
+      mode === 2 &&
+      !stackDrawn &&
+      !layout.phonePair &&
+      reader.selectedId !== null,
+  );
+
+  /**
+   * Whether the posts and the article share the frame as rows.
+   *
+   * The phone's other answer to "what happens when a row is tapped": instead of
+   * the article taking the frame and the list going with it, the two split the
+   * frame — list above, article below, the seam between them draggable, and the
+   * feeds folded to their rail so the pair has the whole width. It is the
+   * desktop's stacked column at the width of a phone, and it is what keeps every
+   * pane in the frame the reader is already in.
+   */
+  const articlePair = $derived(
+    layout.device === "phone" &&
+      mode === 2 &&
+      !stackDrawn &&
+      layout.phonePair &&
+      reader.selectedId !== null,
   );
 
   /**
@@ -715,6 +737,7 @@
       tuck: layout.stackTuck,
       swapped: layout.stackSwapped,
       solo: articleSolo,
+      pair: articlePair,
     });
     // A post open in its own row is still the posts column: the selection has
     // put a level on screen, but the page it would have drawn is inside the
@@ -760,6 +783,7 @@
       keepWidths: layout.keepWidths,
       articleless: articleSpare,
       solo: articleSolo,
+      pair: articlePair,
     }),
   );
 
@@ -781,6 +805,7 @@
       keepWidths: layout.keepWidths,
       articleless: articleSpare,
       solo: articleSolo,
+      pair: articlePair,
     }),
   );
 
@@ -1204,6 +1229,7 @@
     class:two={mode === 2}
     class:three={mode === 3}
     class:stacked={stackDrawn}
+    class:pair={articlePair}
     class:swapped={layout.stackSwapped}
     class:tucked={stackDrawn && layout.stackTuck !== null}
     class:folded={mode === 2 && folded}
@@ -1212,7 +1238,7 @@
     class:resizing
     bind:this={panes}
     style:grid-template-columns={columns}
-    style:grid-template-rows={layout.rows(stackDrawn)}
+    style:grid-template-rows={layout.rows(stackDrawn || articlePair)}
     style:--slide-ms={`${motionMs(layout.motion)}ms`}
     style:--slide-ease={motionEase(layout.motion)}
     style:--t1={`${trackList[0]}px`}
@@ -1769,6 +1795,36 @@
      one stretched column, which is what one-pane mode is for. */
   .panes.two.folded .slot.article {
     grid-column: 5 / 6;
+  }
+
+  /* The phone's pair: the same split as the stack, in two panes. The rail holds
+     the feeds' place in the second track, and the two right-hand panes share
+     everything from the third on, split into rows with the seam between them. */
+  .panes.two.pair .slot.posts,
+  .panes.two.pair .slot.article {
+    grid-column: 3 / -1;
+  }
+
+  .panes.two.pair .slot.posts {
+    grid-row: 2 / 3;
+  }
+
+  .panes.two.pair .slot.article {
+    grid-row: 4 / 5;
+  }
+
+  .panes.two.pair .slot.gut-stack {
+    grid-column: 3 / -1;
+    grid-row: 3 / 4;
+  }
+
+  /* Swapping is an order here too. */
+  .panes.two.pair.swapped .slot.posts {
+    grid-row: 4 / 5;
+  }
+
+  .panes.two.pair.swapped .slot.article {
+    grid-row: 2 / 3;
   }
 
   /* Three panes side by side already sit in their own tracks. Stacked, the two

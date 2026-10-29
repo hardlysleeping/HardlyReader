@@ -1155,6 +1155,10 @@
   const readHere = $derived(
     store === reader &&
       reading.readInPane &&
+      // A phone reads in place with the pair — the list above, the article below,
+      // the seam between them — so a row that grows as well would be a second
+      // answer to the same question, and a taller one.
+      layout.device !== "phone" &&
       view === "regular" &&
       (layout.mode === 2 ? !layout.sidebarCollapsed : layout.mode === 1),
   );
@@ -1310,21 +1314,42 @@
                levels. -->
           {#if store === reader && layout.mode === 2 && !layout.sidebarCollapsed}
           <span class="viewsplit" aria-hidden="true"></span>
-          <button
-            class="viewicon pane"
-            class:on={reading.readInPane}
-            aria-pressed={reading.readInPane}
-            aria-label="Read posts here in the list"
-            title={reading.readInPane
-              ? "A post opens here, in its own row, and folds away when you press it again — press to open posts as a page instead"
-              : "A post opens as a page of its own — press to read posts here, folded out of their rows"}
-            onclick={() => reading.toggleReadInPane()}
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4 2.5h5.2L12.5 5.8v7.7H4z" />
-              <path d="M9.2 2.5v3.3h3.3" />
-            </svg>
-          </button>
+          {#if layout.device === "phone"}
+            <!-- The phone's answer to the same question, in the same place: the
+                 article opens under the list in the frame already on screen,
+                 instead of the list being replaced by a page. -->
+            <button
+              class="viewicon pane"
+              class:on={layout.phonePair}
+              aria-pressed={layout.phonePair}
+              aria-label="Open posts under the list"
+              title={layout.phonePair
+                ? "A post opens under the list, in the same frame, and the seam between them moves — press to open posts as a page instead"
+                : "A post opens as a page of its own — press to open it under the list instead"}
+              onclick={() => layout.setPhonePair(!layout.phonePair)}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <rect x="2.5" y="2.5" width="11" height="4.6" rx="1.2" />
+                <rect x="2.5" y="8.9" width="11" height="4.6" rx="1.2" />
+              </svg>
+            </button>
+          {:else}
+            <button
+              class="viewicon pane"
+              class:on={reading.readInPane}
+              aria-pressed={reading.readInPane}
+              aria-label="Read posts here in the list"
+              title={reading.readInPane
+                ? "A post opens here, in its own row, and folds away when you press it again — press to open posts as a page instead"
+                : "A post opens as a page of its own — press to read posts here, folded out of their rows"}
+              onclick={() => reading.toggleReadInPane()}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 2.5h5.2L12.5 5.8v7.7H4z" />
+                <path d="M9.2 2.5v3.3h3.3" />
+              </svg>
+            </button>
+          {/if}
           {/if}
           <!-- Everything below is a shape you set once, and a phone's bar has no
                room for it: row ends, their radius, and whether a picture fills

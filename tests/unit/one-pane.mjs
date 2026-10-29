@@ -347,7 +347,7 @@ check(
 check(
   "and the same rows string drives both surfaces",
   (main.match(/style:grid-template-rows=/g) ?? []).length === 1 &&
-    /style:grid-template-rows=\{layout\.rows\(stackDrawn\)\}/.test(main) &&
+    /style:grid-template-rows=\{layout\.rows\(stackDrawn \|\| articlePair\)\}/.test(main) &&
     /rows\(drawnStack: boolean\): string \{[\s\S]{0,140}return stackTemplate\(this\.stacked \? this\.stackShare : STACK_SHARE\.fallback\);/.test(
       layout,
     ),
