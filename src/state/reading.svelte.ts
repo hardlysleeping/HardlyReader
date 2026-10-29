@@ -20,7 +20,12 @@ import {
   isRowEnd,
   LIST_VIEW_DEFAULT,
   ROW_END_DEFAULT,
+  TURN_DEFAULT,
+  isTurnEdge,
+  isTurnSide,
   type RowEnd,
+  type TurnEdge,
+  type TurnSide,
   type CardSize,
   type GridColumns,
   type ListView,
@@ -117,6 +122,29 @@ class ReadingState {
    */
   curvePill = $state(CURVE_DEFAULT.pill);
   curveHalf = $state(CURVE_DEFAULT.half);
+
+  /**
+   * Which way those turns face.
+   *
+   * The pill turns a side, the foot turns an edge, and both only ever went one way. Kept apart for
+   * the same reason the radii are: a reader who hangs their accent on the left has no reason for
+   * their foot to move to the top, and the two shapes are two shapes.
+   */
+  turnSide = $state<TurnSide>(TURN_DEFAULT.side);
+  turnEdge = $state<TurnEdge>(TURN_DEFAULT.edge);
+
+  /** Which side the pill turns, and which edge the foot turns. */
+  setTurnSide(side: TurnSide): void {
+    if (this.turnSide === side) return;
+    this.turnSide = side;
+    this.save();
+  }
+
+  setTurnEdge(edge: TurnEdge): void {
+    if (this.turnEdge === edge) return;
+    this.turnEdge = edge;
+    this.save();
+  }
 
   /** The picture fills the row's corner in the footed shape, or sits inside it. */
   flushThumb = $state(FLUSH_THUMB_DEFAULT);
@@ -285,6 +313,8 @@ class ReadingState {
       rowsEnd: this.rowsEnd,
       curvePill: this.curvePill,
       curveHalf: this.curveHalf,
+      turnSide: this.turnSide,
+      turnEdge: this.turnEdge,
       flushThumb: this.flushThumb,
       gridColumns: this.gridColumns,
       cardSize: this.cardSize,
@@ -332,6 +362,8 @@ class ReadingState {
       this.curvePill = pill === CURVE_PILL_WAS ? CURVE_DEFAULT.pill : pill;
     }
     if (saved.curveHalf !== undefined) this.curveHalf = clampCurve(saved.curveHalf);
+    if (isTurnSide(saved.turnSide)) this.turnSide = saved.turnSide;
+    if (isTurnEdge(saved.turnEdge)) this.turnEdge = saved.turnEdge;
     if (typeof saved.flushThumb === "boolean") this.flushThumb = saved.flushThumb;
     if (isGridColumns(saved.gridColumns)) this.gridColumns = saved.gridColumns;
     if (isCardSize(saved.cardSize)) this.cardSize = saved.cardSize;

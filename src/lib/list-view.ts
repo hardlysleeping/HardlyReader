@@ -115,6 +115,69 @@ export const CURVE_PILL_WAS = 24;
  */
 export const FLUSH_THUMB_DEFAULT = false;
 
+/**
+ * Which side the pill turns, and which edge the foot turns.
+ *
+ * The shape had one direction each — the pill its two right-hand corners, the foot its two bottom
+ * ones — and a row that only ever turns one way is a row you cannot hang the other way. `both`
+ * turns the pair of sides the shape already has; `top` is the foot's mirror. The pill is a side and
+ * the foot is an edge, so one setting of each covers both shapes: `side` is read by the pill,
+ * `edge` by the foot.
+ */
+export type TurnSide = "right" | "left" | "both";
+export type TurnEdge = "bottom" | "top";
+
+export const TURN_DEFAULT: { side: TurnSide; edge: TurnEdge } = { side: "right", edge: "bottom" };
+
+export function isTurnSide(value: unknown): value is TurnSide {
+  return value === "right" || value === "left" || value === "both";
+}
+
+export function isTurnEdge(value: unknown): value is TurnEdge {
+  return value === "bottom" || value === "top";
+}
+
+/** The four corners of a row, as CSS `border-radius` longhand values. */
+export interface TurnCorners {
+  tl: string;
+  tr: string;
+  br: string;
+  bl: string;
+}
+
+/**
+ * The radii a shape turns, in the direction asked for.
+ *
+ * Two values per corner, not one: the horizontal radius is the setting, the vertical one is clamped
+ * to half the row. A 60px turn on a 64px row is not a shape the browser draws — it scales *every*
+ * radius of the box by the same factor, and the accent is a box of its own a pixel different, so it
+ * scales by a different factor and the two curves part at the corner. That was the clipped corner a
+ * row with no picture to cover it showed. Clamped, the turn is drawn at the size asked for, and the
+ * row and its accent share one curve.
+ */
+export function turnCorners(
+  shape: "pill" | "foot",
+  radius: number,
+  side: TurnSide = TURN_DEFAULT.side,
+  edge: TurnEdge = TURN_DEFAULT.edge,
+): TurnCorners {
+  // A radius that is not a number is a square corner: `Math.round(NaN)` is NaN, and `NaNpx` in a
+  // stylesheet is a declaration the browser drops, which would leave the row with no radius at all.
+  const r = Number.isFinite(radius) ? Math.max(0, Math.round(radius)) : 0;
+  const turned = r === 0 ? "0" : `${r}px min(${r}px, 50%)`;
+  const off = "0";
+  if (shape === "foot") {
+    const top = edge === "top";
+    return { tl: top ? turned : off, tr: top ? turned : off, br: top ? off : turned, bl: top ? off : turned };
+  }
+  return {
+    tl: side === "left" || side === "both" ? turned : off,
+    tr: side === "right" || side === "both" ? turned : off,
+    br: side === "right" || side === "both" ? turned : off,
+    bl: side === "left" || side === "both" ? turned : off,
+  };
+}
+
 /** A stored radius, or the default for a value that is not a number. */
 export function clampCurve(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return ROW_CURVE.initial;
