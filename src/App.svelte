@@ -279,6 +279,11 @@
     } catch {
       return;
     }
+    // Three panes with the pair stacked: in a browser window the article sits under the posts
+    // rather than beside them, which is the shape that actually fits a tab — the same default the
+    // owner picked when he looked at it.
+    layout.setMode(3);
+    layout.setStacked(true);
     void applyDemoDefaults(reader);
   });
 </script>
