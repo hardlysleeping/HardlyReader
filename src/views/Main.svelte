@@ -567,6 +567,18 @@
   );
 
   /**
+   * Whether the article is the only pane on screen.
+   *
+   * A phone's frame bands down to the feeds plus one column, so an open article
+   * was drawn beside the feed list — 210px of prose on a 390px screen, with a
+   * comic page bled to the edges of it. Reading takes the frame; the bar's 1 is
+   * the walk back, and pressing 2 returns to the list.
+   */
+  const articleSolo = $derived(
+    layout.device === "phone" && mode === 2 && !stackDrawn && reader.selectedId !== null,
+  );
+
+  /**
    * Whether the feeds pane is folded away in the mode being drawn.
    *
    * One stored preference, honoured differently by each mode. Three panes fold
@@ -702,6 +714,7 @@
       collapsed: folded,
       tuck: layout.stackTuck,
       swapped: layout.stackSwapped,
+      solo: articleSolo,
     });
     // A post open in its own row is still the posts column: the selection has
     // put a level on screen, but the page it would have drawn is inside the
@@ -746,6 +759,7 @@
       stacked: stackDrawn,
       keepWidths: layout.keepWidths,
       articleless: articleSpare,
+      solo: articleSolo,
     }),
   );
 
@@ -766,6 +780,7 @@
       stacked: stackDrawn,
       keepWidths: layout.keepWidths,
       articleless: articleSpare,
+      solo: articleSolo,
     }),
   );
 
