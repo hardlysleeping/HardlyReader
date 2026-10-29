@@ -59,6 +59,13 @@ export function createBillingApp({ config, db, stripe, auth, offer, now = () => 
     }
 
     try {
+      // The root is a person's browser, not a client: a bare `{"error":"not_found"}` on the
+      // published host reads as a broken deployment. One page, no secrets, no prices of its own —
+      // the prices are Stripe's and `/plans` is where they are read from.
+      if (method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+        return withCors(request, html(200, LANDING), origins);
+      }
+
       if (method === "GET" && url.pathname === "/health") {
         // What the shop is SET UP to sell, not what it has cached: `offer.plans()` is empty until
         // something asks `/plans`, so a health check called first would report a shop with no
@@ -355,6 +362,55 @@ function bearer(header) {
   if (typeof header !== "string") return null;
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
   return match === null ? null : match[1].trim();
+}
+
+/**
+ * What this host is, for anyone who opens it in a browser.
+ *
+ * The billing service has no UI: Checkout and the customer portal are Stripe's pages, opened from
+ * the app. This exists so the domain answers with a sentence instead of a JSON 404.
+ */
+const LANDING = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>HardlyReader billing</title>
+<style>
+  :root { color-scheme: dark }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+         background: #14161b; color: #e8eaf0;
+         font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, sans-serif }
+  main { max-width: 34rem; padding: 2rem }
+  h1 { font-size: 1.25rem; margin: 0 0 .75rem }
+  p { margin: 0 0 .75rem; color: #a8afbd }
+  code { background: #1e2129; padding: .1rem .35rem; border-radius: .25rem; font-size: .9em }
+  a { color: #9fb4ff }
+</style>
+</head>
+<body>
+<main>
+  <h1>HardlyReader billing</h1>
+  <p>This host takes payments for <strong>HardlyReader Sync</strong>. It is not a website: the
+     checkout and the customer portal are Stripe's pages, opened from the app.</p>
+  <p>Nothing about your reading is here — feeds, articles and reading state stay on your device or
+     on your own server. Only the subscription is.</p>
+  <p><a href="/health">/health</a> · <a href="/plans">/plans</a></p>
+</main>
+</body>
+</html>
+`;
+
+function html(status, body) {
+  return new Response(body, {
+    status,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 function json(status, body) {
