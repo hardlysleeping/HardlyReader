@@ -1,0 +1,1 @@
+import{addPluginListener as e,invoke as t}from"./core-BQv3Xpis.js";import"./image-DDwgmy_Z.js";var n;(function(e){e.Nsis=`nsis`,e.Msi=`msi`,e.Deb=`deb`,e.Rpm=`rpm`,e.AppImage=`appimage`,e.App=`app`})(n||={});async function r(t){return e(`app`,`back-button`,t)}async function i(e=0){return t(`plugin:app|exit`,{code:e})}export{i as exit,r as onBackButtonPress};
