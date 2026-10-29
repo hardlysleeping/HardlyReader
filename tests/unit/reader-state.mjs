@@ -199,6 +199,10 @@ try {
   const labels = (groups) => groups.map((group) => group.label).join(",");
 
   const reader = new ReaderState();
+  // On a server: an extension state block is only ever produced by a FreshRSS
+  // profile, and a reader with no session and no profile is a library on this
+  // device, which draws its own set (`hiddenStore`).
+  reader.session = { serverUrl: "https://example.invalid", token: "token", username: "user" };
   reader.subscriptions = [
     subscription("feed/1", "Ars Technica", "Technology"),
     subscription("feed/2", "MoMA", "Art"),

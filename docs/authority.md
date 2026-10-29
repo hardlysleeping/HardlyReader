@@ -209,6 +209,13 @@ The repo works this way, and the seam is one function: `featureAuthority` decide
 positions) whether the authority is a server or the device. Cloud sync extends the local side of
 that; it does not add a third authority.
 
+`hiddenStore` takes one fact the ladder does not carry — whether there is a server at all — because a
+library on this device declares *itself* the backend for every feature (`LOCAL_CAPABILITIES`). So
+`backend` there means this device's store, never an extension it has no way to run; reading the
+ladder's word without that fact is what made a local library unable to hide a category. The write
+paths ask the authority before the session for the same reason: a press is refused only when the
+*server* is the store and there is none, never merely because `session` is null.
+
 ## What the sync document already carries
 
 Checked against the code, not assumed. `SidebarDoc` in `src/lib/sidebar-doc.ts` is exactly the

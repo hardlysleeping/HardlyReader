@@ -13,17 +13,33 @@
  * - `ready` — the extension answered and has a passcode: the lock can be pressed.
  * - `none` — the extension answered and has no passcode: setting one is the step.
  * - `unknown` — nobody answered: say that, not something about passcodes.
+ * - `missing` — this backend has no Hidden Categories to hold a passcode: the
+ *   set is on this device, and a lock is not pretending otherwise.
+ * - `local` — there is no server at all, so there is no service to connect.
  */
-export type LockState = "ready" | "none" | "unknown" | "local";
+export type LockState = "ready" | "none" | "unknown" | "missing" | "local";
 
 /**
- * Four answers, from the three facts the band actually has.
+ * Five answers, from the facts the band actually has.
  *
- * `local` is its own case rather than an `unknown` server: a library on this
- * device has no extension to ask, so "the server has not said" would be a
- * sentence about a server that does not exist.
+ * `store` is the hidden authority (`HiddenAuthority`): `"extension"` means the
+ * backend is believed to carry Hidden Categories, so an unanswered state is a
+ * server that has not said yet. `"local"` means nothing on the server can hold a
+ * passcode at all — Miniflux, a stock FreshRSS, or a library on this device —
+ * and saying "the server has not said" there would be a sentence about a route
+ * that does not exist.
+ *
+ * `local` is its own case rather than a `missing` one: a library on this device
+ * has no extension to ask, so "connect a service" is the whole of its answer,
+ * and it is a different sentence from "this server is missing the piece".
  */
-export function lockState(available: boolean, hasPasscode: boolean, hasServer = true): LockState {
+export function lockState(
+  available: boolean,
+  hasPasscode: boolean,
+  hasServer = true,
+  store: "extension" | "local" = "extension",
+): LockState {
+  if (store === "local") return hasServer ? "missing" : "local";
   if (!hasServer) return "local";
   if (!available) return "unknown";
   return hasPasscode ? "ready" : "none";
@@ -38,6 +54,8 @@ export function lockTitle(state: LockState): string {
       return "Set a passcode first";
     case "unknown":
       return "This server has not said whether a passcode is set";
+    case "missing":
+      return "The lock needs Hidden Categories on the server — this set stays on this device";
     case "local":
       return "Locking needs a connected service";
   }
@@ -52,6 +70,11 @@ export function lockTitle(state: LockState): string {
  */
 export function lockOpensPanel(state: LockState): boolean {
   return state === "none";
+}
+
+/** Whether pressing the lock can do anything at all. */
+export function lockUsable(state: LockState): boolean {
+  return state === "ready" || state === "none";
 }
 
 /** The line under the passcode field, or nothing when it would not be true. */

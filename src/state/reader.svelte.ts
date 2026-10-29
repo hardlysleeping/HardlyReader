@@ -709,17 +709,25 @@ export class ReaderState {
     return this.hiddenCategories.available;
   }
 
-  /** Who decides what is hidden: the extension when the ladder says so, else the
-   * device that keeps the same set. Never both — see `hiddenScope`. */
+  /**
+   * Who decides what is hidden: the extension when the ladder says so, else the
+   * device that keeps the same set. Never both — see `hiddenScope`.
+   *
+   * The ladder is asked first and its answer is not second-guessed; the one
+   * extra fact is whether there is a server at all, because a library on this
+   * device declares itself the backend for every feature. `hiddenStore` holds
+   * that rule, so no caller re-derives it from `available` or a product name.
+   */
   get hiddenAuthority(): HiddenAuthority {
-    return hiddenStore(this.featureAuthority("hiddenCategories"));
+    return hiddenStore(this.featureAuthority("hiddenCategories"), this.onAServer);
   }
 
-  /** The last resolved block, and the three things it was built from. */
+  /** The last resolved block, and the things it was built from. */
   private hiddenScopeMemo: {
     server: HiddenCategoriesState;
     local: LocalHidden;
     authority: Authority;
+    onServer: boolean;
     value: HiddenCategoriesState;
   } | null = null;
 
@@ -738,17 +746,19 @@ export class ReaderState {
     const server = this.hiddenCategories;
     const local = this.localHidden;
     const authority = this.featureAuthority("hiddenCategories");
+    const onAServer = this.onAServer;
     const memo = this.hiddenScopeMemo;
     if (
       memo !== null &&
       memo.server === server &&
       memo.local === local &&
-      memo.authority === authority
+      memo.authority === authority &&
+      memo.onServer === onAServer
     ) {
       return memo.value;
     }
-    const value = resolveHidden(server, local, authority);
-    this.hiddenScopeMemo = { server, local, authority, value };
+    const value = resolveHidden(server, local, authority, onAServer);
+    this.hiddenScopeMemo = { server, local, authority, onServer: onAServer, value };
     return value;
   }
 
@@ -1767,11 +1777,13 @@ export class ReaderState {
    * to send to, and no failure to report. The rows themselves are never removed
    * from `subscriptions`, so a reveal needs no repair work the way a Strict-mode
    * reveal does: the same list is simply filtered through the new set.
+   *
+   * The authority is asked **first**, because "is there a session" is not the
+   * same question: a library on this device has no session and still hides, and
+   * a paid profile has one and may not be the store. A press is never refused
+   * for want of a server — only a press the server is the store for needs one.
    */
   async setCategoryHidden(label: string, hidden: boolean): Promise<HiddenWriteOutcome | null> {
-    const session = this.session;
-    if (session === null) return null;
-
     if (this.hiddenAuthority === "local") {
       // Already in that state: the extension's own path refuses the same way, so
       // a second press costs nothing and, in particular, no storage write.
@@ -1779,6 +1791,9 @@ export class ReaderState {
       this.updateLocalHidden({ categories: withHidden(this.localHidden.categories, label, hidden) });
       return null;
     }
+
+    const session = this.session;
+    if (session === null) return null;
 
     const id = this.categoryId(label);
     if (id === null) return null;
@@ -1810,15 +1825,16 @@ export class ReaderState {
 
   /** Switches the hidden-categories view: drawn now, stored in one place. */
   async setHiddenView(view: HiddenView): Promise<HiddenWriteOutcome | null> {
-    const session = this.session;
-    if (session === null) return null;
-
-    // The extension absent: the view is this device's to keep. There is nothing
-    // to queue and nothing to reconcile, so the eye answers on the press.
+    // The extension absent (or a library on this device): the view is this
+    // device's to keep. There is nothing to queue and nothing to reconcile, so
+    // the eye answers on the press — with no session, on any server.
     if (this.hiddenAuthority === "local") {
       this.updateLocalHidden({ view });
       return null;
     }
+
+    const session = this.session;
+    if (session === null) return null;
 
     if (!this.hiddenCategories.available || this.hiddenCategories.locked) return null;
 
