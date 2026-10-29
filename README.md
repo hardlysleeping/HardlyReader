@@ -173,21 +173,34 @@ folder.
 
 | Where your library lives | How the devices stay in step | Cost |
 |---|---|---|
-| On a feed server: FreshRSS, Miniflux, Tiny Tiny RSS, The Old Reader | The server is the meeting point — it polls the feeds and every device reads from it | **Free.** Ours isn't offered, because there is no local library for it to mirror |
-| On this device | **Export archive** on one, **Import archive** on the other | **Free**, always |
-| On this device | **HardlyReader Sync** — same files, merged automatically | $0.99/month or $9.99/year |
-| Feedbin, Feedly, Inoreader | Not supported: HardlyReader doesn't speak their APIs. OPML moves, read marks don't | — |
+| On a feed server — FreshRSS, Inoreader, The Old Reader, Tiny Tiny RSS | The server is the meeting point: it polls the feeds and every device reads from it | **Free** |
+| On a service with no GReader API — Feedbin, Feedly | **Import OPML** into a local library, then let **HardlyReader Sync** carry what the service has no place for: hidden categories, pins, order, indent, read marks, stars | **Free** to import; Sync is a subscription |
+| On this device, by hand | **Export archive** on one, **Import archive** on the other | **Free**, always |
+| On this device, automatically | **HardlyReader Sync** — the same files, merged through a folder in your own cloud | $0.99/month or $9.99/year |
+
+Read the second row carefully, because it is most of why Sync exists: a service like Feedbin or Feedly
+carries feeds and read state and nothing else. Hidden categories, pins, category order, the indent —
+none of that has a home there. HardlyReader keeps those on the device, and Sync is what carries them
+between your devices. The same is true of an Inoreader or Miniflux server profile: the extras are
+ours, so Sync is how they travel when the service has nowhere to put them.
 
 What that leaves out, in three lines:
 
-- **A server carries feeds, read marks, stars and the article text.** Hidden categories, pins and
-  the indent travel with it only when the two category extensions are installed; without them those
-  stay on each device. `Settings → Extensions` says which your instance has.
-- **Without a server, the free way and the paid way carry exactly the same set** — feeds, folders,
-  hidden categories, pins and order, indent, read marks, stars, preferences, position. The only
-  difference is that Sync does it without you pressing anything.
-- **Article text never travels in either.** If you want the article itself waiting on the train,
+- **A server carries feeds, read marks, stars and the article text.** Hidden categories, pins, order
+  and the indent are ours: on FreshRSS they travel through the two category extensions, and on any
+  other service — Inoreader, Miniflux, The Old Reader, or a local library built from Feedbin's OPML —
+  they are kept on the device and it is Sync that carries them. `Settings → Extensions` says which
+  extras your instance is running.
+- **The free way and the paid way carry the same set** — feeds, folders, hidden categories, pins and
+  order, indent, read marks, stars, preferences, position. The only difference is that Sync does it
+  without you pressing anything, and keeps doing it as you read.
+- **Article text never travels through Sync.** If you want the article itself waiting on the train,
   that is what a server is for.
+
+One honest limit, today: the Sync half that carries the extras for a *server* profile is designed —
+`docs/authority.md` says so — but the current build only offers the mirror to a library on the device.
+A server profile with missing extras shows nothing under Sync yet rather than a price for something it
+cannot do.
 
 The rule that keeps this coherent: **one authority per profile.** FreshRSS and its extensions own
 a server-backed profile; the local database owns a local one. No state is ever written by two
