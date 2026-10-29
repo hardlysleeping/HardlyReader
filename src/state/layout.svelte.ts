@@ -129,6 +129,7 @@ interface SavedLayout {
    * a rotation, and the same phone turned sideways still draws three columns.
    */
   mobilePortraitMode?: MobilePortraitMode;
+  phonePair?: boolean;
 }
 
 /**
@@ -472,6 +473,22 @@ class LayoutState {
    * rewriting the stored number.
    */
   stackShare = $state<number>(STACK_SHARE.fallback);
+
+  /**
+   * Whether a phone opens an article under its list, or as its own page.
+   *
+   * Two panes on a phone is a frame banded down to the feeds plus one column, so
+   * a post opened there has one of two honest answers: the article takes the
+   * frame (a page, and the list is gone until you come back), or the list and
+   * the article split the frame into rows and both stay (the pair, and the feeds
+   * fold to their rail). Which one is a preference, because both are answers
+   * somebody wants: reading a long piece wants the page, skimming a feed wants
+   * the pair.
+   *
+   * `true` is the shipped answer: a tap on a row should not take the list the
+   * reader was in the middle of away from them.
+   */
+  phonePair = $state(true);
 
   /**
    * The article above the post list instead of below it.
@@ -1166,6 +1183,14 @@ class LayoutState {
     this.save();
   }
 
+  /** Whether a phone opens articles in place (the pair) or as a page. */
+  setPhonePair(on: boolean): void {
+    if (this.phonePair === on) return;
+    this.phonePair = on;
+    this.press();
+    this.save();
+  }
+
   /**
    * A slider was let go.
    *
@@ -1357,6 +1382,8 @@ class LayoutState {
       if (isMobilePortraitMode(saved.mobilePortraitMode)) {
         this.mobilePortraitMode = saved.mobilePortraitMode;
       }
+      // An older save has no answer and gets the shipped one: in place.
+      this.phonePair = saved.phonePair !== false;
       // A save from before the stack existed simply loads side by side, which is
       // what it was looking at.
       this.stackChoice = saved.stacked === true;
@@ -1629,6 +1656,7 @@ class LayoutState {
           stackSwapped: this.stackSwapped,
           stackShare: this.stackShare,
           mobilePortraitMode: this.mobilePortraitMode,
+          phonePair: this.phonePair,
         }),
       );
     } catch {

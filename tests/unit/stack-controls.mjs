@@ -606,7 +606,9 @@ check(
    panes have an article column of their own, and one pane is a walk. */
 check(
   "the read-here option is offered in two plain panes, and nowhere else",
-  /\{#if store === reader && layout\.mode === 2 && !layout\.sidebarCollapsed\}[\s\S]{0,320}?aria-label="Read posts here in the list"/.test(
+  // The gate is the same on both devices; what it offers differs — the pair on a
+  // phone, the growing row elsewhere.
+  /\{#if store === reader && layout\.mode === 2 && !layout\.sidebarCollapsed\}[\s\S]{0,900}?aria-label="Open posts under the list"[\s\S]{0,900}?aria-label="Read posts here in the list"/.test(
     read("src/components/ArticleList.svelte"),
   ) &&
     /const readInline = \$derived\(\s*reading\.readInPane && reading\.listView === "regular" && mode === 2 && !folded,\s*\);/.test(

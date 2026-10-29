@@ -580,15 +580,14 @@ check(
   (() => {
     const views = listSource.slice(listSource.indexOf('class="views"'));
     const group = views.slice(0, views.indexOf("<!-- Sizing lives"));
-    return (
-      // Offered in two plain panes only: three panes have an article column to
-      // open into, and one pane is a walk down its own levels.
-      /\{#if store === reader && layout\.mode === 2 && !layout\.sidebarCollapsed\}[\s\S]{0,320}?aria-label="Read posts here in the list"/.test(
-        group,
-      ) &&
-      /onclick=\{\(\) => reading\.toggleReadInPane\(\)\}/.test(group) &&
-      /class:on=\{reading\.readInPane\}/.test(group)
-    );
+    // Offered in two plain panes only: three panes have an article column to
+    // open into, and one pane is a walk down its own levels.
+    const gate = /\{#if store === reader && layout\.mode === 2 && !layout\.sidebarCollapsed\}/.test(group);
+    // A phone's answer is the pair — the article under the list, both in the
+    // frame — and everywhere else it is the row that grows.
+    const phone = /aria-label="Open posts under the list"/.test(group) && /onclick=\{\(\) => layout\.setPhonePair\(!layout\.phonePair\)\}/.test(group);
+    const elsewhere = /aria-label="Read posts here in the list"/.test(group) && /onclick=\{\(\) => reading\.toggleReadInPane\(\)\}/.test(group) && /class:on=\{reading\.readInPane\}/.test(group);
+    return gate && phone && elsewhere;
   })(),
 );
 check(

@@ -877,5 +877,26 @@ check("a tall column allows the full range", clampShare(0.1, 900) === STACK_SHAR
   check("a desktop is untouched by it", desktop[0] === 240 && desktop[2] === 954, JSON.stringify(desktop));
 }
 
+// ---- the phone's pair: the article under the list, in the same frame ----
+{
+  const widths = { sidebar: 150, list: 210, article: 240 };
+  const pair = tracks(2, widths, { available: 390, pair: true });
+  check(
+    "the pair takes the frame, with the rail where the feeds were",
+    JSON.stringify(pair) === JSON.stringify([0, 6, 384, 0, 0]),
+    JSON.stringify(pair),
+  );
+  const slots = paneSlots({ mode: 2, level: "article", stacked: false, collapsed: false, tuck: null, swapped: false, pair: true });
+  check(
+    "and both panes are drawn, with the seam between them",
+    slots.posts === true && slots.article === true && slots.seamStack === true && slots.rail === true && slots.sidebar === false,
+    JSON.stringify(slots),
+  );
+  check(
+    "the pair is not the solo: the list stays",
+    paneSlots({ mode: 2, level: "article", stacked: false, collapsed: false, tuck: null, swapped: false, solo: true }).posts === false,
+  );
+}
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
