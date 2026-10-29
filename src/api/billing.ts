@@ -30,15 +30,18 @@ import {
 export type PlanKey = "monthly" | "yearly";
 
 /**
- * Where the billing service lives. Configured at build time, never guessed.
+ * Where the billing service lives.
  *
- * Two names because the app's own env uses the `PUBLIC_` prefix while Vite only
- * exposes `VITE_`-prefixed variables by default; reading both means this works
- * whichever way `vite.config.ts` ends up, and neither is a secret.
+ * The published address is the default, because it has to survive five build paths — the AppImage
+ * and flatpak in a container, the APK on this box, the IPA on a macOS runner and the Docker image —
+ * and an env var that one of them forgets is a release with no subscribe button. The vars still win
+ * so a fork or a staging deployment can point somewhere else, and neither value is a secret.
  */
+export const BILLING_DEFAULT = "https://billing.hardlysleep.ing";
+
 export function billingUrl(): string {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
-  const configured = env.VITE_BILLING_URL ?? env.PUBLIC_BILLING_URL ?? "";
+  const configured = env.VITE_BILLING_URL ?? env.PUBLIC_BILLING_URL ?? BILLING_DEFAULT;
   return configured.replace(/\/$/, "");
 }
 
