@@ -199,13 +199,14 @@ check(
 
   check(
     "opening the app checks freshness by itself",
-    /if \(!chrome\.autoSync && !reader\.sync\.active && refreshDueOnLaunch\(reader\.lastSyncAt\)\)/.test(main),
+    // `!DEMO` first: a demo library has sample feeds and no network, so it must not refresh.
+    /if \(!DEMO && !chrome\.autoSync && !reader\.sync\.active && refreshDueOnLaunch\(reader\.lastSyncAt\)\)/.test(main),
   );
   check(
     "and does not spend the same five requests twice",
     // Exactly one owner: when the interval timer is on, its own launch check
     // fires, and this path stands down.
-    /!chrome\.autoSync && !reader\.sync\.active && refreshDueOnLaunch/.test(main),
+    /!DEMO && !chrome\.autoSync && !reader\.sync\.active && refreshDueOnLaunch/.test(main),
   );
   check(
     "and the interval timer takes the same answer",

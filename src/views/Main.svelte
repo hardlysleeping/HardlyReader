@@ -14,6 +14,7 @@
   import ReaderPane from "../components/ReaderPane.svelte";
   import Sidebar from "../components/Sidebar.svelte";
   import { startAutoSync } from "../lib/auto-sync";
+  import { DEMO } from "../lib/demo";
   import { refreshDueOnLaunch, refreshDueOnReturn } from "../lib/refresh-on-return";
   import { startChangeWatch } from "../lib/watch-changes";
   import { transport } from "../api/transport";
@@ -125,7 +126,9 @@
     // resetting the period each time the user pressed sync themselves.
     const run = untrack(() =>
       startAutoSync({
-        enabled: () => chrome.autoSync,
+        // A demo library has sample feeds and no network: refreshing them would only spend a
+        // request to learn that a `demo://` URL is not a feed.
+        enabled: () => !DEMO && chrome.autoSync,
         hours: () => hours,
         sync: () => reader.refresh(),
         busy: () => reader.sync.active,
@@ -161,10 +164,11 @@
       // interval timer when the reader turned it on: that one fires at its own
       // `launch` check, and five requests twice is not more current than five
       // requests once. Exactly one of the two owns the launch sync.
-      if (!chrome.autoSync && !reader.sync.active && refreshDueOnLaunch(reader.lastSyncAt)) {
+      if (!DEMO && !chrome.autoSync && !reader.sync.active && refreshDueOnLaunch(reader.lastSyncAt)) {
         void reader.refresh();
       }
       const onReturn = (): void => {
+        if (DEMO) return;
         if (document.visibilityState !== "visible") return;
         if (reader.sync.active) return;
         if (!refreshDueOnReturn(chrome.refreshOnReturn, reader.lastSyncAt)) return;

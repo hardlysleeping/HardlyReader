@@ -263,7 +263,8 @@ if (existsSync(join(root, "dist/index.html"))) {
   );
   check(
     "the bundle is loaded by URL, not injected as text",
-    () => /<script[^>]+src="\/assets\/[^"]+\.js"/.test(builtHtml),
+    // The script must be a URL, and a demo build prefixes it with its Pages base (/<repo>/assets/).
+    () => /<script[^>]+src="(?:\/[^"]*)?\/assets\/[^"]+\.js"/.test(builtHtml),
   );
 } else {
   console.log("SKIP  dist/ is not built, so the bundle checks did not run");
