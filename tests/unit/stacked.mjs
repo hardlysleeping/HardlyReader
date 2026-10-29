@@ -407,6 +407,30 @@ check(
 check("the seam is 6px, like a column's", STACK_GUTTER === 6);
 check("a split is clamped both ways", clampShare(0.01, 900) === STACK_SHARE.min && clampShare(0.99, 900) === STACK_SHARE.max);
 
+/* A phone in landscape is the case the pixel floor got wrong: its column is
+   about 330px, two 160px floors and the 6px seam add up to 326, so the share had
+   two pixels of travel and the seam could not be pulled anywhere. The floor is a
+   third of the room on a column too short for the fixed one. */
+{
+  const short = 332;
+  const room = short - STACK_GUTTER;
+  const low = clampShare(0.01, short);
+  const high = clampShare(0.99, short);
+  check("a short column still splits", low < 0.4 && high > 0.6, `${low.toFixed(3)}–${high.toFixed(3)}`);
+  check("...and each pane keeps a third of it", Math.abs(low - 1 / 3) < 0.01 && Math.abs(high - 2 / 3) < 0.01, `${low.toFixed(3)}/${high.toFixed(3)}`);
+  check("...so a drag has somewhere to go", (high - low) * room > 80, `${Math.round((high - low) * room)}px of travel`);
+  check("a half is still a half there", clampShare(0.5, short) === 0.5);
+  // A column tall enough for the fixed floor keeps it exactly: 160px is reached
+  // at 480px of room, and 600 is the shortest column where it still binds above
+  // the setting's own 25% minimum.
+  check(
+    "a window keeps the 160px floor",
+    Math.abs(clampShare(0.01, 600) - 160 / (600 - STACK_GUTTER)) < 0.001,
+    `${clampShare(0.01, 600).toFixed(3)} against ${(160 / 594).toFixed(3)}`,
+  );
+  check("and a tall one is bounded by the setting, not the pixels", clampShare(0.01, 1000) === STACK_SHARE.min);
+}
+
 // The feeds pane is the caller's, not the stack's. `stackedSlots` blanks every
 // slot it does not own, and spreading that blank map over the base switched pane
 // 1 off in every stacked draw — the pane vanished and left its column empty.

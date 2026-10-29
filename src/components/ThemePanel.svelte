@@ -275,6 +275,16 @@
     id: string;
     label: string;
     items: { key: SwatchKey; label: string }[];
+    /**
+     * Whether each cell puts its picker under its name.
+     *
+     * Three names side by side with a picker each is one row; the same three as
+     * name-and-picker pairs is two, with the third on a line of its own — a row
+     * that says "Unlocked" and nothing about why it is not up there with the
+     * other two. So the lock's three are a column each: the names read as one
+     * line, and the colours sit directly under the names they belong to.
+     */
+    stacked?: boolean;
   }[] = [
     {
       id: "palette",
@@ -300,6 +310,7 @@
         { key: "lockClosed", label: "Locked" },
         { key: "unlock", label: "Unlocked" },
       ],
+      stacked: true,
     },
     {
       id: "controls",
@@ -386,7 +397,11 @@
              and the picker itself is the colour. -->
         <div class="swatches">
           {#each swatchGroups as group (group.id)}
-            <div class="swgroup">
+            <div
+              class="swgroup"
+              class:stacked={group.stacked === true}
+              style="--cols: {group.items.length}"
+            >
               <span class="sglabel">{group.label}</span>
               {#each group.items as swatch (swatch.key)}
                 <label class="sw" title={`${swatch.label} — ${theme.current[swatch.key].toUpperCase()}`}>
@@ -1344,8 +1359,26 @@
 
   .swgroup {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
     gap: 1px 12px;
+  }
+
+  /* A stacked group puts the name over its picker, so three names fit on one
+     line with the colour each one sets directly beneath it. */
+  .swgroup.stacked .sw {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 1px 0 3px;
+  }
+
+  .swgroup.stacked .sw .key {
+    width: 100%;
+  }
+
+  .swgroup.stacked input[type="color"] {
+    width: 100%;
+    height: 20px;
   }
 
   /* The group's name, and the reason the colours under it are called Open and

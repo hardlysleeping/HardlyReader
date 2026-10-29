@@ -70,9 +70,15 @@ export function stackNeeded(widths: PaneWidths, articleMin: number = MIN.article
  * A stacked share, made legal for a column `height` pixels tall.
  *
  * The fraction is what is stored; the pixel floor is applied here, so a short
- * window cannot leave the article — or the posts — a sliver. When the window is
- * too short for both floors the split becomes half, which is the least wrong
- * answer available.
+ * window cannot leave the article — or the posts — a sliver.
+ *
+ * The floor is the smaller of `STACK_MIN_PANE` and a third of the room. A phone
+ * in landscape is why: its column is about 330px, two 160px floors and a 6px
+ * seam add up to 326, and a split with two pixels of travel is not a split. The
+ * drag answered every frame and the seam went nowhere, which reads as a pane
+ * that cannot be pulled at all. A third of the room leaves each pane a real
+ * share to move through, and a column tall enough for the fixed floor is
+ * unchanged: 160px is reached at 480px of room, and every window is taller.
  */
 /**
  * Where a stacked drag puts the seam.
@@ -98,8 +104,9 @@ export function clampShare(share: number, height: number, gutter = STACK_GUTTER)
     Math.min(Math.max(value, STACK_SHARE.min), STACK_SHARE.max);
   const room = Math.max(0, height - gutter);
   if (room <= 0) return bounded(share);
-  const floor = Math.min(0.5, STACK_MIN_PANE / room);
-  const ceiling = Math.max(0.5, 1 - STACK_MIN_PANE / room);
+  const floorPx = Math.min(STACK_MIN_PANE, room / 3);
+  const floor = Math.min(0.5, floorPx / room);
+  const ceiling = Math.max(0.5, 1 - floorPx / room);
   return Math.min(Math.max(share, Math.max(STACK_SHARE.min, floor)), Math.min(STACK_SHARE.max, ceiling));
 }
 

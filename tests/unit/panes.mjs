@@ -655,19 +655,25 @@ check(
 }
 check("a tall column allows the full range", clampShare(0.1, 900) === STACK_SHARE.min && clampShare(0.9, 900) === STACK_SHARE.max);
   check("a middle drag is left alone", clampShare(0.62, 900) === 0.62);
+  // A column too short for two 160px floors gives each pane a third instead.
+  // Two floors and a seam in a 330px phone column left the share two pixels of
+  // travel, which read as a seam that could not be pulled at all.
   const room = 400 - STACK_GUTTER;
   const tight = clampShare(0.1, 400);
   check(
-    "a 400px column keeps 160px of posts",
-    Math.abs(tight * room - STACK_MIN_PANE) < 0.01,
-    `${tight} of ${room}`,
+    "a 400px column gives each pane a third of itself",
+    Math.abs(tight - 1 / 3) < 0.01 && Math.abs(clampShare(0.9, 400) - 2 / 3) < 0.01,
+    `${tight.toFixed(3)}–${clampShare(0.9, 400).toFixed(3)}`,
   );
   check(
-    "and 160px of article at the other end",
-    Math.abs((1 - clampShare(0.9, 400)) * room - STACK_MIN_PANE) < 0.01,
-    String(clampShare(0.9, 400)),
+    "...which is less than the fixed floor, because the floor no longer fits",
+    tight * room < STACK_MIN_PANE,
   );
-  check("a window too short for both floors is split in half", clampShare(0.1, 300) === 0.5 && clampShare(0.9, 300) === 0.5);
+  check(
+    "a phone's landscape column still has room to pull",
+    (clampShare(0.9, 332) - clampShare(0.1, 332)) * (332 - STACK_GUTTER) > 80,
+  );
+  check("a half is still a half in a short column", clampShare(0.5, 300) === 0.5);
   check("an unmeasured column cannot produce nonsense", clampShare(Number.NaN, 900) === 0.5 && clampShare(0.5, 0) === 0.5);
 }
 

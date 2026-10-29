@@ -150,7 +150,7 @@ check("a stored monotone choice survives, junk does not", () => {
 
 // The colours are only usable if the panel offers them: trim and link in the
 // swatch list, and one row that turns all three row actions monotone.
-check("the panel lays its colours out two to a line", () => {
+check("the panel lays its colours out as many to a line as it has", () => {
   const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
   assert.match(panel, /class="swatches"/);
   assert.match(panel, /gap: 1px 12px/);
@@ -161,6 +161,11 @@ check("the panel lays its colours out two to a line", () => {
   assert.match(panel, /\{ key: "lockOpen", label: "Open" \}/);
   assert.match(panel, /\{ key: "lockClosed", label: "Locked" \}/);
   assert.match(panel, /\.swgroup \+ \.swgroup \{/);
+  // Three names side by side with a picker each is one row; the same three as
+  // name-and-picker pairs was two, with Unlocked alone on the second.
+  assert.match(panel, /grid-template-columns: repeat\(var\(--cols, 2\), minmax\(0, 1fr\)\)/);
+  assert.match(panel, /stacked: true/);
+  assert.match(panel, /\.swgroup\.stacked \.sw \{[^}]*flex-direction: column/);
 });
 
 // The panel is capped by the room the window has, not by a fixed slice of it:
