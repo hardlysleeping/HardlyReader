@@ -591,6 +591,15 @@
     onDrop: ({ moving, target, before }) => {
       void reader.arrangeFeed(moving, target, before);
     },
+    // A finger that held the row and let go without moving it: the menu, asked
+    // for with a hold. `swallowClick` keeps the click that follows from opening
+    // the feed as well.
+    onHold: (id, point) => {
+      const feed = reader.subscriptions.find((entry) => entry.id === id);
+      if (feed === undefined) return;
+      swallowClick = true;
+      reader.openFeedMenu({ id: feed.id, title: feed.title }, point);
+    },
   });
 
   const categoryDrag = createFeedDrag(
@@ -601,6 +610,12 @@
       // Order only: nothing about membership, hidden state or pins moves, and
       // nothing is sent — this is a local arrangement, like the feeds'.
       onDrop: ({ moving, before }) => reader.arrangeCategory(moving, before),
+      onHold: (id, point) => {
+        const category = reader.categories.find((group) => group.id === id);
+        if (category === undefined) return;
+        swallowClick = true;
+        reader.openCategoryMenu(category.label, point);
+      },
     },
     {
       rowAttr: "data-drop-cat-row",
@@ -1469,6 +1484,12 @@
   .sidebar {
     display: flex;
     flex-direction: column;
+    /* A long press on a row is the menu, and a callout or a text selection under
+       it is the same gesture answering twice: the selection wins on iOS and the
+       menu never opens. The tree is a list of controls, not prose. */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
     height: 100%;
     overflow: hidden;
     padding: 0;

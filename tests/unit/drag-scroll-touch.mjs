@@ -486,7 +486,7 @@ const panning = (documentElement) => documentElement.classList.contains("drag-pa
 }
 {
   // ...and the reason taking the opt-out off that row cannot disturb the
-  // reorder: the reorder never armed in the first place.
+  // reorder: a finger that only brushes a row never lifts it.
   const listeners = fakeWindow.count("pointermove");
   let started = 0;
   const feedDrag = createFeedDrag({
@@ -511,8 +511,17 @@ const panning = (documentElement) => documentElement.classList.contains("drag-pa
     "feed/1",
   );
   check(
-    "feed reordering refuses a finger outright",
-    fakeWindow.count("pointermove") === listeners && started === 0 && feedDrag.justDropped() === false,
+    "a finger arms the reorder without lifting anything yet",
+    fakeWindow.count("pointermove") === listeners + 1 && started === 0,
+  );
+  // A move before the hold is the list scrolling, so the row is put down again
+  // and the pan keeps the gesture.
+  for (const fn of registrations.get("pointermove") ?? []) {
+    fn.fn({ pointerId: 41, clientX: 10, clientY: 40, preventDefault() {}, target: null });
+  }
+  check(
+    "and a move before the hold ends it, with nothing lifted",
+    started === 0 && fakeWindow.count("pointermove") === listeners && feedDrag.justDropped() === false,
   );
   feedDrag.dispose();
 }
