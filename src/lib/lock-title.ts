@@ -12,26 +12,25 @@
  *
  * - `ready` — the extension answered and has a passcode: the lock can be pressed.
  * - `none` — the extension answered and has no passcode: setting one is the step.
- * - `unknown` — nobody answered: say that, not something about passcodes.
- * - `missing` — this backend has no Hidden Categories to hold a passcode: the
- *   set is on this device, and a lock is not pretending otherwise.
- * - `local` — there is no server at all, so there is no service to connect.
+ * - `unknown` — a server that was supposed to answer did not: say that, not
+ *   something about passcodes.
+ *
+ * There used to be two more, `missing` and `local`, both saying "a lock needs a
+ * connected service". That stopped being true when the device that keeps the
+ * hidden set started keeping its passcode too: a library with no server locks its
+ * own categories, and so does a server whose reader has no Hidden Categories
+ * extension. A control that refuses to do what it can do is its own kind of lie.
  */
-export type LockState = "ready" | "none" | "unknown" | "missing" | "local";
+export type LockState = "ready" | "none" | "unknown";
 
 /**
- * Five answers, from the facts the band actually has.
+ * Three answers, from the facts the band actually has.
  *
  * `store` is the hidden authority (`HiddenAuthority`): `"extension"` means the
  * backend is believed to carry Hidden Categories, so an unanswered state is a
- * server that has not said yet. `"local"` means nothing on the server can hold a
- * passcode at all — Miniflux, a stock FreshRSS, or a library on this device —
- * and saying "the server has not said" there would be a sentence about a route
- * that does not exist.
- *
- * `local` is its own case rather than a `missing` one: a library on this device
- * has no extension to ask, so "connect a service" is the whole of its answer,
- * and it is a different sentence from "this server is missing the piece".
+ * server that has not said yet. `"local"` means the set and its passcode live on
+ * this device — a library with no server, or a server with no extension — where
+ * there is nothing to ask and the answer is already in hand.
  */
 export function lockState(
   available: boolean,
@@ -39,8 +38,8 @@ export function lockState(
   hasServer = true,
   store: "extension" | "local" = "extension",
 ): LockState {
-  if (store === "local") return hasServer ? "missing" : "local";
-  if (!hasServer) return "local";
+  // The device that keeps the set keeps the code: no route to wait on, so no unknown.
+  if (store === "local" || !hasServer) return hasPasscode ? "ready" : "none";
   if (!available) return "unknown";
   return hasPasscode ? "ready" : "none";
 }
@@ -54,10 +53,6 @@ export function lockTitle(state: LockState): string {
       return "Set a passcode first";
     case "unknown":
       return "This server has not said whether a passcode is set";
-    case "missing":
-      return "The lock needs Hidden Categories on the server — this set stays on this device";
-    case "local":
-      return "Locking needs a connected service";
   }
 }
 

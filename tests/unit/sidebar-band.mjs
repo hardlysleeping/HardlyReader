@@ -298,7 +298,7 @@ try {
   get hiddenAvailable() { return globalThis.__band.available; },
   get hiddenAuthority() { return globalThis.__band.authority ?? "extension"; },
   get hiddenView() { return globalThis.__band.view; },
-  get hiddenHasPasscode() { return true; },
+  get hiddenHasPasscode() { return globalThis.__band.hasPasscode ?? true; },
   get hiddenBusy() { return false; },
   get lockNotice() { return null; },
   get pinnedCount() { return globalThis.__band.pinnedCount; },
@@ -364,6 +364,7 @@ try {
       view: "hidden",
       pinnedCount: 2,
       pinView: "all",
+      hasPasscode: true,
       ...overrides,
     };
     return render(Band, {}).body;
@@ -430,11 +431,15 @@ try {
   // Without the extension the eye is not a dead control: this device's set is
   // the whole store, so the same three views answer, and the title says where.
   {
-    const body = draw({ available: false, authority: "local" });
+    const body = draw({ available: false, authority: "local", hasPasscode: false });
     const eye = /<button[^>]*class="ctl hidden[^"]*"[^>]*>/.exec(body)?.[0] ?? "";
     check("no extension: the eye still answers, from this device", eye !== "" && !eye.includes("disabled"));
     check("no extension: ...and says so", body.includes("Hidden on this device"));
-    check("no extension: the lock offers nothing to lock with", body.includes("disabled"));
+    // The device keeps the set and now keeps its passcode too, so the lock is a live control: it
+    // asks for a code rather than sitting disabled with "needs a connected service" on hover.
+    const lock = /<button[^>]*class="ctl lock[^"]*"[^>]*>/.exec(body)?.[0] ?? "";
+    check("no extension: the lock is live", lock !== "" && !lock.includes("disabled"));
+    check("no extension: ...and asks for a passcode", lock.includes("Set a passcode first"), lock.slice(0, 200));
   }
 
   // The starred row is fed by a stream the server's unread-count never mentions,

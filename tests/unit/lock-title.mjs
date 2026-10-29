@@ -21,10 +21,13 @@ function check(name, ok, detail) {
 }
 
 check("an answered server with a passcode is ready", lockState(true, true) === "ready");
-check("a library with no server is its own case", lockState(false, false, false) === "local");
-check("and it never claims a server is silent", lockTitle("local") !== lockTitle("unknown"));
-check("local locks open nothing", lockOpensPanel("local") === false);
-check("and show no passcode hint", lockHint("local") === null);
+// A library with no server keeps its own passcode (`LocalHidden.passcode`), so it can lock: the
+// old "Locking needs a connected service" answer refused a lock the app now performs.
+check("a library with no server can lock once it has a code", lockState(false, true, false) === "ready");
+check("...and asks for one when it has none", lockState(false, false, false) === "none");
+check("...which is the same sentence a server without the extension gets", lockTitle("none") === "Set a passcode first");
+check("the local answer is never 'nobody answered'", lockState(false, true, false) !== "unknown");
+check("a set kept on the device behind a server locks the same way", lockState(true, true, true, "local") === "ready");
 check("an answered server without one says none", lockState(true, false) === "none");
 check("an unanswered server is unknown, not none", lockState(false, false) === "unknown");
 check("and stays unknown even if a stale flag says there is one", lockState(false, true) === "unknown");
@@ -44,11 +47,11 @@ check("and not when the server said nothing", lockOpensPanel("unknown") === fals
 // A server with no Hidden Categories at all (Miniflux, a stock FreshRSS) has
 // nowhere to keep a passcode: that is a fact about this backend, not a server
 // that has not answered, and the sentence has to be its own.
-check("a backend with no extension is missing the piece, not silent", lockState(false, false, true, "local") === "missing");
-check("...and says which piece", /Hidden Categories/.test(lockTitle("missing")), lockTitle("missing"));
-check("...without claiming the server never spoke", !/has not said/.test(lockTitle("missing")));
-check("...and opens nothing: there is no passcode to set", lockOpensPanel("missing") === false);
-check("a library with no server keeps its own answer", lockState(false, false, false, "local") === "local");
+check("a backend with no extension is offered the lock, not told it is missing a piece", lockState(false, false, true, "local") === "none");
+check("...in the same words as any other set without a code", lockTitle("none") === "Set a passcode first");
+check("...without claiming the server never spoke", !/has not said/.test(lockTitle("none")));
+check("...and the press opens the panel to set one", lockOpensPanel("none") === true);
+check("a library with no server answers for itself", lockState(false, false, false, "local") === "none");
 check("an extension that answered stays ready", lockState(true, true, true, "extension") === "ready");
 
 check("the lock is usable only where it can lock or ask for a code", lockUsable("ready") === true);

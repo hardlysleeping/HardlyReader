@@ -99,6 +99,7 @@ import {
   hiddenStore,
   isLocallyHidden,
   parseHidden,
+  parseHiddenKeepingPasscode,
   resolveHidden,
   showsCategory,
   visibleGroups,
@@ -764,8 +765,15 @@ export class ReaderState {
     return effectiveView(this.hiddenScope);
   }
 
+  /**
+   * Whether there is a hidden set to speak of at all.
+   *
+   * Not "did the extension answer": the device that keeps the set keeps it whether or not there is
+   * a server behind it, and the eye, the lock and the count are about the set, not about who holds
+   * it. `hiddenAuthority` says who holds it.
+   */
   get hiddenAvailable(): boolean {
-    return this.hiddenCategories.available;
+    return this.hiddenAuthority === "local" || this.hiddenCategories.available;
   }
 
   /**
@@ -978,10 +986,18 @@ export class ReaderState {
   }
 
   get hiddenHasPasscode(): boolean {
+    // The device's own code lives in `LocalHidden.passcode` and is deliberately not in any synced
+    // document; the extension's lives on the server. Neither is "the other one is empty".
+    if (this.hiddenAuthority === "local") return this.localHidden.passcode !== "";
     return this.hiddenCategories.available && this.hiddenCategories.hasPasscode;
   }
 
   get hiddenLocked(): boolean {
+    // A curtain with no code behind it is not a curtain: `locked` alone can be left over from a
+    // cleared passcode, so it only counts when there is something to type.
+    if (this.hiddenAuthority === "local") {
+      return this.localHidden.locked && this.localHidden.passcode !== "";
+    }
     return this.hiddenCategories.available && this.hiddenCategories.locked;
   }
 
@@ -1399,7 +1415,12 @@ export class ReaderState {
    * written itself.
    */
   adoptSidebar(doc: SidebarDoc): void {
-    this.localHidden = parseHidden({ categories: doc.hidden, view: doc.hiddenView });
+    // The passcode is this device's own and is deliberately absent from the document, so adopting
+    // another device's arrangement must not clear it (or unlock a curtain it was holding).
+    this.localHidden = parseHiddenKeepingPasscode(
+      { categories: doc.hidden, view: doc.hiddenView },
+      this.localHidden,
+    );
     this.localPins = {
       categories: [...doc.pins],
       feeds: [...doc.pinFeeds],
@@ -1656,9 +1677,11 @@ export class ReaderState {
    */
   openCategoryMenu(label: string, point: Point): void {
     this.menu = { x: point.x, y: point.y, target: { kind: "category", label }, confirming: false };
-    // Only when the state is missing: re-reading a state that is already there
-    // would put a request behind every right-click.
-    if (this.session !== null && !this.hiddenAvailable && !this.hiddenBusy) {
+    // Only when the server's state is missing: re-reading a state that is already there would put
+    // a request behind every right-click. The question is about the *server*, not about whether a
+    // set exists — a library that keeps its own set still wants to notice the day the extension
+    // appears, because then the set moves to the server and this device stops owning it.
+    if (this.session !== null && !this.hiddenCategories.available && !this.hiddenBusy) {
       void this.loadHiddenState();
     }
   }
@@ -1741,7 +1764,21 @@ export class ReaderState {
    */
   async lockHidden(): Promise<void> {
     const session = this.session;
-    if (session === null || !this.hiddenAvailable || this.hiddenBusy) return;
+    if (!this.hiddenAvailable || this.hiddenBusy) return;
+
+    // A library with no extension keeps the passcode on this device, so the curtain is a local
+    // flag: no request to make, and nothing to roll back.
+    if (hiddenStore(this.featureAuthority("hiddenCategories"), this.onAServer) === "local") {
+      if (this.localHidden.passcode === "") {
+        this.lockNotice = "Set a passcode first.";
+        return;
+      }
+      this.updateLocalHidden({ locked: true });
+      this.lockNotice = null;
+      return;
+    }
+
+    if (session === null) return;
 
     const previous = this.hiddenCategories;
     this.hiddenBusy = true;
@@ -1775,7 +1812,20 @@ export class ReaderState {
    */
   async unlockHidden(passcode: string): Promise<boolean> {
     const session = this.session;
-    if (session === null || !this.hiddenAvailable || this.hiddenBusy) return false;
+    if (!this.hiddenAvailable || this.hiddenBusy) return false;
+
+    if (hiddenStore(this.featureAuthority("hiddenCategories"), this.onAServer) === "local") {
+      if (this.localHidden.passcode === "") return false;
+      if (passcode.trim() !== this.localHidden.passcode) {
+        this.lockNotice = "Wrong passcode.";
+        return false;
+      }
+      this.updateLocalHidden({ locked: false });
+      this.lockNotice = null;
+      return true;
+    }
+
+    if (session === null) return false;
 
     this.hiddenBusy = true;
     this.lockNotice = null;
@@ -1808,7 +1858,17 @@ export class ReaderState {
   /** Sets or clears the passcode. Empty input disables locking entirely. */
   async setHiddenPasscode(passcode: string): Promise<boolean> {
     const session = this.session;
-    if (session === null || !this.hiddenAvailable || this.hiddenBusy) return false;
+    if (!this.hiddenAvailable || this.hiddenBusy) return false;
+
+    if (hiddenStore(this.featureAuthority("hiddenCategories"), this.onAServer) === "local") {
+      const digits = passcode.replace(/\D/g, "").slice(0, 12);
+      // Clearing the code lifts the curtain: a lock with no code is a lock with no way in.
+      this.updateLocalHidden({ passcode: digits, locked: digits === "" ? false : this.localHidden.locked });
+      this.lockNotice = null;
+      return true;
+    }
+
+    if (session === null) return false;
 
     this.hiddenBusy = true;
     this.lockNotice = null;

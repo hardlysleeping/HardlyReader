@@ -11,7 +11,7 @@
   import { reader } from "./state/reader.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
-  import { DEMO, DEMO_NOTE, seedDemoLibrary } from "./lib/demo";
+  import { applyDemoDefaults, DEMO, DEMO_NOTE, seedDemoLibrary } from "./lib/demo";
   import {
     localStoreOf,
     openLocalProfile,
@@ -44,6 +44,9 @@
   });
 
   let checking = $state(true);
+  /** The demo seeds its library in the boot path; its sidebar is set up once the reader has a
+   *  profile, because the pins and the hidden set are the reader's own stores. */
+  let demoDefaults = $state(false);
 
   /**
    * The library on this device.
@@ -185,7 +188,10 @@
         const opened = await openLocalProfile();
         if (DEMO) {
           const store = localStoreOf(opened);
-          if (store !== null) await seedDemoLibrary(store);
+          // `BASE_URL` because the demo is served from `/<repo>/`: the baked feeds and their
+          // pictures are relative to the page, not to the origin.
+          if (store !== null) await seedDemoLibrary(store, undefined, import.meta.env.BASE_URL ?? "/");
+          demoDefaults = true;
         }
         local = opened;
       } catch (cause) {
@@ -260,6 +266,21 @@
   function disconnect() {
     accounts.signOut();
   }
+
+  // The demo's sidebar, applied once per browser: a visitor's own pins and hidden set are theirs,
+  // and a reload must not undo them.
+  $effect(() => {
+    if (!DEMO || !demoDefaults) return;
+    if (reader.profile === null) return;
+    const key = "hardlyreader:demo:sidebar";
+    try {
+      if (localStorage.getItem(key) !== null) return;
+      localStorage.setItem(key, "1");
+    } catch {
+      return;
+    }
+    void applyDemoDefaults(reader);
+  });
 </script>
 
 <main class="shell">

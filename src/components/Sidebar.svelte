@@ -1250,7 +1250,7 @@
          and it is gone the moment a feed exists. -->
     <div class="start">
       <p class="start-lead"><b>Start reading</b> — Add a feed or import your subscriptions.</p>
-      <p class="start-note" hidden={!DEMO}>In this demo the feeds are samples: adding your own needs the installed app.</p>
+      <p class="start-note" hidden={!DEMO}>This demo is read-only: adding your own feeds needs the installed app.</p>
       <div class="start-actions">
         <button class="start-add" onclick={startAdding}>+ Add feed</button>
         <label

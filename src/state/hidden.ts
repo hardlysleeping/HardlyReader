@@ -94,10 +94,33 @@ export interface LocalHidden {
   categories: string[];
   /** The view the eye is on. */
   view: HiddenView;
+  /**
+   * The passcode this device keeps, or "" for none.
+   *
+   * It is the same feature the extension provides, with the store on this device instead of on a
+   * server: a library with no extension still has a curtain to draw, and a curtain with no code is
+   * a hidden list anyone can open. It never travels — `sidebarDoc()` writes categories and the
+   * view, never this — because a passcode in a sync document is a passcode on every device and in
+   * whatever cloud folder the document lands in.
+   */
+  passcode: string;
+  /** Whether the curtain is drawn right now. Meaningless without a passcode. */
+  locked: boolean;
+}
+
+/**
+ * A stored blob, keeping the passcode this device already holds.
+ *
+ * The passcode is deliberately not in the sidebar document (`sidebarDoc()` writes categories and the
+ * view), so adopting another device's arrangement must not read as "clear the code and lift the
+ * curtain" — it is the same device, and its own lock is not the document's business.
+ */
+export function parseHiddenKeepingPasscode(raw: unknown, previous: LocalHidden): LocalHidden {
+  return { ...parseHidden(raw), passcode: previous.passcode, locked: previous.locked };
 }
 
 export function emptyHidden(): LocalHidden {
-  return { categories: [], view: "hidden" };
+  return { categories: [], view: "hidden", passcode: "", locked: false };
 }
 
 /** Parses whatever local storage held, discarding anything malformed. */
@@ -109,6 +132,9 @@ export function parseHidden(raw: unknown): LocalHidden {
       ? value.categories.filter((entry): entry is string => typeof entry === "string")
       : [],
     view: isHiddenView(value.view) ? value.view : "hidden",
+    // Digits only: this is a keypad, and anything else was not written by this app.
+    passcode: typeof value.passcode === "string" ? value.passcode.replace(/\D/g, "").slice(0, 12) : "",
+    locked: value.locked === true,
   };
 }
 
@@ -160,15 +186,21 @@ export function resolveHidden(
     name: label,
     hidden: true,
   }));
+  // A curtain needs a code behind it: a `locked` flag with no passcode would hide the set from the
+  // person who owns it and offer them no way back in.
+  // `typeof`, not a truthiness test: a caller can hand this a literal without the field (the suites
+  // do), and `undefined !== ""` would read as a passcode that is there.
+  const hasPasscode = typeof local.passcode === "string" && local.passcode !== "";
+  const locked = hasPasscode && local.locked;
   return {
     available: true,
     mode: "local",
     view: local.view,
-    // No lock without a passcode to keep, so the stored view is the applied one.
-    effectiveView: local.view,
+    // While the curtain is drawn the eye shows the hidden list, which is what the flag means.
+    effectiveView: locked ? "hidden" : local.view,
     hiddenIds: categories.map((category) => category.id),
-    locked: false,
-    hasPasscode: false,
+    locked,
+    hasPasscode,
     categories,
   };
 }

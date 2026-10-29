@@ -293,7 +293,7 @@ const { ReaderState } = await import(pathToFileURL(generated).href);
   check("no snapshot and no answer reads as unknown", reader.addOn === "unknown", reader.addOn);
   check(
     "and nothing is hidden on a guess",
-    reader.isCategoryHidden("Technology") === false && reader.hiddenAvailable === false,
+    reader.isCategoryHidden("Technology") === false && reader.hiddenAuthority === "local",
   );
 
   answer.resolve(json(LIVE));
