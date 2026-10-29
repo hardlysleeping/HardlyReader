@@ -25,6 +25,7 @@
     isListView,
     picturePlacement,
     showsPreview,
+    turnCorners,
     type ListView,
   } from "../lib/list-view";
   import { near } from "../lib/near-view";
@@ -304,6 +305,22 @@
    * it, and a custom property is what lets one slider reach every row.
    */
   const rowTurn = $derived(reading.rowsEnd === "half" ? reading.curveHalf : reading.curvePill);
+
+  /**
+   * The four radii the rows turn, in the direction the reader asked for.
+   *
+   * Computed once and handed to CSS as custom properties, so the row and the accent painted over it
+   * cannot disagree about where the curve is — they are the same four numbers, and the vertical one
+   * is clamped to half the row (see `turnCorners`).
+   */
+  const corners = $derived(
+    turnCorners(
+      reading.rowsEnd === "half" ? "foot" : "pill",
+      rowTurn,
+      reading.turnSide,
+      reading.turnEdge,
+    ),
+  );
 
   /**
    * Which date tabs are shut.
@@ -1446,10 +1463,11 @@
     class:grid={view === "grid"}
     class:square={view === "grid" && gridIsSquare(reading.gridColumns)}
     class:half-end={view === "regular" && reading.rowsEnd === "half"}
+    class:turn-left={view === "regular" && reading.rowsEnd !== "half" && reading.turnSide === "left"}
+    class:turn-both={view === "regular" && reading.rowsEnd !== "half" && reading.turnSide === "both"}
+    class:turn-top={view === "regular" && reading.rowsEnd === "half" && reading.turnEdge === "top"}
     class:flush-thumb={view === "regular" && reading.flushThumb}
-    style:--row-turn={`${rowTurn}px`}
-    style:--grid-template={gridTemplate(reading.gridColumns)}
-    style:--card-window={`${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
+    style={`--row-turn: ${rowTurn}px; --turn-tl: ${corners.tl}; --turn-tr: ${corners.tr}; --turn-br: ${corners.br}; --turn-bl: ${corners.bl}; --grid-template: ${gridTemplate(reading.gridColumns)}; --card-window: ${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
     use:cardWheel
     use:cardResize
     use:pullDown={{
@@ -2147,9 +2165,15 @@
 
   .items:not(.compact):not(.cards):not(.grid) .row {
     border-bottom: 0;
-    /* The turn is a setting: `--row-turn` is set on the list, and 30px is what
-       the rows were before it was one. */
-    border-radius: 0 var(--row-turn, 30px) var(--row-turn, 30px) 0;
+    /* The turn is a setting in two directions, and the four radii arrive from `turnCorners` as
+       custom properties: one source, so the row and the accent laid over it cannot disagree about
+       where the curve is. Longhands rather than the shorthand because a corner carries two values —
+       the setting across, half the row down — which is what stops a 60px turn on a 64px row being
+       scaled by the browser into a shape its accent does not share. */
+    border-top-left-radius: var(--turn-tl, 0);
+    border-top-right-radius: var(--turn-tr, 0);
+    border-bottom-right-radius: var(--turn-br, 0);
+    border-bottom-left-radius: var(--turn-bl, 0);
     /* Separation by space, not by a rule: the rows already stack in normal flow,
        so this is a margin rather than a gap. */
     margin-bottom: 4px;
@@ -2169,6 +2193,20 @@
        6px blur, -4px spread), so the row's edge and its shadow both stay clear
        of the scrollbar, which is 5px of its own and sits beyond this margin. */
     margin-right: 3px;
+  }
+
+  /* The end moved to the other side: the room it keeps for its shadow and its accent moves with it,
+     or a left-hung turn would sit against the pane's edge with its shadow cut off. */
+  .items.turn-left:not(.compact):not(.cards):not(.grid) .row {
+    margin-right: 0;
+    margin-left: 3px;
+    box-shadow: -3px 2px 6px -4px rgba(0, 0, 0, 0.55);
+  }
+
+  /* Both ends turn, so both ends keep the room. */
+  .items.turn-both:not(.compact):not(.cards):not(.grid) .row {
+    margin-left: 3px;
+    box-shadow: 3px 2px 6px -4px rgba(0, 0, 0, 0.55), -3px 2px 6px -4px rgba(0, 0, 0, 0.55);
   }
 
   /* Unread is the accent of that turn, filled: 5px along the right edge and 1px
@@ -2199,7 +2237,45 @@
     border-right: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
     border-top: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
     border-bottom: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
-    border-radius: 0 var(--row-turn, 30px) var(--row-turn, 30px) 0;
+    border-top-left-radius: var(--turn-tl, 0);
+    border-top-right-radius: var(--turn-tr, 0);
+    border-bottom-right-radius: var(--turn-br, 0);
+    border-bottom-left-radius: var(--turn-bl, 0);
+  }
+
+  /* The same accent hung on the left: the thick edge, the dark band that gives it depth and the
+     wash that lights it are all mirrored, because a band lit on one side only reads as thinner
+     than the one it is mirroring. */
+  .items.turn-left:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+    border-right: 0;
+    border-left: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
+    background:
+      linear-gradient(to left, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(
+        to right,
+        color-mix(in srgb, var(--accent) 18%, transparent) 0,
+        color-mix(in srgb, var(--accent) 8%, transparent) 36px,
+        color-mix(in srgb, var(--accent) 3%, transparent) 50%,
+        transparent 64%
+      );
+  }
+
+  /* Both ends: two thick edges, two bands, and the washes meeting in the middle of the row. */
+  .items.turn-both:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+    border-left: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
+    background:
+      linear-gradient(to right, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(to left, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(
+        to left,
+        color-mix(in srgb, var(--accent) 16%, transparent) 0,
+        transparent 42%
+      ),
+      linear-gradient(
+        to right,
+        color-mix(in srgb, var(--accent) 16%, transparent) 0,
+        transparent 42%
+      );
   }
 
   /* Half a turn, rather than a pill's whole right side: only the bottom of the
@@ -2215,7 +2291,10 @@
        it — edge, foot and the bands that give them depth — so the three sides
        cannot drift apart, and making the shape thinner is one number. */
     --foot: 2px;
-    border-radius: 0 0 var(--row-turn, 30px) var(--row-turn, 30px);
+    border-top-left-radius: var(--turn-tl, 0);
+    border-top-right-radius: var(--turn-tr, 0);
+    border-bottom-right-radius: var(--turn-br, 0);
+    border-bottom-left-radius: var(--turn-bl, 0);
     /* Both ends of the foot match, so the row steps in from the pane's edge on
        both sides by the 9px it already kept on its right. The right side and its
        shadow are untouched; this is the same measurement, mirrored. */
@@ -2228,7 +2307,10 @@
      gives the right edge its depth is mirrored for the same reason — an accent
      5px wide that is lit flat reads thinner than the one that is not. */
   .items.half-end:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
-    border-radius: 0 0 var(--row-turn, 30px) var(--row-turn, 30px);
+    border-top-left-radius: var(--turn-tl, 0);
+    border-top-right-radius: var(--turn-tr, 0);
+    border-bottom-right-radius: var(--turn-br, 0);
+    border-bottom-left-radius: var(--turn-bl, 0);
     /* The foot lives inside the row: the border is not drawn a pixel past it,
        and the corner is the row's own corner. */
     inset: 0;
@@ -2361,6 +2443,24 @@
   .items.half-end:not(.compact):not(.cards):not(.grid) .acts {
     margin: 2px 11px 4px 0;
     border-radius: max(0px, calc(var(--row-turn, 30px) - var(--foot)));
+  }
+
+  /* The foot hung from the top: the thick accent and its dark band move to the top edge, and the
+     foot keeps the thin line the top used to carry. Everything else about the shape is unchanged —
+     it is the same slab, upside down. */
+  .items.half-end.turn-top:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+    border-top-width: var(--foot);
+    border-bottom-width: 0;
+    background:
+      linear-gradient(to left, transparent calc(100% - var(--foot)), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(to right, transparent calc(100% - var(--foot)), rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(
+        to left,
+        color-mix(in srgb, var(--accent) 14%, transparent) 0,
+        color-mix(in srgb, var(--accent) 6%, transparent) 30px,
+        color-mix(in srgb, var(--accent) 2%, transparent) 44px,
+        transparent 56%
+      );
   }
 
   .row.read {

@@ -313,8 +313,11 @@ check(
   !/CARD_SIZES|CARD_SHAPES|setCardSize/.test(cardsBranch),
 );
 check("the list and regular views show no sizer", !/view === "list"[^}]*class="sizer"/.test(listSource));
-check("the count reaches the container", /style:--grid-template=\{gridTemplate\(reading\.gridColumns\)\}/.test(listSource));
-check("the card window reaches the container", /style:--card-window=/.test(listSource));
+// One style attribute carries every custom property the list draws with: Svelte's `style:` directive
+// dropped two of the four corner radii here (the attribute arrived with tl and tr and no br or bl),
+// and a silently missing radius is a square corner nobody asked for.
+check("the count reaches the container", /--grid-template: \$\{gridTemplate\(reading\.gridColumns\)\}/.test(listSource));
+check("the card window reaches the container", /--card-window: \$\{/.test(listSource));
 check("tiles are square only for a fixed count", /class:square=\{view === "grid" && gridIsSquare\(reading\.gridColumns\)\}/.test(listSource));
 // The bug this sized control exposed: tracks sized without the picture.
 check("grid tracks take the tile's real height", /\.grid \{[\s\S]{0,1400}?grid-auto-rows: max-content;/.test(listSource));
@@ -375,7 +378,11 @@ check(
       /border-right: 5px solid color-mix\(in srgb, var\(--accent\) 92%, transparent\);/.test(body) &&
       /border-bottom: 1px solid color-mix\(in srgb, var\(--accent\) 58%, transparent\);/.test(body) &&
       /border-top: 1px solid color-mix\(in srgb, var\(--accent\) 58%, transparent\);/.test(body) &&
-      /border-radius: 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\) 0;/.test(body)
+      // The four radii come from `turnCorners` now: one source for the row and its accent, and a
+      // vertical value clamped to half the row (a 60px turn on a 64px row was being scaled by the
+      // browser, and the accent — a box a pixel different — scaled by a different factor).
+      /border-top-right-radius: var\(--turn-tr, 0\);/.test(body) &&
+      /border-bottom-right-radius: var\(--turn-br, 0\);/.test(body)
     );
   })(),
   "5px up the edge, a hairline either side, and the row's own turn",
@@ -662,10 +669,10 @@ check(
 );
 check(
   "half a turn is only the bottom, and the foot is as thick as the edge",
-  /\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,400}?--foot: 2px;[\s\S]{0,200}?border-radius: 0 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\);/.test(
+  /\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,600}?--foot: 2px;[\s\S]{0,300}?border-bottom-right-radius: var\(--turn-br, 0\);[\s\S]{0,200}?border-bottom-left-radius: var\(--turn-bl, 0\);/.test(
     listSource,
   ) &&
-    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-radius: 0 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\);[^}]*border-bottom-width: var\(--foot\);[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
+    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-bottom-right-radius: var\(--turn-br, 0\);[^}]*border-bottom-width: var\(--foot\);[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
       listSource,
     ),
 );
@@ -675,7 +682,7 @@ check(
 );
 check(
   "the old shape is untouched: both right-hand corners, one-pixel foot",
-  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,300}?border-radius: 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\) 0;/.test(
+  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,600}?border-top-right-radius: var\(--turn-tr, 0\);[\s\S]{0,200}?border-bottom-right-radius: var\(--turn-br, 0\);/.test(
     listSource,
   ) &&
     /\.row:not\(\.read\)::after \{[\s\S]{0,1600}?border-right: 5px solid[\s\S]{0,200}?border-bottom: 1px solid/.test(
@@ -684,7 +691,7 @@ check(
 );
 check(
   "the new shape only ever applies to a row, never to cards, the grid or the compact list",
-  (listSource.match(/\.items\.half-end/g) ?? []).length === 9 &&
+  (listSource.match(/\.items\.half-end/g) ?? []).length === 10 &&
     (listSource.match(/\.items\.half-end[^,{]*\{/g) ?? []).every(
       (rule) =>
         // One bare block, and it only declares the filled picture's numbers.
@@ -707,7 +714,8 @@ check(
       listSource,
     ) &&
     // The right side keeps its own margin: the left is a copy, not a replacement.
-    /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,1600}?margin-right: 3px;/.test(
+    // The room the end keeps is the rule's own last line, before the mirrored rules take over.
+    /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,2400}?margin-right: 3px;/.test(
       listSource,
     ),
 );
@@ -801,12 +809,13 @@ check(
   "the list carries the turn it is drawn with",
   /const rowTurn = \$derived\(reading\.rowsEnd === "half" \? reading\.curveHalf : reading\.curvePill\);/.test(
     listSource,
-  ) && /style:--row-turn=\{`\$\{rowTurn\}px`\}/.test(listSource),
+  ) && /--row-turn: \$\{rowTurn\}px/.test(listSource),
 );
 check(
   "the rows turn by that number, and the action pill keeps its parallel curve",
-  /border-radius: 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\) 0;/.test(listSource) &&
-    /border-radius: 0 0 var\(--row-turn, 30px\) var\(--row-turn, 30px\);/.test(listSource) &&
+  /--turn-tl: \$\{corners\.tl\}/.test(listSource) &&
+    /--turn-br: \$\{corners\.br\}/.test(listSource) &&
+    /border-bottom-left-radius: var\(--turn-bl, 0\);/.test(listSource) &&
     /border-radius: max\(0px, calc\(var\(--row-turn, 30px\) - 5px\)\);/.test(listSource) &&
     /border-radius: max\(0px, calc\(var\(--row-turn, 30px\) - var\(--foot\)\)\);/.test(listSource),
 );

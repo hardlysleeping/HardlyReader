@@ -78,6 +78,49 @@
         <span class="value">{value}</span>
       </div>
 
+      <!-- Which way that turn faces. The pill turns a side, the foot an edge, and each is asked
+           for in the words of the shape on screen: a "Top" button beside a pill would be a control
+           that moves nothing. -->
+      <div class="line">
+        <span class="key">{footed ? "Edge" : "Side"}</span>
+        <div class="seg" role="group" aria-label={footed ? "Which edge the foot turns" : "Which side the pill turns"}>
+          {#if footed}
+            <button
+              class:on={reading.turnEdge === "bottom"}
+              aria-pressed={reading.turnEdge === "bottom"}
+              title="The foot turns at the bottom of each row"
+              onclick={() => reading.setTurnEdge("bottom")}
+            >Bottom</button>
+            <button
+              class:on={reading.turnEdge === "top"}
+              aria-pressed={reading.turnEdge === "top"}
+              title="The foot turns at the top of each row, accent and all"
+              onclick={() => reading.setTurnEdge("top")}
+            >Top</button>
+          {:else}
+            <button
+              class:on={reading.turnSide === "right"}
+              aria-pressed={reading.turnSide === "right"}
+              title="The pill turns its right-hand corners"
+              onclick={() => reading.setTurnSide("right")}
+            >Right</button>
+            <button
+              class:on={reading.turnSide === "left"}
+              aria-pressed={reading.turnSide === "left"}
+              title="The pill turns its left-hand corners, accent and all"
+              onclick={() => reading.setTurnSide("left")}
+            >Left</button>
+            <button
+              class:on={reading.turnSide === "both"}
+              aria-pressed={reading.turnSide === "both"}
+              title="The pill turns at both ends"
+              onclick={() => reading.setTurnSide("both")}
+            >Both</button>
+          {/if}
+        </div>
+        <span class="value"></span>
+      </div>
+
       <div class="foot">
         <span class="hint">pixels of turn · 0 is square</span>
         <button class="reset" onclick={() => reading.resetCurves()}>Reset</button>
@@ -131,7 +174,7 @@
        and be cut off by it. */
     left: -6px;
     z-index: 60;
-    width: 208px;
+    width: 232px;
     max-width: calc(100vw - 24px);
     padding: 10px 12px 8px;
     border: 1px solid var(--border);
@@ -175,6 +218,37 @@
   .hint {
     color: var(--muted);
     font-size: 11px;
+  }
+
+  .seg {
+    display: inline-flex;
+    grid-column: 2 / 4;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+  }
+
+  .seg button {
+    flex: 1 1 auto;
+    padding: 3px 6px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .seg button.on {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  .seg button:hover {
+    color: var(--text);
   }
 
   .reset {

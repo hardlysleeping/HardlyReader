@@ -70,6 +70,47 @@
   </div>
 </div>
 
+<!-- Which way that turn faces: the pill turns a side, the foot an edge. Same pair of settings as
+     the corner popup on the bar, because a phone has no bar to reach them from. -->
+<div class="row">
+  <span class="key">{footed ? "Foot edge" : "Pill side"}</span>
+  <div class="seg wide" role="group" aria-label={footed ? "Which edge the foot turns" : "Which side the pill turns"}>
+    {#if footed}
+      <button
+        class:on={reading.turnEdge === "bottom"}
+        aria-pressed={reading.turnEdge === "bottom"}
+        onclick={() => reading.setTurnEdge("bottom")}
+        title="The foot turns at the bottom of each row"
+      >Bottom</button>
+      <button
+        class:on={reading.turnEdge === "top"}
+        aria-pressed={reading.turnEdge === "top"}
+        onclick={() => reading.setTurnEdge("top")}
+        title="The foot turns at the top of each row, accent and all"
+      >Top</button>
+    {:else}
+      <button
+        class:on={reading.turnSide === "right"}
+        aria-pressed={reading.turnSide === "right"}
+        onclick={() => reading.setTurnSide("right")}
+        title="The pill turns its right-hand corners"
+      >Right</button>
+      <button
+        class:on={reading.turnSide === "left"}
+        aria-pressed={reading.turnSide === "left"}
+        onclick={() => reading.setTurnSide("left")}
+        title="The pill turns its left-hand corners, accent and all"
+      >Left</button>
+      <button
+        class:on={reading.turnSide === "both"}
+        aria-pressed={reading.turnSide === "both"}
+        onclick={() => reading.setTurnSide("both")}
+        title="The pill turns at both ends"
+      >Both</button>
+    {/if}
+  </div>
+</div>
+
 <!-- Only where a picture has an end to fill: in Cards and Grid the picture is
      the shape, so the row would move nothing. -->
 {#if reading.listView === "regular"}
