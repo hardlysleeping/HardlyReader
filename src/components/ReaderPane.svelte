@@ -17,6 +17,7 @@
   import { absoluteTime } from "../lib/format";
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { bodies } from "../state/bodies.svelte";
+  import { picture as drawPicture } from "../state/pictures.svelte";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { fittedWidth } from "../lib/image-fit";
   import {
@@ -937,7 +938,7 @@
       {#if lead}
         <img
           class="lead"
-          src={lead}
+          use:drawPicture={{ url: lead, variant: "full", frame: pageWidth }}
           alt=""
           loading="lazy"
           decoding="async"

@@ -27,6 +27,7 @@
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { thumbnailOf, type ThumbSource } from "../lib/thumb";
   import { bodies } from "../state/bodies.svelte";
+  import { picture as drawPicture } from "../state/pictures.svelte";
   import { reader } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
 
@@ -196,7 +197,7 @@
   {#if lead}
     <img
       class="lead"
-      src={lead}
+      use:drawPicture={{ url: lead, variant: "full" }}
       alt=""
       decoding="async"
       referrerpolicy="no-referrer"

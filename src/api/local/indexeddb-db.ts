@@ -25,8 +25,15 @@ import { tableNames, type LocalRow, type TableName } from "./schema";
 /** The database inside the browser's origin storage. */
 export const LOCAL_DATABASE_NAME = "hardlyreader-local";
 
-/** Schema version. A future column means a version bump and a copy step here. */
-const SCHEMA_VERSION = 1;
+/**
+ * Schema version. A future column means a version bump and a copy step here.
+ *
+ * 2 added the picture cache's two tables (`images`, `image_data`). A browser
+ * library that already exists upgrades in place: `onupgradeneeded` creates the
+ * stores that are missing and touches nothing that is there, so the reader's
+ * feeds, posts and marks are the same rows afterwards.
+ */
+const SCHEMA_VERSION = 2;
 
 function failure(reason: unknown): Error {
   if (reason instanceof Error) return reason;

@@ -412,10 +412,11 @@ check("the card draws the sharpened url, not the crop it read", () => {
   assert.match(LIST_SRC, /function refuse\(item: StreamItem, event: Event, url: string\): void \{/);
   assert.match(LIST_SRC, /const crop = cropVariant\(url\);/);
   assert.match(LIST_SRC, /downgraded = \{ \.\.\.downgraded, \[url\]: crop \};/);
-  // A card's single picture and the strip's pages both bind it.
-  assert.match(LIST_SRC, /src=\{shown\(picture \?\? ""\)\}/);
+  // A card's single picture and the strip's pages both bind it — through the
+  // picture cache's action, which is what hands the element its address.
+  assert.match(LIST_SRC, /use:drawPicture=\{\{ url: shown\(picture \?\? ""\), variant: "thumb" \}\}/);
   assert.match(LIST_SRC, /onerror=\{\(event\) => refuse\(item, event, picture \?\? ""\)\}/);
-  assert.match(LIST_SRC, /src=\{shown\(strip\[page\]\)\}/);
+  assert.match(LIST_SRC, /use:drawPicture=\{\{ url: shown\(strip\[page\]\), variant: "thumb" \}\}/);
   assert.match(LIST_SRC, /onerror=\{\(event\) => refuse\(item, event, strip\[page\]\)\}/);
 });
 

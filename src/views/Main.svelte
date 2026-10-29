@@ -28,6 +28,7 @@
   import { prefs } from "../state/prefs.svelte";
   import { reading } from "../state/reading.svelte";
   import { bodies } from "../state/bodies.svelte";
+  import { pictures } from "../state/pictures.svelte";
   import { reader } from "../state/reader.svelte";
   import { localStoreOf, type ReaderProfile } from "../api/profile";
 
@@ -256,6 +257,11 @@
     // first post opened has somewhere to read from.
     bodies.load();
     bodies.bind(localStoreOf(profile));
+    // Pictures this device keeps: the same two choices, their own ceiling, and
+    // the same rule — a library on a server detaches the cache, so every picture
+    // is drawn from the publisher exactly as it was before this existed.
+    pictures.load();
+    pictures.bind(localStoreOf(profile));
     // The account's copy of the remembered settings, read once behind the first
     // paint. It is started here rather than in `reader.start` because it spans
     // stores the reader does not own — the theme, the cards, the search toggle —

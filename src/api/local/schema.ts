@@ -43,7 +43,7 @@ export interface ColumnSchema {
 }
 
 /**
- * The seven tables.
+ * The tables.
  *
  * They are deliberately flat. A local library is one person's reading, so the
  * questions asked of it are simple — "this feed's items, newest first", "what
@@ -176,6 +176,55 @@ export const TABLES = {
       /** Seconds, the last time this body was read. Least-recently-used order. */
       { name: "used_at", type: "integer" },
     ],
+  },
+
+  /**
+   * One row per picture this device kept, and one row of its bytes on disk.
+   *
+   * Two tables rather than one because the budget's question — "how many bytes
+   * are held, and which is the oldest" — is asked over every picture, and the
+   * bytes are the one thing it never needs. A single table would make a pass
+   * read a hundred megabytes of base64 to count them; split, the pass reads
+   * `images` (a few hundred small rows) and the blobs are only touched for the
+   * pictures being drawn.
+   *
+   * The key is the address and the variant (`lib/images.ts` mints it), so the
+   * same URL drawn in the list and in the article pane is two rows, at two
+   * sizes. `bytes` is what the row actually costs the device — the UTF-8 size of
+   * the base64 in `image_data`, which is about a third more than the file it
+   * carries, because that is the disk the reader is spending. `used_at` is the
+   * last draw, and it is what "least recently used" means; `fetched_at` breaks
+   * ties between two pictures drawn once.
+   */
+  images: {
+    columns: [
+      /** The address the picture came from, kept so a row can be explained. */
+      { name: "url", type: "text" },
+      /** `thumb` (the row's box) or `full` (the article pane's lead). */
+      { name: "variant", type: "text" },
+      { name: "mime", type: "text" },
+      /** The stored copy's own pixels, after the downscale. */
+      { name: "width", type: "integer" },
+      { name: "height", type: "integer" },
+      /** UTF-8 bytes of the stored payload: what this picture costs the device. */
+      { name: "bytes", type: "integer" },
+      { name: "fetched_at", type: "integer" },
+      /** Seconds, the last time this picture was drawn. Least-recently-used order. */
+      { name: "used_at", type: "integer" },
+    ],
+  },
+
+  /**
+   * The bytes themselves, keyed like their `images` row.
+   *
+   * A text column rather than a blob because the seam above the engines is a
+   * table of string-keyed rows — SQLite could hold a BLOB and IndexedDB a
+   * `Blob`, but only by teaching both a type the other half of the app would
+   * then have to special-case. Base64 costs a third more disk and nothing else;
+   * `images.bytes` counts that third, so the ceiling is honest about it.
+   */
+  image_data: {
+    columns: [{ name: "data", type: "text" }],
   },
 
   /**
@@ -345,6 +394,23 @@ export interface ExtractionRow extends LocalRow {
   text_length?: number | null;
   bytes?: number | null;
   used_at?: number | null;
+}
+
+/** A row of `images`: one kept picture, and what it costs. */
+export interface ImageRow extends LocalRow {
+  url: string;
+  variant: string;
+  mime: string | null;
+  width: number | null;
+  height: number | null;
+  bytes: number;
+  fetched_at: number;
+  used_at: number;
+}
+
+/** A row of `image_data`: the bytes, base64, under the `images` key. */
+export interface ImageDataRow extends LocalRow {
+  data: string;
 }
 
 /** A row of `positions`. */
