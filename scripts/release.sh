@@ -21,7 +21,9 @@
 # passed in. Run this from the checkout whose bundles you mean to publish.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# `HR_REPO_ROOT` exists for the version test: the guard reads three manifests, and
+# a test that cannot point it at a fixture cannot prove the guard refuses.
+REPO_ROOT="${HR_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 APP_ID="ing.hardlysleep.hardlyreader"
 REPO_SLUG="${RELEASE_REPO:-hardlysleeping/HardlyReader}"
 
@@ -80,6 +82,44 @@ if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "version must look like 0.6.8, not '$VERSION'" >&2
   exit 2
 fi
+
+# ---------------------------------------------------------------------------
+# One version, in four files.
+#
+# 0.6.16 went out with `src-tauri/Cargo.toml` still reading 0.6.8: the bundle
+# name came from `tauri.conf.json`, so the release looked right while the crate
+# it was built from said something else — and the first thing to read the binary
+# version (an update check, a crash report, `--version`) would have reported a
+# version four releases old. The guard is here because this is the moment the
+# claim is made, and a version is only worth anything if every file agrees.
+# ---------------------------------------------------------------------------
+manifest_version() {
+  python3 - "$1" <<'PY_JSON'
+import json, re, sys, pathlib
+path = pathlib.Path(sys.argv[1])
+if not path.exists():
+    print("")
+    raise SystemExit
+text = path.read_text(encoding="utf-8")
+if path.suffix == ".json":
+    print(json.loads(text)["version"])
+else:
+    match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
+    print(match.group(1) if match else "")
+PY_JSON
+}
+
+for pair in "package.json:package.json" "src-tauri/tauri.conf.json:tauri.conf.json" "src-tauri/Cargo.toml:Cargo.toml"; do
+  file="${pair%%:*}"
+  label="${pair##*:}"
+  found="$(manifest_version "$REPO_ROOT/$file")"
+  # A file that states no version is not drift — the guard is here to catch a
+  # file that states a *different* one, which is what 0.6.16 shipped with.
+  if [ -n "$found" ] && [ "$found" != "$VERSION" ]; then
+    echo "refusing: $label says '$found', the release is $VERSION — bump it, then release" >&2
+    exit 1
+  fi
+done
 
 TAG="v$VERSION"
 APPIMAGE_ASSET="hardlyreader-$VERSION-linux-x86_64.AppImage"
