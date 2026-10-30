@@ -158,10 +158,14 @@ jobs:
             fi
           done
           echo "IPA=$OUT" >> "$GITHUB_ENV"
+          # The artifact's own name says which build it is: two dispatches at one
+          # version are two different builds, and a constant name made them look
+          # like the same file uploaded twice.
+          echo "IPA_NAME=$(basename "$OUT" .ipa)-${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-ipa
+          name: ${{ env.IPA_NAME }}
           path: build/*.ipa
           if-no-files-found: error
           retention-days: 14
