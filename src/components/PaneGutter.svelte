@@ -92,7 +92,13 @@
       // The seam's top is drawn at `share × track` (see `stackTemplate`), so the
       // pointer's own travel is what the share follows: no gutter subtracted,
       // nothing else measured, and the handle stays exactly under the finger.
-      layout.dragShare(clampShare(shareFromDrag(startShare, y - startPos, track), track));
+      // A phone's pair is the whole screen, so the seam is left wherever the
+      // finger puts it; a window's column keeps its quarter-pane floor.
+      const free = layout.device === "phone";
+      layout.dragShare(
+        clampShare(shareFromDrag(startShare, y - startPos, track), track, undefined, free),
+        free,
+      );
       return;
     }
     layout.dragTo(which, startWidth + (x - startPos));

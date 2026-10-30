@@ -1482,6 +1482,7 @@
     class:compact={view === "list"}
     class:cards={view === "cards"}
     data-tallcard={tallCard ? "true" : undefined}
+    data-scroll-axis="y"
     onscroll={onCardsScroll}
     onwheel={dropResume}
     ontouchstart={dropResume}
@@ -2140,6 +2141,11 @@
   .items {
     flex: 1;
     overflow-y: auto;
+    /* One column, and it says so twice: `clip` on the other axis keeps a row
+       that is a few pixels too wide from making this box horizontally
+       scrollable (which made every vertical flick drift sideways), and
+       `data-scroll-axis="y"` is the same statement to the drag module. */
+    overflow-x: clip;
     padding-bottom: 12px;
     /* The list is panned by the app, not by the browser: the drag module scrolls
        this box and throws it, so a flick and a mouse drag feel the same. The
@@ -3479,4 +3485,22 @@
     opacity: 0.6;
     cursor: default;
   }
+  /* A list this narrow has no room for a picture beside the words: at 210px the
+     64px stamp plus the two action buttons left the title at zero width, so a
+     row was a picture and two icons with nothing to read. The words come first,
+     and the stamp is the thing that goes — it is the only part of a row that is
+     not the post. */
+  @container (max-width: 260px) {
+    .items:not(.compact):not(.cards):not(.grid) .thumb {
+      display: none;
+    }
+
+    /* The two buttons keep their 34px boxes — a thumb needs them — and give up
+       only the air around them, which was 34px of a 209px row. */
+    .items:not(.compact):not(.cards):not(.grid) .acts {
+      gap: 2px;
+      padding: 0 4px 0 2px;
+    }
+  }
+
 </style>

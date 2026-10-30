@@ -14,6 +14,7 @@ import {
   DEFAULT_MOTION,
   FLAT_ROWS,
   STACK_SHARE,
+  STACK_SHARE_FREE,
   THRESHOLDS,
   THRESHOLD_LIMITS,
   isPaneMotion,
@@ -1272,14 +1273,15 @@ class LayoutState {
    * The pixel floors are applied by the gutter, which knows how tall the column
    * is; this only keeps the fraction in the range the setting allows.
    */
-  dragShare(share: number): void {
+  dragShare(share: number, free = false): void {
     if (!Number.isFinite(share)) return;
-    this.stackShare = Math.min(Math.max(share, STACK_SHARE.min), STACK_SHARE.max);
+    const bounds = free ? STACK_SHARE_FREE : STACK_SHARE;
+    this.stackShare = Math.min(Math.max(share, bounds.min), bounds.max);
   }
 
   /** The write for a stacked drag, called once when it ends. */
   commitShare(): void {
-    this.dragShare(this.stackShare);
+    this.dragShare(this.stackShare, this.device === "phone");
     this.save();
   }
 
