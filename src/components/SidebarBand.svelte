@@ -135,7 +135,7 @@
     ),
   );
   const hint = $derived(lockHint(lock));
-  const lockTip = $derived(lockTitle(lock));
+  const lockTip = $derived(lockTitle(lock, reader.hiddenAuthority === "local" ? "local" : "extension"));
   // Bound here rather than called from the markup: an import used only inside a
   // template expression is pruned by the compiler and the call then throws.
   const lockEnabled = $derived(lockUsable(lock));

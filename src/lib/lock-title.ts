@@ -45,12 +45,16 @@ export function lockState(
 }
 
 /** The tooltip for the band's lock control. */
-export function lockTitle(state: LockState): string {
+export function lockTitle(state: LockState, store: "extension" | "local" = "extension"): string {
+  // A set kept on this device is locked by this device, and the sentence says
+  // so: the same words over a local code would promise a curtain the server
+  // never draws. With the extension answering, every string is what it was.
+  const local = store === "local";
   switch (state) {
     case "ready":
-      return "Lock hidden categories";
+      return local ? "Lock hidden categories on this device" : "Lock hidden categories";
     case "none":
-      return "Set a passcode first";
+      return local ? "Set a passcode first — it stays on this device" : "Set a passcode first";
     case "unknown":
       return "This server has not said whether a passcode is set";
   }
