@@ -51,6 +51,7 @@
   import type { Snippet } from "svelte";
   import { syncDescription, syncReadout } from "../lib/sync-progress";
   import { layout } from "../state/layout.svelte";
+  import { chrome } from "../state/chrome.svelte";
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
   import { reader } from "../state/reader.svelte";
   import ReadingControls from "./ReadingControls.svelte";
@@ -292,6 +293,18 @@
        panels on one screen is one too many. -->
   <ReadingControls bind:this={readingControls} onopen={() => (settingsOpen = false)} />
 
+  <!-- A feed, added from the bar. The form is the sidebar's — one form, one
+       place it lives — so this asks for it rather than drawing a second one. -->
+  <button
+    type="button"
+    class="more add"
+    onclick={() => chrome.askAddFeed()}
+    aria-label="Add a feed"
+    title="Add a feed"
+  >
+    <svg class="plus" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+  </button>
+
   <!-- Day and night, one press from the gear it changes the look of. -->
   <ThemeToggle size={30} />
 
@@ -393,6 +406,13 @@
 
   /* The root's title: the app's name, at the weight the desktop brand has. */
   .wordmark {
+    /* A bar is a row of controls first and a title second: a long name shortens,
+       and no control is ever the thing that leaves the bar. */
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     font-size: 13.5px;
     font-weight: 650;
     letter-spacing: -0.01em;
@@ -403,7 +423,8 @@
      separately. */
   .step {
     display: inline-flex;
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
     align-items: center;
     gap: 2px;
     height: 30px;
@@ -431,6 +452,9 @@
 
   .back-to {
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
 
   /* The pane you are in. It gives up characters before anything else moves, so
@@ -446,11 +470,21 @@
   }
 
   .spacer {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   /* The quiet door: the same size as Sync, so a thumb finds it, and none of its
      colour — it changes nothing about what is on screen. */
+  .plus {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+  }
+
   .more {
     display: inline-flex;
     flex: 0 0 auto;
