@@ -15,9 +15,14 @@ on:
         required: false
         default: "master"
       runner:
-        description: "macOS runner label (macos-14 or macos-15)"
+        # macOS 15 because the checked-in Xcode project is format 77, which the
+        # Xcode on the macos-14 image refuses to open ("cannot be opened because
+        # it is in a future Xcode project file format"). macos-14 is still
+        # accepted for a branch that has regenerated the project with an older
+        # Xcode, but it is no longer the default: a dispatch should build.
+        description: "macOS runner label (macos-15, or macos-14 for an older project format)"
         required: false
-        default: "macos-14"
+        default: "macos-15"
 
 concurrency:
   group: ios-unsigned-${{ github.ref }}
