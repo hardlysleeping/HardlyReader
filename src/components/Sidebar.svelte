@@ -1537,15 +1537,23 @@
      nothing is drawn under them, so a gap under them is the app ending early. */
   :global(html[data-device="phone"]) .status {
     margin-top: auto;
-    flex-wrap: nowrap;
+    /* Wrapping, not nowrap.
+       A row of counts wider than the column cannot be centred: flex clips the
+       *start* of an overflowing centred line, so the first count ended up hard
+       against the left edge while the last kept its 10px — the row looked
+       left-aligned and lopsided at the same time. A second centred line costs
+       14px only when the words actually need it. */
+    flex-wrap: wrap;
     justify-content: center;
-    gap: 0 8px;
+    gap: 2px 8px;
     overflow: hidden;
-    white-space: nowrap;
     font-size: 10.5px;
+    line-height: 1.3;
     /* Low: the words sit just above the glass, and only the strip under the
        home indicator is left to it. Centred, because a row of two counts is not
-       a list and the left edge is not where it belongs. */
+       a list and the left edge is not where it belongs. The side padding is the
+       same on both sides, so "closer to the edge" can only ever mean "the line
+       was too wide". */
     padding: 3px 10px max(2px, calc(var(--safe-bottom) - 26px));
     border-top: 1px solid var(--edge-soft);
   }
