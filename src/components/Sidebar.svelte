@@ -483,6 +483,24 @@
   }
 
   /**
+   * Out of an unfolded feed, back to the tree — and back to the row that opened
+   * it, not to the top of a list that may be a hundred rows long. The offset is
+   * read after the posts are gone, because the rows above the feed shrink by
+   * the height of those posts the moment it collapses.
+   */
+  async function collapseInline() {
+    const id = expandedFeed;
+    reader.setExpandedFeed(null);
+    await tick();
+    if (id === null || feedTree === null) return;
+    const row = feedTree.querySelector<HTMLElement>(`[data-drop-feed="${id}"]`);
+    if (row === null) return;
+    const offset =
+      row.getBoundingClientRect().top - feedTree.getBoundingClientRect().top + feedTree.scrollTop;
+    feedTree.scrollTo({ top: Math.max(0, offset - 8) });
+  }
+
+  /**
    * From a search hit, in one panel: the results are the list, so choosing one
    * has to leave the search and put the feed in front of you, unfolded — the
    * post-inside-a-post case (text matches) lands on the feed that holds it.
@@ -880,6 +898,7 @@
        button beside it. The paragraph mark inside the field is the "also search
        post text" switch, kept quiet until it is wanted. It sits above the band
        because it filters the whole tree below it. -->
+  <div class="findrow">
   <div class="find">
     <svg class="glass" viewBox="0 0 16 16" aria-hidden="true">
       <circle cx="7" cy="7" r="4.4" />
@@ -938,6 +957,13 @@
         : "Matching feed and category names — click to also search text inside posts"}
       onclick={toggleDeep}
     >¶</button>
+  </div>
+    <!-- Beside the field, because it is a property of what the list looks like,
+         not a setting: on a phone the bar keeps the three controls that change
+         where you are, and the switch sits where the list begins. -->
+    {#if phoneSidebar}
+      <ThemeToggle size={30} />
+    {/if}
   </div>
 
   <!-- The band, and nothing else. The day / night switch used to sit beside it on
@@ -1449,6 +1475,24 @@
   </div>
   {/if}
 
+  <!-- A feed unfolded inside this pane is a feed you can no longer see the tree
+       through: the way back is a press, and it has to be reachable with the
+       thumb without scrolling to find it. It floats over the bottom of the
+       tree, above the counts, and it puts the feed's own row back where the eye
+       can find it. -->
+  {#if phoneSidebar && inlinePosts && expandedFeed !== null}
+    <button
+      class="unfold-close"
+      onclick={collapseInline}
+      aria-label="Collapse this feed"
+      title="Back to the feeds"
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M4 10l4-4 4 4" />
+      </svg>
+    </button>
+  {/if}
+
   <!-- The counts are the last row on the screen: under the footer, so opening
        the add form cannot lift them off the bottom edge. -->
   <div class="status" aria-live="polite">
@@ -1494,11 +1538,15 @@
   :global(html[data-device="phone"]) .status {
     margin-top: auto;
     flex-wrap: nowrap;
+    justify-content: center;
     gap: 0 8px;
     overflow: hidden;
     white-space: nowrap;
     font-size: 10.5px;
-    padding: 3px 10px max(3px, var(--safe-bottom));
+    /* Low: the words sit just above the glass, and only the strip under the
+       home indicator is left to it. Centred, because a row of two counts is not
+       a list and the left edge is not where it belongs. */
+    padding: 3px 10px max(2px, calc(var(--safe-bottom) - 26px));
     border-top: 1px solid var(--edge-soft);
   }
 
@@ -1880,12 +1928,28 @@
   /* Search sits at the top of the sidebar, above the hidden/pinned band: it
      filters the whole tree below it, band included, so it belongs first. One quiet field — the magnifier and
      the mode mark live inside it, so there is no button beside the input. */
-  .find {
+  /* The row the field lives in. On a phone it also holds the day / night switch,
+     which is why the field is narrower there: the switch takes its 30px out of
+     the same margin the field used to fill. */
+  .findrow {
     display: flex;
     flex: none;
     align-items: center;
     gap: 6px;
     margin: 6px 12px 3px;
+  }
+
+  .findrow > :global(.find) {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .find {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
     padding: 0 6px 0 9px;
     height: 28px;
     border: 1px solid var(--border-soft);
@@ -1999,12 +2063,21 @@
      thing in the column. 38 with 30px marks is still a thumb's target (the hit
      boxes in `app.css` are unchanged and still 40 wide by 40 tall), and it
      hands 6px back to the tree. Desktop keeps 28 and 18. */
+  /* ...and 38 was still a toolbar: the field is narrower than it was (the day /
+     night switch takes the rest of the row) and shorter, because a field that is
+     not being typed in is a place to tap, not a bar to fill. The hit boxes in
+     `app.css` follow it down. */
   :global(html[data-device="phone"]) .find {
-    height: 38px;
+    height: 30px;
     gap: 3px;
-    margin: 7px 10px 3px;
-    padding: 0 3px 0 9px;
-    border-radius: 10px;
+    margin: 0;
+    padding: 0 3px 0 8px;
+    border-radius: 9px;
+  }
+
+  :global(html[data-device="phone"]) .findrow {
+    gap: 6px;
+    margin: 6px 8px 3px;
   }
 
   :global(html[data-device="phone"]) .find-input {
@@ -2304,6 +2377,63 @@
   .add {
     flex: none;
     padding: 5px 12px 8px;
+  }
+
+  /* Floating, not a row: it belongs to the unfolded feed, and a row would take
+     pixels from the list it is there to leave. */
+  .unfold-close {
+    position: absolute;
+    right: 10px;
+    bottom: calc(30px + var(--safe-bottom));
+    z-index: 30;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--text-dim);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+  }
+
+  .unfold-close svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* A phone has no room for a footer form: the keyboard covers the bottom of the
+     screen, so the Add button was the first thing to go. The form is a sheet
+     over the top of the column instead — where the `+` was pressed, over the
+     search field, clear of the keyboard — and the tree keeps its own scroll
+     underneath. */
+  :global(html[data-device="phone"]) .sidebar {
+    position: relative;
+  }
+
+  :global(html[data-device="phone"]) .add {
+    position: absolute;
+    z-index: 40;
+    top: 6px;
+    left: 6px;
+    right: 6px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: 0 14px 34px rgb(0 0 0 / 0.45);
+  }
+
+  /* One feed per line means three lines are visible, so a list of feeds is a
+     list and not a single line that scrolls sideways. */
+  :global(html[data-device="phone"]) .add .url {
+    min-height: 64px;
   }
 
   .add-open {

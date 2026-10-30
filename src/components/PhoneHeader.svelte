@@ -56,8 +56,7 @@
   import { reader } from "../state/reader.svelte";
   import ReadingControls from "./ReadingControls.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
-  import ThemeToggle from "./ThemeToggle.svelte";
-
+  
   let {
     subtitle = "",
     server = "",
@@ -306,7 +305,9 @@
   </button>
 
   <!-- Day and night, one press from the gear it changes the look of. -->
-  <ThemeToggle size={30} />
+  <!-- The day / night switch lives beside the search field now (see
+       `Sidebar`): a bar of three controls that move you between panes, and the
+       switch where the list it changes begins. -->
 
   <!-- One door to everything that is not navigation. It opens the sheet the
        desktop bar opens from its menu row, so Reading, Layout, Accounts, Sync
@@ -399,7 +400,10 @@
     align-items: center;
     gap: 6px;
     flex: 0 0 auto;
-    height: calc(var(--safe-top) + 36px);
+    /* The same 36px of content, measured from where the padding puts it: the
+       bar sits 12px higher than the raw inset (see `app.css`), and its height
+       has to agree or `overflow: hidden` clips the controls. */
+    height: calc(max(0px, calc(var(--safe-top) - 12px)) + 36px);
     background: var(--surface);
     overflow: hidden;
   }

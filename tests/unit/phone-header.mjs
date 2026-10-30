@@ -134,7 +134,12 @@ check(
 // as padding, so the surface behind the clock is still the header's. It was 42,
 // which is a desktop toolbar's height; on a phone that reads as a gap between
 // the clock and the app rather than as a bar.
-check("the visible height is 36px", /height: calc\(var\(--safe-top\) \+ 36px\)/.test(header));
+check(
+  "the visible height is 36px",
+  // Measured from where the padding puts it: the bar rides 12px higher than the
+  // raw inset, and its height has to agree or `overflow: hidden` clips it.
+  /height: calc\(max\(0px, calc\(var\(--safe-top\) - 12px\)\) \+ 36px\)/.test(header),
+);
 
 /* ---------------------------------------------------------------- *
  * Sync, and the door to everything else
@@ -162,7 +167,10 @@ check(
   "...and no longer a •••, which a phone uses for more of the same row",
   !between(header, "<header", "</header>").includes("•••"),
 );
-check("day and night sits beside it", /<ThemeToggle size=\{30\} \/>\s*<!--[\s\S]{0,400}?class="more"/.test(header));
+check(
+  "the bar is the three controls that move you, and nothing else",
+  /class="more"/.test(header) && !/<ThemeToggle/.test(header),
+);
 
 // The two settings a reader reaches for while reading are in the bar, not two
 // levels down in the sheet: the arrangement, and the text.
@@ -171,7 +179,11 @@ check("...passed in by the view, not imported", /controls\?: Snippet/.test(heade
 check("and the Aa panel opens from it", /<ReadingControls bind:this=\{readingControls\}/.test(header));
 check("...closing the sheet on its way open", /onopen=\{\(\) => \(settingsOpen = false\)\}/.test(header));
 check("the Aa panel clears the bar it opens under", /top: calc\(46px \+ var\(--safe-top, 0px\)\)/.test(read("src/components/ReadingControls.svelte")));
-check("...the same switch the sidebar's strip draws", /import ThemeToggle from "\.\/ThemeToggle\.svelte"/.test(header));
+check(
+  "...the same switch the sidebar draws beside the search field",
+  /import ThemeToggle from "\.\/ThemeToggle\.svelte"/.test(read("src/components/Sidebar.svelte")) &&
+    /\{#if phoneSidebar\}\s*<ThemeToggle size=\{30\} \/>/.test(read("src/components/Sidebar.svelte")),
+);
 check("it is announced as opening a dialog", /aria-haspopup="dialog"/.test(more));
 check("and it opens the consolidated sheet", /bind:open=\{settingsOpen\}/.test(header) && /<SettingsPanel/.test(header));
 check(
@@ -221,7 +233,7 @@ check(
 );
 check(
   "the header takes its own top and sides",
-  /html\[data-device="phone"\] \.phone-header \{\s*padding-top: var\(--safe-top\);\s*padding-left: max\(10px, var\(--safe-left\)\);\s*padding-right: max\(10px, var\(--safe-right\)\);/.test(
+  /html\[data-device="phone"\] \.phone-header \{\s*\/\*[\s\S]{0,220}?\*\/\s*padding-top: max\(0px, calc\(var\(--safe-top\) - 12px\)\);\s*padding-left: max\(10px, var\(--safe-left\)\);\s*padding-right: max\(10px, var\(--safe-right\)\);/.test(
     app,
   ),
 );

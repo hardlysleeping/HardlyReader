@@ -439,7 +439,9 @@ html[data-device="phone"] #app {
    the bar itself is the surface, so the result is one continuous header rather
    than a header with a strip of page colour above it. */
 html[data-device="phone"] .phone-header {
-  padding-top: var(--safe-top);
+  /* Higher than the inset, by the part of it the clock does not use: the bar's
+     controls clear the status bar without a band of nothing between them. */
+  padding-top: max(0px, calc(var(--safe-top) - 12px));
   padding-left: max(10px, var(--safe-left));
   padding-right: max(10px, var(--safe-right));
 }
@@ -699,7 +701,7 @@ html[data-device="phone"] .find :is(.find-clear, .find-deep) {
   position: relative;
   touch-action: manipulation;
   --tap44-w: 33px;
-  --tap44-h: 38px;
+  --tap44-h: 30px;
 }
 
 html[data-device="phone"] .find :is(.find-clear, .find-deep)::after {

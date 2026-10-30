@@ -107,8 +107,9 @@ check(
   /<div class="rail">\s*<SidebarBand \/>\s*<\/div>/.test(sidebar) && !/rail"[\s\S]{0,200}<ThemeToggle/.test(sidebar),
 );
 check(
-  "...because the switch is in the phone's title bar",
-  /<ThemeToggle size=\{30\} \/>/.test(read("src/components/PhoneHeader.svelte")),
+  "...because the switch sits beside the search field on a phone",
+  /\{#if phoneSidebar\}\s*<ThemeToggle size=\{30\} \/>\s*\{\/if\}/.test(sidebar) &&
+    !/<ThemeToggle/.test(read("src/components/PhoneHeader.svelte")),
 );
 check("the rail is no box on a window", /\.rail \{\s*display: contents;/.test(sidebar));
 check(
