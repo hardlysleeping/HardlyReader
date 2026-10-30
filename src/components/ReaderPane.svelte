@@ -1289,6 +1289,12 @@
     color: var(--accent-text);
   }
 
+  /* A phone reads to the glass: 64px of padding under the last line is a band
+     of nothing at the end of every article. */
+  :global(html[data-device="phone"]) article {
+    padding-block: 12px 16px;
+  }
+
   .content {
     /* Size, leading and alignment all come from one place: the custom
        properties set on the pane container. */

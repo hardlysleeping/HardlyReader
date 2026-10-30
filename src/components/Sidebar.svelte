@@ -634,6 +634,21 @@
     categoryDrag.dispose();
   });
 
+  /**
+   * The bar's `+`, and the footer's `+ Add feed`, open the same form.
+   *
+   * The counter is read as a dependency, so a second press opens it again after
+   * it was cancelled: the bar can ask twice and the sidebar does not have to
+   * hand the flag back.
+   */
+  let asked = 0;
+  $effect(() => {
+    const ask = chrome.addFeedAsk;
+    if (ask === asked) return;
+    asked = ask;
+    startAdding();
+  });
+
   function onFeedPointerDown(event: PointerEvent, feed: Subscription) {
     armPress(event, (point) => reader.openFeedMenu({ id: feed.id, title: feed.title }, point));
     feedDrag.arm(event, feed.id);
@@ -1339,7 +1354,9 @@
        block carries the same two ways in, so drawing both would be the panel
        saying one thing twice. The form still lives here, which is why the gate
        reopens the moment `adding` is set. -->
-  {#if !startsHere}
+  <!-- On a phone the footer is the form or nothing: the `+` that opens it is in
+       the bar, and an empty footer is 13px of nothing under the counts. -->
+  {#if !startsHere && (adding || !phoneSidebar)}
   <div class="add">
     {#if adding}
       <form onsubmit={submitFeed}>
@@ -1379,7 +1396,7 @@
           <p class="add-error" role="alert">{reader.addFeedError}</p>
         {/if}
       </form>
-    {:else}
+    {:else if !phoneSidebar}
       <button class="add-open" onclick={startAdding}>+ Add feed</button>
     {/if}
 
@@ -1447,6 +1464,19 @@
 
   /* The counts sit on the line under the list and never scroll: it is the
      boundary, and it belongs to the panel rather than to the tree. */
+  /* On a phone the counts are the last thing on the screen, flush to the glass:
+     nothing is drawn under them, so a gap under them is the app ending early. */
+  :global(html[data-device="phone"]) .status {
+    margin-top: auto;
+    flex-wrap: nowrap;
+    gap: 0 8px;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 10.5px;
+    padding: 3px 10px max(3px, var(--safe-bottom));
+    border-top: 1px solid var(--edge-soft);
+  }
+
   .status {
     display: flex;
     flex-wrap: wrap;
@@ -1501,8 +1531,11 @@
      indicator itself (see `app.css`, ".slot.feeds"): the slot used to stop
      above the band, which left the window's own colour under a footer that
      looked like it had run out of list. */
+  /* The column ends at the glass; the counts are the last row on the screen and
+     they pay the home indicator themselves (see `.status`). The 42px this used
+     to add was a band of nothing under the last thing the column draws. */
   :global(html[data-device="phone"]) .sidebar {
-    padding-bottom: calc(var(--safe-bottom) + 8px);
+    padding-bottom: 0;
   }
 
   /* The one scrollable part: the tree. `min-height: 0` is what lets a flex child

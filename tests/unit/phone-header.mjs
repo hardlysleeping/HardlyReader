@@ -238,9 +238,12 @@ check(
 );
 check(
   "and the bottom of every pane, not of the container it is measured from",
-  /html\[data-device="phone"\] \.panes > \.slot\.feeds,\s*html\[data-device="phone"\] \.panes > \.slot\.posts,\s*html\[data-device="phone"\] \.panes > \.slot\.article \{\s*padding-bottom: calc\(var\(--safe-bottom\) \+ 8px\);/.test(
+  // The panes run to the glass: the inset is paid by the last row of the feeds
+  // column (`.status`), and the list and the article stop at the edge.
+  /html\[data-device="phone"\] \.panes > \.slot\.feeds,\s*html\[data-device="phone"\] \.panes > \.slot\.posts,\s*html\[data-device="phone"\] \.panes > \.slot\.article \{\s*padding-bottom: 0;/.test(
     app,
-  ),
+  ) &&
+    /html\[data-device="phone"\] \.panes > \.slot\.feeds \{\s*padding-bottom: 0;/.test(app),
 );
 // One source of numbers: the tokens are the only place `env()` is read.
 check(

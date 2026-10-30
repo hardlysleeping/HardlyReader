@@ -156,11 +156,13 @@ const block = gate > 0 ? sidebar.slice(gate, gateEnd) : "";
   // The form lives in the footer, so the footer has to come back for it.
   check(
     "the footer gives way to the block, and reopens for the form",
-    /\{#if !startsHere\}\s*<div class="add">\s*\{#if adding\}/.test(sidebar),
+    // On a phone the footer is the form or nothing: the `+` that opens it is in
+    // the bar, so the footer has no closed state to draw.
+    /\{#if !startsHere && \(adding \|\| !phoneSidebar\)\}\s*<div class="add">\s*\{#if adding\}/.test(sidebar),
   );
   check(
     "one gate decides it, at both places",
-    (sidebar.match(/\{#if !startsHere\}/g) ?? []).length === 1 &&
+    (sidebar.match(/\{#if !startsHere && \(adding \|\| !phoneSidebar\)\}/g) ?? []).length === 1 &&
       (sidebar.match(/\{#if startsHere\}/g) ?? []).length === 1,
   );
   check(

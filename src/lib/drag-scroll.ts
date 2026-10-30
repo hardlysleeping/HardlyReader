@@ -169,10 +169,14 @@ export function installDragScroll(): () => void {
         el.scrollTop = before + vy * dt;
         if (el.scrollTop === before) vy = 0;
       }
-      if (vx !== 0) {
+      // A throw is the pan's momentum, so it is spent on the same axes: no
+      // sideways fling out of a column that has nothing to the side.
+      if (vx !== 0 && el.scrollWidth - el.clientWidth > 1) {
         const before = el.scrollLeft;
         el.scrollLeft = before + vx * dt;
         if (el.scrollLeft === before) vx = 0;
+      } else if (vx !== 0) {
+        vx = 0;
       }
       const next = decayVelocity(vx, vy, dt);
       vx = next.vx;
@@ -242,7 +246,13 @@ export function installDragScroll(): () => void {
     event.preventDefault();
     // Content follows the pointer: drag up, the text moves up.
     container.scrollTop -= event.clientY - lastY;
-    container.scrollLeft -= event.clientX - lastX;
+    // ...and only sideways where there is something sideways to reach. An
+    // article is one column wide by definition, so a finger that drifts left
+    // must not slide the prose off its own margin: the axis is spent or it is
+    // not there at all.
+    if (container.scrollWidth - container.clientWidth > 1) {
+      container.scrollLeft -= event.clientX - lastX;
+    }
     lastX = event.clientX;
     lastY = event.clientY;
     const now = when(event);

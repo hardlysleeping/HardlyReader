@@ -576,10 +576,12 @@ html[data-device="phone"] .stack-scroller {
    notch is on a side) the outer edge of the outermost column. Per pane, never
    on the container: `layout.setAvailable()` reads the container's `clientWidth`,
    so padding there would be counted as width the columns then overflow. */
+/* The list and the article run to the glass. A 42px band of nothing under
+   content that ends there is the app looking like it ran out of screen. */
 html[data-device="phone"] .panes > .slot.feeds,
 html[data-device="phone"] .panes > .slot.posts,
 html[data-device="phone"] .panes > .slot.article {
-  padding-bottom: calc(var(--safe-bottom) + 8px);
+  padding-bottom: 0;
 }
 
 /* The feeds column paints through the home indicator instead of stopping above

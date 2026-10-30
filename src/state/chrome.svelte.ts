@@ -108,6 +108,19 @@ class ChromeState {
    * `Settings → Feeds` is the one that can open it again, and a toggle that
    * wrote `!this.indentOpen` would depend on which surface pressed it.
    */
+  /**
+   * A press that asks for the add-feed form, counted rather than flagged.
+   *
+   * The phone's bar has the `+` and the form lives in the sidebar's footer, one
+   * component away. A counter is what lets the same press be asked twice: a flag
+   * would have to be cleared by the sidebar, and the sidebar is not always drawn.
+   */
+  addFeedAsk = $state(0);
+
+  askAddFeed(): void {
+    this.addFeedAsk += 1;
+  }
+
   setIndentOpen(open: boolean): void {
     if (this.indentOpen === open) return;
     this.indentOpen = open;
