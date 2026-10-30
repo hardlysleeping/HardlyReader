@@ -38,8 +38,10 @@
 import { transport } from "../api/transport";
 import type { LocalStore, PicturePruned } from "../api/local/store";
 import {
-  PICTURE_MAX_ONE,
+  admitPicture,
+  fetchSize,
   keepsVariant,
+  mayKeepPicture,
   pictureKey,
   picturesOverLimit,
   targetWidth,
@@ -173,13 +175,15 @@ async function shrink(blob: Blob, width: number): Promise<PictureBytes | null> {
   if (decoded === null) return null;
   try {
     if (decoded.width === 0 || decoded.height === 0) return null;
-    const scale = Math.min(1, width / decoded.width);
-    const w = Math.max(1, Math.round(decoded.width * scale));
-    const h = Math.max(1, Math.round(decoded.height * scale));
-    if (scale === 1 && blob.size <= 64 * 1024) {
-      // Small enough already, and at the size it is drawn: nothing to win.
+    // A file already at the box, or within a rounding error of it, is kept as it
+    // arrived: re-encoding it would cost quality to save nothing. A file *smaller*
+    // than the box is never drawn up — that is a blur, not a bigger picture.
+    const size = fetchSize({ width: decoded.width, height: decoded.height }, width);
+    if (!size.downscale) {
       return { blob, mime: blob.type, width: decoded.width, height: decoded.height };
     }
+    const w = size.width;
+    const h = Math.max(1, Math.round((decoded.height * size.width) / decoded.width));
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
@@ -403,10 +407,21 @@ export function createPictureCache(deps: PictureCacheDeps): PictureCache {
     const data = toBase64(new Uint8Array(await picture.blob.arrayBuffer()));
     const cost = data.length;
     if (cost === 0) return null;
-    // A picture bigger than one post's whole allowance is not kept: the stored
-    // copy is normally tens of kilobytes, so this only catches the file that
-    // could not be downscaled at all.
-    if (cost > PICTURE_MAX_ONE) return null;
+    // The budget decides what is *written*, not only what is deleted: a picture
+    // that could never fit is drawn from the publisher instead of being written
+    // and evicted again on the next pass, and one that needs room gets it before
+    // it lands rather than after.
+    const verdict = admitPicture(cost, usage(), deps.limit());
+    if (!verdict.store) return null;
+    if (verdict.reserve > 0) {
+      const keep = new Set(held.keys());
+      const pruned = await library.pruneImages(verdict.reserve, { keep });
+      count = pruned.count;
+      bytes = pruned.bytes;
+      for (const gone of pruned.keys) forget(gone);
+      if (pruned.dropped > 0) deps.cleared?.(pruned);
+      report();
+    }
 
     const saved = await library.saveImage({
       key,
@@ -481,7 +496,7 @@ export function createPictureCache(deps: PictureCacheDeps): PictureCache {
 
   const cache: PictureCache = {
     draw: (url, variant, frameWidth = 0) => {
-      if (url === "" || url.startsWith("data:")) return passthrough(url);
+      if (!mayKeepPicture(url).keep) return passthrough(url);
       if (deps.library() === null || !keepsVariant(deps.keeping(), variant)) {
         return passthrough(url);
       }
@@ -512,7 +527,7 @@ export function createPictureCache(deps: PictureCacheDeps): PictureCache {
     },
 
     preload: (url, variant, frameWidth = 0) => {
-      if (url === "" || url.startsWith("data:")) return;
+      if (!mayKeepPicture(url).keep) return;
       if (deps.library() === null || !keepsVariant(deps.keeping(), variant)) return;
       const key = pictureKey(variant, url);
       if (copies.has(key)) return;

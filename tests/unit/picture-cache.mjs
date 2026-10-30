@@ -405,5 +405,86 @@ first.release();
   check("junk does not throw", fromBase64("= = =").length === 0);
 }
 
+// ---------------------------------------------------------------------------
+// 14. What is never fetched, and what is never written.
+// ---------------------------------------------------------------------------
+{
+  const shelf = new LocalStore(new MemoryDatabase());
+  const press = createPictureCache({
+    library: () => shelf,
+    keeping: () => "thumbs",
+    limit: () => 40,
+    measured: () => {},
+    seam,
+    density: () => 2,
+  });
+  const before = downloads.length;
+  const inline = "data:image/png;base64,iVBORw0KGgo=";
+  const shot = press.draw(inline, "thumb");
+  check("an inline picture is drawn exactly as the article wrote it", shot.src === inline, String(shot.src));
+  check("and settles on itself", (await shot.settled) === inline);
+  shot.release();
+  press.preload(inline, "thumb");
+  const elsewhere = "file:///home/reader/pictures/one.png";
+  const local = press.draw(elsewhere, "thumb");
+  check("a file on this machine is not a publisher's picture", local.src === elsewhere, String(local.src));
+  check("neither of them costs a request", downloads.length === before, String(downloads.length - before));
+  check("and neither is kept", (await shelf.pictures()).length === 0);
+
+  // A picture larger than the whole ceiling would be written and then evicted by
+  // the next pass: the write is not made at all, and the hotlink draws it.
+  const big = "https://comics.test/pages/over-ceiling.png";
+  pages.set(big, { source: new Uint8Array([5]), copy: new Uint8Array(40) });
+  const over = press.draw(big, "thumb");
+  const fallback = await over.settled;
+  over.release();
+  check("a picture bigger than the whole budget is not written", (await shelf.keptImage(pictureKey("thumb", big))) === null);
+  check("and is drawn from the publisher instead", fallback === big, String(fallback));
+}
+
+// ---------------------------------------------------------------------------
+// 15. Room is made before a picture is written, not after it.
+// ---------------------------------------------------------------------------
+{
+  const shelf = new LocalStore(new MemoryDatabase());
+  const passes = [];
+  const press = createPictureCache({
+    library: () => shelf,
+    keeping: () => "thumbs",
+    limit: () => 12,
+    measured: () => {},
+    cleared: (pruned) => passes.push(pruned),
+    seam,
+    density: () => 2,
+  });
+  const names = ["old", "mid", "new"];
+  const addresses = names.map((name) => `https://comics.test/room/${name}.png`);
+  for (const address of addresses) {
+    pages.set(address, { source: new Uint8Array([1, 2, 3]), copy: new Uint8Array([4, 5, 6]) });
+    const shot = press.draw(address, "thumb");
+    await shot.settled;
+    shot.release();
+  }
+  check("three pictures of four bytes each fill a twelve-byte ceiling", (await shelf.imageUsage()).bytes === 12, JSON.stringify(await shelf.imageUsage()));
+  // The order of use, said out loud: the tie-break would otherwise be the key.
+  for (const [index, address] of addresses.entries()) {
+    await shelf.touchImage(pictureKey("thumb", address), 100 * (index + 1));
+  }
+
+  const fourth = "https://comics.test/room/fourth.png";
+  pages.set(fourth, { source: new Uint8Array([7, 8, 9]), copy: new Uint8Array([7, 8, 9]) });
+  const shot = press.draw(fourth, "thumb");
+  const drawn = await shot.settled;
+  shot.release();
+
+  const kept = (await shelf.pictures()).map((row) => row.key);
+  check("the picture that needed room is kept", kept.includes(pictureKey("thumb", fourth)), kept.join(" | "));
+  check("and it is drawn from this device", drawn !== null && drawn.startsWith("blob:test/"), String(drawn));
+  check("the least recently drawn one made the room", !kept.includes(pictureKey("thumb", addresses[0])), kept.join(" | "));
+  check("nothing else was taken", kept.length === 3, kept.join(" | "));
+  check("and the library is still inside the ceiling", (await shelf.imageUsage()).bytes === 12, JSON.stringify(await shelf.imageUsage()));
+  check("the pass that made the room said so", passes.length === 1 && passes[0].dropped === 1, JSON.stringify(passes));
+}
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
