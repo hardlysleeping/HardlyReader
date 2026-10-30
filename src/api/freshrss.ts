@@ -90,9 +90,15 @@ const READER_ROOT = "/reader/api/0";
  * The GReader roots this client looks for, in probe order.
  *
  *   /api/greader.php       FreshRSS — first, because it is what this app is for
- *   /v1/reader/api/0       Miniflux
- *   /reader/api/0          The Old Reader, Inoreader
+ *   /reader/api/0          Miniflux, The Old Reader, Inoreader
  *   /plugins/greader/api   Tiny Tiny RSS with its greader plugin
+ *
+ * `/v1/reader/api/0` used to be here, on the reading that Miniflux served
+ * GReader under `/v1`. It does not: `/v1` is Miniflux's own REST API, and its
+ * guard answers a GReader exchange with `401` — which the probe took as "the
+ * password is wrong" and stopped on, so a Miniflux account could never sign in
+ * while the correct prefix sat unasked one line below. A live server said so;
+ * the README said otherwise.
  *
  * What a session stores is a prefix that answered, never a product name: a
  * fifth server works by pasting its URL with the path on the end, and nothing
@@ -100,7 +106,6 @@ const READER_ROOT = "/reader/api/0";
  */
 export const GREADER_PREFIXES: readonly string[] = [
   DEFAULT_API_PATH,
-  "/v1/reader/api/0",
   "/reader/api/0",
   "/plugins/greader/api",
 ];
@@ -161,6 +166,16 @@ export interface ServerTarget {
  */
 export function parseServerInput(input: string): ServerTarget {
   const normalized = normalizeServerUrl(input);
+  // A pasted URL can name a reader root the prefix list does not guess — a
+  // Miniflux behind a base path, a proxy that puts the API under `/greader/`.
+  // The reader root is the part that has to be believed: everything from the
+  // origin to the end of `reader/api/0` is the prefix, so `/v1/reader/api/0`
+  // stays whole instead of being read as The Old Reader's shorter root.
+  const origin = /^(https?:\/\/[^/]+)(\/.*)$/i.exec(normalized);
+  if (origin !== null && origin[2].toLowerCase().endsWith("/reader/api/0")) {
+    return { serverUrl: origin[1], apiPath: origin[2] };
+  }
+
   const known = [...GREADER_PREFIXES].sort((a, b) => b.length - a.length);
 
   for (const prefix of known) {
@@ -293,9 +308,15 @@ function probeReason(error: unknown): string {
  * returned only once one has, so nothing half-signed-in can be saved.
  *
  * Order: a prefix found on the pasted URL first (the reader told us, so believe
- * them), then {@link GREADER_PREFIXES}. A `401` ends the probe immediately —
- * the endpoint is there and the password is wrong — while a `404`, a `501`, an
- * HTML page or a network miss just means "not this prefix".
+ * them), then {@link GREADER_PREFIXES}. A `404`, a `501`, an HTML page or a
+ * network miss means "not this prefix".
+ *
+ * A `401` does **not** end the probe, and this is the correction a live
+ * Miniflux forced: its `/v1` guard refuses anything that is not its REST API
+ * with `401`, so a prefix that is merely wrong can look exactly like a wrong
+ * password. The refusal is remembered and only reported if no prefix works, so
+ * a wrong password still ends in `AuthError` with the server's own status —
+ * after a few more requests, none of which can change a credential.
  */
 export async function probeGreaderSession(
   transport: Transport,
@@ -309,13 +330,14 @@ export async function probeGreaderSession(
   }
 
   const attempts: GreaderProbeAttempt[] = [];
+  let refusal: AuthError | null = null;
 
   for (const apiPath of prefixes) {
     let session: Session;
     try {
       session = await clientLogin(transport, { ...credentials, serverUrl: target.serverUrl, apiPath });
     } catch (error) {
-      if (isAuthRefusal(error)) throw error;
+      if (isAuthRefusal(error)) refusal ??= error as AuthError;
       attempts.push({ apiPath, reason: probeReason(error) });
       continue;
     }
@@ -324,11 +346,15 @@ export async function probeGreaderSession(
       await userInfo(transport, session);
       return session;
     } catch (error) {
-      if (isAuthRefusal(error)) throw error;
+      if (isAuthRefusal(error)) refusal ??= error as AuthError;
       attempts.push({ apiPath, reason: probeReason(error) });
     }
   }
 
+  // Every prefix has been asked. If one of them said "your credential is
+  // wrong", that is the honest answer; otherwise nothing on this server speaks
+  // GReader, and the attempts say what each path did.
+  if (refusal !== null) throw refusal;
   throw new GreaderProbeError(target.serverUrl, attempts);
 }
 
@@ -482,15 +508,33 @@ export async function listTags(transport: Transport, session: Session): Promise<
   return body.tags ?? [];
 }
 
+/**
+ * The per-stream unread counts, when the server has them.
+ *
+ * Not every GReader server implements this route: a live Miniflux answers an
+ * unimplemented path with `200 []`, and a stricter one answers `404`. Neither
+ * is a reason to fail a refresh — the counts are a convenience, the list is the
+ * product — so a missing route reads as "no counts" rather than an error. A
+ * `401` still throws, because that one is about the session.
+ */
 export async function getUnreadCounts(
   transport: Transport,
   session: Session,
 ): Promise<UnreadCount[]> {
-  const body = await authorizedGet<{ unreadcounts?: UnreadCount[] }>(
-    transport,
-    session,
-    withQuery("/reader/api/0/unread-count", {}),
-  );
+  let body: { unreadcounts?: UnreadCount[] } | UnreadCount[];
+  try {
+    body = await authorizedGet<{ unreadcounts?: UnreadCount[] } | UnreadCount[]>(
+      transport,
+      session,
+      withQuery("/reader/api/0/unread-count", {}),
+    );
+  } catch (error) {
+    if (error instanceof HttpError && (error.status === 404 || error.status === 501)) {
+      return [];
+    }
+    throw error;
+  }
+  if (Array.isArray(body)) return [];
   return body.unreadcounts ?? [];
 }
 
@@ -502,6 +546,86 @@ export interface StreamOptions {
   signal?: AbortSignal;
   /** Reports how the request spent its time, for the switch timings. */
   timing?: (timing: RequestTiming) => void;
+}
+
+/** A body that really is a stream: an object with an `items` array. */
+function isStreamContents(body: unknown): body is StreamContents {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    Array.isArray((body as { items?: unknown }).items)
+  );
+}
+
+/**
+ * The reading list, in the two calls a server that has no `stream/contents`
+ * wants: the ids first, then the items for those ids.
+ *
+ * Miniflux answers an unimplemented route with `200 []` — the same body as an
+ * empty reading list — so a client cannot tell "no posts" from "no such
+ * endpoint" by looking at the answer. Its ids route and its contents route are
+ * the real thing, and both are in the GReader spec, so this is the honest
+ * fallback rather than a Miniflux special case.
+ */
+async function streamContentsByIds(
+  transport: Transport,
+  session: Session,
+  streamId: string,
+  options: StreamOptions,
+): Promise<StreamContents> {
+  const ids = await authorizedGet<{ itemRefs?: { id?: string }[]; continuation?: string | number }>(
+    transport,
+    session,
+    withQuery("/reader/api/0/stream/items/ids", {
+      s: streamId,
+      n: options.count,
+      c: options.continuation,
+      xt: options.excludeRead ? STATE_READ : undefined,
+    }),
+    { signal: options.signal, timing: options.timing },
+  );
+
+  const refs = (ids.itemRefs ?? [])
+    .map((ref) => ref.id)
+    .filter((id): id is string => typeof id === "string" && id !== "");
+  const continuation = ids.continuation === undefined ? undefined : String(ids.continuation);
+
+  if (refs.length === 0) {
+    return { id: streamId, items: [], continuation };
+  }
+
+  // A POST needs the write token on this family of servers: the header is not
+  // accepted for a POST at all, which is the same rule `editTag` follows.
+  const writeToken = await getWriteToken(transport, session);
+  const body = new URLSearchParams({ T: writeToken });
+  for (const id of refs) {
+    body.append("i", id);
+  }
+
+  const response = await transport(
+    greaderUrl(session.serverUrl, withQuery("/reader/api/0/stream/items/contents", {}), session.apiPath),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+      signal: options.signal,
+    },
+  );
+
+  if (response.status === 401) {
+    throw new AuthError("Token rejected by server", 401);
+  }
+  if (!response.ok) {
+    throw new HttpError(response.status, `Request failed (HTTP ${response.status})`);
+  }
+
+  const contents = (await response.json()) as StreamContents;
+  return {
+    ...contents,
+    id: contents.id ?? streamId,
+    items: Array.isArray(contents.items) ? contents.items : [],
+    continuation,
+  };
 }
 
 export async function getStreamContents(
@@ -516,10 +640,16 @@ export async function getStreamContents(
     c: options.continuation,
     xt: options.excludeRead ? STATE_READ : undefined,
   });
-  return authorizedGet<StreamContents>(transport, session, path, {
+  const body = await authorizedGet<StreamContents | unknown>(transport, session, path, {
     signal: options.signal,
     timing: options.timing,
   });
+
+  // A server that does not implement the route answers with something that is
+  // not a stream — Miniflux answers `[]` — and then the ids-then-items pair is
+  // how the same reading list is read.
+  if (isStreamContents(body)) return body;
+  return streamContentsByIds(transport, session, streamId, options);
 }
 
 /** Read/write actions need a separate short-lived token from `/token`. */
@@ -754,17 +884,34 @@ export async function unsubscribe(
   );
 }
 
+/**
+ * The state a category names, ignoring whose state the server says it is.
+ *
+ * `user/-/state/com.google/read` is Google Reader's shorthand and what FreshRSS
+ * emits; Miniflux spells the reader's own id, `user/1/state/com.google/read`.
+ * Matching the suffix is the only reading that works on both — a client that
+ * compares against the literal `user/-/...` string marks every Miniflux post
+ * unread no matter what the server says, which is exactly what happened the
+ * first time one was pointed at a live Miniflux.
+ */
+function hasState(item: StreamItem, suffix: string): boolean {
+  return (item.categories ?? []).some((category) => category.endsWith(suffix));
+}
+
+const READ_STATE_SUFFIX = "/state/com.google/read";
+const STARRED_STATE_SUFFIX = "/state/com.google/starred";
+
 export function isRead(item: StreamItem): boolean {
-  return item.categories?.includes(STATE_READ) ?? false;
+  return hasState(item, READ_STATE_SUFFIX);
 }
 
 export function isStarred(item: StreamItem): boolean {
-  return item.categories?.includes(STATE_STARRED) ?? false;
+  return hasState(item, STARRED_STATE_SUFFIX);
 }
 
 /** Labels attached to an item, without the Google Reader state entries. */
 export function itemLabels(item: StreamItem): string[] {
   return (item.categories ?? []).filter(
-    (c) => !c.startsWith("user/-/state/") && !c.startsWith("user/-/label/"),
+    (c) => !c.includes("/state/") && !c.includes("/label/"),
   );
 }
