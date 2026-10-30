@@ -10,6 +10,7 @@
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, truncateSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { crc32 } from "node:zlib";
 
@@ -485,6 +486,29 @@ check("the retry reports four downloadable bundles", new RegExp(`${tag}: all fou
 // 14. Nothing above published by accident: the store only ever moved a draft it
 // was handed, and no other tag was created.
 check("only the tag under test was released", readStore().tags.length === 1 && readStore().tags[0] === tag);
+
+// 15. One version, in three manifests.
+//
+// 0.6.16 was published with `src-tauri/Cargo.toml` still reading 0.6.8: the
+// bundle name came from `tauri.conf.json`, so the release looked right while the
+// crate said something else. The guard refuses that now, and the refusal names
+// the file.
+const versionFixture = mkdtempSync(join(tmpdir(), "hr-version-"));
+writeFileSync(join(versionFixture, "package.json"), JSON.stringify({ version: "9.9.9" }));
+mkdirSync(join(versionFixture, "src-tauri"), { recursive: true });
+writeFileSync(join(versionFixture, "src-tauri", "tauri.conf.json"), JSON.stringify({ version: "9.9.9" }));
+writeFileSync(join(versionFixture, "src-tauri", "Cargo.toml"), 'name = "x"\nversion = "9.9.8"\n');
+const refused = spawnSync("bash", [join(root, "scripts/release.sh"), "9.9.9", "--ipa", "x", "--dry-run"], {
+  encoding: "utf8",
+  env: { ...process.env, RELEASE_REPO: "owner/name", HR_REPO_ROOT: versionFixture },
+});
+check("a stale Cargo.toml stops the release", refused.status !== 0, `exit ${refused.status}`);
+check(
+  "and the refusal names the file that disagrees",
+  /Cargo\.toml says '9\.9\.8', the release is 9\.9\.9/.test(refused.stderr + refused.stdout),
+  (refused.stderr + refused.stdout).slice(-300),
+);
+rmSync(versionFixture, { recursive: true, force: true });
 
 rmSync(fixtures, { recursive: true, force: true });
 rmSync(staged, { recursive: true, force: true });
