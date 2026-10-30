@@ -1,3 +1,10 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+import { compileModule } from "svelte/compiler";
+import ts from "typescript";
+
 import {
   CHROME_KEY,
   readAutoSync,
@@ -143,6 +150,83 @@ check("one is not true here either", readPinPad(old) === false);
   const saved = JSON.parse(fresh.store.get(CHROME_KEY));
   check("both live under the one chrome key", saved.autoSync === true && saved.autoSyncHours === 1);
   check("only one key is ever written", fresh.store.size === 1);
+}
+
+/* ---------------------------------------------------------------------------
+ * The lock's fold is not the reader's fold.
+ *
+ * The curtain folds the band on a phone. That fold is about the lock, not about
+ * how the reader wants their sidebar: stored, one lock would leave the band
+ * folded for every launch after it, and no reader asked for that. So the fold
+ * is remembered (`collapseBandForLock`) and given back (`restoreBand`), while
+ * `setBandCollapsed` — the reader asking — still writes.
+ *
+ * `chrome.svelte.ts` is a runes module, so it is compiled to plain ESM here the
+ * same way `accounts.mjs` compiles it, against a Map-backed `localStorage`.
+ * ------------------------------------------------------------------------- */
+{
+  const ROOT = new URL("../../", import.meta.url).pathname;
+  const GEN = join(ROOT, `tests/unit/.gen-${process.pid}`);
+
+  /** A runes module as plain ESM, imported from inside the project. */
+  function buildModule(relative, outName) {
+    const source = readFileSync(join(ROOT, relative), "utf8");
+    const { outputText } = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+      fileName: relative,
+    });
+    const compiled = compileModule(outputText, { generate: "client", filename: relative });
+    const folder = dirname(relative);
+    const code = compiled.js.code.replace(/from\s+"(\.[^"]*)"/g, (whole, specifier) => {
+      const target = join(ROOT, folder, `${specifier}.ts`);
+      if (!existsSync(target)) throw new Error(`unresolved import ${specifier} from ${relative}`);
+      return `from ${JSON.stringify(pathToFileURL(target).href)}`;
+    });
+    mkdirSync(GEN, { recursive: true });
+    const out = join(GEN, outName);
+    writeFileSync(out, code);
+    return pathToFileURL(out).href;
+  }
+
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+  };
+
+  const { chrome } = await import(`${buildModule("src/state/chrome.svelte.ts", "chrome-fold.mjs")}?fold=1`);
+
+  chrome.load();
+  check("a launch starts on the stored fold", chrome.bandCollapsed === false);
+
+  chrome.collapseBandForLock();
+  check("the curtain folds the band", chrome.bandCollapsed === true);
+  check("...and writes nothing down", store.size === 0, [...store.keys()].join(","));
+
+  // A second lock while one is held must keep the fold already put aside, not
+  // record "folded" as the reader's choice.
+  chrome.collapseBandForLock();
+  chrome.restoreBand();
+  check("unlocking gives the band back the fold it had", chrome.bandCollapsed === false);
+  check("...still without writing anything", store.size === 0, [...store.keys()].join(","));
+
+  // The reader's own fold is stored, and a lock must not lose it.
+  chrome.setBandCollapsed(true);
+  check("a fold the reader asked for is stored", store.size === 1, [...store.keys()].join(","));
+  chrome.collapseBandForLock();
+  check("a lock on a folded band leaves it folded", chrome.bandCollapsed === true);
+  chrome.restoreBand();
+  check("and unlocking returns to the stored fold, not to open", chrome.bandCollapsed === true);
+
+  // A reload is the next launch (or the next account): a fold held for a lock
+  // that is over must not be handed back over the fold that was just read.
+  chrome.setBandCollapsed(false);
+  chrome.collapseBandForLock();
+  chrome.load();
+  check("a reload drops the held fold", chrome.bandCollapsed === false);
+  chrome.restoreBand();
+  check("so nothing restores over the fold it read", chrome.bandCollapsed === false);
 }
 
 console.log(`${checks - failures}/${checks} checks passed`);
