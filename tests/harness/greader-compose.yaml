@@ -1,0 +1,59 @@
+# A live GReader server for tests/unit/greader-live.mjs.
+#
+#   docker compose -f tests/harness/greader-compose.yaml up -d --wait
+#   docker compose -f tests/harness/greader-compose.yaml exec db \
+#     psql -U postgres -d miniflux -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;
+#       UPDATE integrations SET googlereader_enabled=true,
+#         googlereader_username='wook-reader',
+#         googlereader_password=crypt('reader-pass', gen_salt('bf',12)) WHERE user_id=1;"
+#   HR_MINIFLUX_URL=http://127.0.0.1:8410 HR_MINIFLUX_USER=wook-reader \
+#   HR_MINIFLUX_PASS=reader-pass \
+#   node --experimental-strip-types --import ./tests/unit/register-ts.mjs \
+#     tests/unit/greader-live.mjs
+#
+# Every value here is a harness credential on 127.0.0.1 and nothing else. The
+# Google Reader credentials are Miniflux's *integration* credentials — set in
+# the integrations row, stored bcrypt — not the account password: Miniflux
+# keeps them separate, and a client that signs in with the account password is
+# refused no matter how right it is.
+#
+# TT-RSS is deliberately absent. Current upstream has no `api_greader` plugin
+# (`plugins/` lists nineteen plugins and that is not one of them), so a modern
+# TT-RSS has no GReader API at all; `/plugins/greader/api` in the client's
+# prefix list only helps an install old enough to still ship the plugin.
+name: greader-harness
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: harness-only
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  miniflux:
+    image: miniflux/miniflux:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:harness-only@db/miniflux?sslmode=disable
+      RUN_MIGRATIONS: "1"
+      CREATE_ADMIN: "1"
+      ADMIN_USERNAME: wook
+      ADMIN_PASSWORD: harness-miniflux
+      BASE_URL: http://127.0.0.1:8410
+      LISTEN_ADDR: 0.0.0.0:8080
+      POLLING_FREQUENCY: "1440"
+    ports:
+      - "127.0.0.1:8410:8080"
+
+volumes:
+  db-data:

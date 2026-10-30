@@ -113,13 +113,19 @@ function freshRssServer() {
 }
 
 /**
- * Miniflux as its own README describes it: the writer API root is
- * `…/v1/reader/api/0` and `ClientLogin` sits one level up, under `…/v1`.
+ * Miniflux as a live one behaves: the GReader root is `…/reader/api/0` and
+ * `ClientLogin` sits at the server root. `/v1` is Miniflux's own REST API, and
+ * its guard answers a GReader exchange there with `401` — which is why a
+ * client that lists `/v1/reader/api/0` as a prefix can be told "wrong
+ * password" by a server it would otherwise sign in to.
  */
 function minifluxServer() {
   return (url) => {
-    if (url.endsWith("/v1/accounts/ClientLogin")) return [200, AUTH_BODY];
-    if (url.endsWith("/v1/reader/api/0/user-info")) return [200, USER_INFO];
+    // Exact paths, not suffixes: `/api/greader.php/accounts/ClientLogin` also
+    // ends with `/accounts/ClientLogin`, and a stub that answers both is a stub
+    // that proves the wrong prefix works.
+    if (url === "https://m.example/accounts/ClientLogin") return [200, AUTH_BODY];
+    if (url === "https://m.example/reader/api/0/user-info") return [200, USER_INFO];
     return [404, "not found"];
   };
 }
@@ -326,29 +332,29 @@ check("...and the server URL is normalised", freshSession.serverUrl === HOST);
 
 const mini = fakeServer(minifluxServer());
 const miniSession = await probeGreaderSession(mini.transport, creds("https://m.example/"));
-check("Miniflux is found on the second prefix", miniSession.apiPath === "/v1/reader/api/0", miniSession.apiPath);
+check("Miniflux is found on the second prefix", miniSession.apiPath === "/reader/api/0", miniSession.apiPath);
 check(
   "...only after FreshRSS's first guess 404s",
   mini.calls[0].url === "https://m.example/api/greader.php/accounts/ClientLogin",
   mini.calls[0]?.url,
 );
 check(
-  "...with the login under /v1",
-  mini.calls[1].url === "https://m.example/v1/accounts/ClientLogin",
+  "...with the login at the server root",
+  mini.calls[1].url === "https://m.example/accounts/ClientLogin",
   mini.calls[1]?.url,
 );
 check(
   "...and user-info under the reader root",
-  mini.calls[2].url === "https://m.example/v1/reader/api/0/user-info",
+  mini.calls[2].url === "https://m.example/reader/api/0/user-info",
   mini.calls[2]?.url,
 );
 check("...which is 3 requests in all", mini.calls.length === 3, String(mini.calls.length));
 
 const pasted = fakeServer(minifluxServer());
-const pastedSession = await probeGreaderSession(pasted.transport, creds("https://m.example/v1/reader/api/0"));
+const pastedSession = await probeGreaderSession(pasted.transport, creds("https://m.example/reader/api/0"));
 check("a pasted API path is probed first", pasted.calls.length === 2, String(pasted.calls.length));
 check("...so no 404 is spent on a guess", !pasted.calls[0].url.includes("/api/greader.php"));
-check("...and the prefix is stored", pastedSession.apiPath === "/v1/reader/api/0");
+check("...and the prefix is stored", pastedSession.apiPath === "/reader/api/0");
 check("...on the server without the path", pastedSession.serverUrl === "https://m.example");
 
 const oldReader = fakeServer((url) => {
@@ -357,11 +363,13 @@ const oldReader = fakeServer((url) => {
   return [404, "not found"];
 });
 const oldReaderSession = await probeGreaderSession(oldReader.transport, creds("https://theoldreader.com"));
-check("The Old Reader is found on the third prefix", oldReaderSession.apiPath === "/reader/api/0");
+check("The Old Reader is found on its own root", oldReaderSession.apiPath === "/reader/api/0");
 check(
-  "...after /api/greader.php and /v1/reader/api/0 both 404",
-  oldReader.calls.length === 4 && oldReader.calls[1].url === "https://theoldreader.com/v1/accounts/ClientLogin",
-  String(oldReader.calls.length),
+  "...after FreshRSS's guess 404s",
+  oldReader.calls.length === 3 &&
+    oldReader.calls[0].url === "https://theoldreader.com/api/greader.php/accounts/ClientLogin" &&
+    oldReader.calls[1].url === "https://theoldreader.com/accounts/ClientLogin",
+  oldReader.calls.map((call) => call.url).join(", "),
 );
 
 const ttrss = fakeServer((url) => {
@@ -388,7 +396,11 @@ check("...in the message, so the reader can act", deadError?.message.includes("/
 check("...naming the server", deadError?.message.includes(HOST) === true);
 check("...and it is one request per prefix", dead.calls.length === GREADER_PREFIXES.length, String(dead.calls.length));
 
-/* A wrong password is the server's answer, and it ends the search. */
+/*
+ * A wrong password is still the server's answer, but it is reported only after
+ * every prefix has been asked: a path that is merely wrong can refuse with 401
+ * too (Miniflux's `/v1` guard does), so the first 401 cannot end the search.
+ */
 
 const wrongPassword = fakeServer((url) => (url.endsWith("/accounts/ClientLogin") ? [401, "Error=BadAuthentication"] : [404, ""]));
 let authError = null;
@@ -399,18 +411,22 @@ try {
 }
 check("a 401 is reported as a credential problem", authError instanceof AuthError);
 check("...with its status kept", authError?.status === 401);
-check("...and the probe stops there", wrongPassword.calls.length === 1, String(wrongPassword.calls.length));
+check(
+  "...and every prefix was asked before it was reported",
+  wrongPassword.calls.length === GREADER_PREFIXES.length,
+  String(wrongPassword.calls.length),
+);
 
 /* A 200 that is not a token is not an answer either. */
 
 const htmlPage = fakeServer((url) => {
   if (url === "https://a.example/api/greader.php/accounts/ClientLogin") return [200, "<html>sign in</html>"];
-  if (url === "https://a.example/v1/accounts/ClientLogin") return [200, AUTH_BODY];
-  if (url === "https://a.example/v1/reader/api/0/user-info") return [200, USER_INFO];
+  if (url === "https://a.example/accounts/ClientLogin") return [200, AUTH_BODY];
+  if (url === "https://a.example/reader/api/0/user-info") return [200, USER_INFO];
   return [404, "not found"];
 });
 const htmlSession = await probeGreaderSession(htmlPage.transport, creds(HOST));
-check("an HTML page where a token belongs is skipped", htmlSession.apiPath === "/v1/reader/api/0", htmlSession.apiPath);
+check("an HTML page where a token belongs is skipped", htmlSession.apiPath === "/reader/api/0", htmlSession.apiPath);
 
 /* A prefix that hands out a token but has no user-info is not the one. */
 
