@@ -750,6 +750,7 @@ export class ReaderState {
           menu.target.label,
           this.isCategoryPinned(menu.target.label),
           this.hiddenAuthority,
+          this.pinsOnDevice,
         )
       : feedMenu(
           menu.target.title,
@@ -899,6 +900,17 @@ export class ReaderState {
    */
   private get pinsAtBackend(): boolean {
     return this.atBackend("pinnedCategories") && this.favorites.available;
+  }
+
+  /**
+   * Whether the marks are kept on this device rather than in the extension.
+   *
+   * The band and the row menu both have to say where a pin is going, and the
+   * answer is the same one `isCategoryPinned` uses — asked once, here, so the
+   * two surfaces cannot disagree about it.
+   */
+  get pinsOnDevice(): boolean {
+    return !this.pinsAtBackend;
   }
 
   isFeedPinned(streamId: string): boolean {
@@ -3162,7 +3174,11 @@ export class ReaderState {
       return;
     }
     await this.loadSidebar();
-    await this.reloadStream();
+    // Forced: the crawl has just written posts the stream cache has never seen,
+    // and a reload answered from that cache is the launch that fetched nothing
+    // visible — five steps on the bar and the same list underneath. The same
+    // fault `refresh()` was fixed for, on the launch that runs without a press.
+    await this.reloadStream({ force: true });
   }
 
   async refresh(): Promise<void> {
