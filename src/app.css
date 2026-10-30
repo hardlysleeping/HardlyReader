@@ -440,8 +440,10 @@ html[data-device="phone"] #app {
    than a header with a strip of page colour above it. */
 html[data-device="phone"] .phone-header {
   /* Higher than the inset, by the part of it the clock does not use: the bar's
-     controls clear the status bar without a band of nothing between them. */
-  padding-top: max(0px, calc(var(--safe-top) - 12px));
+     controls clear the status bar without a band of nothing between them.
+     24, not 12: the inset on a 17 Pro Max is 62 and the clock block ends around
+     38, so half the inset was empty band above the controls. */
+  padding-top: max(0px, calc(var(--safe-top) - 24px));
   padding-left: max(10px, var(--safe-left));
   padding-right: max(10px, var(--safe-right));
 }

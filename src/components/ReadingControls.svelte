@@ -194,11 +194,11 @@
      because the header clips its own overflow. */
   .panel {
     position: fixed;
-    /* Below the bar that opened it. 46 is a window's bar (42) plus a breath; the
-       status bar's own inset is added on top, because a phone's bar starts below
-       it and a panel at 46 would open over the bar's own controls. `--safe-top`
-       is 0 in a window, so the number there is unchanged. */
-    top: calc(46px + var(--safe-top, 0px));
+    /* Below the bar that opened it: the bar's 36px, the part of the inset it sits
+       under (`--safe-top - 24`, the same number `app.css` gives the header), and
+       a 4px breath. Adding the whole inset here opened the panel 30px below the
+       bar it belongs to. `--safe-top` is 0 in a window, so 46px there. */
+    top: calc(max(0px, calc(var(--safe-top, 0px) - 24px)) + 40px);
     right: 12px;
     z-index: 61;
     width: 252px;

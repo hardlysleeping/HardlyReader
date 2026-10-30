@@ -136,9 +136,9 @@ check(
 // the clock and the app rather than as a bar.
 check(
   "the visible height is 36px",
-  // Measured from where the padding puts it: the bar rides 12px higher than the
+  // Measured from where the padding puts it: the bar rides 24px higher than the
   // raw inset, and its height has to agree or `overflow: hidden` clips it.
-  /height: calc\(max\(0px, calc\(var\(--safe-top\) - 12px\)\) \+ 36px\)/.test(header),
+  /height: calc\(max\(0px, calc\(var\(--safe-top\) - 24px\)\) \+ 36px\)/.test(header),
 );
 
 /* ---------------------------------------------------------------- *
@@ -178,7 +178,7 @@ check("the bar carries the arrangement switch", /\{#if controls\}\s*\{@render co
 check("...passed in by the view, not imported", /controls\?: Snippet/.test(header) && /<PhoneHeader[\s\S]{0,300}?controls=\{layoutSwitch\}/.test(main));
 check("and the Aa panel opens from it", /<ReadingControls bind:this=\{readingControls\}/.test(header));
 check("...closing the sheet on its way open", /onopen=\{\(\) => \(settingsOpen = false\)\}/.test(header));
-check("the Aa panel clears the bar it opens under", /top: calc\(46px \+ var\(--safe-top, 0px\)\)/.test(read("src/components/ReadingControls.svelte")));
+check("the Aa panel clears the bar it opens under", /top: calc\(max\(0px, calc\(var\(--safe-top, 0px\) - 24px\)\) \+ 40px\)/.test(read("src/components/ReadingControls.svelte")));
 check(
   "...the same switch the sidebar draws beside the search field",
   /import ThemeToggle from "\.\/ThemeToggle\.svelte"/.test(read("src/components/Sidebar.svelte")) &&
@@ -233,7 +233,7 @@ check(
 );
 check(
   "the header takes its own top and sides",
-  /html\[data-device="phone"\] \.phone-header \{\s*\/\*[\s\S]{0,220}?\*\/\s*padding-top: max\(0px, calc\(var\(--safe-top\) - 12px\)\);\s*padding-left: max\(10px, var\(--safe-left\)\);\s*padding-right: max\(10px, var\(--safe-right\)\);/.test(
+  /html\[data-device="phone"\] \.phone-header \{\s*\/\*[\s\S]{0,400}?\*\/\s*padding-top: max\(0px, calc\(var\(--safe-top\) - 24px\)\);\s*padding-left: max\(10px, var\(--safe-left\)\);\s*padding-right: max\(10px, var\(--safe-right\)\);/.test(
     app,
   ),
 );
