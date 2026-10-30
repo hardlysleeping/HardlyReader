@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import {
   MIN, GUTTER, NEEDED, MINIMUMS, THRESHOLDS, THRESHOLD_LIMITS, effectiveMode, clampWidths, dragPane,
   resetPane, nudge, gridTemplate, tracks, guttersFor, geometricMinimum, defaultModeFor, needed, minimums,
@@ -8,6 +12,9 @@ import {
   RAIL,
   paneSlots,
 } from "../../src/lib/panes.ts";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
+const read = (path) => readFileSync(join(root, path), "utf8");
 
 let failures = 0;
 let checks = 0;
@@ -897,6 +904,24 @@ check("a tall column allows the full range", clampShare(0.1, 900) === STACK_SHAR
     paneSlots({ mode: 2, level: "article", stacked: false, collapsed: false, tuck: null, swapped: false, solo: true }).posts === false,
   );
 }
+
+/* ---- a phone leaves the seam where it is put ---- */
+check("a window keeps its quarter-pane floor", clampShare(0.05, 700) === 0.25);
+check(
+  "a phone's seam goes nearly to the end",
+  Math.abs(clampShare(0.06, 700, undefined, true) - 0.06) < 1e-9 &&
+    Math.abs(clampShare(0.94, 700, undefined, true) - 0.94) < 1e-9,
+);
+check(
+  "...but not past the strip that keeps it reachable",
+  clampShare(0.001, 700, undefined, true) === 0.05 &&
+    clampShare(0.999, 700, undefined, true) === 0.95,
+);
+check(
+  "and the drag write honours the same range",
+  /dragShare\(share: number, free = false\)/.test(read("src/state/layout.svelte.ts")) &&
+    /this\.device === "phone"/.test(read("src/state/layout.svelte.ts")),
+);
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

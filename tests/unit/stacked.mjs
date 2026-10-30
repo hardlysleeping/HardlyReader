@@ -256,8 +256,11 @@ check(
 check(
   "a share drag does not write per frame",
   (() => {
-    const body = layout.slice(layout.indexOf("dragShare(share: number)"), layout.indexOf("commitShare()"));
-    return /this\.stackShare = Math\.min\(Math\.max\(share, STACK_SHARE\.min\), STACK_SHARE\.max\)/.test(body) &&
+    const body = layout.slice(layout.indexOf("dragShare(share: number"), layout.indexOf("commitShare()"));
+    // One write per frame, no save: the bounds are a phone's or a window's now
+    // (see `clampShare`), and a phone keeps the seam where it is left.
+    return /const bounds = free \? STACK_SHARE_FREE : STACK_SHARE;/.test(body) &&
+      /this\.stackShare = Math\.min\(Math\.max\(share, bounds\.min\), bounds\.max\)/.test(body) &&
       !body.includes("this.save()");
   })(),
 );
@@ -381,7 +384,7 @@ check(
   "the gutter turns its own axis, measures its column and clamps in pixels",
   /const vertical = \$derived\(axis === "y"\)/.test(gutter) &&
     /getBoundingClientRect\(\)\.height/.test(gutter) &&
-    /clampShare\(shareFromDrag\(startShare, y - startPos, track\), track\)/.test(gutter),
+    /clampShare\(\s*shareFromDrag\(startShare, y - startPos, track\),\s*track,\s*undefined,\s*free,?\s*\)/.test(gutter),
 );
 // The seam is drawn inside the 6px track it lives in, so measuring its *own*
 // parent measured those 6px: one pixel of travel became a whole share and the

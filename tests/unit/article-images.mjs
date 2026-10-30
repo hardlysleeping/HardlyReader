@@ -322,6 +322,7 @@ check("imageSources survives null", imageSources(null).length === 0);
 const read = (path) => readFileSync(join(new URL("../../", import.meta.url).pathname, path), "utf8");
 const sanitize = read("src/lib/sanitize.ts");
 const pane = read("src/components/ReaderPane.svelte");
+const list = read("src/components/ArticleList.svelte");
 const extract = read("src/lib/extract.ts");
 
 check("extraction promotes before returning", /html:\s*promoteImages\(article\.content, url\)/.test(extract));
@@ -423,6 +424,17 @@ check(
 if (failures === 0) {
   console.log(`ok ${checks} checks — article pictures: lazy sources promoted, refused ones dropped`);
 } else {
-  console.log(`${failures} failed of ${checks} checks`);
+  /* ---- the list is one column too ---- */
+check(
+  "the post list declares one axis and cannot be reached sideways",
+  /data-scroll-axis="y"/.test(list) && /overflow-x: clip;/.test(list),
+);
+check(
+  "a list too narrow for a picture gives the width to the words",
+  /@container \(max-width: 260px\) \{[\s\S]{0,400}?\.thumb \{\s*display: none;/.test(list) &&
+    /@container \(max-width: 260px\) \{[\s\S]{0,900}?\.acts \{\s*gap: 2px;\s*padding: 0 4px 0 2px;/.test(list),
+);
+
+console.log(`${failures} failed of ${checks} checks`);
   process.exit(1);
 }

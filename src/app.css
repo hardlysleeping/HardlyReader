@@ -744,9 +744,47 @@ html[data-device="phone"] .phone-header :is(.step, .more, .sync)::after {
    Both are qualified by the phone attribute, so a desktop window keeps the rows
    it has — this is a width a narrow column cannot honour, not a restyle. */
 html[data-device="phone"] .list-header .bar {
-  flex: 1 1 100%;
+  /* One row where there is room for one row: on a 390 phone the views and the
+     pills fit side by side, so the bar does not take a second line it does not
+     need. On a 210 column it wraps, which is what the wrap is for. */
+  flex: 1 1 auto;
   min-width: 0;
   justify-content: flex-start;
+}
+
+/* The loading line under the bar is 3px of the window's own border colour when
+   nothing is loading. On a phone that is 3px of nothing between the bar and the
+   first row, so it paints nothing until it has something to say — the bar's own
+   hairline already separates the two. */
+html[data-device="phone"] .aura:not(.on):not(.syncing) {
+  background: transparent;
+}
+
+/* A phone's list header is a strip, not a masthead: the count is the first thing
+   to go, because the same number is at the bottom of pane one and this row is
+   the top of the space the posts are read in. */
+html[data-device="phone"] .list-header {
+  padding: 4px 8px 4px;
+  gap: 2px 8px;
+  align-items: center;
+}
+
+html[data-device="phone"] .list-header .meta {
+  display: none;
+}
+
+/* The article's own margins, tightened: 14px is a margin a thumb can read past,
+   19.5 was a column's margin borrowed by a screen that is only 390 wide. */
+html[data-device="phone"] .content {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+/* The headline and the byline above it are not inside `.content`, so they pay
+   the same margin themselves — one number, two boxes. */
+html[data-device="phone"] article > :is(h1, .standfirst, .byline, header) {
+  padding-left: 14px;
+  padding-right: 14px;
 }
 
 html[data-device="phone"] .toolbar {

@@ -47,6 +47,19 @@ export const RAIL = GUTTER;
  */
 export const STACK_SHARE = { min: 0.25, max: 0.75, fallback: 0.5 } as const;
 
+/**
+ * The range a phone's seam is allowed, which is nearly all of it.
+ *
+ * 0.25–0.75 is a window's rule: a column on a desktop is one of three, and a
+ * pane squeezed past a quarter of it is not a column any more. A phone's pair
+ * is the whole screen, and the seam there is a preference about what the reader
+ * is looking at — a post list left as a strip under a full article, or an
+ * article left as a strip under the list — so the seam goes where the finger
+ * puts it. Five percent is the floor: the strip still shows what it is, and the
+ * seam itself is never lost.
+ */
+export const STACK_SHARE_FREE = { min: 0.05, max: 0.95 } as const;
+
 /** The shortest either stacked pane may be drawn, in pixels. */
 export const STACK_MIN_PANE = 160;
 
@@ -98,10 +111,19 @@ export function shareFromDrag(start: number, dy: number, height: number): number
   return start + dy / height;
 }
 
-export function clampShare(share: number, height: number, gutter = STACK_GUTTER): number {
+export function clampShare(
+  share: number,
+  height: number,
+  gutter = STACK_GUTTER,
+  free = false,
+): number {
   if (!Number.isFinite(share)) return STACK_SHARE.fallback;
+  const bounds = free ? STACK_SHARE_FREE : STACK_SHARE;
   const bounded = (value: number): number =>
-    Math.min(Math.max(value, STACK_SHARE.min), STACK_SHARE.max);
+    Math.min(Math.max(value, bounds.min), bounds.max);
+  // Free means free: no floor, no ceiling beyond the strip that keeps the seam
+  // reachable, so a phone can leave the split at 8% and come back to it there.
+  if (free) return bounded(share);
   const room = Math.max(0, height - gutter);
   if (room <= 0) return bounded(share);
   const floorPx = Math.min(STACK_MIN_PANE, room / 3);
