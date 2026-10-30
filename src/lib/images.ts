@@ -129,6 +129,52 @@ export function targetWidth(variant: PictureVariant, frameWidth = 0, dpr = 1): n
 }
 
 /**
+ * How much bigger than the target a file has to be before re-encoding is worth it.
+ *
+ * A file at 1.1× the box is drawn at the box and thrown away at 10%: the decode
+ * is paid, the encode is paid, and a photograph loses a little of itself for a
+ * saving nobody can measure. Fifteen per cent is the width of "close enough".
+ */
+export const SHRINK_FLOOR = 1.15;
+
+/**
+ * What a fetched file is worth re-encoding to, and whether it is worth it at all.
+ *
+ * The rule the cache lives by is **never upscale and never bother for a rounding
+ * error**: a 600px strip drawn in a 1400px pane is not a bigger comic, and a
+ * 200px file asked to be a 192px thumb is already the right file. `natural` is
+ * null when the file has not been decoded yet — then the target is attempted and
+ * the canvas's own failure is the answer, because a format that cannot decode is
+ * one that has to be kept as it arrived.
+ *
+ * `width` is what the stored copy is made at, not a request the publisher is
+ * asked to honour: a feed's `<img>` names one file, and the cache's saving comes
+ * from what it keeps of it.
+ */
+export interface FetchSize {
+  /** The width the copy should be made at. */
+  readonly width: number;
+  /** Whether the file should be decoded and re-encoded at all. */
+  readonly downscale: boolean;
+  /** Why it is kept as it arrived. `null` when it is being downscaled. */
+  readonly why: "unknown" | "small" | "close" | null;
+}
+
+export function fetchSize(
+  natural: { readonly width: number; readonly height: number } | null,
+  target: number,
+): FetchSize {
+  const width = Number.isFinite(target) && target > 0 ? Math.max(1, Math.round(target)) : 1;
+  if (natural === null || !(natural.width > 0) || !(natural.height > 0)) {
+    return { width, downscale: true, why: "unknown" };
+  }
+  const file = Math.round(natural.width);
+  if (file <= width) return { width: file, downscale: false, why: "small" };
+  if (file <= width * SHRINK_FLOOR) return { width: file, downscale: false, why: "close" };
+  return { width, downscale: true, why: null };
+}
+
+/**
  * The key one copy is stored under.
  *
  * The address and the variant, in that order — the URL is already the identity of
@@ -138,6 +184,60 @@ export function targetWidth(variant: PictureVariant, frameWidth = 0, dpr = 1): n
  */
 export function pictureKey(variant: PictureVariant, url: string): string {
   return `${variant}\n${url}`;
+}
+
+/* ---------------------------------------------------------------------------
+ * Whether an address may be kept at all
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Why an address is not worth a row.
+ *
+ * - `empty` — nothing to draw, so nothing to keep.
+ * - `inline` — a `data:` URI. The bytes are already in the article's markup; a
+ *   copy on disk would be a second copy of something that never needed a request.
+ * - `local` — a `blob:` address, which is this device's own memory already.
+ * - `scheme` — anything that is not `http` or `https`: a `file:` on the desktop
+ *   app, an extension's `chrome-extension:`, a stray `javascript:` in a feed's
+ *   markup. None of them is a publisher's picture and none of them is fetched.
+ */
+export type PictureRefusal = "empty" | "inline" | "local" | "scheme";
+
+export interface PictureVerdict {
+  /** Whether this address may be fetched and kept. */
+  readonly keep: boolean;
+  /** Why not, when it may not. `null` when it may. */
+  readonly why: PictureRefusal | null;
+}
+
+const KEEP: PictureVerdict = { keep: true, why: null };
+
+/** An absolute URL's scheme, lowercased, or null for a relative address. */
+const SCHEME = /^([a-z][a-z0-9+.-]*):/i;
+
+/**
+ * Whether this address is a picture this device could keep.
+ *
+ * Deliberately **not** a same-origin test. It is tempting — the app's own icons
+ * are served from the app's own origin and the browser already caches them — but
+ * a reader running the PWA on the same host as their FreshRSS has a publisher
+ * whose pictures share that origin too, and refusing them would switch the cache
+ * off for exactly the setup it was built for. A URL that arrives here has already
+ * been chosen as a picture by the list; the scheme is the only thing this can
+ * judge without fetching it.
+ */
+export function mayKeepPicture(url: string): PictureVerdict {
+  const address = typeof url === "string" ? url.trim() : "";
+  if (address === "") return { keep: false, why: "empty" };
+  const scheme = SCHEME.exec(address)?.[1].toLowerCase() ?? null;
+  if (scheme === "data") return { keep: false, why: "inline" };
+  if (scheme === "blob") return { keep: false, why: "local" };
+  if (scheme !== null && scheme !== "http" && scheme !== "https") {
+    return { keep: false, why: "scheme" };
+  }
+  // A protocol-relative address (`//cdn.example/x.png`) has no scheme of its own
+  // and is http(s) by the page's own answer: kept.
+  return KEEP;
 }
 
 /* ---------------------------------------------------------------------------
@@ -274,6 +374,62 @@ export function planPictureEviction(
 }
 
 /**
+ * Why a picture was not worth a row at the moment it arrived.
+ *
+ * - `empty` — the downscale answered with nothing, so there is nothing to write.
+ * - `one` — past `PICTURE_MAX_ONE`: a file that could not be downscaled and is
+ *   larger than one post's whole allowance. It is drawn from the publisher.
+ * - `ceiling` — larger than the whole budget. Writing it would mean evicting
+ *   every other picture to hold one, and the next pass would evict it again; the
+ *   hotlink costs one request and no churn.
+ */
+export type PictureAdmissionRefusal = "empty" | "one" | "ceiling";
+
+/**
+ * What to do with a picture that has just been fetched.
+ *
+ * The budget is not only a rule about what to delete — it is a rule about what to
+ * write. Two answers come out of it, and both are cheaper than writing first and
+ * tidying afterwards: **do not write this at all** (it can never fit), or **make
+ * room before writing it** (`reserve` is the number of bytes the library must be
+ * brought down to first, which is the ceiling minus this picture's cost).
+ */
+export interface PictureAdmission {
+  /** Whether this picture may be written. */
+  readonly store: boolean;
+  /** Why not, when it may not. `null` when it may. */
+  readonly why: PictureAdmissionRefusal | null;
+  /**
+   * Bytes the library must be brought down to *before* the write, so that the
+   * picture lands inside the ceiling rather than over it. 0 when it already fits.
+   */
+  readonly reserve: number;
+}
+
+/**
+ * Whether a picture of this size may be kept, and what must go first.
+ *
+ * `usage` is what the device holds now. The reserve is computed from the ceiling
+ * and the newcomer rather than from the shortfall, because a pass that prunes to
+ * "the limit minus this picture" leaves exactly the room this picture needs and
+ * never deletes one more than that — the same "only as many as the ceiling needs"
+ * rule `planPictureEviction()` follows.
+ */
+export function admitPicture(
+  cost: number,
+  usage: PictureUsage,
+  limitBytes: number,
+): PictureAdmission {
+  if (!Number.isFinite(cost) || cost <= 0) return { store: false, why: "empty", reserve: 0 };
+  if (cost > PICTURE_MAX_ONE) return { store: false, why: "one", reserve: 0 };
+  const limit = Number.isFinite(limitBytes) && limitBytes > 0 ? limitBytes : 0;
+  if (cost > limit) return { store: false, why: "ceiling", reserve: 0 };
+  const held = Number.isFinite(usage.bytes) && usage.bytes > 0 ? usage.bytes : 0;
+  if (held + cost <= limit) return { store: true, why: null, reserve: 0 };
+  return { store: true, why: null, reserve: limit - cost };
+}
+
+/**
  * One line for the panel: what is held, out of what may be.
  *
  * The same shape as `describeBodies`, because the two lines are read one under
@@ -291,4 +447,59 @@ export function describePictures(usage: PictureUsage, limitBytes: number): strin
 /** Whether a write has taken the library past its ceiling. */
 export function picturesOverLimit(usage: PictureUsage, limitBytes: number): boolean {
   return usage.bytes > limitBytes;
+}
+
+/* ---------------------------------------------------------------------------
+ * What the list warms, and in what order
+ * ------------------------------------------------------------------------- */
+
+/** One picture the list has decided to fetch before it is drawn. */
+export interface PictureWish {
+  readonly url: string;
+  readonly variant: PictureVariant;
+}
+
+/**
+ * How many pictures of the card ahead are warmed at once.
+ *
+ * Two: the card's own picture and the one after it in a strip. A card the reader
+ * steps onto should never be blank, and a comic's second panel is a flip away —
+ * but a long feed must not pull forty files because it was scrolled past, and a
+ * thumb is 5–20 KB, so two is a cost a phone can carry and a third is not.
+ */
+export const PRELOAD_AHEAD_DEFAULT = 2;
+
+/**
+ * The order pictures are fetched in: every thumbnail before any full-size copy.
+ *
+ * The list's pictures are what a scroll costs, and they are the cheap half — a
+ * 192px WebP against a 1400px lead. So when a card has several panels, or when a
+ * pane asks for both copies of one address, the thumbs go first and the lead
+ * picture waits for them: a blank row is a hole in the list, a blank lead is one
+ * picture that fills in a moment later.
+ *
+ * Three things it does besides ordering, because they are all the same question:
+ * the same address twice is one wish (the cache dedupes in flight anyway, but
+ * there is no reason to queue it twice), an address that may not be kept is not
+ * warmed at all, and the list is **cut** at `limit` rather than reordered past it
+ * — the first pictures in reading order are the ones nearest the reader.
+ */
+export function thumbnailFirst(
+  wishes: readonly PictureWish[],
+  limit: number = PRELOAD_AHEAD_DEFAULT,
+): PictureWish[] {
+  const cap = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0;
+  if (cap === 0) return [];
+  const seen = new Set<string>();
+  const thumbs: PictureWish[] = [];
+  const fulls: PictureWish[] = [];
+  for (const wish of wishes) {
+    if (!mayKeepPicture(wish.url).keep) continue;
+    const key = pictureKey(wish.variant, wish.url);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (wish.variant === "thumb") thumbs.push({ url: wish.url, variant: wish.variant });
+    else fulls.push({ url: wish.url, variant: wish.variant });
+  }
+  return [...thumbs, ...fulls].slice(0, cap);
 }

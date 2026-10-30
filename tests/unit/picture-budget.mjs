@@ -26,6 +26,12 @@ import {
   picturesOverLimit,
   planPictureEviction,
   targetWidth,
+  admitPicture,
+  fetchSize,
+  mayKeepPicture,
+  thumbnailFirst,
+  PRELOAD_AHEAD_DEFAULT,
+  SHRINK_FLOOR,
 } from "../../src/lib/images.ts";
 import { formatBytes } from "../../src/lib/bodies.ts";
 
@@ -204,6 +210,123 @@ check(
 check("the ceiling reads as the reader chose it", formatBytes(200 * MIB) === "200 MB");
 check("over the ceiling is a measurement, not a guess", picturesOverLimit({ count: 1, bytes: 101 * MIB }, 100 * MIB));
 check("and at the ceiling is not over it", !picturesOverLimit({ count: 1, bytes: 100 * MIB }, 100 * MIB));
+
+// ---------------------------------------------------------------------------
+// Whether an address may be kept at all: the scheme, and only the scheme.
+// ---------------------------------------------------------------------------
+check("a publisher's https picture may be kept", mayKeepPicture(url).keep && mayKeepPicture(url).why === null);
+check("so may a plain http one", mayKeepPicture("http://old.test/strip.png").keep);
+check("and a protocol-relative one, which is http(s) by the page's answer", mayKeepPicture("//cdn.test/a.png").keep);
+check(
+  "...including a picture served from the app's own origin, because a self-hosted reader's publisher shares it",
+  mayKeepPicture("https://rss.test/f.php?h=abc").keep,
+);
+{
+  const inline = mayKeepPicture("data:image/png;base64,AAAA");
+  check("an inline picture is already in the document, so it is not kept", !inline.keep && inline.why === "inline", String(inline.why));
+  const local = mayKeepPicture("blob:https://app.test/6f1c");
+  check("nor is this device's own memory", !local.keep && local.why === "local", String(local.why));
+  const nothing = mayKeepPicture("");
+  check("nothing is nothing", !nothing.keep && nothing.why === "empty", String(nothing.why));
+  check("...and whitespace is nothing too", mayKeepPicture("   ").why === "empty");
+  check("the scheme is read whatever case it was written in", mayKeepPicture("DATA:image/png;base64,AA").why === "inline");
+  for (const address of ["file:///home/reader/a.png", "chrome-extension://abc/a.png", "javascript:alert(1)", "asset://localhost/a.png"]) {
+    const verdict = mayKeepPicture(address);
+    check(`${address.split(":")[0]}: is not a publisher's picture`, !verdict.keep && verdict.why === "scheme", String(verdict.why));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// What to do with a picture that has just been fetched: write it, make room
+// first, or do not write it at all.
+// ---------------------------------------------------------------------------
+{
+  const empty = admitPicture(0, { count: 0, bytes: 0 }, 1000);
+  check("nothing to write is not written", !empty.store && empty.why === "empty");
+  check("...and a size that is not a number is nothing", admitPicture(Number.NaN, { count: 0, bytes: 0 }, 1000).why === "empty");
+  const one = admitPicture(PICTURE_MAX_ONE + 1, { count: 0, bytes: 0 }, 2048 * MIB);
+  check("a picture past one post's allowance is not kept", !one.store && one.why === "one", String(one.why));
+  const ceiling = admitPicture(64, { count: 0, bytes: 0 }, 32);
+  check("a picture bigger than the whole budget is not written at all", !ceiling.store && ceiling.why === "ceiling", String(ceiling.why));
+  check("a ceiling of zero holds nothing", !admitPicture(1, { count: 0, bytes: 0 }, 0).store);
+  check("...and a nonsense ceiling is treated as zero", admitPicture(1, { count: 0, bytes: 0 }, Number.NaN).why === "ceiling");
+}
+{
+  const fits = admitPicture(100, { count: 2, bytes: 800 }, 1000);
+  check("a picture that fits is written as it is", fits.store && fits.reserve === 0, JSON.stringify(fits));
+  const exact = admitPicture(100, { count: 2, bytes: 900 }, 1000);
+  check("one that lands exactly on the ceiling needs no room", exact.store && exact.reserve === 0, JSON.stringify(exact));
+  const over = admitPicture(200, { count: 5, bytes: 900 }, 1000);
+  check("one that does not fit is still written", over.store, JSON.stringify(over));
+  check("...but only after the library is brought down to the ceiling minus its own size", over.reserve === 800, String(over.reserve));
+  check(
+    "...which leaves exactly the room it needs and not a byte more",
+    over.reserve + 200 === 1000,
+    `${over.reserve} + 200`,
+  );
+  const nonsense = admitPicture(100, { count: 1, bytes: Number.NaN }, 1000);
+  check("a measurement that is not a number is treated as an empty library", nonsense.store && nonsense.reserve === 0, JSON.stringify(nonsense));
+}
+
+// ---------------------------------------------------------------------------
+// Downscale at fetch: never upscale, and never bother for a rounding error.
+// ---------------------------------------------------------------------------
+check("a file within fifteen per cent of the box is already the right file", SHRINK_FLOOR === 1.15);
+{
+  const unknown = fetchSize(null, THUMB_TARGET);
+  check("a file that has not decoded yet is attempted at the box", unknown.downscale && unknown.width === THUMB_TARGET && unknown.why === "unknown", JSON.stringify(unknown));
+  check("...and so is one with no size of its own", fetchSize({ width: 0, height: 0 }, THUMB_TARGET).downscale);
+  const huge = fetchSize({ width: 4000, height: 3000 }, THUMB_TARGET);
+  check("a 4000px photograph is stored at the row's 192", huge.downscale && huge.width === THUMB_TARGET, JSON.stringify(huge));
+  const same = fetchSize({ width: 192, height: 192 }, THUMB_TARGET);
+  check("a file already at the box is kept as it arrived", !same.downscale && same.why === "small" && same.width === 192, JSON.stringify(same));
+  const smaller = fetchSize({ width: 150, height: 150 }, THUMB_TARGET);
+  check("a smaller file is never drawn up", !smaller.downscale && smaller.width === 150, JSON.stringify(smaller));
+  const close = fetchSize({ width: 200, height: 200 }, THUMB_TARGET);
+  check("a file a tenth over the box is not re-encoded", !close.downscale && close.why === "close" && close.width === 200, JSON.stringify(close));
+  const just = fetchSize({ width: Math.floor(THUMB_TARGET * SHRINK_FLOOR), height: 200 }, THUMB_TARGET);
+  check("at the edge of that band it still is not", !just.downscale, JSON.stringify(just));
+  const past = fetchSize({ width: Math.floor(THUMB_TARGET * SHRINK_FLOOR) + 1, height: 200 }, THUMB_TARGET);
+  check("one pixel past it, it is", past.downscale && past.width === THUMB_TARGET, JSON.stringify(past));
+  const lead = fetchSize({ width: 900, height: 600 }, FULL_TARGET_MAX);
+  check("a 900px lead in a 1600px pane is not stretched or re-encoded", !lead.downscale && lead.width === 900, JSON.stringify(lead));
+  check("a target that is not a number still names a real width", fetchSize({ width: 4000, height: 10 }, Number.NaN).width === 1);
+  check("a fractional file width is rounded, not truncated into a blur", fetchSize({ width: 191.6, height: 10 }, 192).width === 192);
+}
+
+// ---------------------------------------------------------------------------
+// Thumbnails first: what the list warms, in what order, and how much of it.
+// ---------------------------------------------------------------------------
+const wish = (address, variant = "thumb") => ({ url: address, variant });
+check("two pictures of the card ahead is the default", PRELOAD_AHEAD_DEFAULT === 2);
+{
+  const strip = ["https://comics.test/p1.png", "https://comics.test/p2.png", "https://comics.test/p3.png"];
+  const ordered = thumbnailFirst(strip.map((address) => wish(address)), 2);
+  check("a strip warms its first pictures in reading order", ordered.map((one) => one.url).join(",") === `${strip[0]},${strip[1]}`, ordered.map((one) => one.url).join(","));
+  check("...and no more than the cap", ordered.length === 2);
+  check("a cap of one is a cap of one", thumbnailFirst(strip.map((address) => wish(address)), 1).length === 1);
+  check("a cap of none warms nothing", thumbnailFirst(strip.map((address) => wish(address)), 0).length === 0);
+  check("...and a cap that is not a number warms nothing either", thumbnailFirst(strip.map((address) => wish(address)), Number.NaN).length === 0);
+  check("a fractional cap is floored", thumbnailFirst(strip.map((address) => wish(address)), 2.9).length === 2);
+  check("a shorter list than the cap is the whole list", thumbnailFirst(strip.map((address) => wish(address)), 5).length === 3);
+}
+{
+  const page = "https://comics.test/lead.png";
+  const both = thumbnailFirst([wish(page, "full"), wish(page, "thumb")], 4);
+  check("both copies of one picture: the thumb goes first", both[0].variant === "thumb" && both[1].variant === "full", JSON.stringify(both));
+  check("...and it is one wish per copy, not one per address", both.length === 2);
+  const twice = thumbnailFirst([wish(page, "thumb"), wish(page, "thumb"), wish(page, "thumb")], 4);
+  check("the same wish twice is one fetch", twice.length === 1, JSON.stringify(twice));
+  const mixed = thumbnailFirst([wish("https://a.test/1.png", "full"), wish("https://a.test/2.png", "thumb"), wish("https://a.test/3.png", "full")], 4);
+  check("every thumbnail is ahead of every lead picture", mixed[0].variant === "thumb", JSON.stringify(mixed));
+  const onlyFull = thumbnailFirst([wish("https://a.test/1.png", "full"), wish("https://a.test/2.png", "full")], 4);
+  check("a list of lead pictures alone is still warmed in order", onlyFull.map((one) => one.url).join(",") === "https://a.test/1.png,https://a.test/2.png");
+}
+{
+  const refused = thumbnailFirst([wish("data:image/png;base64,AA"), wish(""), wish("file:///a.png"), wish("https://a.test/real.png")], 4);
+  check("an address that may not be kept is not warmed", refused.length === 1 && refused[0].url === "https://a.test/real.png", JSON.stringify(refused));
+  check("an empty list warms nothing", thumbnailFirst([], 4).length === 0);
+}
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
