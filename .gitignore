@@ -49,3 +49,4 @@ preview-*.png
 BACKLOG.md
 # the demo's fetched feeds and pictures (scripts/demo-feeds.mjs writes them at build time)
 public/demo/
+dist-ipa
