@@ -226,7 +226,7 @@
       onconnected(session);
     } catch (cause) {
       if (cause instanceof AuthError) {
-        error = "Wrong email or API password.";
+        error = "Wrong username, password or token.";
       } else if (cause instanceof GreaderProbeError) {
         error = cause.message;
       } else if (cause instanceof Error) {
@@ -348,6 +348,15 @@
           </button>
         </div>
       </label>
+
+      <!-- Three products, three different words for the same box: FreshRSS
+           wants the API password, Miniflux an API token, and The Old Reader or
+           Tiny Tiny RSS the account password. The client's exchange is the same
+           one in all four cases, so the only thing missing was saying so. -->
+      <p class="hint small">
+        FreshRSS: your API password. Miniflux: an API token. The Old Reader or Tiny Tiny
+        RSS: your password.
+      </p>
 
       {#if error}
         <p class="error" role="alert">{error}</p>
