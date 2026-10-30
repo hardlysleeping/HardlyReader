@@ -68,6 +68,29 @@
   let moreEl = $state<HTMLElement | null>(null);
 
   /**
+   * The panel is a popover over the window, but it is mounted inside the bar
+   * that opens it — and on a phone that bar is `overflow: hidden` and carries
+   * the navigation material, whose `backdrop-filter` makes it the containing
+   * block for `position: fixed` children. A fixed panel inside it was therefore
+   * positioned against the bar and clipped to the bar's own 74px: it measured
+   * 252×405 in the right place, painted nothing, and every point inside its
+   * rectangle hit the list underneath, so a phone could not open its reading
+   * options at all. Moving the node into `body` on mount is the smallest fix
+   * that gives the panel the window as its parent: the styles travel with it
+   * (Svelte scoping is a class), the click-outside test is `contains` on the
+   * node, and the only thing it read from an ancestor — where it opens — is
+   * `--rc-panel-top`, which a phone now declares on the root.
+   */
+  function portal(node: HTMLElement): { destroy: () => void } {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        node.remove();
+      },
+    };
+  }
+
+  /**
    * A press anywhere else in the app closes it, the same as the settings panel:
    * a popover that stays open over whatever was just pressed is a popover that
    * took the press. The Aa button itself is exempt, so it still toggles.
@@ -123,7 +146,7 @@
 </div>
 
 {#if open}
-  <div class="panel" role="dialog" aria-label="Reading options" bind:this={panelEl}>
+  <div class="panel" role="dialog" aria-label="Reading options" bind:this={panelEl} use:portal>
     <ReadingPanel ondone={close} />
   </div>
 {/if}
@@ -194,11 +217,15 @@
      because the header clips its own overflow. */
   .panel {
     position: fixed;
-    /* Below the bar that opened it: the bar's 36px, the part of the inset it sits
-       under (`--safe-top - 24`, the same number `app.css` gives the header), and
-       a 4px breath. Adding the whole inset here opened the panel 30px below the
-       bar it belongs to. `--safe-top` is 0 in a window, so 46px there. */
-    top: calc(max(0px, calc(var(--safe-top, 0px) - 24px)) + 40px);
+    /* Below the bar that opened it. The bar is not the same height in the two
+       headers that mount this component — a window's is 42px, a phone's is 36px
+       under the part of the status bar it does not spend — so the host declares
+       where the panel belongs and this is only the window's answer: 42 + 4 of
+       breath. A phone sets `--rc-panel-top` to its own 36 + 4 + the inset it
+       sits under (`--safe-top - 24`, the same number `app.css` gives the
+       header). One number here opened the panel 2px *inside* the window's bar
+       and 30px below the phone's, which is why it is a variable now. */
+    top: var(--rc-panel-top, 46px);
     right: 12px;
     z-index: 61;
     width: 252px;

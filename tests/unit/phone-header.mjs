@@ -178,7 +178,30 @@ check("the bar carries the arrangement switch", /\{#if controls\}\s*\{@render co
 check("...passed in by the view, not imported", /controls\?: Snippet/.test(header) && /<PhoneHeader[\s\S]{0,300}?controls=\{layoutSwitch\}/.test(main));
 check("and the Aa panel opens from it", /<ReadingControls bind:this=\{readingControls\}/.test(header));
 check("...closing the sheet on its way open", /onopen=\{\(\) => \(settingsOpen = false\)\}/.test(header));
-check("the Aa panel clears the bar it opens under", /top: calc\(max\(0px, calc\(var\(--safe-top, 0px\) - 24px\)\) \+ 40px\)/.test(read("src/components/ReadingControls.svelte")));
+check(
+  "the Aa panel clears the bar it opens under",
+  /--rc-panel-top: calc\(max\(0px, calc\(var\(--safe-top\) - 24px\)\) \+ 40px\)/.test(app) &&
+    /top: var\(--rc-panel-top, 46px\)/.test(read("src/components/ReadingControls.svelte")),
+);
+// The panel is fixed and mounted inside the bar, and a phone's bar is
+// `overflow: hidden` with a `backdrop-filter` material — which makes the bar the
+// containing block for its fixed children, so the panel was positioned against
+// the bar and clipped to its 74px: it measured in the right place, painted
+// nothing, and every point inside its rect hit the list underneath. It is moved
+// into `body` on mount instead.
+check(
+  "...and it is moved out of the bar, because the bar clips what is fixed inside it",
+  /use:portal/.test(read("src/components/ReadingControls.svelte")) &&
+    /document\.body\.appendChild\(node\)/.test(read("src/components/ReadingControls.svelte")) &&
+    /overflow: hidden/.test(header),
+);
+// One component, two bars: 36px on a phone and 42px in a window, so the panel's
+// place cannot be one number. 46 is the window's 42 + 4 of breath; a phone
+// overrides it on the root, where a portaled panel still inherits it.
+check(
+  "...and the window's bar keeps its own 4px breath under 42px",
+  /height: 42px;\s*flex: 0 0 42px;/.test(desktopHeader) && !/--rc-panel-top/.test(desktopHeader),
+);
 check(
   "...the same switch the sidebar draws beside the search field",
   /import ThemeToggle from "\.\/ThemeToggle\.svelte"/.test(read("src/components/Sidebar.svelte")) &&
