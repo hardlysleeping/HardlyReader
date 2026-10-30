@@ -23,7 +23,9 @@ let failures = 0;
 function check(label, ok, detail) {
   checks += 1;
   if (ok) {
-    console.log(`PASS  ${label}`);
+
+
+console.log(`PASS  ${label}`);
   } else {
     failures += 1;
     console.log(`FAIL  ${label}  ${detail === undefined ? "" : `(${detail})`}`);
@@ -206,6 +208,24 @@ check("the app's page-level panning is untouched", /touch-action: pan-x pan-y;/.
 check("the throw's constants live in the model", /export const FLING = \{/.test(flingSource));
 check("a throw is capped", /max: 5,/.test(flingSource));
 check("a slow release keeps nothing", /min: 0\.12,/.test(flingSource));
+
+// ---- one axis, decided at the press ----
+// A pointermove that measures `scrollWidth` after writing `scrollTop` forces a
+// layout on every event, so the axes are read once, when the press lands.
+check(
+  "the axes are read once, at the press",
+  /const declared = container\.dataset\?\.scrollAxis;/.test(source) &&
+    /sideways =\s*\n\s*declared === "y"/.test(source),
+);
+check(
+  "a container that declares one axis is never panned sideways",
+  /if \(sideways\) \{\s*\n\s*container\.scrollLeft -= event\.clientX - lastX;/.test(source) &&
+    !/container\.scrollWidth - container\.clientWidth > 1\) \{\s*\n\s*container\.scrollLeft/.test(source),
+);
+check(
+  "and the fling follows the same axis",
+  /if \(vx !== 0 && sideways\) \{/.test(source),
+);
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

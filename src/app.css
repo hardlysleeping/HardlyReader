@@ -564,11 +564,12 @@ html[data-device="phone"] .aura {
   background: transparent;
 }
 
-/* The stack's panes paint through the home indicator and their content clears
-   it: the padding is on the moving layer, whose background is what reaches the
-   bottom edge, and the pane inside it ends above the indicator. */
+/* The stack's layers reach the glass too, for the same reason the columns do:
+   the counts are the last row on the screen, and they pay the home indicator
+   themselves. A padding here put an 80px band under the words in the stack
+   while the grid had none — one phone, two answers. */
 html[data-device="phone"] .stack-scroller {
-  padding-bottom: calc(var(--safe-bottom) + 8px);
+  padding-bottom: 0;
 }
 
 /* The grid — the one-pane walk and a landscape phone — clears the same two

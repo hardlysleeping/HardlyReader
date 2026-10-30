@@ -34,8 +34,9 @@
   import { people } from "../state/people.svelte";
   import { theme } from "../state/theme.svelte";
   import { chrome } from "../state/chrome.svelte";
+  import { tick } from "svelte";
   import { layout } from "../state/layout.svelte";
-  import { mobileNav } from "../state/mobile-nav.svelte";
+  import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
 
   const words = pinWords();
 
@@ -669,6 +670,26 @@
   function startAdding() {
     adding = true;
     reader.clearAddFeedError();
+    // The form is in this column, so a press that came from the bar has to bring
+    // the column into view and put the caret in the field: a form that opens on
+    // a pane you cannot see, or one that opens without the keyboard, is a press
+    // that did nothing.
+    if (layout.device === "phone") {
+      // The stack's feeds are an overlay over the list; the walk's are its first
+      // level. Both end with the feeds in front, which is where this form is.
+      if (slidesInPortrait({ device: layout.device, portrait: layout.upright, mode: layout.mobilePortraitMode })) {
+        mobileNav.show(2);
+        mobileNav.openPrevious();
+      } else {
+        // The walk's first level is the feeds — but its level follows what is
+        // open, so an article has to be closed before the walk can start at the
+        // top. A press that opens a form you cannot see is a press that did
+        // nothing.
+        reader.closeReader();
+        layout.setMode(1);
+      }
+      void tick().then(() => feedBox?.focus());
+    }
   }
 
   function cancelAdding() {
@@ -1333,22 +1354,7 @@
   {/if}
   </div>
 
-  <div class="status" aria-live="polite">
-    {#if strip.hiddenCount !== null && strip.hiddenCount > 0}
-      <span class="stat">Hidden <b>{strip.hiddenCount}</b></span>
-      {#if strip.enforced}
-        <span
-          class="badge"
-          title={strip.authority === "local"
-            ? "Filtered on this device"
-            : "Filtered by the server"}
-        >ENFORCED</span>
-      {/if}
-    {/if}
-    {#if strip.pinnedCount > 0}
-      <span class="stat">{words.count} <b>{strip.pinnedCount}</b></span>
-    {/if}
-  </div>
+
 
   <!-- The footer, unless the empty library is introducing itself above: that
        block carries the same two ways in, so drawing both would be the panel
@@ -1442,6 +1448,25 @@
     {/if}
   </div>
   {/if}
+
+  <!-- The counts are the last row on the screen: under the footer, so opening
+       the add form cannot lift them off the bottom edge. -->
+  <div class="status" aria-live="polite">
+    {#if strip.hiddenCount !== null && strip.hiddenCount > 0}
+      <span class="stat">Hidden <b>{strip.hiddenCount}</b></span>
+      {#if strip.enforced}
+        <span
+          class="badge"
+          title={strip.authority === "local"
+            ? "Filtered on this device"
+            : "Filtered by the server"}
+        >ENFORCED</span>
+      {/if}
+    {/if}
+    {#if strip.pinnedCount > 0}
+      <span class="stat">{words.count} <b>{strip.pinnedCount}</b></span>
+    {/if}
+  </div>
 </nav>
 
 <style>
