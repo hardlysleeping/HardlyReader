@@ -278,4 +278,20 @@ if (failures > 0) {
   console.log(`${failures} failure(s) in ${checks} checks — the empty library`);
   process.exit(1);
 }
+// ---- the bar's plus reaches the form ----
+// A press that opens a form on a pane the phone is not showing, or without the
+// caret in the field, is a press that did nothing.
+{
+  const chromeSource = read("src/state/chrome.svelte.ts");
+  const header = read("src/components/PhoneHeader.svelte");
+  check("the bar has a plus that asks for the form", /class="more add"/.test(header) && /chrome\.askAddFeed\(\)/.test(header));
+  check("the ask is a counter, so it can be asked twice", /addFeedAsk = \$state\(0\)/.test(chromeSource) && /askAddFeed\(\): void \{\s*this\.addFeedAsk \+= 1;/.test(chromeSource));
+  check(
+    "the form comes to the front of the phone and takes the caret",
+    /slidesInPortrait\(\{[\s\S]{0,160}?mobileNav\.openPrevious\(\);/.test(sidebar) &&
+      /reader\.closeReader\(\);\s*layout\.setMode\(1\);/.test(sidebar) &&
+      /feedBox\?\.focus\(\)/.test(sidebar),
+  );
+}
+
 console.log(`ok ${checks} checks — the empty library`);

@@ -227,7 +227,9 @@ check(
 );
 check(
   "the stack's content clears the home indicator",
-  /html\[data-device="phone"\] \.stack-scroller \{\s*padding-bottom: calc\(var\(--safe-bottom\) \+ 8px\);\s*\}/.test(app),
+  // ...and it clears it in the counts row, like the grid: the layer reaches the
+  // glass and the last row pays the inset, so the two presentations agree.
+  /html\[data-device="phone"\] \.stack-scroller \{\s*padding-bottom: 0;\s*\}/.test(app),
 );
 check("and the stack carries that class", /class="layer stack-scroller"/.test(stack));
 check(
@@ -243,7 +245,9 @@ check(
   /html\[data-device="phone"\] \.panes > \.slot\.feeds,\s*html\[data-device="phone"\] \.panes > \.slot\.posts,\s*html\[data-device="phone"\] \.panes > \.slot\.article \{\s*padding-bottom: 0;/.test(
     app,
   ) &&
-    /html\[data-device="phone"\] \.panes > \.slot\.feeds \{\s*padding-bottom: 0;/.test(app),
+    // The stack is the phone's own presentation: it used to keep an 80px band
+    // under the words while the grid had none.
+    /html\[data-device="phone"\] \.stack-scroller \{\s*padding-bottom: 0;/.test(app),
 );
 // One source of numbers: the tokens are the only place `env()` is read.
 check(

@@ -119,6 +119,8 @@ export function installDragScroll(): () => void {
   let container: HTMLElement | null = null;
   let pointer: number | null = null;
   let panning = false;
+  /** Whether this container can be panned sideways, decided at the press. */
+  let sideways = false;
   let startX = 0;
   let startY = 0;
   /** How far this press has to travel, which depends on what it landed on. */
@@ -171,7 +173,7 @@ export function installDragScroll(): () => void {
       }
       // A throw is the pan's momentum, so it is spent on the same axes: no
       // sideways fling out of a column that has nothing to the side.
-      if (vx !== 0 && el.scrollWidth - el.clientWidth > 1) {
+      if (vx !== 0 && sideways) {
         const before = el.scrollLeft;
         el.scrollLeft = before + vx * dt;
         if (el.scrollLeft === before) vx = 0;
@@ -222,6 +224,16 @@ export function installDragScroll(): () => void {
     // A control has to be travelled past further than a plain surface: a tap on
     // a star that shakes below this is still a tap.
     threshold = finger && origin.closest(TAPPABLE) ? CONTROL_THRESHOLD : THRESHOLD;
+    // Which axes this container actually has, decided once: a pointermove that
+    // measures `scrollWidth` after writing `scrollTop` forces a layout on every
+    // event. An article is one column by definition, so it says so itself
+    // (`data-scroll-axis="y"`) and is never dragged sideways however wide a
+    // child turns out to be.
+    const declared = container.dataset?.scrollAxis;
+    sideways =
+      declared === "y"
+        ? false
+        : declared === "x" || container.scrollWidth - container.clientWidth > 1;
     startX = lastX = event.clientX;
     startY = lastY = event.clientY;
     // The event's own clock, not the clock at receipt: a burst of coalesced moves
@@ -250,7 +262,7 @@ export function installDragScroll(): () => void {
     // article is one column wide by definition, so a finger that drifts left
     // must not slide the prose off its own margin: the axis is spent or it is
     // not there at all.
-    if (container.scrollWidth - container.clientWidth > 1) {
+    if (sideways) {
       container.scrollLeft -= event.clientX - lastX;
     }
     lastX = event.clientX;

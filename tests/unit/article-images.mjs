@@ -44,7 +44,12 @@ function check(name, ok, detail = "") {
   checks += 1;
   if (!ok) {
     failures += 1;
-    console.log(`FAIL ${name}${detail ? ` — ${detail}` : ""}`);
+    check(
+  "the article declares one axis, so nothing can pan it sideways",
+  /data-scroll="article"[\s\S]{0,120}?data-scroll-axis="y"/.test(pane),
+);
+
+console.log(`FAIL ${name}${detail ? ` — ${detail}` : ""}`);
   }
 }
 

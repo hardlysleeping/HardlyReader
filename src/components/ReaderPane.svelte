@@ -939,6 +939,7 @@
       style:--page-width={pageWidth > 0 ? `${pageWidth}px` : null}
       style:--page-height={pageHeight > 0 ? `${pageHeight}px` : null}
       data-scroll="article"
+      data-scroll-axis="y"
       {onscroll}
       {onwheel}
       use:pullDown={{
