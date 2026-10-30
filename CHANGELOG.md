@@ -26,6 +26,67 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.6.18] — 2026-10-29
+
+Four things that were quietly wrong, and the work behind them.
+
+The lock folded the band by writing the reader's own preference, so one lock left
+the band shut for every launch after it. The fold is the lock's now — remembered,
+not stored — and unlocking gives back the fold you had.
+
+The launch crawl fetched new posts and then repainted from a stream cache a few
+seconds old, which is why a fresh load could look like it had grabbed nothing.
+It forces the stream it repaints, the way a manual refresh already did.
+
+A pin says where its mark lives. With the categories extension answering it is
+the extension's; without it the mark is kept on this device, and the band and the
+row menu both say so instead of only naming what is missing. A passcode kept on
+this device says that too.
+
+Pictures got a policy rather than a hope: a scheme rule for what may be cached
+(deliberately not same-origin, so a self-hosted server still caches), admission
+that prunes to the ceiling before a write instead of after, a size rule that
+never upscales and never re-encodes a rounding error, and thumbnails warmed
+before full pictures in reading order.
+
+## [0.6.17] — 2026-10-29
+
+Landscape stops paying for a status bar it does not have. The bar is 36px at the
+top of the screen in both orientations, the panes start at its edge, and the
+left/right insets are still paid because the notch is on a side there.
+
+The counts at the bottom of the feeds column wrap instead of clipping. They were
+`nowrap` inside a centred flex line, and a centred line that overflows is clipped
+at its *start* — so "Hidden 1" lost its margin while "Pinned 2" kept its 10px.
+Each line is centred on its own now, and the row reads symmetric at 390px and at
+the 150px a two-pane phone gives it.
+
+The idle loading line no longer takes 3px between the bar and the first row.
+
+## [0.6.16] — 2026-10-29
+
+A phone pass: the bar sits 12px higher than the status-bar inset, the counts are
+centred and 8px off the glass, and the day/night switch moved beside the search
+field, which shrank to 30px and shares its row.
+
+Adding a feed is a sheet over the top of the column now — where the `+` was
+pressed — instead of a footer under the keyboard, and it takes three lines so a
+list of feeds reads as a list. The `+` itself brings the feeds pane to the front
+and puts the caret in the field.
+
+An uncollapsed feed in pane one has a floating chevron that collapses it and
+returns the tree to that feed's row.
+
+Reading: a narrow list gives its width to the words (the 64px thumbnail and the
+air around the action buttons go first, at any list under 260px), and the post
+list declares one scroll axis so a vertical flick cannot drift sideways. The
+article keeps the same rule. On a phone the feeds column is capped at 38% of the
+width, so the list always has the larger half; the stacked seam between posts and
+article goes wherever you leave it, 5% to 95%.
+
+The list header is a strip (61px, from 117) and the idle loading line no longer
+paints a 3px band under the bar.
+
 ## [0.6.11] — 2026-10-29
 
 ### Added
