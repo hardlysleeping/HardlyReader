@@ -1001,15 +1001,21 @@ export function scaleLayout(
 ): PaneLayout {
   const mins = MINIMUMS[device];
   const room = Math.max(0, Math.round(total));
+  // A phone spends its width on the pane being read. The feeds column is
+  // navigation, and a width carried over from a desktop drag leaves it as wide
+  // as the list beside it — 174 of 390 on the phone this was measured on. 38% is
+  // the most it may take there, so the list always has the larger half.
+  const sidebar =
+    device === "phone" ? Math.min(layout.sidebar, Math.max(mins.sidebar, Math.round(room * 0.38))) : layout.sidebar;
   if (mode === 2) {
-    const list2 = clamp(room - GUTTER - layout.sidebar, mins.list, intentCeiling(device));
-    return { ...layout, list2 };
+    const list2 = clamp(room - GUTTER - sidebar, mins.list, intentCeiling(device));
+    return { ...layout, sidebar, list2 };
   }
   if (mode === 3) {
-    const free = Math.max(room - GUTTER * 2 - layout.sidebar, mins.list + mins.article);
+    const free = Math.max(room - GUTTER * 2 - sidebar, mins.list + mins.article);
     const pair = Math.max(1, layout.list3 + layout.article);
     const list3 = clamp((free * layout.list3) / pair, mins.list, free - mins.article);
-    return { ...layout, list3, article: free - list3 };
+    return { ...layout, sidebar, list3, article: free - list3 };
   }
   return layout;
 }
