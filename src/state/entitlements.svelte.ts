@@ -1,5 +1,5 @@
 /**
- * The one paid feature: HardlyReader Sync.
+ * The one paid feature: HardlySyncing.
  *
  * Syncing a local library between devices is sold as a single subscription —
  * $0.99 a month or $9.99 a year, the same subscription group — and it unlocks
@@ -152,7 +152,7 @@ export function readEntitlement(source: Entitlement, now: number = Date.now()): 
       state: "none",
       productId,
       expiresAt: null,
-      reason: reason ?? `${productId} is not a HardlyReader Sync product`,
+      reason: reason ?? `${productId} is not a HardlySyncing product`,
     };
   }
   if (source.state === "none" || source.state === "expired") {
@@ -535,7 +535,7 @@ export class RemoteStore implements Store {
   /** There is no in-app purchase: a press is answered with a sentence, not a charge. */
   async purchase(id: string): Promise<Receipt> {
     void id;
-    return noEntitlement("HardlyReader Sync is bought on the web — this app cannot charge a card");
+    return noEntitlement("HardlySyncing is bought on the web — this app cannot charge a card");
   }
 
   /**
@@ -570,7 +570,7 @@ export class RemoteStore implements Store {
     }
     if (session === null || session.userId.trim() === "") {
       // Signed out: no identity, so no answer and no cache. Rule 1.
-      return noEntitlement("this device is not signed in to HardlyReader Sync");
+      return noEntitlement("this device is not signed in to HardlySyncing");
     }
     const userId = session.userId.trim();
 
@@ -869,7 +869,7 @@ export class Entitlements {
     if (!isSyncProduct(id)) {
       // Refused without touching what is already granted: a caller naming the
       // wrong id is a bug, not a reason to drop someone's subscription.
-      this.reason = `${id} is not a HardlyReader Sync product`;
+      this.reason = `${id} is not a HardlySyncing product`;
       return false;
     }
     return this.ask(() => this.store.purchase(id));

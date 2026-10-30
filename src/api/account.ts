@@ -70,7 +70,7 @@ export const ACCOUNT_DELETED =
  * so instead of taking the money and the account at once.
  */
 export const CANCEL_FIRST =
-  "Your subscription is still being charged, so the account was not deleted. Cancel HardlyReader Sync first (the link is on your Stripe receipt), then come back — nothing else has changed.";
+  "Your subscription is still being charged, so the account was not deleted. Cancel HardlySyncing first (the link is on your Stripe receipt), then come back — nothing else has changed.";
 
 /**
  * The second action's wording, waiting for the first provider.

@@ -5,7 +5,7 @@
    * Three states and one rule each, and the rule is the reason the state exists:
    *
    * - **signed out** — the three doors, one button each. An account is only ever
-   *   for HardlyReader Sync; the library on this device works without one, and the
+   *   for HardlySyncing; the library on this device works without one, and the
    *   lead sentence says so before any button is pressed.
    * - **signed in** — which door, plus **Add Google / Add Apple** for the doors the
    *   account does *not* have. Those call `link()`, never `signIn()`: a second
@@ -65,7 +65,7 @@
   <!-- Signed out: the three doors. The lead sentence is the promise the rest of
        the app keeps — nothing is asked for until Sync is asked for. -->
   <p class="lead">
-    An account is only for HardlyReader Sync. Your library on this device works without one.
+    An account is only for HardlySyncing. Your library on this device works without one.
   </p>
 
   <div class="doors">

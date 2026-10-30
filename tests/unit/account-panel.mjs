@@ -168,7 +168,7 @@ const count = (haystack, needle) => haystack.split(needle).length - 1;
   const body = draw(account);
   const words = text(body);
 
-  check("the section leads with what an account is for", words.includes("An account is only for HardlyReader Sync"));
+  check("the section leads with what an account is for", words.includes("An account is only for HardlySyncing"));
   check("...and that the library does not need one", words.includes("Your library on this device works without one"));
   check("Google is one press", count(body, "Continue with Google") === 1);
   check("Apple is one press", count(body, "Continue with Apple") === 1);

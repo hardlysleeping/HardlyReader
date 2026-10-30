@@ -1,5 +1,5 @@
 /**
- * Buying HardlyReader Sync on the web.
+ * Buying HardlySyncing on the web.
  *
  * The app's whole part in a purchase is four lines of JavaScript: ask the
  * billing service for a Checkout URL, hand it to the system browser, notice when
@@ -78,7 +78,7 @@ export class CheckoutError extends Error {
 
 /** What the panel shows when the browser has the payment and the app does not. */
 export const CHECKOUT_OPENED =
-  "Checkout is open in your browser — come back here when it is done and HardlyReader Sync will be waiting.";
+  "Checkout is open in your browser — come back here when it is done and HardlySyncing will be waiting.";
 
 export interface BeginCheckoutOptions {
   plan: PlanKey;
@@ -318,7 +318,7 @@ export class WebStore implements Store {
   async purchase(id: string): Promise<Receipt> {
     const plan = planKeyOf(id);
     if (plan === null) {
-      return noEntitlement(`${id} is not a HardlyReader Sync product`);
+      return noEntitlement(`${id} is not a HardlySyncing product`);
     }
     await openCheckout({ plan, token: this.token(), base: this.base, fetch: this.fetch, open: this.open });
     return { state: "none", productId: id, expiresAt: null, reason: CHECKOUT_OPENED };

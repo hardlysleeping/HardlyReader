@@ -392,7 +392,7 @@ const LANDING = `<!doctype html>
 <body>
 <main>
   <h1>HardlyReader billing</h1>
-  <p>This host takes payments for <strong>HardlyReader Sync</strong>. It is not a website: the
+  <p>This host takes payments for <strong>HardlySyncing</strong>. It is not a website: the
      checkout and the customer portal are Stripe's pages, opened from the app.</p>
   <p>Nothing about your reading is here — feeds, articles and reading state stay on your device or
      on your own server. Only the subscription is.</p>

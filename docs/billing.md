@@ -1,4 +1,4 @@
-# Billing: paying for HardlyReader Sync on the web
+# Billing: paying for HardlySyncing on the web
 
 One subscription, two prices, one boolean. Paid for in a browser, on any platform the app
 runs on, because a browser is the one payment surface a Flatpak, a PWA, a sideloaded iPhone

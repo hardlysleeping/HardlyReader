@@ -193,11 +193,11 @@ try {
     // The saving is derived from the two prices rather than asserted beside them:
     // $9.99 against twelve months at $0.99 is ~16%, and the row says what it is.
     check("the yearly one is recommended by its real saving", words.includes("save ~16%"), words.slice(0, 400));
-    check("two ways in: buy, or restore", words.includes("Start HardlyReader Sync") && words.includes("Restore Purchase"));
+    check("two ways in: buy, or restore", words.includes("Start HardlySyncing") && words.includes("Restore Purchase"));
 
     check("no provider is offered before it is bought", !words.includes("Provider"));
     check("and no run can be started", !words.includes("Sync now") && !words.includes("Last synced"));
-    check("nothing is drawn twice", count(body, 'aria-label="Start HardlyReader Sync"') <= 1);
+    check("nothing is drawn twice", count(body, 'aria-label="Start HardlySyncing"') <= 1);
   }
 
   // -------------------------------------------------------------------------
@@ -223,7 +223,7 @@ try {
     const body = draw();
     const words = text(body);
 
-    check("the entitled half says which product is live", words.includes("HardlyReader Sync") && words.includes("active"));
+    check("the entitled half says which product is live", words.includes("HardlySyncing") && words.includes("active"));
     check("the provider row is drawn", words.includes("Provider"));
 
     const providers = ["iCloud Drive", "Google Drive", "Dropbox", "OneDrive"];
@@ -237,7 +237,7 @@ try {
     check("last synced is a sentence", /Last synced: 2 minutes ago/.test(words));
     check("and there is one button to run it", count(body, 'aria-label="Sync now"') === 1);
 
-    check("no price is asked for twice", !words.includes("Start HardlyReader Sync") && !words.includes("Restore Purchase"));
+    check("no price is asked for twice", !words.includes("Start HardlySyncing") && !words.includes("Restore Purchase"));
   }
 
   // -------------------------------------------------------------------------
@@ -281,7 +281,7 @@ try {
     for (const id of ["icloud", "gdrive", "dropbox", "onedrive"]) {
       deviceSync.choose(id);
       const words = text(draw());
-      check(`choosing ${id} keeps the paid half`, words.includes("Provider") && !words.includes("Start HardlyReader Sync"));
+      check(`choosing ${id} keeps the paid half`, words.includes("Provider") && !words.includes("Start HardlySyncing"));
     }
 
     check("switching provider never asks the store for a purchase", store.purchases.length === 0, store.purchases.join(", "));

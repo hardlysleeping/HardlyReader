@@ -318,7 +318,7 @@ try {
     check("Account is the HardlyReader account, not the roster", (() => {
       const part = prose(section(body, "Account"));
       return (
-        part.includes("An account is only for HardlyReader Sync") &&
+        part.includes("An account is only for HardlySyncing") &&
         part.includes("Continue with Google") &&
         part.includes("Continue with Apple")
       );
@@ -427,7 +427,7 @@ try {
     const freeWords = free.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
     check("the free half says what syncing is for", freeWords.includes("Sync across your devices"), freeWords.slice(0, 160));
     check("...offers both prices", freeWords.includes("$0.99 / month") && freeWords.includes("$9.99 / year"));
-    check("...and both ways in", freeWords.includes("Start HardlyReader Sync") && freeWords.includes("Restore Purchase"));
+    check("...and both ways in", freeWords.includes("Start HardlySyncing") && freeWords.includes("Restore Purchase"));
     check("...and no provider, because none is bought yet", !freeWords.includes("Provider"));
 
     // Entitled half: the four providers, the folder and the run — same section,
@@ -435,14 +435,14 @@ try {
     entitlement.cloudSync = true;
     const paid = section(draw(), "Device sync");
     const paidWords = paid.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
-    check("the entitled half says the subscription is live", paidWords.includes("HardlyReader Sync") && paidWords.includes("active"));
+    check("the entitled half says the subscription is live", paidWords.includes("HardlySyncing") && paidWords.includes("active"));
     check(
       "it offers the four providers, once each",
       ["iCloud Drive", "Google Drive", "Dropbox", "OneDrive"].every((label) => count(paid, `aria-label="${label}"`) === 1),
       paidWords.slice(0, 200),
     );
     check("it has a folder row and a run", paidWords.includes("Folder") && paid.includes('aria-label="Sync now"'));
-    check("and it does not ask for money again", !paidWords.includes("Start HardlyReader Sync"));
+    check("and it does not ask for money again", !paidWords.includes("Start HardlySyncing"));
 
     reader.profile = null;
     reader.subscriptions = [];

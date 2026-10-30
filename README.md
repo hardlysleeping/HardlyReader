@@ -166,7 +166,7 @@ fetched unless the device fetches it too.
 
 ### Do you need to pay?
 
-**HardlyReader Sync is one thing: your local library copied into a folder in your own cloud — iCloud
+**HardlySyncing is one thing: your local library copied into a folder in your own cloud — iCloud
 Drive, Google Drive, Dropbox, OneDrive, or any folder you already mirror — and merged with the copies
 on your other devices.** There is no HardlyReader server in the middle, and no article text in the
 folder.
@@ -174,9 +174,9 @@ folder.
 | Where your library lives | How the devices stay in step | Cost |
 |---|---|---|
 | On a feed server — FreshRSS, Inoreader, The Old Reader, Tiny Tiny RSS | The server is the meeting point: it polls the feeds and every device reads from it | **Free** |
-| On a service with no GReader API — Feedbin, Feedly | **Import OPML** into a local library, then let **HardlyReader Sync** carry what the service has no place for: hidden categories, pins, order, indent, read marks, stars | **Free** to import; Sync is a subscription |
+| On a service with no GReader API — Feedbin, Feedly | **Import OPML** into a local library, then let **HardlySyncing** carry what the service has no place for: hidden categories, pins, order, indent, read marks, stars | **Free** to import; Sync is a subscription |
 | On this device, by hand | **Export archive** on one, **Import archive** on the other | **Free**, always |
-| On this device, automatically | **HardlyReader Sync** — the same files, merged through a folder in your own cloud | $1/month or $10/year |
+| On this device, automatically | **HardlySyncing** — the same files, merged through a folder in your own cloud | $1/month or $10/year |
 
 Read the second row carefully, because it is most of why Sync exists: a service like Feedbin or Feedly
 carries feeds and read state and nothing else. Hidden categories, pins, category order, the indent —

@@ -368,7 +368,7 @@ export class ReaderState {
   }
 
   /**
-   * Whether the reader pays for HardlyReader Sync.
+   * Whether the reader pays for HardlySyncing.
    *
    * A plain boolean, and the shell is what fills it (`App.svelte`, from the one
    * capability that store owns). The reader is told the answer instead of asking
@@ -1585,7 +1585,7 @@ export class ReaderState {
    * Whether the cloud is the authority for the arrangement.
    *
    * The one thing that stops a write: a reader whose extras travel through
-   * HardlyReader Sync must not also push the order at the backend, or two writers
+   * HardlySyncing must not also push the order at the backend, or two writers
    * would own one arrangement and the loser would be whichever device nobody was
    * looking at. Whether there is a route to write to at all is the wire's own
    * question — `positionsRoute` is learned from the first read or the first `404`

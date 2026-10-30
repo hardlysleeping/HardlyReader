@@ -3,7 +3,7 @@
 Owner decision, 2026-10-27. Two separate questions, and they must stay separate:
 
 1. **Who is this reader?** — an identity, so one purchase unlocks a second device.
-2. **Do they own HardlyReader Sync right now?** — an entitlement, which only a server may set.
+2. **Do they own HardlySyncing right now?** — an entitlement, which only a server may set.
 
 Neither question has anything to do with where the library lives. Feeds, articles, read state and
 stars stay in SQLite, in FreshRSS, or in the reader's own cloud folder. This document's server

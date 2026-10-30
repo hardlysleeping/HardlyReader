@@ -132,7 +132,7 @@
   let stopWatchingEntitlement: (() => void) | null = null;
 
   /**
-   * Tells the reader whether HardlyReader Sync is paid for.
+   * Tells the reader whether HardlySyncing is paid for.
    *
    * The reader holds the ladder (`featureAuthority`) and must not know what a
    * receipt is, so the shell joins the two stores: the entitlement in, one

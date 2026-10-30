@@ -223,7 +223,7 @@ function installer(capability, extra = {}) {
     entitlement: capability,
     base: BILLING,
     search: "",
-    reader: serverReader(noEntitlement("this device is not signed in to HardlyReader Sync")),
+    reader: serverReader(noEntitlement("this device is not signed in to HardlySyncing")),
     token: () => TOKEN,
     fetch: service,
     open: (url) => void opened.push(url),
@@ -331,7 +331,7 @@ function installer(capability, extra = {}) {
 {
   // The same return on a device that does not own Sync: the row is the only
   // answer, and it is the server's words — never a reproach invented here.
-  const said = "this device is not signed in to HardlyReader Sync";
+  const said = "this device is not signed in to HardlySyncing";
   const capability = new Entitlements(fakeStore());
   const reader = serverReader(noEntitlement(said));
 
