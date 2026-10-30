@@ -4,6 +4,26 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.19] — 2026-10-30
+
+### Fixed
+
+- **A phone could not open its reading options.** The Aa panel is fixed and was
+  mounted inside the bar; that bar is `overflow: hidden` and carries the
+  navigation material, and a `backdrop-filter` makes an element the containing
+  block for its fixed descendants — so the panel was positioned against the bar
+  and clipped to the bar's own height. It was there, 252×405 in the right place,
+  and painted nothing: text size, leading, alignment and thumbnails were
+  unreachable on iOS. The panel now lives in `body`, as the settings sheet
+  already did. Measured at 440×956 with a 62/34 inset: panel at y=78 under a
+  74px bar, hit-testable at four depths inside it.
+- **The bar's controls sat under a band of nothing.** They cleared a 62px status
+  bar by 12px, so half the inset was empty; they clear it by 24 now, and the Aa
+  panel opens 4px under the bar instead of 30.
+- **A window's Aa panel overlapped its own bar by 2px**, because the phone's
+  number was the only number. The panel's place is a variable now: 46px for a
+  42px window bar, and a phone's 36px plus the part of the inset it sits under.
+
 ## [Unreleased]
 
 ## [0.6.11] — 2026-10-29
