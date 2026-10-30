@@ -271,5 +271,15 @@ check("the pin pad reads the token", /padding-bottom: var\(--safe-bottom\);/.tes
 // And nothing written for the phone is written for anything else.
 check("no phone rule is unscoped", !/^\.phone-header \{/m.test(app) && !/^\.stack-scroller \{/m.test(app));
 
+check(
+  "landscape reserves nothing above the bar",
+  /@media \(orientation: landscape\) \{\s*html\[data-device="phone"\] \.phone-header \{\s*padding-top: 0;/.test(app) &&
+    /@media \(orientation: landscape\) \{\s*\.phone-header \{\s*height: 36px;/.test(header),
+);
+check(
+  "and the idle loading line takes no room on a phone",
+  /html\[data-device="phone"\] \.aura:not\(\.on\):not\(\.syncing\) \{[\s\S]{0,200}?height: 0;/.test(app),
+);
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

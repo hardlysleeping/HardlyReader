@@ -171,6 +171,7 @@
     <button
       class="item"
       role="menuitem"
+      title={pin.hint ?? ""}
       disabled={pin.disabled || busy}
       onclick={() => onselect(pin.action)}
     >

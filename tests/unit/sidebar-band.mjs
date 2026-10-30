@@ -273,7 +273,7 @@ const source = readFileSync(join(ROOT, "src/components/SidebarBand.svelte"), "ut
   );
   check(
     "...and a phone folds the band when the lock lands",
-    /lockedNow && layout\.device === "phone"\) chrome\.setBandCollapsed\(true\)/.test(source),
+    /lockedNow && layout\.device === "phone"\) chrome\.collapseBandForLock\(\)/.test(source),
   );
   check(
     "...without folding it on a window",
@@ -328,6 +328,7 @@ try {
   get lockNotice() { return null; },
   get pinnedCount() { return globalThis.__band.pinnedCount; },
   get pinView() { return globalThis.__band.pinView; },
+get pinsOnDevice() { return globalThis.__band.pinsOnDevice ?? false; },
   favorites: { available: true },
   async setHiddenView() { return null; },
   cyclePinView() {},
@@ -344,7 +345,8 @@ try {
   get bandCollapsed() { return globalThis.__band.collapsed; },
   get pinPad() { return false; },
   toggleBand() {},
-  setBandCollapsed(collapsed) { globalThis.__band.foldedByLock = collapsed; },
+  collapseBandForLock() { globalThis.__band.foldedByLock = true; },
+  restoreBand() { globalThis.__band.foldedByLock = false; },
 };
 `,
   );
@@ -488,6 +490,35 @@ try {
       "the Starred row prints no count the server did not report",
       sidebar.includes("{#if reader.countIfKnown(STATE_STARRED) !== null}"),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // The pin says where the mark goes.
+  //
+  // A pin has two possible homes and the press means something different in each,
+  // so the control names the one it is using — in the same words the eye uses.
+  // With the extension keeping the marks, not a word of it is drawn.
+  // ---------------------------------------------------------------------------
+  {
+    const body = draw({ pinsOnDevice: true });
+    const pin = /<button[^>]*class="ctl pin[^"]*"[^>]*>/.exec(body)?.[0] ?? "";
+    check("a pin kept here says so", pin.includes("on this device"), pin.slice(0, 260));
+    check("...and the eye, on the server's set, does not", !body.includes("Hidden on this device"));
+    check("...with the view's words intact", pin.includes("Pinned: Active"), pin.slice(0, 260));
+  }
+
+  {
+    const body = draw();
+    const pin = /<button[^>]*class="ctl pin[^"]*"[^>]*>/.exec(body)?.[0] ?? "";
+    check("a pin the extension keeps says nothing about this device", pin !== "" && !pin.includes("this device"), pin.slice(0, 260));
+    check("...and no longer apologises for an absent extension", !body.includes("Pinned Categories is not enabled"));
+    // One answer about the backing, read from the reader: the eye and the pin
+    // cannot disagree about who is keeping what.
+    check("the pin's title is built in one place, from the reader", /const pinTip = \$derived\(/.test(source) && /reader\.pinsOnDevice/.test(source));
+    check("...and the control draws it", /title=\{pinTip\}/.test(source));
+    // The lock's fold is the curtain's, not the reader's: it is remembered and
+    // given back, so one lock does not leave the band folded for good.
+    check("unlocking gives the band back its fold", /else if \(!lockedNow\) chrome\.restoreBand\(\)/.test(source));
   }
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });

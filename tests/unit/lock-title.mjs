@@ -65,7 +65,18 @@ check("and not while unknown", lockHint("unknown") === null);
 // The band must route all three through these helpers rather than re-deriving.
 import { readFileSync } from "node:fs";
 const band = readFileSync(new URL("../../src/components/SidebarBand.svelte", import.meta.url), "utf8");
-check("the band asks the helper for its title", /lockTip = \$derived\(lockTitle\(lock\)\)/.test(band) && /title=\{lockTip\}/.test(band));
+check(
+  "the band asks the helper for its title",
+  /lockTip = \$derived\(lockTitle\(lock, reader\.hiddenAuthority === "local" \? "local" : "extension"\)\)/.test(band) &&
+    /title=\{lockTip\}/.test(band),
+);
+check(
+  "a lock kept on this device says so, and the extension's words are unchanged",
+  lockTitle("ready", "local") === "Lock hidden categories on this device" &&
+    lockTitle("ready") === "Lock hidden categories" &&
+    lockTitle("none", "local") === "Set a passcode first — it stays on this device" &&
+    lockTitle("none", "extension") === "Set a passcode first",
+);
 check("the band never branches on hiddenHasPasscode for the title", !/title=\{reader\.hiddenHasPasscode/.test(band));
 check("the band gates the panel on the helper", /lockOpensPanel\(lock\)/.test(band));
 check("the band renders the hint from the helper", /\{hint\}/.test(band));

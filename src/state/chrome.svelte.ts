@@ -44,6 +44,15 @@ class ChromeState {
   bandCollapsed = $state(false);
 
   /**
+   * The fold the reader chose, held aside while a lock is holding the band shut.
+   *
+   * The curtain folds the band on a phone, but that fold is the lock's, not the
+   * reader's: writing it to storage would turn one lock into "this band is
+   * always folded" for every launch after it. Null when no lock is holding it.
+   */
+  private bandStored: boolean | null = null;
+
+  /**
    * Whether the feed-indent slider is showing. Collapsed by default: the value
    * is worth seeing, the 12px slider track is not.
    */
@@ -82,6 +91,9 @@ class ChromeState {
   load(): void {
     const account = this.account();
     this.bandCollapsed = readBandCollapsed(browserStorage(), account);
+    // A held-aside fold belongs to the account that was reading: the one now
+    // loading has its own stored fold, and a stale restore must not write over it.
+    this.bandStored = null;
     this.indentOpen = readIndentOpen(browserStorage(), account);
     this.pinPad = readPinPad(browserStorage(), account);
     this.autoSync = readAutoSync(browserStorage(), account);
@@ -165,6 +177,32 @@ class ChromeState {
     if (this.bandCollapsed === collapsed) return;
     this.bandCollapsed = collapsed;
     writeBandCollapsed(browserStorage(), collapsed, this.account());
+  }
+
+  /**
+   * Folds the band because the curtain came down.
+   *
+   * Not `setBandCollapsed`: that one is the reader asking, and it writes the
+   * preference. This is the lock asking, on a phone, for the length of a lock —
+   * so the fold is remembered rather than stored, and `restoreBand` gives it
+   * back. A band folded by a lock that was never the reader's choice would
+   * otherwise stay folded for every launch after the first lock.
+   *
+   * Only the transition acts (the band calls this when the lock lands, not on
+   * every refresh), and a second lock while one is held keeps the fold that was
+   * already put aside rather than recording the folded state as the choice.
+   */
+  collapseBandForLock(): void {
+    if (this.bandStored !== null) return;
+    this.bandStored = this.bandCollapsed;
+    this.bandCollapsed = true;
+  }
+
+  /** Gives the band back the fold it had before the curtain, and forgets it. */
+  restoreBand(): void {
+    if (this.bandStored === null) return;
+    this.bandCollapsed = this.bandStored;
+    this.bandStored = null;
   }
 }
 

@@ -43,6 +43,7 @@
   import { reader, type ReaderState } from "../state/reader.svelte";
   import { reading } from "../state/reading.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
+  import { thumbnailFirst } from "../lib/images";
 
   /**
    * `nested` renders this list as a block under its feed row instead of as a
@@ -460,9 +461,15 @@
    * second scroll to the same card costs nothing at all.
    */
   function warm(item: StreamItem): void {
-    const first = pictures(item)[0] ?? thumbnail(item);
-    if (first === null || first === undefined || first === "") return;
-    pictureCache.preload(shown(first), "thumb");
+    const strip = pictures(item);
+    const first = strip.length > 0 ? strip : [thumbnail(item) ?? ""];
+    // Thumbnails first: a strip's next panel is one flip away and costs ten
+    // kilobytes, where a lead picture costs a megabyte and is not drawn until the
+    // post is opened. The order and the cap are the policy's, not this file's.
+    const wishes = thumbnailFirst(
+      first.map((url) => ({ url: shown(url), variant: "thumb" as const })),
+    );
+    for (const wish of wishes) pictureCache.preload(wish.url, wish.variant);
   }
   const markNear = (id: string, isNear: boolean): void => {
     if ((nearIds[id] === true) === isNear) return;

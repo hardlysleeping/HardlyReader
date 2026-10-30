@@ -379,5 +379,38 @@ function state(overrides = {}) {
   check("and it has no second mark symbol", !/🔖/.test(component));
 }
 
+/* ---------------------------------------------------------------------------
+ * A pin names where it is going.
+ *
+ * A mark has two possible homes — the extension's favourites, or this device's
+ * own set — and the press means something different in each. The item is the
+ * same either way (the pin works, so nothing is disabled and no note is owed),
+ * so the backing is a hint on the item. With the extension keeping the marks,
+ * not a word of it is drawn.
+ * ------------------------------------------------------------------------- */
+{
+  const local = categoryMenu(state(), "Technology", false, "extension", true);
+  check("with the marks kept here, the pin says so", local.pin?.hint === "Kept on this device", String(local.pin?.hint));
+  check("...as a hint, not a note about a broken server", local.note === null, String(local.note));
+  check("...and the item still works", local.pin?.disabled === false && local.pin?.label === "Pin");
+
+  const backend = categoryMenu(state(), "Technology", false, "extension", false);
+  check("with the extension keeping them, the pin says nothing", backend.pin?.hint === undefined, String(backend.pin?.hint));
+  check("the extension's store is the default", categoryMenu(state(), "Technology", false).pin?.hint === undefined);
+  check("the hide item is not given the pin's hint", local.toggle?.hint === undefined, String(local.toggle?.hint));
+
+  // A library on this device keeps its own marks, so the same sentence appears
+  // there — and a feed's mark is always local, but has only one home to name, so
+  // its item is left alone.
+  const noServer = categoryMenu(parseState({ available: false }), "Technology", false, "local", true);
+  check("a library on this device says the same", noServer.pin?.hint === "Kept on this device", String(noServer.pin?.hint));
+  check("a feed's mark names no choice it does not have", feedMenu("Ars Technica").pin?.hint === undefined);
+
+  // The hint has to reach the surface: a hint nobody draws is a fact the reader
+  // is never told.
+  const menuSource = readFileSync(new URL("../../src/components/CategoryMenu.svelte", import.meta.url), "utf8");
+  check("the menu draws the pin's hint as its tooltip", /title=\{pin\.hint \?\? ""\}/.test(menuSource));
+}
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -446,6 +446,20 @@ html[data-device="phone"] .phone-header {
   padding-right: max(10px, var(--safe-right));
 }
 
+/* Landscape reserves nothing at the top.
+   ---------------------------------------------------------------------------
+   A phone on its side spends its height on the thing being read — 430pt, of
+   which 36 is the bar and the rest is content. The status-bar strip above it is
+   dead space in that orientation: the clock and the indicators are drawn over
+   the bar's own glass, which is why the bar keeps its 36px and starts at zero.
+   The left and right insets are still paid, because the notch is on a side there
+   and a control under it is a control that cannot be pressed. */
+@media (orientation: landscape) {
+  html[data-device="phone"] .phone-header {
+    padding-top: 0;
+  }
+}
+
 /* The material: navigation only.
    -----------------------------------------------------------------------------
    Three surfaces are drawn as translucent material: the phone's bar, the one
@@ -758,6 +772,9 @@ html[data-device="phone"] .list-header .bar {
    hairline already separates the two. */
 html[data-device="phone"] .aura:not(.on):not(.syncing) {
   background: transparent;
+  /* ...and takes no room either: 3px of transparent band is still 3px the list
+     does not get, and on a phone that is the top row of the column. */
+  height: 0;
 }
 
 /* A phone's list header is a strip, not a masthead: the count is the first thing

@@ -50,7 +50,12 @@
       // already down; leaving the controls on screen beside it says the
       // categories are still one press away, which is the opposite of the
       // point. The fold handle stays — it is how the band comes back.
-      if (lockedNow && layout.device === "phone") chrome.setBandCollapsed(true);
+      //
+      // The fold is the lock's, not the reader's: it is remembered rather than
+      // stored, and unlocking gives the band back the fold it had. Otherwise one
+      // lock would leave the band folded for good, and no reader chose that.
+      if (lockedNow && layout.device === "phone") chrome.collapseBandForLock();
+      else if (!lockedNow) chrome.restoreBand();
     }
   });
 
@@ -130,10 +135,28 @@
     ),
   );
   const hint = $derived(lockHint(lock));
-  const lockTip = $derived(lockTitle(lock));
+  const lockTip = $derived(lockTitle(lock, reader.hiddenAuthority === "local" ? "local" : "extension"));
   // Bound here rather than called from the markup: an import used only inside a
   // template expression is pruned by the compiler and the call then throws.
   const lockEnabled = $derived(lockUsable(lock));
+
+  /**
+   * What the pin can honestly say about itself.
+   *
+   * A pin has two possible homes — the extension's favourites, or this device —
+   * and the press means something different in each: one mark every device sees,
+   * or one mark only here. The eye already names its own backing, so the pin
+   * names its own in the same words rather than apologising for the extension:
+   * "Pinned Categories is not enabled" said what was missing, never where the
+   * pin was going.
+   */
+  const pinTip = $derived(
+    facts.pinLabel === null
+      ? `Pinned: ${facts.pinnedCount} — click to change the pin filter`
+      : `Pinned: ${facts.pinLabel} — click for ${facts.pinNext}${
+          reader.pinsOnDevice ? " on this device" : ""
+        }`,
+  );
 
   /**
    * The band with nothing engaged: no curtain, the eye on its own default view,
@@ -269,11 +292,7 @@
     class="ctl pin"
     class:on={reader.pinView !== "all"}
     onclick={cyclePins}
-    title={facts.pinLabel === null
-      ? `Pinned: ${facts.pinnedCount} — click to change the pin filter`
-      : `Pinned: ${facts.pinLabel} — click for ${facts.pinNext}${
-          reader.favorites.available ? "" : " (Pinned Categories is not enabled)"
-        }`}
+    title={pinTip}
     aria-label={`Pinned: ${facts.pinName}`}
   >
     <svg viewBox="0 0 24 24" aria-hidden="true">

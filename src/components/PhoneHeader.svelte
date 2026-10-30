@@ -408,6 +408,14 @@
     overflow: hidden;
   }
 
+  /* On its side the bar is the top of the screen: no status-bar strip above it,
+     36px of controls, and the rest of the height is the panes. */
+  @media (orientation: landscape) {
+    .phone-header {
+      height: 36px;
+    }
+  }
+
   /* The root's title: the app's name, at the weight the desktop brand has. */
   .wordmark {
     /* A bar is a row of controls first and a title second: a long name shortens,

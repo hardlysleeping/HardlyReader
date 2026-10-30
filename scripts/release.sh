@@ -343,10 +343,22 @@ verify_assets() {
 # that draft behind, and the bundles it did not get are still valid, so a retry
 # finishes it instead of dying on "release already exists". The id, not the tag,
 # is what the read-back uses: a draft has no resolvable `releases/tags/` path.
+# The release list is eventually consistent: a draft created a moment ago is not
+# always in the next listing, and 0.6.16 and 0.6.17 both hit that — the draft was
+# created and then reported missing, so nothing was uploaded. Asking once is a
+# race; asking five times over ten seconds is a wait.
 draft_id() {
-  gh api "repos/$REPO_SLUG/releases?per_page=100" \
-    --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id" 2>/dev/null \
-    | head -1 || true
+  local attempt id
+  for attempt in 1 2 3 4 5; do
+    id="$(gh api "repos/$REPO_SLUG/releases?per_page=100" \
+      --jq ".[] | select(.draft and .tag_name == \"$TAG\") | .id" 2>/dev/null | head -1 || true)"
+    if [ -n "$id" ]; then
+      printf '%s\n' "$id"
+      return 0
+    fi
+    sleep 2
+  done
+  return 0
 }
 
 echo

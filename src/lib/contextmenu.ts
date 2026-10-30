@@ -253,6 +253,12 @@ export function categoryMenu(
   label: string,
   pinned: boolean,
   authority: HiddenAuthority = "extension",
+  /**
+   * Whether this device is keeping the mark, because Pinned Categories is not
+   * answering. Nothing about the item changes — the pin works either way — so
+   * this is a hint, not a note: the menu says where the mark is going.
+   */
+  pinsOnDevice = false,
 ): MenuModel {
   const words = pinWords();
   const id = categoryIdForLabel(state, label);
@@ -278,13 +284,15 @@ export function categoryMenu(
     label,
     note: notes.length === 0 ? null : notes.join(" "),
     // One entry, whichever storage it lands in. There is one mark on a
-    // category, and it is a pin.
+    // category, and it is a pin. Where it is kept is the half the reader cannot
+    // see, so the hint says it — in the same words the band's pin uses.
     pin: {
       action: { type: "pin", pinned: !pinned },
       label: pinned ? words.remove : words.add,
       glyph: "📌",
       checked: false,
       disabled: false,
+      ...(pinsOnDevice ? { hint: "Kept on this device" } : {}),
     },
     // Always offered: hiding is the one thing a category row is for, and an item
     // that disappears when the extension is slow or absent reads as "this app
