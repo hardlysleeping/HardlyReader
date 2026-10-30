@@ -557,7 +557,9 @@ function noOverlaps(label, controls) {
   const markWidth = px(phoneMark, "width", "phone mark");
   const gap = px(phoneFind, "gap", "phone field gap");
 
-  check("a phone's search field is 38 tall", phoneHeight === 38, `${phoneHeight}`);
+  // 30, not 38: the field shares its row with the day / night switch now, and a
+  // field that is not being typed in is a place to tap, not a bar to fill.
+  check("a phone's search field is 30 tall", phoneHeight === 30, `${phoneHeight}`);
   check("and a desktop's is still 28", desktopHeight === 28, `${desktopHeight}`);
   check("the marks in it grow to 30, not to the 18 a pointer gets", markWidth === 30, `${markWidth}`);
   check(
