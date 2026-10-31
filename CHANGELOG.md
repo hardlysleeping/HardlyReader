@@ -4,6 +4,27 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.24] — 2026-10-31
+
+### Fixed
+
+- **A starred post keeps its gold once it has been read.** Starring an article
+  from the FreshRSS web UI and starring it in the app looked like different
+  things, because the gold edge on a row was drawn only for an *unread* post: a
+  post read in the morning and starred in the afternoon had no gold at all, and
+  the only mark left was the star button, dimmed with the rest of the row to 48%
+  where its gold reads as mustard. Where the star was made never mattered —
+  `isStarred()` has always read the item's own state, so a star set in the server
+  UI arrives like any other. The edge now belongs to starred **or** unread rows,
+  the wash stays the unread language (so a row can say "new", "starred", or
+  both), and a starred read row dims to 0.62 instead of 0.48 so the star's colour
+  stays the star's colour. Measured in the built stylesheet through Chromium:
+  before, a starred read row reported `edge=0px, opacity=0.48`; after,
+  `edge=2px #f2bf3c, opacity=0.62`, while a plain read row still reports
+  `edge=0px, opacity=0.48`. New suite `tests/unit/starred-rows.mjs` (11 checks)
+  guards it, and the five stylesheet contracts that named the old
+  `:not(.read)` selector were rewritten to the new one rather than deleted.
+
 ## [0.6.23] — 2026-10-31
 
 ### Changed

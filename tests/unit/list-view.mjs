@@ -376,7 +376,7 @@ check(
   "an unread row's rim turns the corner into an edge up the right",
   (() => {
     const rule = listSource.slice(
-      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after"),
+      listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after"),
     );
     const body = rule.slice(0, rule.indexOf("\n  }"));
     return (
@@ -409,7 +409,7 @@ check(
       // two pills reads as a rail down the column rather than as a row ending.
       !/::before/.test(
         listSource.slice(
-          listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:not(.read)"),
+          listSource.indexOf(".items:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)"),
           listSource.indexOf(".row.read {"),
         ),
       )
@@ -448,7 +448,7 @@ check(
 
 check(
   "the trim is drawn over the row, never in the way of it",
-  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*pointer-events: none;/.test(
+  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:where\(:not\(\.read\), \.starred\)::after \{[^}]*pointer-events: none;/.test(
     listSource,
   ) && /\.row \{\s*position: relative;/.test(listSource),
 );
@@ -677,7 +677,7 @@ check(
   /\.items\.half-end:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,600}?--foot: 2px;[\s\S]{0,300}?border-bottom-right-radius: var\(--turn-br, 0\);[\s\S]{0,200}?border-bottom-left-radius: var\(--turn-bl, 0\);/.test(
     listSource,
   ) &&
-    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-bottom-right-radius: var\(--turn-br, 0\);[^}]*border-bottom-width: var\(--foot\);[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
+    /\.items\.half-end[^{]*\.row:where\(:not\(\.read\), \.starred\)::after \{[^}]*border-bottom-right-radius: var\(--turn-br, 0\);[^}]*border-bottom-width: var\(--foot\);[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
       listSource,
     ),
 );
@@ -690,7 +690,7 @@ check(
   /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row \{[\s\S]{0,600}?border-top-right-radius: var\(--turn-tr, 0\);[\s\S]{0,200}?border-bottom-right-radius: var\(--turn-br, 0\);/.test(
     listSource,
   ) &&
-    /\.row:not\(\.read\)::after \{[\s\S]{0,1600}?border-right: 5px solid[\s\S]{0,200}?border-bottom: 1px solid/.test(
+    /\.row:where\(:not\(\.read\), \.starred\)::after \{[\s\S]{0,1600}?border-right: 5px solid[\s\S]{0,200}?border-bottom: 1px solid/.test(
       listSource,
     ),
 );
@@ -712,7 +712,7 @@ check(
 check(
   "both ends of the foot are the same: one thickness on three sides, 9px in on the left, 12px of clearance",
   /\.items\.half-end[^{]*\.row \{[^}]*margin-left: 9px;/.test(listSource) &&
-    /\.items\.half-end[^{]*\.row:not\(\.read\)::after \{[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
+    /\.items\.half-end[^{]*\.row:where\(:not\(\.read\), \.starred\)::after \{[^}]*border-right-width: var\(--foot\);[^}]*border-left: var\(--foot\) solid/.test(
       listSource,
     ) &&
     /\.items\.half-end[^{]*\.item \{[^}]*padding: calc\(4px \* var\(--row-scale, 1\)\) 6px calc\(4px \* var\(--row-scale, 1\)\) 12px;/.test(

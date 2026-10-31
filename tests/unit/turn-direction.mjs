@@ -118,13 +118,13 @@ check(
 );
 check(
   "the accent is mirrored with the end, not left pointing the old way",
-  /\.items\.turn-left:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.read\)::after \{[^}]*border-right: 0;[^}]*border-left: 5px solid/.test(
+  /\.items\.turn-left:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:where\(:not\(\.read\), \.starred\)::after \{[^}]*border-right: 0;[^}]*border-left: 5px solid/.test(
     listSource,
   ),
 );
 check(
   "a foot hung from the top moves its thick band to the top edge",
-  /\.items\.half-end\.turn-top[^{]*\.row:not\(\.read\)::after \{[^}]*border-top-width: var\(--foot\);[^}]*border-bottom-width: 0;/.test(listSource),
+  /\.items\.half-end\.turn-top[^{]*\.row:where\(:not\(\.read\), \.starred\)::after \{[^}]*border-top-width: var\(--foot\);[^}]*border-bottom-width: 0;/.test(listSource),
 );
 
 /* ---------------------------------------------------------------------------

@@ -2253,7 +2253,7 @@
      one continuous piece that closes the turn — no open end to read as a gap,
      and nothing outside the row to fill in afterwards, because the accent is the
      border of the shape the row already is. */
-  .items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+  .items:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after {
     content: "";
     position: absolute;
     inset: 0 0 -1px 0;
@@ -2284,7 +2284,7 @@
   /* The same accent hung on the left: the thick edge, the dark band that gives it depth and the
      wash that lights it are all mirrored, because a band lit on one side only reads as thinner
      than the one it is mirroring. */
-  .items.turn-left:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+  .items.turn-left:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after {
     border-right: 0;
     border-left: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
     background:
@@ -2299,7 +2299,7 @@
   }
 
   /* Both ends: two thick edges, two bands, and the washes meeting in the middle of the row. */
-  .items.turn-both:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+  .items.turn-both:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after {
     border-left: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
     background:
       linear-gradient(to right, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
@@ -2344,7 +2344,7 @@
      from either end rather than a thick end and a cut corner. The dark band that
      gives the right edge its depth is mirrored for the same reason — an accent
      5px wide that is lit flat reads thinner than the one that is not. */
-  .items.half-end:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+  .items.half-end:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after {
     border-top-left-radius: var(--turn-tl, 0);
     border-top-right-radius: var(--turn-tr, 0);
     border-bottom-right-radius: var(--turn-br, 0);
@@ -2486,7 +2486,7 @@
   /* The foot hung from the top: the thick accent and its dark band move to the top edge, and the
      foot keeps the thin line the top used to carry. Everything else about the shape is unchanged —
      it is the same slab, upside down. */
-  .items.half-end.turn-top:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+  .items.half-end.turn-top:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after {
     border-top-width: var(--foot);
     border-bottom-width: 0;
     background:
@@ -2503,6 +2503,14 @@
 
   .row.read {
     opacity: 0.48;
+  }
+
+  /* A starred post dims less than a plain read one: at 0.48 the star's gold goes
+     to mustard and reads as "not starred", which is the report this answers. It
+     sits above the hover rule on purpose — same specificity, later wins — so a
+     pointer still brightens the row to 0.85. */
+  .row.read.starred {
+    opacity: 0.62;
   }
 
   .row.read:hover,
@@ -2525,6 +2533,24 @@
   .row.starred {
     --accent: var(--star);
   }
+
+  /* A starred post keeps the star's edge once it has been read.
+
+     The star is a fact about the post, not about whether it is new: a post read
+     this morning and starred this afternoon was drawn with no gold at all, because
+     the accent edge above is the unread language and the wash was the only thing
+     the star could colour. The edge now belongs to `:where(:not(.read), .starred)`
+     — starred or unread — and the WASH stays unread-only, so the two states are
+     still told apart at a glance: a wash is new, an edge is starred, both is both. */
+  .items:not(.compact):not(.cards):not(.grid) .row.read.starred::after {
+    background: none;
+  }
+
+  /* And it dims less than a plain read post. At the read row's 0.48 the star's
+     gold goes to mustard, which is exactly what "some of them have no gold" looked
+     like; 0.62 keeps the row quieter than unread without turning the one colour
+     that says "starred" into a muddy one. It sits above, next to the rule it
+     softens, so a hover still brightens the row to 0.85. */
 
   .row:hover {
     background: var(--hover);
