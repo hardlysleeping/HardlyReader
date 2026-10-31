@@ -10,8 +10,10 @@
    * file is the frame the bar uses — the trigger and the fixed popover under it.
    */
   import { ROW_SCALE, TEXT_SCALE, atScaleLimit, scalePercent } from "../lib/reading-layout";
+  import { layout } from "../state/layout.svelte";
   import { reading } from "../state/reading.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
+  import Sheet from "./Sheet.svelte";
 
   /**
    * What the two bar buttons resize: the article's text, or — when no article is
@@ -35,6 +37,17 @@
   }
 
   let open = $state(false);
+
+  /**
+   * A phone gets the sheet, everything else keeps the popover.
+   *
+   * The popover is right for a window: it opens beside the button that asked
+   * for it and leaves the article alone. On a phone it opened in the top
+   * corner, over the text you were reading, with no handle and no gesture back
+   * — so the same rows now come up from the bottom edge, under the thumb, and
+   * are pushed back down the way they arrived.
+   */
+  const onPhone = $derived(layout.device === "phone");
 
   /** Opened from the compact menu, where the Aa has no room to sit. */
   export function openPanel() {
@@ -96,7 +109,9 @@
    * took the press. The Aa button itself is exempt, so it still toggles.
    */
   $effect(() => {
-    if (!open) return;
+    // The sheet is modal and owns its own dismissal: a press inside it must not
+    // read as a press outside the old popover and close it under the finger.
+    if (!open || onPhone) return;
     const onDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (target === null) return;
@@ -146,9 +161,15 @@
 </div>
 
 {#if open}
-  <div class="panel" role="dialog" aria-label="Reading options" bind:this={panelEl} use:portal>
-    <ReadingPanel ondone={close} />
-  </div>
+  {#if onPhone}
+    <Sheet label="Reading options" onclose={close}>
+      <ReadingPanel ondone={close} />
+    </Sheet>
+  {:else}
+    <div class="panel" role="dialog" aria-label="Reading options" bind:this={panelEl} use:portal>
+      <ReadingPanel ondone={close} />
+    </div>
+  {/if}
 {/if}
 
 <style>

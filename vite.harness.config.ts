@@ -10,6 +10,17 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     host: "127.0.0.1",
-    watch: { ignored: ["**/src-tauri/**", "**/.worktrees/**", "**/node_modules/**"] },
+    watch: {
+      // `flatpak/build` and `.flatpak-builder` hold udev watch directories that
+      // are symlink loops: the watcher throws ELOOP for dozens of them and the
+      // server never finishes starting.
+      ignored: [
+        "**/src-tauri/**",
+        "**/.worktrees/**",
+        "**/node_modules/**",
+        "**/flatpak/**",
+        "**/.flatpak-builder/**",
+      ],
+    },
   },
 });
