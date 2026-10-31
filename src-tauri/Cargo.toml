@@ -1,6 +1,6 @@
 [package]
 name = "hardlyreader"
-version = "0.6.21"
+version = "0.6.22"
 # PolyForm Noncommercial has no SPDX id, so the crate points at the file.
 license-file = "../LICENSE"
 description = "HardlyReader - a FreshRSS reader"

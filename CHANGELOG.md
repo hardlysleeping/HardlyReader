@@ -4,6 +4,22 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.22] — 2026-10-30
+
+### Changed
+
+- **The app stops behaving like a page in a browser.** A long press used to
+  offer Copy / Look Up / Share over any label, a tap flashed a grey rectangle,
+  and a cover or an article picture could be dragged out of the window — three
+  things a native iOS app does not do. The chrome is now unselectable and
+  callout-free, with a transparent tap highlight and no image drag. Selection
+  comes back exactly where it is the point: the article body (quoting what you
+  are reading is the app working), a code block, a text field, and anything
+  marked `.selectable`. Zoom needed nothing — `touch-action: pan-x pan-y` already
+  refuses pinch, and on WebKit refusing pinch also refuses the double-tap zoom —
+  which is why this adds no tap-pair canceller: the reader's own double tap, on
+  a picture, is a feature and stays.
+
 ## [0.6.21] — 2026-10-30
 
 ### Changed

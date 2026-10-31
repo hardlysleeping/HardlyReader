@@ -187,6 +187,54 @@ body {
   text-size-adjust: 100%;
 }
 
+/* Native feel, not a web page.
+   ---------------------------------------------------------------------------
+
+   A WebView will select a label, show Copy / Look Up / Share on a long press,
+   flash a grey tap highlight and let a picture be dragged out of the window. A
+   native iOS app does none of those, and each one is a tell. So the chrome is
+   not selectable and offers no callout.
+
+   Zoom needs nothing here: `touch-action: pan-x pan-y` above already refuses
+   pinch, and refusing pinch also refuses the double-tap zoom, because on WebKit
+   they are the same gesture. That is also why this file adds **no** tap-pair
+   canceller of its own — the reader uses a double tap deliberately, on a
+   picture (`lib/picture-zoom.ts`, 320ms, same window as iOS), and a global
+   `preventDefault` on the second tap would be fighting it. HardlyTracking has
+   the JS half because its WebView has no such rule.
+
+   Selection comes back where it is the point: the article (`@html` lands in
+   `.content` — quoting what you are reading is the app working), a field you
+   are typing in, a code block, and anything marked `.selectable` (a feed URL,
+   an error worth pasting into an issue). */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+select,
+[contenteditable="true"],
+.selectable,
+.content,
+.content pre,
+.content code {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* A cover or an article picture is part of the layout, not a file to drop on
+   the desktop. Pointer drags (the list and article drag-scroll) are untouched:
+   this is the HTML5 image drag only. */
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
 /* Slim, quiet scrollbars: they appear where there is more content, not as a
    column of chrome down the side of every panel. A short thumb is honest about a
    long list; the track stays out of the way.
