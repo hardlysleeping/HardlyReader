@@ -24,6 +24,19 @@ All notable changes to HardlyReader are recorded here. The format follows
   number was the only number. The panel's place is a variable now: 46px for a
   42px window bar, and a phone's 36px plus the part of the inset it sits under.
 
+## [0.6.20] — 2026-10-30
+
+### Changed
+
+- **The paid service is called HardlySyncing.** It was written as "HardlyReader
+  Sync", which read as a feature of this app; it is one subscription that carries
+  a reader's own state between their devices, and it is meant to be the same
+  subscription in the other apps. Nothing behind it changed — the same product,
+  the same two prices, the same `entitlements` row.
+- **A purchase made in a browser comes back to the app that started it.** The app
+  names its own origin at Checkout and the service accepts it only when it is one
+  it serves; before this, every purchase returned to the service's own page.
+
 ## [Unreleased]
 
 ## [0.6.18] — 2026-10-29
