@@ -46,6 +46,17 @@ docker run -d --name hardlyreader -p 8080:8080 \
   ghcr.io/hardlysleeping/hardlyreader:latest
 ```
 
+Every release publishes three tags to GHCR — `latest`, the minor line (`0.6`) and the exact version
+(`0.6.22`). Pin the version if you would rather not move with the newest build:
+
+```sh
+docker run -d --name hardlyreader -p 8080:8080 \
+  ghcr.io/hardlysleeping/hardlyreader:0.6.22
+```
+
+The image is the browser build on nginx: ~100 MB, nothing to configure, no state on disk. Updating
+is `docker pull` and recreate.
+
 Open `http://localhost:8080` and enter your FreshRSS address on the connect
 screen — the same one field the desktop app asks for. There is nothing to
 configure in the container.
