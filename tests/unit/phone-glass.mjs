@@ -11,7 +11,9 @@
  * asked not to get. Neither shows up in a screenshot taken on the test device,
  * so both are asserted here instead:
  *
- *   1. the recipe is exactly the one the plan names, declared once;
+ *   1. the recipe is exactly the one the plan names, declared once — the tint,
+ *      the blur, the sheen, the lit edge and the grain all live on the phone
+ *      root, and one grouped rule hands them to every surface;
  *   2. every surface carrying it is navigation — the bar, the ••• pill, the
  *      settings sheet — and no content surface (a row, a card, a feed, an
  *      article) is anywhere near it;
@@ -122,23 +124,65 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
   const root = APP.filter((rule) => rule.selector === 'html[data-device="phone"]');
   const tokens = root.map((rule) => rule.body).join("\n");
   check(
-    "the fill is the surface at 72%, mixed in srgb",
-    /--glass-fill:\s*color-mix\(in srgb, var\(--surface\) 72%, transparent\)/.test(tokens),
+    "the fill is the surface at 62%, mixed in srgb",
+    /--glass-fill:\s*color-mix\(in srgb, var\(--surface\) 62%, transparent\)/.test(tokens),
     tokens.replace(/\s+/g, " ").slice(0, 120),
   );
   check(
-    "the blur is 20px and saturate 180%",
-    /--glass-blur:\s*blur\(20px\) saturate\(180%\)/.test(tokens),
+    "the blur samples more, lifts a little and saturates: 26px, brightness 1.04, 190%",
+    /--glass-blur:\s*blur\(26px\) saturate\(190%\) brightness\(1\.04\)/.test(tokens),
+  );
+  check(
+    "the slab catches light along its top: a sheen and a lit hairline pair",
+    /--glass-sheen:\s*linear-gradient\(180deg, rgb\(255 255 255 \/ 0\.075\)/.test(tokens) &&
+      /--glass-lit:\s*inset 0 1px 0 rgb\(255 255 255 \/ 0\.12\), inset 0 -1px 0 rgb\(0 0 0 \/ 0\.16\)/.test(
+        tokens,
+      ),
+  );
+  check(
+    "the grain is a data URI, so a widget-less build fetches nothing for it",
+    /--glass-grain:\s*url\("data:image\/svg\+xml/.test(tokens) && /feTurbulence/.test(tokens),
+  );
+  check(
+    "light glass is defined too, both by an explicit theme and by the system's",
+    APP.some((rule) => rule.selector === 'html[data-device="phone"][data-theme="light"]') &&
+      APP.some(
+        (rule) =>
+          rule.selector === 'html[data-device="phone"]:not([data-theme])' &&
+          rule.at.some((at) => at.includes("prefers-color-scheme: light")),
+      ),
   );
   check(
     "the recipe is declared once, on the phone root",
-    (bare(app).match(/--glass-blur:\s*blur\(20px\) saturate\(180%\)/g) ?? []).length === 1 &&
-      (bare(app).match(/--glass-fill:/g) ?? []).length === 1,
+    (bare(app).match(/--glass-blur:/g) ?? []).length === 1 &&
+      (bare(app).match(/--glass-fill:/g) ?? []).length === 1 &&
+      (bare(app).match(/--glass-sheen:/g) ?? []).length === 3, // dark, light theme, system light
+  );
+
+  // One grouped rule hands the paint to every surface: the tint, the sheen, the
+  // grain and the shadow land in one place, so a surface cannot be given the
+  // blur and left without the light.
+  const grouped = APP.find(
+    (rule) =>
+      rule.selector.includes('html[data-device="phone"] .phone-header') &&
+      rule.selector.includes('.sheet[role="dialog"]'),
+  );
+  check("one grouped rule paints every glass surface", grouped !== undefined);
+  const painted = grouped?.selector ?? "";
+  for (const surface of [".phone-header", ".phone-header .more", '.sheet[role="dialog"]']) {
+    check(`the grouped rule names ${surface}`, painted.includes(surface));
+  }
+  check(
+    "and it hands over the tint, the sheen with the grain, and the lit edge",
+    grouped !== undefined &&
+      declares(grouped.body, "background-color", "var\\(--glass-fill\\)") &&
+      declares(grouped.body, "background-image", "var\\(--glass-grain\\), var\\(--glass-sheen\\)") &&
+      declares(grouped.body, "box-shadow", "var\\(--glass-lit\\), var\\(--glass-shadow\\)"),
+    (grouped?.body ?? "").replace(/\s+/g, " ").trim(),
   );
   check(
-    "every surface reads the same three values rather than repeating them",
-    carrying.length >= 3 &&
-      carrying.every((rule) => declares(rule.body, "background", "var\\(--glass-fill\\)")),
+    "and no surface repeats the tint for itself — one source, no drift",
+    carrying.every((rule) => !declares(rule.body, "background-color", "var\\(--glass-fill\\)")),
     carrying.map((rule) => rule.selector).join(" · "),
   );
   check(
@@ -294,7 +338,7 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
 
   // Cascade order: same specificity, so the later block wins. A fallback placed
   // above the material would be overwritten by the very rule it exists for.
-  const materialAt = bare(app).indexOf("--glass-blur: blur(20px)");
+  const materialAt = bare(app).indexOf("--glass-blur:");
   const supportsAt = bare(app).indexOf("@supports not ((backdrop-filter: blur(1px))");
   const reduceAt = bare(app).indexOf("@media (prefers-reduced-transparency: reduce)");
   check(
@@ -325,7 +369,14 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
   );
   check(
     "and it is lifted off the content rather than sitting on a seam",
-    /box-shadow:\s*var\(--glass-shadow\)/.test(body),
+    /box-shadow:\s*var\(--glass-lit\), var\(--glass-shadow\)/.test(
+      APP.find((rule) => rule.selector.includes('.sheet[role="dialog"]'))?.body ?? "",
+    ),
+  );
+  check(
+    "the bar's lit lip faces the content, not the screen edge nobody sees",
+    /box-shadow:\s*\n?\s*inset 0 -1px 0 rgb\(255 255 255 \/ 0\.1\),\s*var\(--glass-shadow\)/.test(body),
+    body.replace(/\s+/g, " ").trim(),
   );
   // The 3px activity seam was the second line under the bar on a phone.
   const aura = APP.find((rule) => rule.selector === 'html[data-device="phone"] .aura');

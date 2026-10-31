@@ -498,37 +498,88 @@ html[data-device="phone"] .phone-header {
    activity seam below it loses its own line for the same reason (see `.aura`
    further down). */
 html[data-device="phone"] {
-  --glass-fill: color-mix(in srgb, var(--surface) 72%, transparent);
-  --glass-blur: blur(20px) saturate(180%);
+  /* The four parts of the material, and nothing per-surface.
+   *
+   * `--glass-fill` is the tint the blur sits in: less opaque than it used to be,
+   * because the blur below is doing more of the work now. `--glass-blur` gained
+   * `brightness(1.04)` — a real material lifts what it samples slightly, and
+   * without it a dark article behind the bar made the bar read as a shadow.
+   * `--glass-sheen` is the light the slab catches along its top, and `--glass-lit`
+   * is the hairline pair that makes it a slab instead of a rectangle: one white
+   * line inside the top edge, one dark line inside the bottom. Together they are
+   * the difference between a tinted strip and something with a thickness.
+   *
+   * `--glass-grain` is a 120px tile of fractal noise at 3.5% — the one part of
+   * this that is not decoration. A 26px blur over a photograph produces banded
+   * gradients on an OLED panel, and the system material never does; the grain is
+   * what stops the bar from showing rings. */
+  --glass-fill: color-mix(in srgb, var(--surface) 62%, transparent);
+  --glass-blur: blur(26px) saturate(190%) brightness(1.04);
   --glass-edge: color-mix(in srgb, var(--edge) 58%, transparent);
   --glass-radius: 10px;
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.075), rgb(255 255 255 / 0) 44%);
+  --glass-lit: inset 0 1px 0 rgb(255 255 255 / 0.12), inset 0 -1px 0 rgb(0 0 0 / 0.16);
   --glass-shadow: 0 10px 22px -18px rgb(0 0 0 / 0.6);
+  --glass-grain: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
   /* Where the Aa panel opens: the bar's 36px, the part of the status bar it
      sits under (`--safe-top - 24`, the same number this file gives the header),
      and 4px of breath. On the root rather than on the bar because the panel is
      moved out of the header into `body` — the header is `overflow: hidden` with
      a material that makes it a containing block for fixed children, so a panel
      inside it was clipped to the bar and painted nothing (see
-     `ReadingControls.svelte`). A window's bar is 42px and keeps the
-     component's own 46px default. */
+     `ReadingControls.svelte`). A window's bar is 42px and keeps the component's
+     own 46px default. */
   --rc-panel-top: calc(max(0px, calc(var(--safe-top) - 24px)) + 40px);
 }
 
+/* Light glass is lit from the same side, but a white sheen on a light surface is
+   invisible, so the sheen is stronger and the inner bottom line is fainter: on
+   light the slab is defined by its highlight, on dark by its shadow. */
+html[data-device="phone"][data-theme="light"] {
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.55), rgb(255 255 255 / 0.1) 44%);
+  --glass-lit: inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 -1px 0 rgb(0 0 0 / 0.07);
+  --glass-shadow: 0 10px 22px -20px rgb(0 0 0 / 0.35);
+}
+
+@media (prefers-color-scheme: light) {
+  html[data-device="phone"]:not([data-theme]) {
+    --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.55), rgb(255 255 255 / 0.1) 44%);
+    --glass-lit: inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 -1px 0 rgb(0 0 0 / 0.07);
+    --glass-shadow: 0 10px 22px -20px rgb(0 0 0 / 0.35);
+  }
+}
+
+/* One rule for all three surfaces, so the sheen and the lit edge cannot land on
+   the bar and be forgotten on the sheet. The header's own border-bottom stays:
+   it is full-bleed, and the line is where it meets the content it floats over. */
+html[data-device="phone"] .phone-header,
+html[data-device="phone"] .phone-header .more,
+html[data-device="phone"] .sheet[role="dialog"] {
+  background-color: var(--glass-fill);
+  background-image: var(--glass-grain), var(--glass-sheen);
+  box-shadow: var(--glass-lit), var(--glass-shadow);
+}
+
 html[data-device="phone"] .phone-header {
-  background: var(--glass-fill);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
+  /* The bar is full-bleed at the top of the screen, so its top edge *is* the
+     screen edge and a highlight there is never seen. The lip that reads is the
+     one facing the content: a hairline of light just above the border, which is
+     what makes the slab look like it has thickness rather than a drawn line. */
+  box-shadow:
+    inset 0 -1px 0 rgb(255 255 255 / 0.1),
+    var(--glass-shadow);
 }
 
 /* The one control on the bar that is a surface rather than a glyph. Its radius
    is the bar's inner radius and its hairline the bar's hairline, so it reads as
-   cut from the bar instead of laid on top of it. */
+   cut from the bar instead of laid on top of it. The fill, sheen and lit edge
+   come from the grouped rule above; what is here is only what is its own. */
 html[data-device="phone"] .phone-header .more {
   border-color: var(--glass-edge);
   border-radius: var(--glass-radius);
-  background: var(--glass-fill);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
@@ -537,7 +588,6 @@ html[data-device="phone"] .phone-header .more {
    here, full-bleed, so the hairline is the whole of its border. */
 html[data-device="phone"] .sheet[role="dialog"] {
   border: 1px solid var(--glass-edge);
-  background: var(--glass-fill);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
@@ -556,9 +606,9 @@ html[data-device="phone"] .sheet[role="dialog"] {
 
 /* Both fallbacks, because both are real phones.
 
-   The fill is 72% surface *with the backdrop doing the rest*. Where the
+   The fill is 62% surface *with the backdrop doing the rest*. Where the
    backdrop cannot be blurred — WebKit before `backdrop-filter`, a GPU that
-   refuses it, a system told to reduce transparency — 28% of whatever is behind
+   refuses it, a system told to reduce transparency — 38% of whatever is behind
    the bar showing through unblurred is not a material, it is a bar with the
    text sitting on the list. So the fill goes solid, and the hairline and the
    shadow stay: the surface is the same shape, only opaque.

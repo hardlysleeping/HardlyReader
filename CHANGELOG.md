@@ -4,6 +4,35 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.21] — 2026-10-30
+
+### Changed
+
+- **The phone's bars read as glass rather than as a tinted strip.** The material
+  gained the four things it was missing: the tint is lighter (62% surface, so the
+  blur does more of the work), the blur samples harder and lifts slightly
+  (`blur(26px) saturate(190%) brightness(1.04)`), the slab catches a sheen along
+  its top with a lit hairline inside its edge, and a 3.5% grain tile stops the
+  blur from banding over photographs on an OLED panel. The full-bleed bar's lit
+  lip faces the content, since its top edge is the screen's. One grouped rule
+  paints all three surfaces — bar, ••• pill, settings sheet — so they cannot
+  drift apart, and both fallbacks (no `backdrop-filter`, reduced transparency)
+  still go solid. This is still an imitation: the real material is a
+  `UIVisualEffectView` a webview cannot ask for.
+
+## [0.6.20] — 2026-10-30
+
+### Changed
+
+- **The paid service is called HardlySyncing.** It was written as "HardlyReader
+  Sync", which read as a feature of this app; it is one subscription that carries
+  a reader's own state between their devices, and it is meant to be the same
+  subscription in the other apps. Nothing behind it changed — the same product,
+  the same two prices, the same `entitlements` row.
+- **A purchase made in a browser comes back to the app that started it.** The app
+  names its own origin at Checkout and the service accepts it only when it is one
+  it serves; before this, every purchase returned to the service's own page.
+
 ## [0.6.19] — 2026-10-30
 
 ### Fixed
@@ -23,19 +52,6 @@ All notable changes to HardlyReader are recorded here. The format follows
 - **A window's Aa panel overlapped its own bar by 2px**, because the phone's
   number was the only number. The panel's place is a variable now: 46px for a
   42px window bar, and a phone's 36px plus the part of the inset it sits under.
-
-## [0.6.20] — 2026-10-30
-
-### Changed
-
-- **The paid service is called HardlySyncing.** It was written as "HardlyReader
-  Sync", which read as a feature of this app; it is one subscription that carries
-  a reader's own state between their devices, and it is meant to be the same
-  subscription in the other apps. Nothing behind it changed — the same product,
-  the same two prices, the same `entitlements` row.
-- **A purchase made in a browser comes back to the app that started it.** The app
-  names its own origin at Checkout and the service accepts it only when it is one
-  it serves; before this, every purchase returned to the service's own page.
 
 ## [Unreleased]
 
