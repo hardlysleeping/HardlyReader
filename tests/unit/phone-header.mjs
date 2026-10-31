@@ -134,11 +134,21 @@ check(
 // as padding, so the surface behind the clock is still the header's. It was 42,
 // which is a desktop toolbar's height; on a phone that reads as a gap between
 // the clock and the app rather than as a bar.
+// The bar's top edge has to land *below* the clock, not on it. The inset is
+// paid minus `--status-lift`, declared once on the root: at 24 of a 62pt inset
+// the bar's top row was the clock's last row and the status bar clipped its
+// hairline. 18 leaves 6px of air — a margin, not a band.
+check(
+  "the bar clears the status bar by a hair, not by a band",
+  /--status-lift: 18px;/.test(app) && (app.match(/--status-lift:/g) ?? []).length === 1,
+);
+
 check(
   "the visible height is 36px",
-  // Measured from where the padding puts it: the bar rides 24px higher than the
-  // raw inset, and its height has to agree or `overflow: hidden` clips it.
-  /height: calc\(max\(0px, calc\(var\(--safe-top\) - 24px\)\) \+ 36px\)/.test(header),
+  // Measured from where the padding puts it: the bar rides `--status-lift`
+  // higher than the raw inset, and its height has to agree or `overflow: hidden`
+  // clips it.
+  /height: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 36px\)/.test(header),
 );
 
 /* ---------------------------------------------------------------- *
@@ -180,7 +190,7 @@ check("and the Aa panel opens from it", /<ReadingControls bind:this=\{readingCon
 check("...closing the sheet on its way open", /onopen=\{\(\) => \(settingsOpen = false\)\}/.test(header));
 check(
   "the Aa panel clears the bar it opens under",
-  /--rc-panel-top: calc\(max\(0px, calc\(var\(--safe-top\) - 24px\)\) \+ 40px\)/.test(app) &&
+  /--rc-panel-top: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 40px\)/.test(app) &&
     /top: var\(--rc-panel-top, 46px\)/.test(read("src/components/ReadingControls.svelte")),
 );
 // The panel is fixed and mounted inside the bar, and a phone's bar is
@@ -256,7 +266,7 @@ check(
 );
 check(
   "the header takes its own top and sides",
-  /html\[data-device="phone"\] \.phone-header \{\s*\/\*[\s\S]{0,400}?\*\/\s*padding-top: max\(0px, calc\(var\(--safe-top\) - 24px\)\);\s*padding-left: max\(10px, var\(--safe-left\)\);\s*padding-right: max\(10px, var\(--safe-right\)\);/.test(
+  /html\[data-device="phone"\] \.phone-header \{\s*\/\*[\s\S]{0,400}?\*\/\s*padding-top: max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\);\s*padding-left: max\(10px, var\(--safe-left\)\);\s*padding-right: max\(10px, var\(--safe-right\)\);/.test(
     app,
   ),
 );

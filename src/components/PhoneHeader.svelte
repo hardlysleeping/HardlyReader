@@ -401,9 +401,9 @@
     gap: 6px;
     flex: 0 0 auto;
     /* The same 36px of content, measured from where the padding puts it: the
-       bar sits 24px higher than the raw inset (see `app.css`), and its height
-       has to agree or `overflow: hidden` clips the controls. */
-    height: calc(max(0px, calc(var(--safe-top) - 24px)) + 36px);
+       bar sits `--status-lift` higher than the raw inset (see `app.css`), and
+       its height has to agree or `overflow: hidden` clips the controls. */
+    height: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 36px);
     background: var(--surface);
     overflow: hidden;
   }

@@ -447,6 +447,14 @@ html.drag-panning :is(button, a, [role="button"]):active:not(.on):not([aria-pres
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
+  /* How much of the status bar the header rides over. The clock does not use the
+     whole inset — on a 62pt inset the clock block ends around 38 — so the bar
+     starts that much higher than the raw inset and the surface behind the clock
+     is still the bar's, with no band of nothing above its controls.
+     18 rather than 24: at 24 the bar's top edge landed on the clock's last row
+     and the status bar clipped its hairline, which read as a bar tucked under
+     the clock. 18 leaves 6px of air — the margin a phone needs, and no more. */
+  --status-lift: 18px;
 }
 
 /* The page owns every pixel the app does not, so a strip left by a safe-area
@@ -488,10 +496,9 @@ html[data-device="phone"] #app {
    than a header with a strip of page colour above it. */
 html[data-device="phone"] .phone-header {
   /* Higher than the inset, by the part of it the clock does not use: the bar's
-     controls clear the status bar without a band of nothing between them.
-     24, not 12: the inset on a 17 Pro Max is 62 and the clock block ends around
-     38, so half the inset was empty band above the controls. */
-  padding-top: max(0px, calc(var(--safe-top) - 24px));
+     controls clear the status bar without a band of nothing between them. The
+     number is `--status-lift` on the root, so the height below agrees with it. */
+  padding-top: max(0px, calc(var(--safe-top) - var(--status-lift)));
   padding-left: max(10px, var(--safe-left));
   padding-right: max(10px, var(--safe-right));
 }
@@ -570,14 +577,14 @@ html[data-device="phone"] {
   --glass-shadow: 0 10px 22px -18px rgb(0 0 0 / 0.6);
   --glass-grain: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
   /* Where the Aa panel opens: the bar's 36px, the part of the status bar it
-     sits under (`--safe-top - 24`, the same number this file gives the header),
-     and 4px of breath. On the root rather than on the bar because the panel is
+     sits under (`--safe-top - --status-lift`, the same numbers this file gives
+     the header), and 4px of breath. On the root rather than on the bar because the panel is
      moved out of the header into `body` — the header is `overflow: hidden` with
      a material that makes it a containing block for fixed children, so a panel
      inside it was clipped to the bar and painted nothing (see
      `ReadingControls.svelte`). A window's bar is 42px and keeps the component's
      own 46px default. */
-  --rc-panel-top: calc(max(0px, calc(var(--safe-top) - 24px)) + 40px);
+  --rc-panel-top: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 40px);
 }
 
 /* Light glass is lit from the same side, but a white sheen on a light surface is
