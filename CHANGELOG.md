@@ -4,6 +4,18 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.25] — 2026-10-31
+
+### Fixed
+
+- **The first post in a list no longer starts under the header's rule.** The
+  column was flush at the top (only the foot of the list kept any air), so the
+  first row's accent hairline and turn were drawn against the line above it and
+  read as clipped, with the row's own dark edge sitting where the header ends.
+  The list now keeps the same 12px above the first row that it already kept
+  below the last. Rows, Tree, Grid and the one-line view are all inset by it;
+  Cards is untouched — a card is the pane, and it never touches the top.
+
 ## [0.6.24] — 2026-10-31
 
 ### Fixed

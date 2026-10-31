@@ -2153,6 +2153,12 @@
        scrollable (which made every vertical flick drift sideways), and
        `data-scroll-axis="y"` is the same statement to the drag module. */
     overflow-x: clip;
+    /* The same air above the first row as below the last: a row's edge — its
+       accent hairline, its turn, and the dark band inside it — was drawn flush
+       against the header, so the first post of every list started under the
+       header's rule and read as clipped. 12px is what the foot of the list
+       already keeps, so the column is inset by one number rather than two. */
+    padding-top: 12px;
     padding-bottom: 12px;
     /* The list is panned by the app, not by the browser: the drag module scrolls
        this box and throws it, so a flick and a mouse drag feel the same. The
