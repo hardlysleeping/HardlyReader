@@ -118,6 +118,23 @@ async function handlePlans(offer, log) {
 
 /* -------------------------------- /checkout -------------------------------- */
 
+/**
+ * The origin a purchase returns to.
+ *
+ * One service sells one subscription to more than one app, so "come back here"
+ * cannot be a single setting: a checkout started in the manga app must return to
+ * the manga app, or the browser lands on the reader's page and the reader that
+ * asked sees nothing. The app names its own origin and this accepts it only if it
+ * is one we serve — `APP_URL` plus the CORS list — because an origin taken from a
+ * request body is otherwise a redirect to anywhere.
+ */
+function returnOrigin(body, config) {
+  const asked = typeof body?.return === "string" ? body.return.trim().replace(/\/+$/, "") : "";
+  if (asked === "") return config.appUrl;
+  const served = new Set([config.appUrl, ...config.origins]);
+  return served.has(asked) ? asked : config.appUrl;
+}
+
 async function handleCheckout({ request, config, db, stripe, auth, log }) {
   const token = bearer(request.headers.get("authorization"));
   const userId = await auth.userId(token);
@@ -153,12 +170,13 @@ async function handleCheckout({ request, config, db, stripe, auth, log }) {
       customerId = created;
     }
 
+    const back = returnOrigin(body, config);
     const session = await stripe.createCheckoutSession({
       customerId,
       priceId,
       userId,
-      successUrl: `${config.appUrl}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${config.appUrl}/?checkout=cancelled`,
+      successUrl: `${back}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${back}/?checkout=cancelled`,
     });
 
     log.info("checkout_created", { plan, customer: customerId, session: session.id });
@@ -194,6 +212,10 @@ async function handlePortal({ request, config, db, stripe, auth, log }) {
   const userId = await auth.userId(token);
   if (userId === null) return json(401, { error: "not_signed_in" });
 
+  // Still no body read: the return origin rides in the query string, and the
+  // customer comes from the JWT's link row as it always did.
+  const back = returnOrigin({ return: new URL(request.url).searchParams.get("return") }, config);
+
   let customerId;
   try {
     customerId = await db.customerOf(userId);
@@ -206,7 +228,7 @@ async function handlePortal({ request, config, db, stripe, auth, log }) {
   try {
     const session = await stripe.createBillingPortalSession({
       customerId,
-      returnUrl: `${config.appUrl}/?portal=done`,
+      returnUrl: `${back}/?portal=done`,
     });
     log.info("portal_created", { customer: customerId, session: session.id });
     // Only the URL crosses the wire. No customer, no price, no secret.

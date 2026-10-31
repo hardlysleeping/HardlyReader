@@ -69,7 +69,7 @@ class FakeDb {
 function build({ db = new FakeDb({ customers: { [USER]: CUSTOMER } }), stripe = new FakeStripe(), auth = new FakeAuth({ [TOKEN]: USER }) } = {}) {
   const config = {
     appUrl: "https://app.test",
-    origins: ["https://app.test"],
+    origins: ["https://app.test", "https://tracking.test"],
     webhookSecret: SECRET,
     prices: PRICES,
   };
@@ -92,8 +92,8 @@ function build({ db = new FakeDb({ customers: { [USER]: CUSTOMER } }), stripe = 
 }
 
 /** A request, as the app would send it: a POST, a bearer, and no body. */
-function portal({ token = TOKEN, headers = {} } = {}) {
-  return new Request("https://billing.test/portal", {
+function portal({ token = TOKEN, headers = {}, query = "" } = {}) {
+  return new Request(`https://billing.test/portal${query}`, {
     method: "POST",
     headers: {
       ...(token === null ? {} : { authorization: `Bearer ${token}` }),
@@ -128,6 +128,22 @@ const body = async (response) => {
   check("no customer is created as a side effect", stripe.customers.length === 0);
   check("only the URL crosses the wire", Object.keys(answer ?? {}).join(",") === "url", JSON.stringify(answer));
   check("the log names the event without the token", logs.some((line) => line.event === "portal_created") && !JSON.stringify(logs).includes(TOKEN));
+}
+
+{
+  // One subscription, more than one app: the portal returns to whichever served
+  // app asked, and only to one this service serves.
+  const { handle, stripe } = build();
+  await handle(portal({ query: `?return=${encodeURIComponent("https://tracking.test")}` }));
+  check("a served app gets its own return", stripe.portals[0]?.returnUrl === "https://tracking.test/?portal=done", stripe.portals[0]?.returnUrl);
+
+  const second = build();
+  await second.handle(portal({ query: `?return=${encodeURIComponent("https://somebody-else.test")}` }));
+  check(
+    "an origin we do not serve falls back to the configured app",
+    second.stripe.portals[0]?.returnUrl === "https://app.test/?portal=done",
+    second.stripe.portals[0]?.returnUrl,
+  );
 }
 
 /* --------------------------------------------------------------------------

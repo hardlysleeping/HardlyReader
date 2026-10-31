@@ -86,7 +86,7 @@ class FakeDb {
 function build({ db = new FakeDb(), stripe = new FakeStripe(), auth = new FakeAuth({ [TOKEN]: USER }), prices = PRICES, offer = null } = {}) {
   const config = {
     appUrl: "https://app.test",
-    origins: ["https://app.test"],
+    origins: ["https://app.test", "https://tracking.test"],
     webhookSecret: SECRET,
     prices,
   };
@@ -178,6 +178,42 @@ const text = async (response) => {
   check("a reader who already has a customer gets no second one", stripe.customers.length === 0 && db.linked.length === 0);
   check("and the session uses the customer that already existed", stripe.sessions[0]?.customerId === "cus_existing");
 }
+
+/* One subscription, more than one app: the purchase returns to the app that
+ * started it, and only if that origin is one this service serves. */
+{
+  const { handle, stripe } = build();
+  await handle(
+    request("/checkout", {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      body: { plan: "monthly", return: "https://tracking.test" },
+    }),
+  );
+  check(
+    "a served origin is where the purchase comes back to",
+    stripe.sessions[0]?.successUrl.startsWith("https://tracking.test/?checkout=success"),
+    String(stripe.sessions[0]?.successUrl),
+  );
+  check("...and its cancel too", stripe.sessions[0]?.cancelUrl === "https://tracking.test/?checkout=cancelled");
+}
+
+{
+  const { handle, stripe } = build();
+  await handle(
+    request("/checkout", {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      body: { plan: "monthly", return: "https://somebody-else.test" },
+    }),
+  );
+  check(
+    "an origin we do not serve falls back to the configured app",
+    stripe.sessions[0]?.successUrl.startsWith("https://app.test/?checkout=success"),
+    String(stripe.sessions[0]?.successUrl),
+  );
+}
+
 
 {
   const { handle, stripe } = build();
