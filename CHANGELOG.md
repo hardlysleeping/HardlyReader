@@ -4,6 +4,30 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.23] — 2026-10-31
+
+### Changed
+
+- **A phone's reading options are a sheet, not a popover in the corner.** The Aa
+  panel used to open as a 252px card in the top corner, over the article you were
+  reading, with no handle and no gesture back. On a phone it now rises from the
+  bottom edge: the grabber owns the drag, letting go past a third of its height
+  or flicking it closes, and pulling up gives 28px of elastic and stops because
+  there is nothing above it. The arithmetic is `src/lib/sheet.ts`, which reuses
+  pull-to-refresh's resist curve so the give at the top is the same gesture
+  language. Windows keep the popover exactly as it was. Measured with real touch
+  events at 390×844: a 390×426 sheet flush to the bottom, a 60px drag follows
+  1:1 and springs back, 220px closes, 80px up stops at −28px, a 90px flick
+  closes; desktop at 1440×900 still draws the 252×405 popover at the top right.
+- **The phone's top bar clears the status bar by six pixels instead of touching
+  it.** The bar rode above the raw inset by a hard 24, so on a 62pt inset its top
+  edge landed on the clock's last row and the status bar clipped its hairline.
+  The number is now `--status-lift` on the root, declared once, and the header's
+  padding, its height and the Aa panel's anchor all read it — 18, not 24, because
+  six pixels of air is the margin a phone needs and no more. Measured in portrait
+  at a forced 62pt inset: padding-top 44px where it was 38, height 80 where it was
+  74; at inset 0 and in landscape nothing moves.
+
 ## [0.6.22] — 2026-10-30
 
 ### Changed
