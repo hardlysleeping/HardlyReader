@@ -90,11 +90,25 @@ export interface BeginCheckoutOptions {
 }
 
 /**
+ * This app's own origin, so a purchase made here comes back here.
+ *
+ * The service sells one subscription to more than one app and returns the
+ * browser to the origin it is told; it accepts only an origin it serves. A
+ * native build has no origin to name (the webview is not where a browser tab
+ * lands), so it sends nothing and the service's own default applies.
+ */
+function ownOrigin(): string | undefined {
+  if (typeof location === "undefined" || !/^https?:$/.test(location.protocol)) return undefined;
+  return location.origin;
+}
+
+/**
  * Asks the service for a Checkout URL.
  *
- * The only thing sent is the plan name and the reader's token. The only thing
- * accepted back is an `https://` URL — a response that is not one is a refusal,
- * because the next thing that happens is that URL being opened for the reader.
+ * The only thing sent is the plan name, this app's origin and the reader's
+ * token. The only thing accepted back is an `https://` URL — a response that is
+ * not one is a refusal, because the next thing that happens is that URL being
+ * opened for the reader.
  */
 export async function beginCheckout(options: BeginCheckoutOptions): Promise<string> {
   const base = (options.base ?? billingUrl()).replace(/\/$/, "");
@@ -110,7 +124,7 @@ export async function beginCheckout(options: BeginCheckoutOptions): Promise<stri
         "Content-Type": "application/json",
         Authorization: `Bearer ${options.token}`,
       },
-      body: JSON.stringify({ plan: options.plan }),
+      body: JSON.stringify({ plan: options.plan, return: ownOrigin() }),
     });
   } catch (cause) {
     throw new CheckoutError("billing_unreachable", String(cause));
