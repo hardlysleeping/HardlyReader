@@ -8,6 +8,18 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ### Changed
 
+- **An unfolded feed stays put.** On a phone, opening a feed now scrolls its row
+  to the top of the tree and pins it there: the feed's name and the four views
+  under it stay against the top while its posts scroll beneath, instead of
+  carrying the view options away with them. Measured on the built stylesheet with
+  the tree's real classes — at scrollTop 200 the row sits at 0 and the views bar
+  at the row's own height.
+- **A feed opens at its first post.** Tapping a second feed closed the first,
+  which removed its posts from above and left the scroll at the end of the feed
+  you had just asked for; the row is now pinned (and the scroll set to it) after
+  the new posts arrive.
+
+
 - **Feed indent moved into the Aa panel.** It was a phone's Settings → Feeds
   row, two doors from the list it moves; it is now the first row of the Aa
   panel, above Text size, on the slider the sidebar already mounts. Same store,

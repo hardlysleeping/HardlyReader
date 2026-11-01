@@ -480,6 +480,29 @@
     }
     reader.setExpandedFeed(feed.id);
     await reader.openStream(feed.id, feed.title);
+    await tick();
+    pinFeed(feed.id);
+  }
+
+  /**
+   * Put the feed's own row at the top of the tree, and tell the stylesheet how
+   * tall it is.
+   *
+   * Two things follow from this. A feed opens at its first post instead of
+   * wherever the scroll happened to be — opening a second feed used to close the
+   * first, which shrank the rows above it by the height of those posts and left
+   * you at the *end* of the feed you had just asked for. And the row + the view
+   * options under it are sticky against this number, so the title and the four
+   * views stay put while the posts scroll beneath them.
+   */
+  function pinFeed(id: string): void {
+    if (feedTree === null) return;
+    const row = feedTree.querySelector<HTMLElement>(`[data-drop-feed="${id}"]`);
+    if (row === null) return;
+    feedRowHeight = row.offsetHeight;
+    const offset =
+      row.getBoundingClientRect().top - feedTree.getBoundingClientRect().top + feedTree.scrollTop;
+    feedTree.scrollTo({ top: Math.max(0, offset) });
   }
 
   /**
@@ -725,6 +748,14 @@
    */
   let feedBox = $state<HTMLTextAreaElement | null>(null);
   let feedTree = $state<HTMLElement | null>(null);
+
+  /**
+   * The height of an unfolded feed's own row, in pixels, handed to the
+   * stylesheet as `--feed-row-h`: the nested post list's bar sticks *under* the
+   * row, and a sticky offset has to be a length the sheet knows. One number for
+   * every row, because every feed row is the same height.
+   */
+  let feedRowHeight = $state(0);
   let starredRow = $state<HTMLButtonElement | null>(null);
   const feedLines = $derived(parseFeedUrls(feedUrl).length);
 
@@ -1020,6 +1051,7 @@
   <div
     class="scroll"
     bind:this={feedTree}
+    style:--feed-row-h={`${feedRowHeight}px`}
     use:pullDown={{
       label: "Pull down to check for new posts",
       readyLabel: "Release to check for new posts",
@@ -1902,6 +1934,19 @@
      near the edge (8px + the extension's indent) and are told apart from their
      category by size, weight and colour rather than by a deep column. Category
      rows still take no indent: that is the hierarchy the indent expresses. */
+  /* An unfolded feed keeps its own row against the top of the tree while its
+     posts scroll under it: the name and the four views are the two things a
+     reader changes their mind about mid-feed, and both were scrolling away. Only
+     a phone, because that is the only layout where the posts live inside this
+     scroll box. The bar under the row sticks to `--feed-row-h`, measured when
+     the feed opens. */
+  :global(html[data-device="phone"]) .feed.unfolded {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--surface);
+  }
+
   .feed {
     /* The drop line is drawn against the row's own box, so the row has to be
        the containing block for it. */

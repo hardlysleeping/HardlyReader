@@ -2060,6 +2060,18 @@
     padding: 0 0 3px;
   }
 
+  /* On a phone an unfolded feed's post list hangs inside the sidebar's own
+     scroll box, so its bar can pin: it parks under the feed row that names it
+     (`--feed-row-h`, measured in the sidebar when the feed opens) and the posts
+     pass beneath instead of carrying the views away mid-scroll. */
+  :global(html[data-device="phone"]) .list.nested .list-header {
+    position: sticky;
+    top: var(--feed-row-h, 0px);
+    z-index: 2;
+    padding-bottom: 4px;
+    background: var(--surface);
+  }
+
   .list.nested .items {
     flex: 0 0 auto;
     overflow: visible;
