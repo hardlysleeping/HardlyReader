@@ -425,6 +425,9 @@
   /** A topic row: narrow Pane 2 to it, or back to everything. */
   function pickTopic(topicId: string): void {
     void buzz.selectTopic(buzz.topicId === topicId ? null : topicId);
+    // Same as pressing a category's count: on a phone the narrowed list is
+    // pane 2, so the row has to put you in front of it.
+    if (layout.device === "phone" && inlinePosts) mobileNav.show(2);
   }
 
   // A topic is the reader's, so the section has to be able to make and unmake
