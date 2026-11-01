@@ -4,6 +4,25 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Feed indent moved into the Aa panel.** It was a phone's Settings → Feeds
+  row, two doors from the list it moves; it is now the first row of the Aa
+  panel, above Text size, on the slider the sidebar already mounts. Same store,
+  same write, one slider in three frames rather than a second setting.
+- **"Pictures" is "Thumbnails" in that panel**, and so is everything inside it —
+  the group, the position, the size and both stepper labels. "Pictures above
+  text" now reads as thumbnails too.
+- **A grid tile keeps its picture whole.** Star and read were a floating pill in
+  the tile's top-right corner, drawn over the one part of a square tile the eye
+  goes to first. They are now the last line of the tile, under the words, in
+  normal flow; a thumb gets a 34px target.
+- **A phone's title bar names where you are in 15px, not 12.5px.** The title is
+  the one thing in that bar that changes meaning as you move, and at 12.5 it read
+  like a caption on the back arrow.
+
 ## [0.6.25] — 2026-10-31
 
 ### Fixed

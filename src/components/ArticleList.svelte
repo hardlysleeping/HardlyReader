@@ -2794,7 +2794,7 @@
   }
 
   :global(html[data-device="phone"]) .grid .acts {
-    --tap44-gap: 3px;
+    --tap44-gap: 6px;
   }
 
   :global(html[data-device="phone"]) .cards .acts {
@@ -3330,19 +3330,55 @@
     color: var(--text-dim);
   }
 
-  /* Grid keeps its toggles on the picture: a grid tile is one square of picture
-     with a line of text under it, and there is nowhere else to put them. */
+  /* Grid keeps the tile's picture whole. A square tile is the one view where
+     the picture *is* the item (a comic page, a photograph) and two toggles in
+     its corner cover the part the eye goes to first — so they sit under the
+     words instead: the tile becomes picture, text, then its two actions, and
+     nothing is drawn over the image at all. */
+  .grid .row {
+    flex-direction: column;
+  }
+
   .grid .acts {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    flex-direction: row;
-    gap: 3px;
-    padding: 2px;
-    border-radius: 7px;
-    /* Flat, not blurred: a backdrop filter is a layer per card, and this app
-       draws its cards by the dozen in a webview that renders in software. */
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    position: static;
+    order: 2;
+    width: 100%;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 0 8px 7px;
+    border-radius: 0;
+    background: none;
+  }
+
+  .grid .act {
+    width: 26px;
+    height: 26px;
+    opacity: 0.7;
+  }
+
+  .grid .act svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .grid .row:hover .act,
+  .grid .act.on,
+  .grid .act:focus-visible {
+    opacity: 1;
+  }
+
+  /* A thumb is not a pointer: the two actions under a tile grow to something a
+     finger can land on without eating the tile's text. */
+  @media (pointer: coarse) {
+    .grid .act {
+      width: 34px;
+      height: 34px;
+    }
+
+    .grid .act svg {
+      width: 18px;
+      height: 18px;
+    }
   }
 
   /* A card's picture is the post — a page of comics, a photograph — and the

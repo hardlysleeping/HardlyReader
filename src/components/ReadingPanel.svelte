@@ -30,7 +30,9 @@
     scalePercent,
   } from "../lib/reading-layout";
   import { reading } from "../state/reading.svelte";
+  import { reader } from "../state/reader.svelte";
   import { FLIP_EDGE } from "../lib/reading-layout";
+  import IndentControl from "./IndentControl.svelte";
 
   /**
    * The frame's own verb, if it has one: the bar's popover closes, a section
@@ -70,6 +72,17 @@
   );
 </script>
 
+<!-- The indent of the feed names, first because it is about the column this
+     panel is a sibling of: a phone has no sidebar footer to keep it in, so it
+     was only in Settings → Feeds, two doors away from the Aa that a reader
+     opens while looking at the list. One slider — `IndentControl` — mounted in
+     both places, same store, same write. -->
+<div class="row">
+  <span class="key">Feed indent</span>
+  <IndentControl id="reading-indent" />
+  <span class="indent-px">{reader.sidebarIndent.px}</span>
+</div>
+
 <div class="row">
   <span class="key">Text size</span>
   <div class="stepper" role="group" aria-label="Text size">
@@ -95,17 +108,17 @@
 </div>
 
 <div class="group">
-  <span class="group-label">Pictures</span>
+  <span class="group-label">Thumbnails</span>
 
   <div class="row">
     <span class="key">Position</span>
-    <div class="seg wide" role="group" aria-label="Picture position">
+    <div class="seg wide" role="group" aria-label="Thumbnail position">
       {#each THUMB_SIDES as side (side)}
         <button
           class:on={reading.thumbSide === side}
           aria-pressed={reading.thumbSide === side}
           onclick={() => reading.setThumbSide(side)}
-          title={`Pictures on the ${THUMB_SIDE_LABELS[side].toLowerCase()}`}
+          title={`Thumbnails on the ${THUMB_SIDE_LABELS[side].toLowerCase()}`}
         >{THUMB_SIDE_LABELS[side]}</button>
       {/each}
     </div>
@@ -116,18 +129,18 @@
     <div
       class="stepper"
       role="group"
-      aria-label="Picture size"
+      aria-label="Thumbnail size"
       title={reading.thumbSide === "off"
-        ? "Pictures are off — this size applies when you turn them back on"
+        ? "Thumbnails are off — this size applies when you turn them back on"
         : `${thumbPercent} of the row size (${thumbPx}px wide)`}
     >
       <button
         onclick={() => reading.stepThumbScale(-1)}
         disabled={smallerThumbAtLimit}
-        aria-label="Smaller pictures"
+        aria-label="Smaller thumbnails"
       >−</button>
       <span class="value">{thumbPercent}</span>
-      <button onclick={() => reading.stepThumbScale(1)} disabled={biggerThumbAtLimit} aria-label="Bigger pictures">
+      <button onclick={() => reading.stepThumbScale(1)} disabled={biggerThumbAtLimit} aria-label="Bigger thumbnails">
         +
       </button>
     </div>
@@ -390,6 +403,16 @@
     border-color: var(--accent);
     color: var(--text);
     background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+
+  /* The number the slider is sitting on, at the row's end: the slider alone
+     says "somewhere in the middle" where a pixel width says where. */
+  .indent-px {
+    min-width: 20px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    text-align: right;
   }
 
   .reset,

@@ -476,7 +476,7 @@
     min-width: 0;
     overflow: hidden;
     color: var(--text-dim);
-    font-size: 12.5px;
+    font-size: 15px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
