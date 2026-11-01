@@ -35,6 +35,8 @@
   import { theme } from "../state/theme.svelte";
   import { chrome } from "../state/chrome.svelte";
   import { buzz } from "../state/buzz.svelte";
+  import { icons } from "../state/icons.svelte";
+  import Glyph from "./Glyph.svelte";
   import { topics } from "../state/topics.svelte";
   import { tick } from "svelte";
   import { layout } from "../state/layout.svelte";
@@ -182,6 +184,13 @@
    */
   $effect(() => {
     people.indexAuthors(reader.items);
+  });
+
+  // Icons are a drawing, not a fetch: the choices live on this device (and in
+  // the account's copy), and the guesses are a pure function of the label, so
+  // one guarded read at mount is the whole of the loading.
+  $effect(() => {
+    icons.load();
   });
 
   /** The author rows what is typed narrows the index to. */
@@ -1439,6 +1448,7 @@
     {@const pinned = reader.isCategoryPinned(category.label)}
     {@const hiddenCat = reader.isCategoryHidden(category.label)}
     {@const folded = reader.isCategoryCollapsed(category.id)}
+    {@const glyph = icons.iconFor(category.label)}
     <div
       class="section"
       data-drag-block
@@ -1499,6 +1509,11 @@
             <svg class="pin" viewBox="0 0 24 24" role="img" aria-label={words.count}>
               <path d={MARKER_PATH} />
             </svg>
+          {/if}
+          {#if glyph !== null}
+            <!-- The category's own picture, at the row's ink: it sits before the
+                 name the way a folder's tab sits before its label. -->
+            <span class="cat-glyph" aria-hidden="true"><Glyph name={glyph} size={15} /></span>
           {/if}
           <span class="label">{category.label}</span>
         </button>
@@ -1961,6 +1976,30 @@
      to mean "show me this topic" and nothing else. */
   .buzz-topic .group {
     align-items: stretch;
+  }
+
+  /* The category's glyph keeps the row's own tone: muted on a resting row, the
+     pin's colour when the row is pinned (it is the row's mark, not a second
+     claim), and dimmed with the rest of a hidden row. */
+  .cat-glyph {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    margin-right: 6px;
+    color: var(--muted);
+  }
+
+  .row.group-title:hover .cat-glyph,
+  .row.group-title.active .cat-glyph {
+    color: var(--text-dim);
+  }
+
+  .row.group-title.pinned .cat-glyph {
+    color: color-mix(in srgb, var(--tone-pinned, var(--accent)) 70%, var(--muted));
+  }
+
+  .row.group-title.is-hidden .cat-glyph {
+    opacity: 0.55;
   }
 
   .buzz-fold {

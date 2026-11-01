@@ -55,6 +55,7 @@ import { reading } from "./reading.svelte";
 import { search } from "./search.svelte";
 import { theme } from "./theme.svelte";
 import { topics } from "./topics.svelte";
+import { icons } from "./icons.svelte";
 
 /**
  * This device's record for one account: the stamps it has seen, and the values
@@ -80,6 +81,7 @@ const STORES: Record<PrefsNamespace, PrefsStore> = {
   theme: { snapshot: () => theme.snapshot(), adopt: (value) => theme.adopt(value) },
   search: { snapshot: () => search.snapshot(), adopt: (value) => search.adopt(value) },
   topics: { snapshot: () => topics.snapshot(), adopt: (value) => topics.adopt(value) },
+  icons: { snapshot: () => icons.snapshot(), adopt: (value) => icons.adopt(value) },
 };
 
 export class PrefsSync {
