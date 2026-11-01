@@ -425,9 +425,12 @@
   /** A topic row: narrow Pane 2 to it, or back to everything. */
   function pickTopic(topicId: string): void {
     void buzz.selectTopic(buzz.topicId === topicId ? null : topicId);
-    // Same as pressing a category's count: on a phone the narrowed list is
-    // pane 2, so the row has to put you in front of it.
-    if (layout.device === "phone" && inlinePosts) mobileNav.show(2);
+    // On a phone the narrowed list is pane 2, so the row has to put you in
+    // front of it: unlike a feed tap — which at least changes the posts under
+    // the sidebar — a topic that only moved an outline would look like nothing
+    // happened. Not conditioned on `inlinePosts`: that flag is the one-pane
+    // walk's, and the stack hands the sidebar `false` while still being a phone.
+    if (layout.device === "phone") mobileNav.show(2);
   }
 
   // A topic is the reader's, so the section has to be able to make and unmake
