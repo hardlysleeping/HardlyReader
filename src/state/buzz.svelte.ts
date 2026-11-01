@@ -29,6 +29,8 @@ const STALE_MS = 5 * 60 * 1000;
 export interface BuzzFeed {
   id: string;
   title: string;
+  /** The feed's own picture, when FreshRSS has fetched one. */
+  icon: string | null;
   items: number;
 }
 
@@ -101,10 +103,11 @@ export class BuzzState {
     if (known !== undefined) return known;
     const topic = topics.byId(topicId);
     const counts = topic === null ? [] : feedCounts(this.#narrow(topic));
-    const titles = this.#feedTitles();
+    const meta = this.#feedMeta();
     const made = counts.map((row) => ({
       id: row.id,
-      title: titles.get(row.id) ?? "A feed",
+      title: meta.get(row.id)?.title ?? "A feed",
+      icon: meta.get(row.id)?.icon ?? null,
       items: row.items,
     }));
     this.#feedsFor.set(topicId, made);
@@ -232,9 +235,9 @@ export class BuzzState {
   /** The window narrowed by a topic — the engine never sees a topic. */
   #narrow(topic: BuzzTopic): StreamItem[] {
     if (topic.keywords.length === 0) return this.#window;
-    const titles = this.#feedTitles();
+    const meta = this.#feedMeta();
     return this.#window.filter((item) =>
-      matchesTopic(item, topic, titles.get(item.origin?.streamId ?? "")),
+      matchesTopic(item, topic, meta.get(item.origin?.streamId ?? "")?.title),
     );
   }
 
@@ -258,12 +261,15 @@ export class BuzzState {
     return ids;
   }
 
-  #feedTitles(): Map<string, string> {
-    const titles = new Map<string, string>();
+  /** Feed id → what the icon strip and the feed rows need to draw it. */
+  #feedMeta(): Map<string, { title: string; icon: string | null }> {
+    const meta = new Map<string, { title: string; icon: string | null }>();
     for (const group of reader.categories) {
-      for (const feed of group.feeds) titles.set(feed.id, feed.title);
+      for (const feed of group.feeds) {
+        meta.set(feed.id, { title: feed.title, icon: feed.iconUrl ?? null });
+      }
     }
-    return titles;
+    return meta;
   }
 }
 

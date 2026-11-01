@@ -24,9 +24,7 @@ function ageOf(at: number, now: number = Date.now()): string {
   return `${Math.round(hours / 24)}d`;
 }
 
-function feedTitle(id: string): string {
-  return buzz.feedsFor(buzz.topicId ?? "").find((feed) => feed.id === id)?.title ?? "A feed";
-}
+
 </script>
 
 <section class="buzz" data-pane="posts" aria-label="Buzz">
@@ -78,7 +76,7 @@ function feedTitle(id: string): string {
             <div class="coverage">
               {#each story.articles as article (article.id)}
                 <button class="cover" onclick={() => buzz.openArticle(article)}>
-                  <span class="feed">{article.origin?.title ?? feedTitle(article.origin?.streamId ?? "")}</span>
+                  <span class="feed">{article.origin?.title ?? "A feed"}</span>
                   <span class="age">{ageOf(article.published ?? story.newest)}</span>
                 </button>
               {/each}

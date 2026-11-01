@@ -427,6 +427,43 @@
     void buzz.selectTopic(buzz.topicId === topicId ? null : topicId);
   }
 
+  // A topic is the reader's, so the section has to be able to make and unmake
+  // one. Both live behind a press of their own: adding opens a form, removing
+  // asks twice, and neither happens while reaching for a row.
+  let newTopic = $state(false);
+  let topicName = $state("");
+  let topicWords = $state("");
+  let removeAsked = $state<string | null>(null);
+
+  function addTopic(): void {
+    const made = topics.add(topicName, topicWords);
+    if (made === null) return;
+    topicName = "";
+    topicWords = "";
+    newTopic = false;
+    buzz.invalidate();
+  }
+
+  function askRemove(topicId: string): void {
+    removeAsked = removeAsked === topicId ? null : topicId;
+  }
+
+  /** Two presses, or a press somewhere else: a topic is not lost to a graze. */
+  function reallyRemove(topicId: string): void {
+    topics.remove(topicId);
+    removeAsked = null;
+    if (buzz.topicId === topicId) void buzz.selectTopic(null);
+    buzz.invalidate();
+  }
+
+  /** A feed's picture has no alt of its own; its title does the work. */
+  function initials(title: string): string {
+    const words = title.replace(/[^\p{L}\p{N} ]+/gu, " ").trim().split(/\s+/);
+    const first = words[0]?.[0] ?? "?";
+    const second = words.length > 1 ? (words[1][0] ?? "") : (words[0]?.[1] ?? "");
+    return (first + second).toUpperCase();
+  }
+
   function openCategory(category: CategoryGroup) {
     if (swallowClick) {
       swallowClick = false;
@@ -1270,6 +1307,25 @@
               onclick={() => pickTopic(topic.id)}
             >
               <span class="label">{topic.name}</span>
+              {#if !unfolded}
+                {@const carrying = buzz.feedsFor(topic.id)}
+                {#if carrying.length > 0}
+                  <span class="buzz-icons" aria-hidden="true">
+                    {#each carrying.slice(0, 4) as feed (feed.id)}
+                      <span class="buzz-icon" title={feed.title}>
+                        {#if feed.icon}
+                          <img src={feed.icon} alt="" loading="lazy" decoding="async" />
+                        {:else}
+                          {initials(feed.title)}
+                        {/if}
+                      </span>
+                    {/each}
+                    {#if carrying.length > 4}
+                      <span class="buzz-more">+{carrying.length - 4}</span>
+                    {/if}
+                  </span>
+                {/if}
+              {/if}
               <span class="count">{buzz.countFor(topic.id)}</span>
             </button>
           </div>
@@ -1291,12 +1347,62 @@
             {:else}
               <p class="buzz-note">No feed is carrying this one yet.</p>
             {/each}
+            <button
+              class="buzz-remove"
+              class:asked={removeAsked === topic.id}
+              onclick={() => (removeAsked === topic.id ? reallyRemove(topic.id) : askRemove(topic.id))}
+            >
+              {removeAsked === topic.id ? "Remove it — tap again" : `Remove ${topic.name}`}
+            </button>
           {/if}
         </div>
       {/each}
 
       {#if topics.list.length === 0}
         <p class="buzz-note">No topics yet.</p>
+      {/if}
+
+      {#if newTopic}
+        <!-- Words are optional and comma-separated: a topic with none is the
+             whole window, which is what Breaking News is. -->
+        <div class="buzz-new">
+          <!-- svelte-ignore a11y_autofocus -->
+          <input
+            class="buzz-input"
+            placeholder="Topic name"
+            autofocus
+            bind:value={topicName}
+            onkeydown={(event) => {
+              if (event.key === "Enter") addTopic();
+              if (event.key === "Escape") newTopic = false;
+            }}
+          />
+          <input
+            class="buzz-input"
+            placeholder="Words, comma separated (optional)"
+            bind:value={topicWords}
+            onkeydown={(event) => {
+              if (event.key === "Enter") addTopic();
+              if (event.key === "Escape") newTopic = false;
+            }}
+          />
+          <div class="buzz-actions">
+            <button class="buzz-do" onclick={addTopic} disabled={topicName.trim() === ""}>Add</button>
+            <button
+              class="buzz-do quiet"
+              onclick={() => {
+                newTopic = false;
+                topicName = "";
+                topicWords = "";
+              }}>Cancel</button
+            >
+          </div>
+        </div>
+      {:else}
+        <button class="row buzz-add" onclick={() => (newTopic = true)}>
+          <span class="label">New topic</span>
+          <span class="plus" aria-hidden="true">+</span>
+        </button>
       {/if}
     {/if}
   </div>
@@ -1914,6 +2020,141 @@
     padding: 3px 10px 5px 34px;
     font-size: 11.5px;
     color: var(--muted);
+  }
+
+  /* The feeds carrying a topic, as pictures before it is opened: four at most,
+     then a count, because a tenth icon is no longer a recognisable face. They
+     overlap by a third so five names read as one cluster rather than a queue. */
+  .buzz-icons {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    margin-left: auto;
+    padding-left: 6px;
+  }
+
+  .buzz-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    margin-left: -5px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: var(--surface-raised, var(--surface));
+    box-shadow: 0 0 0 1px var(--edge-soft);
+    color: var(--text-dim);
+    font-size: 7.5px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .buzz-icon:first-child {
+    margin-left: 0;
+  }
+
+  .buzz-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .buzz-more {
+    margin-left: 3px;
+    font-size: 10px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A topic's count still sits at the same right edge as every other count, so
+     the icons borrow the space the label did not need. */
+  .buzz-name .count {
+    flex: none;
+    margin-left: 6px;
+  }
+
+  .buzz-remove {
+    display: block;
+    margin: 2px 10px 6px 34px;
+    padding: 4px 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .buzz-remove:hover {
+    color: var(--text-dim);
+  }
+
+  .buzz-remove.asked {
+    color: var(--danger, #d06a6a);
+    font-weight: 600;
+  }
+
+  .buzz-add {
+    padding-left: 34px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .buzz-add .plus {
+    margin-left: auto;
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  .buzz-new {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 4px 10px 8px 34px;
+  }
+
+  .buzz-input {
+    width: 100%;
+    padding: 5px 7px;
+    border: 1px solid var(--edge-soft);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .buzz-input:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  .buzz-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .buzz-do {
+    padding: 4px 9px;
+    border: 1px solid var(--edge-soft);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+
+  .buzz-do.quiet {
+    color: var(--muted);
+  }
+
+  .buzz-do:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   /* The row and the count sit side by side: the row is the fold, the count
