@@ -9,6 +9,8 @@
   import LayoutSwitch from "../components/LayoutSwitch.svelte";
   import LoadAura from "../components/LoadAura.svelte";
   import MobilePaneStack from "../components/MobilePaneStack.svelte";
+  import BuzzList from "../components/BuzzList.svelte";
+  import { buzz } from "../state/buzz.svelte";
   import PaneGutter from "../components/PaneGutter.svelte";
   import PhoneHeader from "../components/PhoneHeader.svelte";
   import ReaderPane from "../components/ReaderPane.svelte";
@@ -1289,7 +1291,11 @@
       style:transition-duration={dragging ? "0ms" : null}
       bind:this={postsSlot}
     >
-      <ArticleList onOpen={() => (pulled = false)} />
+      {#if buzz.active}
+        <BuzzList />
+      {:else}
+        <ArticleList onOpen={() => (pulled = false)} />
+      {/if}
     </div>
 
     <div class="slot seam-x gut-posts" class:away={!slots.seamPosts}>

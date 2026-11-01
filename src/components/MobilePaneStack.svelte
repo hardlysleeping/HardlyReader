@@ -22,6 +22,8 @@
   import { onMount } from "svelte";
 
   import ArticleList from "./ArticleList.svelte";
+  import BuzzList from "./BuzzList.svelte";
+  import { buzz } from "../state/buzz.svelte";
   import ReaderPane from "./ReaderPane.svelte";
   import Sidebar from "./Sidebar.svelte";
   import { motionEase, motionMs } from "../lib/panes";
@@ -287,7 +289,11 @@
                row. -->
           <Sidebar inlinePosts={false} />
         {:else if pane === 2}
-          <ArticleList />
+          {#if buzz.active}
+            <BuzzList />
+          {:else}
+            <ArticleList />
+          {/if}
         {:else}
           <ReaderPane {onClose} {onLock} />
         {/if}

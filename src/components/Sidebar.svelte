@@ -34,6 +34,8 @@
   import { people } from "../state/people.svelte";
   import { theme } from "../state/theme.svelte";
   import { chrome } from "../state/chrome.svelte";
+  import { buzz } from "../state/buzz.svelte";
+  import { topics } from "../state/topics.svelte";
   import { tick } from "svelte";
   import { layout } from "../state/layout.svelte";
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
@@ -402,6 +404,27 @@
 
   async function open(streamId: string, title: string) {
     await focused.openStream(streamId, title);
+  }
+
+  /**
+   * The ⚡: open the section, or shut it.
+   *
+   * It does not change the stream underneath, so on a phone it also has to put
+   * the stories in front of you — pressing a row that changes nothing on screen
+   * is a press that did nothing.
+   */
+  function toggleBuzz(): void {
+    if (buzz.active) {
+      buzz.close();
+      return;
+    }
+    void buzz.open();
+    if (layout.device === "phone" && inlinePosts) mobileNav.show(2);
+  }
+
+  /** A topic row: narrow Pane 2 to it, or back to everything. */
+  function pickTopic(topicId: string): void {
+    void buzz.selectTopic(buzz.topicId === topicId ? null : topicId);
   }
 
   function openCategory(category: CategoryGroup) {
@@ -1203,6 +1226,81 @@
       <p class="find-note">No post text indexed yet — feed names still match.</p>
     {/if}
   {:else}
+  <!-- Buzz sits above Reading list because it is the wider view: the stories
+       several feeds are carrying, before you pick a feed. Pressing it opens the
+       section; pressing it again shuts it, and nothing else on the row moves. -->
+  <div class="section buzz-section">
+    <button
+      class="row strong buzz-toggle"
+      class:active={buzz.active}
+      aria-expanded={buzz.active}
+      title="Stories more than one feed is carrying"
+      onclick={toggleBuzz}
+    >
+      <span class="bolt" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M13.5 2 4 13.6h6.1L8.6 22 20 10.2h-6.4z" /></svg>
+      </span>
+      <span class="label">Buzz</span>
+      {#if buzz.active && buzz.count > 0}
+        <span class="count">{buzz.count}</span>
+      {/if}
+    </button>
+
+    {#if buzz.active}
+      <!-- Collapsed by default: the section opens as names, not a wall of
+           feeds. The chevron is the only thing that unfolds a row, so reaching
+           for the name never opens two things at once. -->
+      {#each topics.list as topic (topic.id)}
+        {@const unfolded = buzz.expanded.has(topic.id)}
+        <div class="buzz-topic" class:on={buzz.topicId === topic.id}>
+          <div class="group">
+            <button
+              class="buzz-fold"
+              class:up={unfolded}
+              aria-expanded={unfolded}
+              aria-label={unfolded ? `Hide the feeds in ${topic.name}` : `Show the feeds in ${topic.name}`}
+              onclick={() => buzz.toggleFeeds(topic.id)}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" /></svg>
+            </button>
+            <button
+              class="row buzz-name"
+              class:active={buzz.topicId === topic.id}
+              title={topic.keywords.length === 0 ? "Every feed, converged" : topic.keywords.join(", ")}
+              onclick={() => pickTopic(topic.id)}
+            >
+              <span class="label">{topic.name}</span>
+              <span class="count">{buzz.countFor(topic.id)}</span>
+            </button>
+          </div>
+
+          {#if unfolded}
+            {#each buzz.feedsFor(topic.id) as feed (feed.id)}
+              <!-- A feed here is a feed: pressing it leaves Buzz and shows that
+                   feed's posts, exactly as its own row would. -->
+              <button
+                class="row buzz-feed"
+                onclick={() => {
+                  buzz.close();
+                  void open(feed.id, feed.title);
+                }}
+              >
+                <span class="label">{feed.title}</span>
+                <span class="count">{feed.items}</span>
+              </button>
+            {:else}
+              <p class="buzz-note">No feed is carrying this one yet.</p>
+            {/each}
+          {/if}
+        </div>
+      {/each}
+
+      {#if topics.list.length === 0}
+        <p class="buzz-note">No topics yet.</p>
+      {/if}
+    {/if}
+  </div>
+
   <div class="section">
     <button
       class="row strong"
@@ -1716,6 +1814,106 @@
 
   .row.strong .label {
     font-weight: 600;
+  }
+
+  /* Buzz: the ⚡ is drawn at the row's ink, not in the accent, because the
+     accent on this row means "the section is open", and a bolt that is always
+     yellow says the opposite of what the fill says. */
+  .bolt {
+    display: inline-flex;
+    flex: none;
+    width: 13px;
+    height: 13px;
+    margin-left: -1px;
+  }
+
+  .bolt svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linejoin: round;
+  }
+
+  .row.buzz-toggle[aria-expanded="true"] .bolt {
+    color: var(--accent);
+    fill: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  .row.buzz-toggle[aria-expanded="true"] .bolt svg {
+    fill: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  /* The chevron is its own target at the row's left edge, so the name is free
+     to mean "show me this topic" and nothing else. */
+  .buzz-topic .group {
+    align-items: stretch;
+  }
+
+  .buzz-fold {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 22px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .buzz-fold:hover {
+    color: var(--text);
+  }
+
+  .buzz-fold svg {
+    width: 11px;
+    height: 11px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 120ms ease;
+  }
+
+  .buzz-fold.up svg {
+    transform: rotate(90deg);
+  }
+
+  .buzz-name {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    padding-left: 2px;
+    font-size: 12.5px;
+  }
+
+  .buzz-topic.on .buzz-name .label {
+    font-weight: 600;
+  }
+
+  /* A feed under a topic is a step in: smaller, quieter, and indented to the
+     same edge the topics' names sit on so the tree reads as one ladder. */
+  .buzz-feed {
+    padding: 5px 10px 5px 34px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .buzz-feed .label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .buzz-note {
+    margin: 0;
+    padding: 3px 10px 5px 34px;
+    font-size: 11.5px;
+    color: var(--muted);
   }
 
   /* The row and the count sit side by side: the row is the fold, the count

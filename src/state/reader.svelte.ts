@@ -3242,6 +3242,24 @@ export class ReaderState {
     return true;
   }
 
+  /**
+   * The newest `count` posts of a stream, for a caller that is not the list.
+   *
+   * Deliberately not `reloadStream`: it does not touch `items`, `activeStream`,
+   * the saved place, the stream cache or the error banner, and it throws to its
+   * caller instead of painting a banner. Buzz is a lens over the feeds, not a
+   * place the reader has navigated to.
+   */
+  async recentItems(
+    streamId: string,
+    count: number,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<StreamItem[]> {
+    if (!this.canRead) return [];
+    const page = await this.source().stream(streamId, { count, signal: options.signal });
+    return page.items;
+  }
+
   async openStream(streamId: string, title: string): Promise<void> {
     if (!this.suppressHistory && this.activeStream !== null && this.activeStream !== streamId) {
       this.streamHistory = [...this.streamHistory, { id: this.activeStream, title: this.activeTitle }].slice(-20);
