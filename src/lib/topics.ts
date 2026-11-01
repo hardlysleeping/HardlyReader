@@ -85,6 +85,67 @@ export function matchesTopic(item: StreamItem, topic: BuzzTopic, feedTitle?: str
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Words from the wire: one comma-separated string, or an array of them. */
+function keywordsOf(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  const seen = new Set<string>();
+  const words: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const word = entry.trim().replace(/\s+/g, " ").toLowerCase();
+    if (word === "" || seen.has(word)) continue;
+    seen.add(word);
+    words.push(word);
+  }
+  return words;
+}
+
+/** One stored record as a topic, or null when it is not one. */
+export function topicOf(value: unknown): BuzzTopic | null {
+  if (!isRecord(value)) return null;
+  const id = typeof value.id === "string" ? value.id.trim() : "";
+  const name = typeof value.name === "string" ? value.name.trim() : "";
+  if (id === "" || name === "") return null;
+  return { id, name, keywords: keywordsOf(value.keywords) };
+}
+
+/**
+ * The `topics` namespace value: `{ topics: [{ id, name, keywords }] }`.
+ *
+ * Keywords travel as one comma-separated string, not an array, because the sync
+ * wire's depth bound is 3 and a nested array is the fourth level —
+ * `{topics: [{…}]}` is an object, an array, an object, and `keywords: [...]`
+ * inside it is refused. It is refused quietly, per entry, so an array here would
+ * have synced every topic's name and silently dropped every topic's words.
+ */
+export function topicsToValue(list: BuzzTopic[]): Record<string, unknown> {
+  return {
+    topics: list.map((topic) => ({ id: topic.id, name: topic.name, keywords: topic.keywords.join(", ") })),
+  };
+}
+
+/**
+ * A `topics` value from the account, as a list — or `null` when the value says
+ * nothing about topics.
+ *
+ * `null` and `[]` are different answers: a client that has never heard of this
+ * namespace sends no `topics` key, and that must not erase the list, while an
+ * empty array is a reader who removed every topic and must be adopted as such.
+ */
+export function topicsFromValue(value: unknown): BuzzTopic[] | null {
+  if (!isRecord(value) || !Array.isArray(value.topics)) return null;
+  return value.topics.map(topicOf).filter((topic): topic is BuzzTopic => topic !== null);
+}
+
+/** A fresh copy of the shipped topics: seeding must never hand out the constants. */
+export function seededTopics(): BuzzTopic[] {
+  return DEFAULT_TOPICS.map((topic) => ({ ...topic, keywords: [...topic.keywords] }));
+}
+
 /**
  * A name typed into the sidebar, as a topic.
  *
