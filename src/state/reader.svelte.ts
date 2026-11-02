@@ -72,8 +72,7 @@ import {
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
 import type { ReaderBackend } from "../api/backend";
-import { GReaderBackend } from "../api/greader-backend";
-import { scopeIdentity, syncProfile, type ReaderProfile } from "../api/profile";
+import { scopeIdentity, serverBackend, syncProfile, type ReaderProfile } from "../api/profile";
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "../lib/account-key";
 import {
   clearApiSnapshot,
@@ -362,7 +361,7 @@ export class ReaderState {
     // always implied is built here, once, and kept.
     const session = this.session;
     if (session === null) throw new Error("No library is open");
-    const built = new GReaderBackend(transport, session);
+    const built = serverBackend(session);
     this.backend = built;
     return built;
   }
