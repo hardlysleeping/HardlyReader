@@ -87,6 +87,20 @@
     onRead?: () => void;
   } = $props();
 
+  /**
+   * The bar sits under the article: eleven controls are reached with a thumb,
+   * and the top of the pane is the furthest corner of a phone. The reader can
+   * flip it back to the top from the bar itself, and the choice travels.
+   */
+  const barAtBottom = $derived(reading.articleBar === "bottom");
+
+  /**
+   * The floating disc owns the bar's own corner only while the bar is up there.
+   * At the bottom the two are at opposite ends of the pane, so the bar keeps
+   * its arrow: leaving an article should not need a reach back to the top.
+   */
+  const discOverBar = $derived(floatingBack && !barAtBottom);
+
   /** Locking needs something to lock with; without a passcode, say so instead. */
   const canLock = $derived(store.hiddenAvailable && store.hiddenHasPasscode && !store.hiddenLocked);
 
@@ -841,8 +855,8 @@
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" /></svg>
       </button>
     {/if}
-    <header class="toolbar" class:floating={floatingBack}>
-      {#if !floatingBack}
+    <header class="toolbar" class:floating={discOverBar} class:bottom={barAtBottom}>
+      {#if !discOverBar}
         <button class="icon" onclick={() => onClose?.()} aria-label="Back to list">←</button>
       {/if}
       <button
@@ -946,6 +960,29 @@
           </svg>
         </button>
       {/if}
+      <!-- The bar's own placement, in the bar: pressing it moves everything,
+           this button included, to the other edge of the article. The picture is
+           an arrow pointing at the edge the bar would move to — drawn rather
+           than typed, and pointing at a line rather than curling, so it cannot
+           be read as the "open original" arrow at this end of the bar. -->
+      <button
+        class="icon side"
+        aria-label={barAtBottom ? "Move the article bar to the top" : "Move the article bar to the bottom"}
+        title={barAtBottom
+          ? "The bar is under the article, within a thumb's reach — click to put it back at the top"
+          : "The bar is at the top of the article — click to put it at the bottom, where a thumb is"}
+        onclick={() => reading.toggleArticleBar()}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          {#if barAtBottom}
+            <path d="M3 3.4h10" stroke-width="1.9" />
+            <path d="M8 13V6.4M5.2 9.2 8 6.4l2.8 2.8" />
+          {:else}
+            <path d="M3 12.6h10" stroke-width="1.9" />
+            <path d="M8 3v6.6M5.2 6.8 8 9.6l2.8-2.8" />
+          {/if}
+        </svg>
+      </button>
     </header>
 
     <!-- A finger dragging down at the top of an article means "up", and there are
@@ -1200,6 +1237,29 @@
     padding-left: 48px;
   }
 
+  /* Under the article, the bar turns its edge round and takes the home
+     indicator's inset with it: the words above it are the pane's, so the border
+     that separates them moves to the top of the bar. */
+  .toolbar.bottom {
+    order: 2;
+    height: auto;
+    min-height: 40px;
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--edge-soft);
+    border-bottom: 0;
+  }
+
+  /* The placement picture is drawn, not typed, so it carries the bar's own
+     weight rather than the font's. */
+  .toolbar .side svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.3;
+    stroke-linecap: round;
+  }
+
   .toolbar {
     display: flex;
     align-items: center;
@@ -1208,6 +1268,16 @@
     padding: 0 10px;
     border-bottom: 1px solid var(--edge-soft);
     background: var(--surface);
+    /* Eleven controls in a column that can be 240px wide: the bar scrolls
+       sideways before it drops a control off the end, and the scrollbar never
+       draws because the bar's own height is the control's height. */
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .toolbar::-webkit-scrollbar {
+    display: none;
   }
 
   .spacer {

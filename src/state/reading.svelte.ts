@@ -76,8 +76,24 @@ export function isMarkReadMode(value: unknown): value is MarkReadMode {
   return value === "manual" || value === "auto";
 }
 
+/** Where the article's own bar sits: over the words, or under the thumb. */
+export type ArticleBarSide = "top" | "bottom";
+
+/** Both answers, and nothing else: a corrupt value falls back to the bottom. */
+export function isArticleBarSide(value: unknown): value is ArticleBarSide {
+  return value === "top" || value === "bottom";
+}
+
 class ReadingState {
   advanceOnScroll = $state(true);
+
+  /**
+   * The article's bar — text size, star, read, the arrows — starts at the
+   * bottom of the article, where a thumb is. It holds eleven controls on a
+   * phone, and at the top of the pane they sit in the furthest corner a hand
+   * can reach. Flipping it back to the top is one press, on the bar itself.
+   */
+  articleBar = $state<ArticleBarSide>("bottom");
 
   /**
    * Which posts the list shows, everywhere.
@@ -260,6 +276,7 @@ class ReadingState {
    */
   private defaults(): void {
     this.advanceOnScroll = true;
+    this.articleBar = "bottom";
     this.articleFilter = "all";
     this.listView = LIST_VIEW_DEFAULT;
     this.readInPane = false;
@@ -307,6 +324,7 @@ class ReadingState {
   snapshot(): Record<string, unknown> {
     return {
       advanceOnScroll: this.advanceOnScroll,
+      articleBar: this.articleBar,
       articleFilter: this.articleFilter,
       listView: this.listView,
       readInPane: this.readInPane,
@@ -351,6 +369,7 @@ class ReadingState {
   /** Validates and applies one saved blob. Shared by the local read and a pull. */
   private applySaved(saved: Record<string, unknown>): void {
     if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
+    if (isArticleBarSide(saved.articleBar)) this.articleBar = saved.articleBar;
     if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
     if (isListView(saved.listView)) this.listView = saved.listView;
     if (typeof saved.readInPane === "boolean") this.readInPane = saved.readInPane;
@@ -393,6 +412,12 @@ class ReadingState {
 
   toggleAdvance(): void {
     this.advanceOnScroll = !this.advanceOnScroll;
+    this.save();
+  }
+
+  /** The bar's own flip: bottom (the default) or top. */
+  toggleArticleBar(): void {
+    this.articleBar = this.articleBar === "bottom" ? "top" : "bottom";
     this.save();
   }
 
