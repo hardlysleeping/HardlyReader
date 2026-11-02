@@ -71,7 +71,7 @@ import {
   type SidebarIndentState,
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
-import type { ReaderBackend } from "../api/backend";
+import type { QueuedMarks, ReaderBackend } from "../api/backend";
 import { scopeIdentity, serverBackend, syncProfile, type ReaderProfile } from "../api/profile";
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "../lib/account-key";
 import {
@@ -267,6 +267,24 @@ export interface ReaderDeps {
   pane?: boolean;
 }
 
+/**
+ * One post's categories with one state forced to a value.
+ *
+ * The same rule `isRead`/`isStarred` read (a `/state/<name>` suffix), applied to a
+ * copy: the states a server sent and the states the queue holds are the same
+ * register, so forcing one is removing whatever spelling of it is there and adding
+ * it back if the answer is true.
+ */
+function withState(categories: readonly string[], state: string, value: boolean | undefined): string[] {
+  if (value === undefined) return [...categories];
+  // Matched on the `/state/...` tail, never on the literal id: a server spells the
+  // user part its own way (`user/1/state/...` on a Miniflux), and the register is
+  // the state, not who is making it.
+  const suffix = state.slice(state.indexOf("/state/"));
+  const without = categories.filter((category) => !category.endsWith(suffix));
+  return value ? [...without, state] : without;
+}
+
 export class ReaderState {
   /**
    * What a reader needs from whatever made it.
@@ -364,6 +382,52 @@ export class ReaderState {
     const built = serverBackend(session);
     this.backend = built;
     return built;
+  }
+
+  /**
+   * Paints the queued marks onto a page the backend did not send.
+   *
+   * A page restored from disk at launch, or the one still on screen when a read
+   * fails, is older than the queue: it was written before the reader marked any of
+   * its posts. Painting it as it stands would draw a post the reader marked read on
+   * a train as unread, while the queue still holds that decision and will send it.
+   *
+   * Only the queued marks are applied — the page is not otherwise touched, and an
+   * item whose mark is already drawn is left alone. A backend with no queue (a
+   * library on this device, which writes every mark straight to its store) has no
+   * `pendingMarks` and nothing to paint.
+   *
+   * `forStream` is the only guard, and the stream is the right one: a slow disk read
+   * must not stamp one stream's marks onto another that has since been opened. It is
+   * deliberately **not** the load token — a fetch that failed has already settled its
+   * load, and the failed fetch is exactly the case where the restored page stays on
+   * screen and needs the marks most.
+   */
+  private async overlayQueuedMarks(forStream: string): Promise<void> {
+    let backend: ReaderBackend;
+    try {
+      backend = this.source();
+    } catch {
+      return;
+    }
+    if (backend.pendingMarks === undefined) return;
+    let queued: QueuedMarks;
+    try {
+      queued = await backend.pendingMarks();
+    } catch {
+      return;
+    }
+    if (queued.read.size === 0 && queued.starred.size === 0) return;
+    if (this.activeStream !== forStream) return;
+    for (const item of this.items) {
+      const read = queued.read.get(item.id);
+      const starred = queued.starred.get(item.id);
+      if (read === undefined && starred === undefined) continue;
+      const before = item.categories ?? [];
+      const after = withState(withState(before, STATE_READ, read), STATE_STARRED, starred);
+      if (after.length === before.length && after.every((state, at) => state === before[at])) continue;
+      item.categories = after;
+    }
   }
 
   /**
@@ -3368,6 +3432,10 @@ export class ReaderState {
     if (cached !== undefined) {
       this.items = cached.items;
       this.continuation = cached.continuation;
+      // A page from memory or disk predates any mark made since it was written, so
+      // the marks still in the queue are painted onto it. Not awaited: the paint is
+      // the point, and a disk read of a handful of rows lands a tick later.
+      void this.overlayQueuedMarks(stream);
     } else if (this.items.length > 0) {
       // Switching to a stream we have never loaded: drop the previous stream's
       // articles now. Leaving them on screen under the new title reads as "the

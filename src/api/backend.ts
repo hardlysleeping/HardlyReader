@@ -149,6 +149,27 @@ export interface ReaderBackend {
    * online is exactly that event: the reason for waiting has changed.
    */
   flush?(force?: boolean): Promise<number>;
+
+  /**
+   * The marks this account has made that its server has not been told about.
+   *
+   * Absent for the same reason `flush` is: a library on this device has written
+   * every mark to its own store, so there is nothing outstanding to draw.
+   *
+   * The reader asks for this when it paints a page **that did not come from the
+   * server** — the page restored from disk at launch, and the one still on screen
+   * when a read fails. A page the backend returned has the marks applied already
+   * (`OfflineBackend.overlay`), but a restored page is older than the queue, and
+   * painting it unmarked would draw a post as unread that the reader marked read
+   * on a train, with the queue still holding that decision.
+   */
+  pendingMarks?(): Promise<QueuedMarks>;
+}
+
+/** The outstanding decisions, one map per register. */
+export interface QueuedMarks {
+  read: Map<string, boolean>;
+  starred: Map<string, boolean>;
 }
 
 /** The items a stream page carries, for callers that only want those. */

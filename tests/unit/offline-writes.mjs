@@ -16,6 +16,7 @@
  *   node --experimental-strip-types --import ./tests/unit/register-ts.mjs \
  *     tests/unit/offline-writes.mjs
  */
+import { readFileSync } from "node:fs";
 import {
   MemoryJournalBank,
   WriteJournal,
@@ -444,6 +445,56 @@ const SESSION = {
   check(
     "a library on this device serves itself, so nothing is ever queued for it",
     typeof local.setRead === "function" && local.flush === undefined,
+  );
+}
+
+
+/* ---- what a page the backend did not send should be painted with ----------- */
+
+{
+  // A page restored from disk never passes through the backend, so the reader asks
+  // what the queue holds and paints that. The journals are two registers, and both
+  // are answered before anything has been sent.
+  const bank = new MemoryJournalBank();
+  const journal = new WriteJournal(bank, "account-a");
+  const server = stubServer();
+  const backend = new OfflineBackend(server.inner, { journal, autoFlush: false });
+  await journal.record("read", ["post-1"], true);
+  await journal.record("starred", ["post-2"], true);
+  await journal.record("read", ["post-2"], false);
+
+  const queued = await backend.pendingMarks();
+  equal("the queued read marks are answered", [...queued.read.entries()].sort(), [["post-1", true], ["post-2", false]]);
+  equal("and the queued star beside them", [...queued.starred.entries()], [["post-2", true]]);
+  check("nothing was sent to learn that", server.writes.length === 0);
+
+  await backend.flush(true);
+  const after = await backend.pendingMarks();
+  check("and after a flush there is nothing left to paint", after.read.size === 0 && after.starred.size === 0);
+  // Three presses, two registers, two values: post-1 read, post-2 read false, post-2
+  // starred — so the batching is one request per register-and-value, not per press.
+  equal("while the server got every distinct decision", server.writes.length, 3);
+}
+
+/* ---- and the reader actually asks ---------------------------------------- */
+
+{
+  // The wiring, held as a source shape: a restored page is painted from a cache that
+  // predates the mark, so `reloadStream` has to ask the queue about it. The call is
+  // guarded by the load token, or a slow disk read could stamp one stream's marks
+  // onto another.
+  const reader = readFileSync(new URL("../../src/state/reader.svelte.ts", import.meta.url), "utf8");
+  check(
+    "a page from a cache is painted with the queued marks",
+    /void this\.overlayQueuedMarks\(stream\);/.test(reader),
+  );
+  check(
+    "and the paint cannot land on another stream",
+    /if \(this\.activeStream !== forStream\) return;/.test(reader),
+  );
+  check(
+    "a backend with no queue is left alone",
+    /if \(backend\.pendingMarks === undefined\) return;/.test(reader),
   );
 }
 

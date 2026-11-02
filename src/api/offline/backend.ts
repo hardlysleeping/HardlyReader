@@ -237,6 +237,18 @@ export class OfflineBackend implements ReaderBackend {
     return (await this.flushing).sent;
   }
 
+  /**
+   * What the queue holds, for a page the backend did not return.
+   *
+   * `overlay` covers every page this backend hands out. A page restored from the
+   * reader's own disk cache never passes through here, so the reader asks this
+   * instead — same registers, same "the reader's press is newer" rule.
+   */
+  async pendingMarks(): Promise<{ read: Map<string, boolean>; starred: Map<string, boolean> }> {
+    await this.journal.open();
+    return { read: valuesFor(this.journal, "read"), starred: valuesFor(this.journal, "starred") };
+  }
+
   /** The marks a page should be painted with, applied to the server's page. */
   private overlay(page: StreamContents): StreamContents {
     const read = valuesFor(this.journal, "read");
