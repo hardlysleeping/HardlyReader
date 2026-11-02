@@ -59,9 +59,16 @@
     onLock,
     onRead,
     store = reader,
+    floatingBack = false,
   }: {
     onClose?: () => void;
     onLock?: () => void;
+    /**
+     * Draw the way out as a floating control over the article instead of the
+     * first button in its bar. The caller decides: it is true only in the
+     * one-column phone layout, where this pane *is* the screen.
+     */
+    floatingBack?: boolean;
     /**
      * The reader whose post is drawn.
      *
@@ -824,8 +831,20 @@
 
 <section class="reader" data-pane="article" aria-label="Article">
   {#if item}
-    <header class="toolbar">
-      <button class="icon" onclick={() => onClose?.()} aria-label="Back to list">←</button>
+    <!-- One column on a phone has no second pane to fall back to: the way out of
+         the article floats over it at the same corner the unfolded feed's own
+         collapse control pins to, so leaving is one press wherever the article is
+         scrolled to. Everywhere else the bar's arrow is still the way out, and
+         there is no floating twin of it. -->
+    {#if floatingBack}
+      <button class="float-back" onclick={() => onClose?.()} aria-label="Back to list">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" /></svg>
+      </button>
+    {/if}
+    <header class="toolbar" class:floating={floatingBack}>
+      {#if !floatingBack}
+        <button class="icon" onclick={() => onClose?.()} aria-label="Back to list">←</button>
+      {/if}
       <button
         class="icon"
         aria-label="Previous article"
@@ -1138,6 +1157,47 @@
     .pull {
       transition: none;
     }
+  }
+
+  /* The floating way out, drawn in the corner the unfolded feed's own control
+     pins to: one disc, on the content rather than in a bar, so it stays put
+     wherever the article is scrolled to. */
+  .float-back {
+    position: absolute;
+    top: 7px;
+    left: 8px;
+    z-index: 30;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--edge-soft);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    color: var(--text-dim);
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.25);
+    cursor: pointer;
+  }
+
+  .float-back:hover {
+    color: var(--text);
+  }
+
+  .float-back svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* The bar's own controls start after the disc, so nothing hides behind it. */
+  .toolbar.floating {
+    padding-left: 48px;
   }
 
   .toolbar {

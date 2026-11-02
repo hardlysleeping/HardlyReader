@@ -516,13 +516,15 @@ check(
     // list grows inside the list, so there is no second article drawn anywhere.
     "each pane is mounted once, in its own slot, whatever the mode",
     (main.match(/<ArticleList[ \/]/g) ?? []).length === 1 &&
-      (main.match(/<ReaderPane /g) ?? []).length === 1 &&
+      // `<ReaderPane` then attributes, possibly across lines: the prop list is
+      // longer than one line now that the walk passes `floatingBack`.
+      (main.match(/<ReaderPane\b/g) ?? []).length === 1 &&
       /class="slot posts"[\s\S]{0,120}?class:away=\{!slots\.posts\}/.test(main) &&
       /class="slot article" class:away=\{!slots\.article\}/.test(main),
   );
   check(
     "the article keeps its own handler for the walk and its close for the panes",
-    /<ReaderPane onClose=\{closeArticle\} onLock=\{mode === 1 \? lockFromArticle : undefined\} \/>/.test(main),
+    /<ReaderPane[\s\S]{0,160}?onClose=\{closeArticle\}[\s\S]{0,160}?onLock=\{mode === 1 \? lockFromArticle : undefined\}/.test(main),
   );
   check(
     "the seam is one component on the one grid",

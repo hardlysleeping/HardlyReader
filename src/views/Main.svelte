@@ -1315,7 +1315,11 @@
       {#if buzz.coverageOpen && reader.selectedId === null}
         <BuzzCoverage />
       {:else}
-        <ReaderPane onClose={closeArticle} onLock={mode === 1 ? lockFromArticle : undefined} />
+        <ReaderPane
+          onClose={closeArticle}
+          onLock={mode === 1 ? lockFromArticle : undefined}
+          floatingBack={layout.device === "phone" && mode === 1}
+        />
       {/if}
     </div>
 
