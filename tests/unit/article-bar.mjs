@@ -80,8 +80,9 @@ check(
 
 check(
   "the header is the same header, put last",
-  /<header class="toolbar" class:floating=\{discOverBar\} class:bottom=\{barAtBottom\}>/.test(pane) &&
-    /\.toolbar\.bottom \{[\s\S]{0,200}?order: 2;/.test(pane),
+  /<header class="toolbar" class:floating=\{discOverBar\} class:bottom=\{barAtBottom\} bind:clientHeight=\{barHeight\}>/.test(
+    pane,
+  ) && /\.toolbar\.bottom \{[\s\S]{0,200}?order: 2;/.test(pane),
   "a second header would be a second set of controls",
 );
 

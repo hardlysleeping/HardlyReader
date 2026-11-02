@@ -18,7 +18,14 @@
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { bodies } from "../state/bodies.svelte";
   import { picture as drawPicture } from "../state/pictures.svelte";
-  import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
+  import {
+    SETTLE_MS,
+    accumulate,
+    progressOf,
+    shouldAdvance,
+    swipePull,
+    thresholdFor,
+  } from "../lib/scroll-advance";
   import { fittedWidth } from "../lib/image-fit";
   import {
     atRest,
@@ -93,6 +100,18 @@
    * flip it back to the top from the bar itself, and the choice travels.
    */
   const barAtBottom = $derived(reading.articleBar === "bottom");
+
+  /**
+   * How tall the article's bar is, measured rather than guessed.
+   *
+   * The pull's line is the feedback for both the wheel and the finger, and it
+   * belongs on the edge of the *content* — which stopped being the pane's edge
+   * the moment the bar moved to the bottom of the article. Drawn at `bottom: 0`
+   * it was behind the bar, so the gesture had no feedback at all on a phone: the
+   * one place the swipe is the only way through. The bar is measured because it
+   * carries the home indicator's inset, which differs on every phone.
+   */
+  let barHeight = $state(0);
 
   /**
    * The floating disc owns the bar's own corner only while the bar is up there.
@@ -452,6 +471,59 @@
     resetPull();
     settleUntil = performance.now() + SETTLE_MS;
     void store.advanceArticle(direction);
+  }
+
+  /**
+   * The same pull, from a finger.
+   *
+   * A phone has no wheel, so until now the only way out of the bottom of an
+   * article was the `↑`/`↓` bar — dragging past the end simply stopped, because
+   * at the end there is no scroll left to give. This fills the same accumulator
+   * from the thumb and draws it with the same line, so a swipe up and a wheel
+   * push past the end are one gesture with one feedback: the further the
+   * finger goes the less each pixel counts, and letting go before the line is
+   * full puts it back.
+   *
+   * Downwards is deliberately not here: at the top of an article a downward
+   * drag is already `pullDown`'s (leave, or the previous post), and two
+   * handlers claiming one direction is how a gesture ends up firing twice.
+   */
+  let swipeId: number | null = null;
+  let swipeStart = 0;
+
+  function onArticleTouchStart(event: TouchEvent): void {
+    swipeId = null;
+    const el = scroller;
+    if (!reading.advanceOnScroll || !el || event.touches.length !== 1) return;
+    // The flick that carried you into this article must not also take the next.
+    if (performance.now() < settleUntil || !atEnd(el)) return;
+    swipeId = event.touches[0].identifier;
+    swipeStart = event.touches[0].clientY;
+  }
+
+  function onArticleTouchMove(event: TouchEvent): void {
+    if (swipeId === null) return;
+    const el = scroller;
+    const touch = [...event.touches].find((candidate) => candidate.identifier === swipeId);
+    if (!touch || !el) return;
+    if (!atEnd(el)) {
+      // The drag became a scroll after all: it is drag-scroll's, not this.
+      swipeId = null;
+      resetPull();
+      return;
+    }
+    const travel = swipeStart - touch.clientY;
+    pull = travel > 0 ? swipePull(travel, threshold) : 0;
+  }
+
+  function onArticleTouchEnd(): void {
+    if (swipeId === null) return;
+    const fire = shouldAdvance(pull, threshold);
+    swipeId = null;
+    resetPull();
+    if (!fire) return;
+    settleUntil = performance.now() + SETTLE_MS;
+    void store.advanceArticle(1);
   }
 
   // A new article opens at the edge you arrived from: its top when moving
@@ -855,7 +927,7 @@
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" /></svg>
       </button>
     {/if}
-    <header class="toolbar" class:floating={discOverBar} class:bottom={barAtBottom}>
+    <header class="toolbar" class:floating={discOverBar} class:bottom={barAtBottom} bind:clientHeight={barHeight}>
       {#if !discOverBar}
         <button class="icon" onclick={() => onClose?.()} aria-label="Back to list">←</button>
       {/if}
@@ -998,6 +1070,10 @@
       data-scroll-axis="y"
       {onscroll}
       {onwheel}
+      ontouchstart={onArticleTouchStart}
+      ontouchmove={onArticleTouchMove}
+      ontouchend={onArticleTouchEnd}
+      ontouchcancel={onArticleTouchEnd}
       use:pullDown={{
         label: reading.advanceOnScroll ? "Pull down for the previous post" : "Pull down to go back",
         readyLabel: reading.advanceOnScroll ? "Release for the previous post" : "Release to go back",
@@ -1086,11 +1162,16 @@
       <button class="zoomclose" onclick={closePicture} aria-label="Close picture">✕</button>
     </div>
   {/if}
+  <!-- On the content's edge, not the pane's: the bar occupies the pane's, on
+       whichever side it is set to. Downwards fills along the bottom of the
+       words, upwards along their top. -->
   <div
     class="pull"
     class:visible={pull !== 0}
     class:up={pull < 0}
     style:--p={progressOf(pull, threshold)}
+    style:top={pull < 0 ? (barAtBottom ? "0px" : `${barHeight}px`) : "auto"}
+    style:bottom={pull < 0 ? "auto" : barAtBottom ? `${barHeight}px` : "0px"}
     aria-hidden="true"
   ></div>
 </section>

@@ -7,6 +7,12 @@
  * before, so the last stretch needs a deliberate push. The pull is drawn as a
  * filling line at the bottom of the pane, which is the feedback: you can feel
  * how close the switch is before it happens.
+ *
+ * A finger gets the same curve, and the same line, from `swipePull`: it reports
+ * where it is rather than how far it just moved, so the gesture is one closed
+ * form of the same integral, worth `SWIPE_GAIN` wheel pixels per pixel of
+ * thumb. What fills the line is one number either way, so the two cannot drift
+ * apart in feel or in feedback.
  */
 
 /**
@@ -116,6 +122,40 @@ export function travelToAdvance(threshold = PULL_THRESHOLD, step = 1): number {
     travel += step;
   }
   return travel;
+}
+
+/**
+ * How much a finger's travel is worth against the wheel's own curve.
+ *
+ * The wheel needs 728px to fill the pull, which is a trackpad flick; the same
+ * 728px on a phone is an arm movement, not a swipe. Four puts a full pull at
+ * about 182px of finger — one swipe from the wrist, the same distance a flick
+ * through a page is — while keeping the shape identical, because what makes the
+ * gesture feel like a spring is the curve, not the distance. Measured on the
+ * phone at 390 wide: 100px of thumb is 68% of the line, and the last 82px is
+ * the slow half.
+ */
+export const SWIPE_GAIN = 4;
+
+/**
+ * The pull a finger's travel has built, on the wheel's own curve.
+ *
+ * `accumulate` integrates the resistance a notch at a time; a finger reports
+ * where it is rather than how far it just moved, so this is the same curve in
+ * closed form — `(1 + R p) dp = k dt`, solved for `p` — and the two agree to
+ * the pixel. Keeping it closed rather than stepping means a fast swipe cannot
+ * skip the expensive part of the curve by arriving with one big delta.
+ */
+export function swipePull(travel: number, threshold = PULL_THRESHOLD, gain = SWIPE_GAIN): number {
+  if (!(threshold > 0) || !(gain > 0) || !(travel > 0)) return 0;
+  const progress = (-1 + Math.sqrt(1 + (2 * RESISTANCE * gain * travel) / threshold)) / RESISTANCE;
+  return Math.min(threshold, progress * threshold);
+}
+
+/** Finger travel a full pull is worth, the inverse of `swipePull`. */
+export function swipeTravel(threshold = PULL_THRESHOLD, gain = SWIPE_GAIN): number {
+  if (!(threshold > 0) || !(gain > 0)) return 0;
+  return Math.round(((RESISTANCE + 2) * threshold) / (2 * gain));
 }
 
 /**

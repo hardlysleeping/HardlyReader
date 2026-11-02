@@ -1,7 +1,7 @@
 import {
   EFFORT_DEFAULT, EFFORT_HARD_MAX, EFFORT_HARD_MIN, EFFORT_MAX, EFFORT_MIN, PULL_THRESHOLD,
   RESISTANCE, accumulate, clampEffort, contribution, directionOf, progressOf, shouldAdvance,
-  thresholdFor, travelToAdvance, withinSlider,
+  SWIPE_GAIN, swipePull, swipeTravel, thresholdFor, travelToAdvance, withinSlider,
 } from "../../src/lib/scroll-advance.ts";
 
 let failures = 0;
@@ -103,6 +103,26 @@ check("the easy setting is still a deliberate pull", easyTravel > 300, String(ea
 check("the hardest setting is not absurd", hardTravel < 1600, String(hardTravel));
 check("the default effort still needs the tuned travel", Math.abs(travelToAdvance(thresholdFor(1)) - travel) <= 1);
 
+// A finger, on the same curve. The phone had no way past the end of an article
+// at all: dragging stopped where the scroll stopped. It fills the same pull, so
+// the line that fills under the wheel fills under a thumb too.
+check("a finger that has not moved has not pulled", swipePull(0) === 0 && swipePull(-40) === 0);
+check("a finger builds the pull", swipePull(60) > 0 && swipePull(120) > swipePull(60));
+check("a finger cannot overfill it", swipePull(10_000) === PULL_THRESHOLD);
+check("nonsense pulls nothing", swipePull(NaN) === 0 && swipePull(Infinity) === PULL_THRESHOLD);
+const thumbEarly = swipePull(30) - swipePull(10);
+const thumbLateSame = swipePull(swipeTravel() - 2) - swipePull(swipeTravel() - 22);
+check("the same thumb travel does less work late", thumbLateSame < thumbEarly, `${thumbLateSame.toFixed(1)} vs ${thumbEarly.toFixed(1)}`);
+check("a sweep of a thumb gets there", swipePull(swipeTravel()) >= PULL_THRESHOLD - 0.5, String(swipePull(swipeTravel()).toFixed(2)));
+check("and it takes a swipe, not a nudge", swipeTravel() > 120 && swipeTravel() < 320, String(swipeTravel()));
+check("an ordinary swipe is not enough", shouldAdvance(swipePull(140)) === false, String(swipePull(140).toFixed(1)));
+check("the finger and the wheel cost the same, in their own units",
+  Math.abs(swipeTravel() * SWIPE_GAIN - travelToAdvance()) <= 3,
+  `${swipeTravel() * SWIPE_GAIN} vs ${travelToAdvance()}`);
+check("more effort means a longer swipe", swipeTravel(thresholdFor(2)) > swipeTravel(thresholdFor(1)));
+check("less effort means a shorter one", swipeTravel(thresholdFor(0.5)) < swipeTravel(thresholdFor(1)));
+check("a useless threshold or gain pulls nothing", swipePull(200, 0) === 0 && swipePull(200, PULL_THRESHOLD, 0) === 0 && swipeTravel(0) === 0);
+
 // A trackpad flick keeps sending deltas after the switch. Those must not be
 // read as a pull on the post that has just arrived, or one flick skips a post.
 const { readFileSync } = await import("node:fs");
@@ -110,6 +130,26 @@ const pane = readFileSync(new URL("../../src/components/ReaderPane.svelte", impo
 const wheel = pane.slice(pane.indexOf("function onwheel("), pane.indexOf("$effect(", pane.indexOf("function onwheel(")));
 check("a switch locks the wheel for a moment", /SETTLE_MS/.test(pane) && /settleUntil = performance\.now\(\) \+ SETTLE_MS/.test(pane));
 check("the leftover travel of a flick cannot build a pull", /performance\.now\(\) < settleUntil/.test(wheel));
+
+// The finger half: same accumulator, same line, one direction only.
+check("the article listens to the finger", /ontouchstart=\{onArticleTouchStart\}/.test(pane) &&
+  /ontouchmove=\{onArticleTouchMove\}/.test(pane) &&
+  /ontouchend=\{onArticleTouchEnd\}/.test(pane) && /ontouchcancel=\{onArticleTouchEnd\}/.test(pane));
+check("only from the end of the article", /if \(performance\.now\(\) < settleUntil \|\| !atEnd\(el\)\) return;/.test(pane));
+check("advance-on-scroll decides whether it exists", /if \(!reading\.advanceOnScroll \|\| !el \|\| event\.touches\.length !== 1\) return;/.test(pane));
+check("it fills the wheel's own accumulator", /pull = travel > 0 \? swipePull\(travel, threshold\) : 0;/.test(pane));
+check("letting go early puts the pull back", /const fire = shouldAdvance\(pull, threshold\);\s*swipeId = null;\s*resetPull\(\);\s*if \(!fire\) return;/.test(pane));
+check("a finished swipe advances forward, once", /settleUntil = performance\.now\(\) \+ SETTLE_MS;\s*void store\.advanceArticle\(1\);/.test(pane));
+// The line has to be on the content's edge: the article's bar sits on the
+// pane's edge now, and the first attempt drew the line behind it — a swipe with
+// no feedback at all, in the one place the swipe is the only way through.
+check("the bar is measured, not guessed", /bind:clientHeight=\{barHeight\}/.test(pane));
+check("the line sits above the bar when the bar is at the bottom",
+  /style:bottom=\{pull < 0 \? "auto" : barAtBottom \? `\$\{barHeight\}px` : "0px"\}/.test(pane));
+check("and along the words' top edge when it fills upwards",
+  /style:top=\{pull < 0 \? \(barAtBottom \? "0px" : `\$\{barHeight\}px`\) : "auto"\}/.test(pane));
+
+check("a drag that turns into a scroll is given up", /if \(!atEnd\(el\)\) \{[\s\S]{0,140}?swipeId = null;\s*resetPull\(\);/.test(pane));
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
