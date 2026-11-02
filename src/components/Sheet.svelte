@@ -23,6 +23,8 @@
     children,
   }: { label: string; onclose: () => void; children: Snippet } = $props();
 
+  /** The one node this component owns: scrim and sheet travel together. */
+  let shell = $state<HTMLElement | null>(null);
   let el = $state<HTMLElement | null>(null);
   let height = $state(0);
   let offset = $state(0);
@@ -40,11 +42,23 @@
 
   onMount(() => {
     const node = el;
-    if (node === null) return;
-    document.body.appendChild(node);
+    const box = shell;
+    if (node === null || box === null) return;
+    /*
+     * The shell moves, not the sheet.
+     *
+     * The scrim and the sheet are one thing on screen, so they must be one node
+     * as far as the DOM is concerned: moving only the sheet left the scrim
+     * behind in the bar it opened from, and — because a moved node is one
+     * Svelte no longer sees where it put it — the second time this sheet was
+     * opened the scrim was simply gone. `display: contents` keeps the wrapper
+     * out of the layout, so the two children are positioned exactly as they
+     * were written.
+     */
+    document.body.appendChild(box);
     measure();
     node.focus({ preventScroll: true });
-    return () => node.remove();
+    return () => box.remove();
   });
 
   function grab(event: PointerEvent): void {
@@ -87,6 +101,7 @@
 
 <svelte:window onkeydown={onkeydown} />
 
+<div class="shell" bind:this={shell}>
 <button
   class="scrim"
   style="opacity:{scrimOpacity(offset, height)}"
@@ -119,8 +134,15 @@
     {@render children()}
   </div>
 </section>
+</div>
 
 <style>
+  /* A wrapper that draws nothing: it exists so the scrim and the sheet are one
+     node for the portal, and none of the layout sees it. */
+  .shell {
+    display: contents;
+  }
+
   .scrim {
     position: fixed;
     inset: 0;

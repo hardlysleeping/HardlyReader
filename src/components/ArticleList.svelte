@@ -41,6 +41,7 @@
   import { bodies } from "../state/bodies.svelte";
   import { picture as drawPicture, pictures as pictureCache } from "../state/pictures.svelte";
   import { reader, type ReaderState } from "../state/reader.svelte";
+  import ListControls from "./ListControls.svelte";
   import { reading } from "../state/reading.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
   import { thumbnailFirst } from "../lib/images";
@@ -1310,6 +1311,9 @@
             {/if}
           </button>
         {/each}
+        <!-- The settings under the four shapes, in the one place a phone kept
+             neither of them: a sheet off the bar, over the list it changes. -->
+        <ListControls {view} />
         <!-- Read the tapped post here instead of in the article column. It sits
              inside the view group because it is a thing the Rows view does, and
              it is drawn only where Rows is: the other three shapes are for
@@ -1360,9 +1364,10 @@
           {/if}
           <!-- Everything below is a shape you set once, and a phone's bar has no
                room for it: row ends, their radius, and whether a picture fills
-               the end live in `Settings → Post list` there. The four shapes and
-               the filters stay on the bar, because they are what you use while
-               reading. -->
+               the end are in the options sheet `ListControls` opens, and in
+               `Settings → Post list`, both writing the same store. The four
+               shapes and the filters stay on the bar, because they are what you
+               use while reading. -->
           {#if layout.device !== "phone"}
           <!-- How the row ends: half a turn, or the pill. Both kept. -->
           <button

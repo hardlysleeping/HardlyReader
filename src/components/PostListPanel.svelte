@@ -9,11 +9,13 @@
    * looking at had to share it with four more that decide how it looks, and the
    * shapes lost.
    *
-   * So on a phone the shapes stay on the bar and these move here, in the
-   * settings sheet the `•••` opens. Every one of them writes the same store the
-   * bar's own control wrote (`reading.setRowsEnd`, `setCurve`, `toggleFlushThumb`,
-   * `setGridColumns`), so a phone and a desktop cannot end up with two different
-   * lists.
+   * So on a phone the four shapes stay on the bar and these come up from it:
+   * `ListControls` puts a knob button beside the views and opens these same rows
+   * in a sheet, over the list they change. They are also the Post list section of
+   * the settings sheet, for a setting you would rather set once. Every one of
+   * them writes the same store the bar's own control wrote (`reading.setRowsEnd`,
+   * `setCurve`, `toggleFlushThumb`, `setGridColumns`), so a phone and a desktop
+   * cannot end up with two different lists.
    *
    * The rows follow the bar *view for view*, the way the bar does: the ends and
    * the corners are there for the two shapes that have an end, the picture fill
@@ -28,6 +30,13 @@
     gridColumnValue,
   } from "../lib/list-view";
   import { reading } from "../state/reading.svelte";
+
+  /**
+   * Where these rows are drawn matters for one thing only: a popover or a sheet
+   * has something to close, and the settings section does not. Same rows, one
+   * button on the frame that came up from the bar.
+   */
+  let { ondone }: { ondone?: () => void } = $props();
 
   /** The shape the rows are drawn in, which is the one whose corner this is. */
   const footed = $derived(reading.rowsEnd === "half");
@@ -159,6 +168,14 @@
   </div>
 {/if}
 
+<!-- Only where the rows came up from the bar: the settings section is already
+     closed by its own row, so a Done button there would close nothing. -->
+{#if ondone}
+  <div class="foot">
+    <button class="done" onclick={ondone}>Done</button>
+  </div>
+{/if}
+
 <style>
   .row {
     display: flex;
@@ -274,6 +291,23 @@
     border-color: var(--accent);
     color: var(--text);
     background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+
+  .foot {
+    display: flex;
+    justify-content: flex-end;
+    padding: 2px 0 4px;
+  }
+
+  .done {
+    padding: 4px 10px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
   }
 
   /* A thumb, not a pointer: the sheet's rows are reached by finger on the device
