@@ -1779,6 +1779,12 @@ export class ReaderState {
         // fact the menu will show next time it opens.
         this.setFeedExtract(target.id, action.mode);
         return null;
+      case "icon":
+        // The chooser is UI, and it is opened by whoever drew the menu: this
+        // store's job ends with the menu it just closed. Answered rather than
+        // ignored so the switch stays exhaustive over `MenuAction`.
+        this.menu = null;
+        return null;
     }
   }
 

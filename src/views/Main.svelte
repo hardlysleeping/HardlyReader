@@ -5,6 +5,8 @@
   import ArticleList from "../components/ArticleList.svelte";
   import FloodLayer from "../components/FloodLayer.svelte";
   import CategoryMenu from "../components/CategoryMenu.svelte";
+  import IconPickerPopover from "../components/IconPickerPopover.svelte";
+  import { iconPicker } from "../state/icon-picker.svelte";
   import Header from "../components/Header.svelte";
   import LayoutSwitch from "../components/LayoutSwitch.svelte";
   import LoadAura from "../components/LoadAura.svelte";
@@ -1354,13 +1356,25 @@
   </div>
   {/if}
 
+  <IconPickerPopover />
+
   {#if menu}
     <CategoryMenu
       x={menu.x}
       y={menu.y}
       model={menu.model}
       busy={reader.hiddenBusy || reader.favoritesBusy || reader.feedBusy}
-      onselect={(action) => void reader.applyMenuAction(action)}
+      onselect={(action) => {
+        // "Icon…" is the one item that opens something instead of writing: the
+        // chooser takes the menu's own anchor, so it appears where the press was
+        // and over the row it is about.
+        if (action.type === "icon") {
+          iconPicker.open(menu.model.label, { x: menu.x, y: menu.y });
+          reader.closeCategoryMenu();
+          return;
+        }
+        void reader.applyMenuAction(action);
+      }}
       onclose={() => reader.closeCategoryMenu()}
     />
   {/if}

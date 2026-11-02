@@ -193,7 +193,10 @@ export type MenuAction =
   | { type: "full-text"; mode: FullTextMode }
   | { type: "remove-feed" }
   | { type: "confirm-remove" }
-  | { type: "cancel-remove" };
+  | { type: "cancel-remove" }
+  // Not a write: the chooser it opens is UI, and the choice lands through the
+  // icons store when one is made.
+  | { type: "icon" };
 
 export interface MenuItemModel {
   action: MenuAction;
@@ -223,6 +226,12 @@ export interface MenuModel {
    * device. It is a pin in every case, so it is called one in every case.
    */
   pin: MenuItemModel | null;
+  /**
+   * The category's picture. A category row only: a feed's mark is the feed's own
+   * favicon and there is nothing to choose, and giving a feed an arbitrary glyph
+   * would be a second thing called "icon" in the same menu.
+   */
+  icon: MenuItemModel | null;
   /** Remove, for a feed row. Replaced by `confirm` once it is chosen. */
   remove: MenuItemModel | null;
   /** The second half of a removal: confirm or back out. Empty otherwise. */
@@ -304,6 +313,16 @@ export function categoryMenu(
       checked: false,
       disabled: !usable,
     },
+    // Always offered and never disabled: the picture is this device's (and the
+    // account's) taste, so neither the extension being absent nor a category
+    // with no server id has anything to say about it.
+    icon: {
+      action: { type: "icon" },
+      label: "Icon…",
+      checked: false,
+      disabled: false,
+      hint: "A picture for this category, on this device and in your sync",
+    },
     remove: null,
     confirm: [],
     fullText: [],
@@ -348,6 +367,8 @@ export function feedMenu(
     pin: confirming
       ? null
       : { action: { type: "pin", pinned: !pinned }, label: pinned ? words.remove : words.add, glyph: "📌", checked: false, disabled: false },
+    // A feed's mark is its own favicon; there is nothing here to choose.
+    icon: null,
     fullText: confirming
       ? []
       : FULL_TEXT_MODES.map((asked) => ({

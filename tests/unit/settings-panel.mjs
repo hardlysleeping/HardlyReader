@@ -228,6 +228,7 @@ try {
   await buildComponent("src/components/DeviceSyncPanel.svelte");
   await buildComponent("src/components/ExtensionsPanel.svelte");
   await buildComponent("src/components/Glyph.svelte");
+  await buildComponent("src/components/IconGrid.svelte");
   await buildComponent("src/components/IconsPanel.svelte");
   await buildComponent("src/components/IndentControl.svelte");
   await buildComponent("src/components/PostListPanel.svelte");

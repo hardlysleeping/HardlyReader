@@ -180,6 +180,19 @@
     </button>
   {/if}
 
+  {#if model.icon}
+    {@const icon = model.icon}
+    <button
+      class="item"
+      role="menuitem"
+      title={icon.hint ?? ""}
+      disabled={icon.disabled || busy}
+      onclick={() => onselect(icon.action)}
+    >
+      <span class="option">{icon.label}</span>
+    </button>
+  {/if}
+
   {#if model.fullText.length > 0}
     <div class="separator" role="separator"></div>
     <div role="group" aria-label="Full text">

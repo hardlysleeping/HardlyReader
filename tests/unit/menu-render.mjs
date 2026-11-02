@@ -99,7 +99,10 @@ try {
     check("the toggle is enabled", !/<button[^>]*role="menuitem"[^>]*disabled/.test(body));
     check("no view radios are drawn", count(body, 'role="menuitemradio"') === 0, String(count(body, 'role="menuitemradio"')));
     check("Pin is drawn", body.includes(">Pin<"));
-    check("exactly two items: hide/show and pin", count(body, 'role="menuitem"') === 2, String(count(body, 'role="menuitem"')));
+    // Three: hide/show, pin, and Icon… — the chooser, which writes nothing
+    // until one is picked.
+    check("three items: hide/show, pin and the icon chooser", count(body, 'role="menuitem"') === 3, String(count(body, 'role="menuitem"')));
+    check("...the chooser says Icon…", body.includes(">Icon…<"));
   }
 
   {
@@ -117,14 +120,16 @@ try {
 
   {
     const body = draw(categoryMenu(parseState({ available: false }), "Technology", false));
-    check("without Hidden Categories both rows are drawn", count(body, 'role="menuitem"') === 2 && body.includes(">Pin<"));
+    check("without Hidden Categories both rows are drawn", count(body, 'role="menuitem"') === 3 && body.includes(">Pin<"));
     check("...Hide is the disabled one", count(body, "disabled") === 1, String(count(body, "disabled")));
     check("...and the note explains it", /not answering/.test(body), "no note");
   }
 
   {
     const busy = draw(categoryMenu(state(), "Technology", false), { busy: true });
-    check("a write in flight disables the items", count(busy, "disabled") === 2, String(count(busy, "disabled")));
+    // Every item, the chooser included: a menu is disabled while a write is in
+    // flight, and opening a chooser over one would be a second thing to answer.
+    check("a write in flight disables the items", count(busy, "disabled") === 3, String(count(busy, "disabled")));
   }
 
   {
