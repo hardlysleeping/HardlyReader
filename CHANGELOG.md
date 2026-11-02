@@ -6,6 +6,8 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.6.26] — 2026-11-02
+
 ### Changed
 
 - **An unfolded feed stays put.** On a phone, opening a feed now scrolls its row
