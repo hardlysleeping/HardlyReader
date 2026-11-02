@@ -282,29 +282,74 @@ img {
   );
 }
 
-/* The pull gesture's feedback: one line at the top of the window, saying what
-   letting go will do. It is created by the action, so it cannot live in a
-   component's scoped styles. */
-.pull-pill {
+/* The pull's feedback: a capsule that rises out of the bottom edge and fills
+   with the accent until letting go does the thing. Appended to <body> by
+   `src/lib/pull.ts`, so it is styled here rather than in a component.
+   -----------------------------------------------------------------------------
+   The bottom edge, not the top: this gesture only happens on a touchscreen, and
+   a phone is held at the bottom — the words have to be where the hand holding
+   it can see them without leaving the drag. It rises on `--rise` (0..1) and
+   fills on `--fill`, both written by the gesture as the finger moves, and it is
+   only a transform and a scale, so the capsule tracks the finger instead of
+   chasing it. No transition while the pull is live, for the same reason: it
+   appears on the first pixel, not a fifth of a second after it. */
+.pull-slider {
   position: fixed;
-  top: 10px;
   left: 50%;
+  bottom: max(0px, env(safe-area-inset-bottom));
   z-index: 80;
-  transform: translateX(-50%);
-  padding: 3px 10px;
+  display: flex;
+  align-items: center;
+  /* One width for both sentences: the capsule must not jump size at the moment
+     the words change, or the fill it is drawing moves under the eye. */
+  justify-content: center;
+  min-width: 172px;
+  overflow: hidden;
+  padding: 4px 11px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
   color: var(--muted);
   font-size: 11px;
+  line-height: 16px;
   white-space: nowrap;
   pointer-events: none;
+  /* Fully out of sight at 0, and resting 10px clear of the edge at 1 — flush
+     against the edge it looked like a chip that had been clipped by the screen
+     rather than one that came up out of it. */
+  transform: translate(-50%, calc((1 - var(--rise, 0)) * (100% + 10px) - 10px));
 }
 
-.pull-pill.armed {
+/* The accent, filling from the left as the pull approaches the point where
+   letting go does something. It stops at that point, so a full capsule and a
+   ready gesture are the same moment. */
+.pull-slider .fill {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(var(--fill, 0));
+  transform-origin: left center;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.pull-slider .label {
+  position: relative;
+}
+
+.pull-slider.armed {
   color: var(--accent-text);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+/* Released: back under the edge it came from. The only transition it has. */
+.pull-slider.leaving {
+  transition: transform 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pull-slider.leaving {
+    transition: none;
+  }
 }
 
 body {

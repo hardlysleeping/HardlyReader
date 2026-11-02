@@ -7,9 +7,13 @@
  * the pane swipe in the one-column layout still works, and a drag that starts
  * while the content is scrolled is ignored entirely.
  *
- * Feedback is a pill at the top of the window rather than a spinner in the
- * scroller: the action fires on release, so what the pill has to say is what
- * releasing will do.
+ * Feedback is a slider that rises out of the bottom edge of the window, not a
+ * pill at the top of it and not a spinner in the scroller. Three reasons, in
+ * the order they matter: the action fires on release, so the feedback has to
+ * say what releasing will do; a phone is held at the bottom, so an indicator
+ * down there is one the hand can see without leaving the gesture; and a
+ * slider that comes *up* while the content goes *down* reads as a spring being
+ * loaded rather than as a second thing to watch.
  */
 
 /** How far the content must travel before releasing counts as the gesture. */
@@ -30,6 +34,23 @@ export function isArmed(pull: number): boolean {
   return pull >= ARM_PX;
 }
 
+/**
+ * Where the slider sits for one pull distance. Two numbers, both 0..1.
+ *
+ * `rise` is how far the capsule has come out from under the bottom edge, over
+ * the whole pull — so the hand sees it move on the first pixel of the drag.
+ * `fill` is how much of the way to the arm point it is, and it stops at 1 —
+ * the accent filling the capsule *is* the instruction to let go, so it must
+ * finish at the arm point rather than at the cap, or a pull that is ready
+ * would look no readier than the one before it.
+ */
+export function sliderMetrics(pull: number): { rise: number; fill: number; armed: boolean } {
+  // Same reading of nonsense as `resist`: NaN is no pull, an infinite drag is
+  // the cap. Anything else would draw a capsule that disagrees with the pull.
+  const px = pull > 0 ? Math.min(Number.isFinite(pull) ? pull : MAX_PULL, MAX_PULL) : 0;
+  return { rise: px / MAX_PULL, fill: Math.min(1, px / ARM_PX), armed: isArmed(px) };
+}
+
 export interface PullOptions {
   /** Shown while pulling, before the action is armed. */
   label: string;
@@ -48,25 +69,56 @@ export function pullDown(node: HTMLElement, options: PullOptions) {
   let pull = 0;
   let tracking = false;
 
-  const pill = document.createElement("div");
-  pill.className = "pull-pill";
-  pill.setAttribute("aria-hidden", "true");
+  /**
+   * One node for the whole gesture: a capsule carrying the accent and the
+   * words, appended to <body> so it can sit over the bottom edge of the window
+   * rather than inside whichever scroller started the pull.
+   */
+  const slider = document.createElement("div");
+  slider.className = "pull-slider";
+  slider.setAttribute("aria-hidden", "true");
+  const fill = document.createElement("span");
+  fill.className = "fill";
+  const words = document.createElement("span");
+  words.className = "label";
+  slider.append(fill, words);
+  let retreat: ReturnType<typeof setTimeout> | null = null;
 
-  function show(text: string, armed: boolean) {
-    pill.textContent = text;
-    pill.classList.toggle("armed", armed);
-    if (pill.parentNode === null) document.body.appendChild(pill);
+  function show(label: string, armed: boolean, at: number) {
+    const metrics = sliderMetrics(at);
+    words.textContent = label;
+    slider.classList.toggle("armed", armed);
+    slider.classList.remove("leaving");
+    slider.style.setProperty("--rise", metrics.rise.toFixed(3));
+    slider.style.setProperty("--fill", metrics.fill.toFixed(3));
+    if (slider.parentNode === null) document.body.appendChild(slider);
   }
 
   function hide() {
-    pill.remove();
+    if (retreat !== null) {
+      clearTimeout(retreat);
+      retreat = null;
+    }
+    slider.remove();
   }
 
   function settle() {
     pull = 0;
     node.style.transition = "transform 160ms ease-out";
     node.style.transform = "";
-    hide();
+    // Back under the edge, and gone once it is out of sight. A timer rather
+    // than `transitionend`: a window that asked for reduced motion has no
+    // transition to end, and the capsule would stay on screen for ever.
+    if (slider.parentNode !== null) {
+      slider.classList.add("leaving");
+      slider.style.setProperty("--rise", "0");
+      slider.style.setProperty("--fill", "0");
+      if (retreat !== null) clearTimeout(retreat);
+      retreat = setTimeout(() => {
+        retreat = null;
+        slider.remove();
+      }, 240);
+    }
     const done = () => {
       node.style.transition = "";
       node.removeEventListener("transitionend", done);
@@ -110,7 +162,7 @@ export function pullDown(node: HTMLElement, options: PullOptions) {
     event.preventDefault();
     pull = resist(dy);
     node.style.transform = `translateY(${pull.toFixed(1)}px)`;
-    show(isArmed(pull) ? (opts.readyLabel ?? "Release") : opts.label, isArmed(pull));
+    show(isArmed(pull) ? (opts.readyLabel ?? "Release") : opts.label, isArmed(pull), pull);
   }
 
   function onEnd() {
