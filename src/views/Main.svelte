@@ -6,6 +6,7 @@
   import FloodLayer from "../components/FloodLayer.svelte";
   import CategoryMenu from "../components/CategoryMenu.svelte";
   import IconPickerPopover from "../components/IconPickerPopover.svelte";
+  import ImageViewer from "../components/ImageViewer.svelte";
   import BuzzCoverage from "../components/BuzzCoverage.svelte";
   import { iconPicker } from "../state/icon-picker.svelte";
   import Header from "../components/Header.svelte";
@@ -1372,6 +1373,10 @@
   {/if}
 
   <IconPickerPopover />
+
+  <!-- One viewer for every pane and every mode: a grid tile in a split opens the
+       same fullscreen picture a phone does, and there is only ever one of them. -->
+  <ImageViewer />
 
   {#if menu}
     <CategoryMenu

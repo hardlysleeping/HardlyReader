@@ -34,6 +34,9 @@
   import { isExternalHttp } from "../lib/sanitize";
   import { tabbed, type Tabbed } from "../lib/date-tabs";
   import { pullDown } from "../lib/pull";
+  import { armsLongPress, LongPressTracker } from "../lib/contextmenu";
+  import { framesOf } from "../lib/carousel";
+  import { carousel } from "../state/carousel.svelte";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { articleQueue, candidateFor } from "../lib/extract-queue";
   import { ledger } from "../lib/extract-ledger";
@@ -243,7 +246,66 @@
   /** A click within a moment of a swipe is the end of that swipe, not a tap. */
   function openedByTap(item: StreamItem): void {
     if (Date.now() - swipeAt < 400) return;
+    if (gridPressHeld) {
+      gridPressHeld = false;
+      return;
+    }
+    // A grid tile is a square crop of a picture, so a tap asks for the picture:
+    // the post is still one long press away, and that is the only view where a
+    // tap means something else.
+    if (view === "grid" && openPictures(item)) return;
     open(item);
+  }
+
+  /**
+   * The fullscreen viewer, over the posts this list is drawing.
+   *
+   * The frames are taken at the press rather than queried by the viewer, so the
+   * walk is exactly what the grid shows — same filter, same order, same posts —
+   * and star/read go through this list's reader, not the account's.
+   */
+  function openPictures(item: StreamItem): boolean {
+    const items = store.listItems;
+    const frames = framesOf(items, (post) => pixelOf(post));
+    return carousel.show(store, frames, item.id);
+  }
+
+  /** A tile's own picture, worked out once per post like the row's. */
+  function pixelOf(item: StreamItem): string | null {
+    return thumbnail(item);
+  }
+
+  /**
+   * A long press on a grid tile is the post, as it always was.
+   *
+   * The tracker is the sidebar's: same delay, same tolerance, same "a drag
+   * cancels it" rule, so a held tile cannot mean two things at once.
+   */
+  let gridPress: LongPressTracker | null = null;
+  let gridPressHeld = false;
+
+  function onTilePointerDown(event: PointerEvent, item: StreamItem): void {
+    if (view !== "grid") return;
+    if (!armsLongPress(event.pointerType)) return;
+    gridPressHeld = false;
+    gridPress?.cancel();
+    gridPress = new LongPressTracker(() => {
+      gridPressHeld = true;
+      open(item);
+    });
+    gridPress.start({
+      pointerType: event.pointerType,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+  }
+
+  function onTilePointerMove(event: PointerEvent): void {
+    gridPress?.move({ pointerType: event.pointerType, clientX: event.clientX, clientY: event.clientY });
+  }
+
+  function onTilePointerUp(): void {
+    gridPress?.cancel();
   }
 
   /**
@@ -1567,7 +1629,14 @@
         use:swipePages={{ item, count: strip.length }}
         style:--flip-edge={reading.flipEdge}
       >
-        <button class="item" onclick={() => openedByTap(item)}>
+        <button
+          class="item"
+          onclick={() => openedByTap(item)}
+          onpointerdown={(event) => onTilePointerDown(event, item)}
+          onpointermove={onTilePointerMove}
+          onpointerup={onTilePointerUp}
+          onpointercancel={onTilePointerUp}
+        >
           {#if placement === "top"}
             <span class="lead" aria-hidden="true">
               {#if loadNow(item.id)}
