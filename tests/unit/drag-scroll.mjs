@@ -33,11 +33,17 @@ console.log(`PASS  ${label}`);
 }
 
 const source = read("../../src/lib/drag-scroll.ts");
-const app = read("../../src/main.ts");
+const app = read("../../src/App.svelte");
+const entry = read("../../src/main.ts");
 const css = read("../../src/app.css");
 const flingSource = read("../../src/lib/fling.ts");
 
-check("the app installs it at startup", /import \{ installDragScroll \} from "\.\/lib\/drag-scroll"/.test(app) && /installDragScroll\(\);/.test(app));
+check(
+  "the app installs it while the gesture is on",
+  /import \{ installDragScroll \} from "\.\/lib\/drag-scroll"/.test(app) &&
+    /if \(!chrome\.gestures\.dragScroll\) return;\s*return installDragScroll\(\);/.test(app),
+);
+check("and takes the listener away when it is off", !/installDragScroll\(\);/.test(entry));
 check("it listens once, on the window", (source.match(/window\.addEventListener\("pointerdown"/g) ?? []).length === 1);
 check("and removes what it added", /removeEventListener\("pointerdown"/.test(source) && /removeEventListener\("pointermove"/.test(source));
 

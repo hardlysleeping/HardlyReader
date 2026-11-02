@@ -60,6 +60,15 @@ export interface PullOptions {
   onPull: () => void;
   /** False to ignore the gesture for now, e.g. while it is already running. */
   enabled?: () => boolean;
+  /**
+   * False to remove the listeners altogether.
+   *
+   * `enabled` is "not now" — the gesture still exists and comes back. This is
+   * "not at all": turning the pull off in Settings must leave nothing on the
+   * node, because a handler that checks a flag on every touchstart is still a
+   * handler the platform runs.
+   */
+  active?: () => boolean;
 }
 
 export function pullDown(node: HTMLElement, options: PullOptions) {
@@ -173,23 +182,41 @@ export function pullDown(node: HTMLElement, options: PullOptions) {
     if (fire) opts.onPull();
   }
 
-  node.addEventListener("touchstart", onStart, { passive: true });
-  node.addEventListener("touchmove", onMove, { passive: false });
-  node.addEventListener("touchend", onEnd);
-  node.addEventListener("touchcancel", onEnd);
+  let attached = false;
+
+  function attach(): void {
+    if (attached) return;
+    attached = true;
+    node.addEventListener("touchstart", onStart, { passive: true });
+    node.addEventListener("touchmove", onMove, { passive: false });
+    node.addEventListener("touchend", onEnd);
+    node.addEventListener("touchcancel", onEnd);
+  }
+
+  function detach(): void {
+    if (!attached) return;
+    attached = false;
+    tracking = false;
+    pull = 0;
+    hide();
+    node.style.transform = "";
+    node.style.transition = "";
+    node.removeEventListener("touchstart", onStart);
+    node.removeEventListener("touchmove", onMove);
+    node.removeEventListener("touchend", onEnd);
+    node.removeEventListener("touchcancel", onEnd);
+  }
+
+  if (opts.active?.() !== false) attach();
 
   return {
     update(next: PullOptions) {
       opts = next;
+      if (next.active?.() === false) detach();
+      else attach();
     },
     destroy() {
-      hide();
-      node.style.transform = "";
-      node.style.transition = "";
-      node.removeEventListener("touchstart", onStart);
-      node.removeEventListener("touchmove", onMove);
-      node.removeEventListener("touchend", onEnd);
-      node.removeEventListener("touchcancel", onEnd);
+      detach();
     },
   };
 }

@@ -8,6 +8,8 @@
   import { entitlement } from "./state/entitlements.svelte";
   import { identity } from "./api/identity";
   import { layout } from "./state/layout.svelte";
+  import { chrome } from "./state/chrome.svelte";
+  import { installDragScroll } from "./lib/drag-scroll";
   import { reader } from "./state/reader.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
@@ -144,6 +146,20 @@
    */
   $effect(() => {
     reader.paid = entitlement.cloudSync;
+  });
+
+  /**
+   * Drag the lists and the article with the mouse, like a finger on a phone.
+   *
+   * Installed here rather than once in `main.ts` because it is a gesture with an
+   * off switch: the effect re-runs when the answer changes, and turning the
+   * gesture off returns its teardown, so the listener is gone rather than
+   * deafened. It finds the scroll container under the pointer itself, so no pane
+   * has to opt in.
+   */
+  $effect(() => {
+    if (!chrome.gestures.dragScroll) return;
+    return installDragScroll();
   });
 
   /**

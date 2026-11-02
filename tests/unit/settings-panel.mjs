@@ -227,6 +227,7 @@ try {
   await buildComponent("src/components/CloudAccountPanel.svelte");
   await buildComponent("src/components/DeviceSyncPanel.svelte");
   await buildComponent("src/components/ExtensionsPanel.svelte");
+  await buildComponent("src/components/GesturesPanel.svelte");
   await buildComponent("src/components/Glyph.svelte");
   await buildComponent("src/components/IconGrid.svelte");
   await buildComponent("src/components/IconsPanel.svelte");
@@ -287,10 +288,10 @@ try {
     // its own (Accounts holds the pairing block, Account the address change), and
     // the question here is how many *sections* there are.
     const sections = (markup) => (markup.match(/<details[^>]*class="sec/g) ?? []).length;
-    // Eight now: Category icons joined the desktop set (thirteen ids, five of
-    // them phone-only or filtered out here).
-    check("there are eight sections", sections(body) === 8, String(sections(body)));
-    check("every one is a disclosure with a summary", count(body, 'class="sum') === 8, String(count(body, 'class="sum')));
+    // Nine now: Category icons joined the desktop set, then Gestures (thirteen
+    // ids, four of them phone-only or filtered out here).
+    check("there are nine sections", sections(body) === 9, String(sections(body)));
+    check("every one is a disclosure with a summary", count(body, 'class="sum') === 9, String(count(body, 'class="sum')));
     check("every section is named", SECTIONS.every((label) => new RegExp(`<span class="label[^"]*">${label}</span>`).test(body)));
     check("and says what is in it", SECTIONS.every((label) => hasClass(section(body, label), "note")));
     // Native `<details>` is the mechanism: the content is inside the disclosure,
@@ -481,7 +482,7 @@ try {
     // every row in them is one the app already had — the same slider, the same
     // `reading` writes.
     const sectionsOn = (body) => (body.match(/<details[^>]*class="sec/g) ?? []).length;
-    check("a phone is offered both sections its chrome gives up", sectionsOn(phone) === 10, String(sectionsOn(phone)));
+    check("a phone is offered both sections its chrome gives up", sectionsOn(phone) === 11, String(sectionsOn(phone)));
 
     const feeds = section(phone, "Feeds");
     check(

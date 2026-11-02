@@ -2,12 +2,9 @@ import { mount } from "svelte";
 import "./app.css";
 import App from "./App.svelte";
 import { installWebStore } from "./api/web-store";
-import { installDragScroll } from "./lib/drag-scroll";
 
-// Drag the lists and the article with the mouse, like a finger on a phone.
-// Installed once for the whole app: it finds the scroll container under the
-// pointer itself, so no pane has to opt in.
-installDragScroll();
+// Drag-to-scroll lives in `App.svelte` now: it is a gesture with an off switch,
+// and the switch has to take the listener away rather than make it do nothing.
 
 // The shop, before anything mounts. With a billing service configured, the Buy
 // button opens Stripe Checkout in the system browser and a page that comes back

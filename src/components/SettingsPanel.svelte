@@ -28,6 +28,7 @@
   import IconsPanel from "./IconsPanel.svelte";
   import IndentControl from "./IndentControl.svelte";
   import PostListPanel from "./PostListPanel.svelte";
+  import GesturesPanel from "./GesturesPanel.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
   import BodyPanel from "./BodyPanel.svelte";
   import ThemePanel from "./ThemePanel.svelte";
@@ -56,7 +57,7 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "extensions" | "account" | "feeds" | "appearance" | "icons" | "reading" | "list" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
+  type SectionId = "accounts" | "extensions" | "account" | "feeds" | "appearance" | "icons" | "reading" | "list" | "gestures" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
 
   /**
    * The sections, in the order someone looks for them: who I am, what is in the
@@ -93,6 +94,7 @@
     { id: "icons", label: "Category icons", note: "A picture per category" },
     { id: "reading", label: "Reading", note: "Text, pictures, read state" },
     { id: "list", label: "Post list", note: "Row ends, corners, tiles", phone: true },
+    { id: "gestures", label: "Gestures", note: "What a swipe, a pull and a hold do" },
     { id: "layout", label: "Layout", note: "Pane widths and arrangement" },
     { id: "bodies", label: "Saved text", note: "Article text kept on this device" },
     { id: "refreshing", label: "Refreshing", note: "Interval, and when it fetches" },
@@ -131,6 +133,7 @@
     icons: false,
     reading: false,
     list: false,
+    gestures: false,
     layout: false,
     // Every section in `SECTIONS`, including the ones a device filters out:
     // the record is keyed by the type, so a section added to the list and not
@@ -357,6 +360,11 @@
               <!-- The phone's posts bar gives up its shape controls; these are
                    the same stores the bar wrote, on rows with room for them. -->
               <PostListPanel />
+            {:else if section.id === "gestures"}
+              <!-- Every row here is a gesture that already exists: the pane
+                   swipe, the pull at a list's top, drag-to-scroll and the long
+                   press. Off removes the listener rather than the meaning. -->
+              <GesturesPanel />
             {:else if section.id === "layout"}
               <!-- Pane widths, the one-pane width and the held-upright mode are
                    the layout tab, mounted whole: a phone now reaches the same

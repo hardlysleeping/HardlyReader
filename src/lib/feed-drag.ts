@@ -292,6 +292,14 @@ export interface RowDragHandlers {
   onHold?: (id: string, point: { x: number; y: number }) => void;
   /** A drag ended or was cancelled. */
   onEnd?: () => void;
+  /**
+   * How long a finger has to hold before the row is lifted, in milliseconds.
+   *
+   * The hold and the long press are one gesture here — whichever fires first is
+   * what the press meant — so the delay is the reader's setting, read at the
+   * moment of the press rather than at construction.
+   */
+  holdMs?: () => number;
 }
 
 /** Kept under its old name: the shape did not change, only the payload's names. */
@@ -555,7 +563,7 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
         // The hold is the lift, so the menu's own timer stands down: the two are
         // one press, and whichever fires first is what the press means.
         handlers.onStart?.();
-      }, TOUCH_HOLD);
+      }, handlers.holdMs?.() ?? TOUCH_HOLD);
     }
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);

@@ -34,9 +34,11 @@
   import { isExternalHttp } from "../lib/sanitize";
   import { tabbed, type Tabbed } from "../lib/date-tabs";
   import { pullDown } from "../lib/pull";
-  import { armsLongPress, LongPressTracker } from "../lib/contextmenu";
+  import { armsLongPress, LongPressTracker, realTimers } from "../lib/contextmenu";
   import { framesOf } from "../lib/carousel";
   import { carousel } from "../state/carousel.svelte";
+  import { pullLabels } from "../lib/gestures";
+  import { chrome } from "../state/chrome.svelte";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { articleQueue, candidateFor } from "../lib/extract-queue";
   import { ledger } from "../lib/extract-ledger";
@@ -243,6 +245,14 @@
     };
   }
 
+  /**
+   * What the pull says, in the words of the answer it was given.
+   *
+   * Read here rather than in the action so the capsule cannot promise one thing
+   * and do another: the label and the callback are the same setting.
+   */
+  const pullWords = $derived(pullLabels(chrome.gestures.pull));
+
   /** A click within a moment of a swipe is the end of that swipe, not a tap. */
   function openedByTap(item: StreamItem): void {
     if (Date.now() - swipeAt < 400) return;
@@ -289,10 +299,14 @@
     if (!armsLongPress(event.pointerType)) return;
     gridPressHeld = false;
     gridPress?.cancel();
-    gridPress = new LongPressTracker(() => {
-      gridPressHeld = true;
-      open(item);
-    });
+    gridPress = new LongPressTracker(
+      () => {
+        gridPressHeld = true;
+        open(item);
+      },
+      realTimers,
+      chrome.gestures.longPressMs,
+    );
     gridPress.start({
       pointerType: event.pointerType,
       clientX: event.clientX,
@@ -1571,9 +1585,11 @@
     use:cardWheel
     use:cardResize
     use:pullDown={{
-      label: "Pull down to check for new posts",
-      readyLabel: "Release to check for new posts",
+      label: pullWords.label,
+      readyLabel: pullWords.ready,
       enabled: () => !store.loadingList,
+      // Off is not "ignore it": the listener is not installed at all.
+      active: () => chrome.gestures.pull !== "off",
       onPull: () => void store.reloadStream({ force: true }),
     }}
   >

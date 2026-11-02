@@ -9,6 +9,7 @@
     anchorForRect,
     armsLongPress,
     isMenuKey,
+    realTimers,
   } from "../lib/contextmenu";
   import { parseFeedUrls } from "../lib/add-feeds";
   import { DEMO } from "../lib/demo";
@@ -661,10 +662,16 @@
     if (!armsLongPress(event.pointerType)) return;
     swallowClick = false;
     press?.cancel();
-    press = new LongPressTracker((point) => {
-      swallowClick = true;
-      openMenu(point);
-    });
+    press = new LongPressTracker(
+      (point) => {
+        swallowClick = true;
+        openMenu(point);
+      },
+      realTimers,
+      // The reader's own delay: the same number the drag's hold uses, read at the
+      // moment of the press so a change in Settings applies to the next press.
+      chrome.gestures.longPressMs,
+    );
     press.start({
       pointerType: event.pointerType,
       clientX: event.clientX,
@@ -711,6 +718,7 @@
     // A finger that held the row and let go without moving it: the menu, asked
     // for with a hold. `swallowClick` keeps the click that follows from opening
     // the feed as well.
+    holdMs: () => chrome.gestures.longPressMs,
     onHold: (id, point) => {
       const feed = reader.subscriptions.find((entry) => entry.id === id);
       if (feed === undefined) return;
@@ -727,6 +735,7 @@
       // Order only: nothing about membership, hidden state or pins moves, and
       // nothing is sent — this is a local arrangement, like the feeds'.
       onDrop: ({ moving, before }) => reader.arrangeCategory(moving, before),
+      holdMs: () => chrome.gestures.longPressMs,
       onHold: (id, point) => {
         const category = reader.categories.find((group) => group.id === id);
         if (category === undefined) return;

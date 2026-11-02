@@ -16,6 +16,11 @@
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "./account-key";
 import { AUTO_SYNC_DEFAULT_HOURS, parseAutoSyncHours, type AutoSyncHours } from "./auto-sync";
 import {
+  GESTURE_DEFAULTS,
+  parseGestures,
+  type GesturePrefs,
+} from "./gestures";
+import {
   REFRESH_ON_RETURN_DEFAULT,
   parseRefreshOnReturn,
   type RefreshOnReturn,
@@ -58,6 +63,8 @@ export interface ChromePrefs {
    * `never` silences the return check alone, and opening the app still syncs.
    */
   refreshOnReturn: RefreshOnReturn;
+  /** The gestures this device answers to; see `lib/gestures.ts`. */
+  gestures: GesturePrefs;
 }
 
 const DEFAULT_PREFS: ChromePrefs = {
@@ -67,6 +74,7 @@ const DEFAULT_PREFS: ChromePrefs = {
   autoSync: false,
   autoSyncHours: AUTO_SYNC_DEFAULT_HOURS,
   refreshOnReturn: REFRESH_ON_RETURN_DEFAULT,
+  gestures: { ...GESTURE_DEFAULTS },
 };
 
 /**
@@ -87,6 +95,7 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
       autoSync?: unknown;
       autoSyncHours?: unknown;
       refreshOnReturn?: unknown;
+      gestures?: unknown;
     };
     return {
       bandCollapsed: saved.bandCollapsed === true,
@@ -95,6 +104,7 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
       autoSync: saved.autoSync === true,
       autoSyncHours: parseAutoSyncHours(saved.autoSyncHours),
       refreshOnReturn: parseRefreshOnReturn(saved.refreshOnReturn),
+      gestures: parseGestures(saved.gestures),
     };
   } catch {
     // Corrupt JSON, or storage throwing: both quiet defaults are safe.
@@ -214,6 +224,22 @@ export function writeRefreshOnReturn(
   account: AccountIdentity | null = null,
 ): void {
   patchPrefs(storage, account, { refreshOnReturn: parseRefreshOnReturn(value) });
+}
+
+/** The gestures this device answers to, whole — one record, one write. */
+export function readGestures(
+  storage: StorageLike | undefined,
+  account: AccountIdentity | null = null,
+): GesturePrefs {
+  return readPrefs(storage, account).gestures;
+}
+
+export function writeGestures(
+  storage: StorageLike | undefined,
+  value: GesturePrefs,
+  account: AccountIdentity | null = null,
+): void {
+  patchPrefs(storage, account, { gestures: parseGestures(value) });
 }
 
 /** localStorage in a browser, undefined anywhere it does not exist. */
