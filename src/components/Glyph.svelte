@@ -12,7 +12,7 @@
    * weight closes up the small counters (the `user` glyph's head disappears into
    * the shoulders). 1.7 is the weight the app's own carets are drawn at.
    */
-  import { iconMarkup } from "../lib/icons";
+  import { iconMarkup } from "../lib/icons/index";
 
   interface Props {
     name: string | null | undefined;

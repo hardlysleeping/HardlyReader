@@ -73,7 +73,9 @@ const built = new Map();
 function sourceOf(fromFile, specifier) {
   if (!specifier.startsWith(".")) return null;
   const base = resolve(dirname(fromFile), specifier);
-  for (const candidate of [base, `${base}.ts`, `${base}.js`, `${base}.svelte`]) {
+  // `index.ts` last: Bun/TS let a directory be a module, Node does not, so a
+  // component importing `../lib/icons` must resolve to the file inside it.
+  for (const candidate of [base, `${base}.ts`, `${base}.js`, `${base}.svelte`, `${base}/index.ts`, `${base}/index.js`]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   }
   return null;
@@ -201,6 +203,12 @@ try {
   // which is what lets its rewritten imports point at their generated copies.
   buildRunes("src/state/reader.svelte.ts");
 
+  // The Category icons section: the store's shape lives in `lib/icons` (which
+  // also holds the set), and the panel draws glyphs through `<Glyph>`.
+  buildRunes("src/state/icons.svelte.ts");
+  buildRunes("src/lib/icons/index.ts");
+  buildRunes("src/lib/category-icon.ts");
+
   // The Account section mounts `CloudAccountPanel`, which asks the account store,
   // which composes Checkout and the entitlement reader. Built bottom-up like
   // everything else here: billing imports `entitlements.svelte.ts`, so that one is
@@ -219,6 +227,8 @@ try {
   await buildComponent("src/components/CloudAccountPanel.svelte");
   await buildComponent("src/components/DeviceSyncPanel.svelte");
   await buildComponent("src/components/ExtensionsPanel.svelte");
+  await buildComponent("src/components/Glyph.svelte");
+  await buildComponent("src/components/IconsPanel.svelte");
   await buildComponent("src/components/IndentControl.svelte");
   await buildComponent("src/components/PostListPanel.svelte");
   await buildComponent("src/components/ReadingPanel.svelte");
@@ -276,8 +286,10 @@ try {
     // its own (Accounts holds the pairing block, Account the address change), and
     // the question here is how many *sections* there are.
     const sections = (markup) => (markup.match(/<details[^>]*class="sec/g) ?? []).length;
-    check("there are seven sections", sections(body) === 7, String(sections(body)));
-    check("every one is a disclosure with a summary", count(body, 'class="sum') === 7, String(count(body, 'class="sum')));
+    // Eight now: Category icons joined the desktop set (thirteen ids, five of
+    // them phone-only or filtered out here).
+    check("there are eight sections", sections(body) === 8, String(sections(body)));
+    check("every one is a disclosure with a summary", count(body, 'class="sum') === 8, String(count(body, 'class="sum')));
     check("every section is named", SECTIONS.every((label) => new RegExp(`<span class="label[^"]*">${label}</span>`).test(body)));
     check("and says what is in it", SECTIONS.every((label) => hasClass(section(body, label), "note")));
     // Native `<details>` is the mechanism: the content is inside the disclosure,
@@ -468,7 +480,7 @@ try {
     // every row in them is one the app already had — the same slider, the same
     // `reading` writes.
     const sectionsOn = (body) => (body.match(/<details[^>]*class="sec/g) ?? []).length;
-    check("a phone is offered both sections its chrome gives up", sectionsOn(phone) === 9, String(sectionsOn(phone)));
+    check("a phone is offered both sections its chrome gives up", sectionsOn(phone) === 10, String(sectionsOn(phone)));
 
     const feeds = section(phone, "Feeds");
     check(

@@ -26,7 +26,7 @@
  * the old one.
  */
 
-import { ICON_KEYWORDS, ICON_NAMES } from "./icons";
+import { ICON_KEYWORDS, ICON_NAMES } from "./icons/index";
 
 /**
  * Words a category is called that no glyph is tagged with.

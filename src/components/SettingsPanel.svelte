@@ -25,6 +25,7 @@
   import CloudAccountPanel from "./CloudAccountPanel.svelte";
   import DeviceSyncPanel from "./DeviceSyncPanel.svelte";
   import ExtensionsPanel from "./ExtensionsPanel.svelte";
+  import IconsPanel from "./IconsPanel.svelte";
   import IndentControl from "./IndentControl.svelte";
   import PostListPanel from "./PostListPanel.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
@@ -55,7 +56,7 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "extensions" | "account" | "feeds" | "appearance" | "reading" | "list" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
+  type SectionId = "accounts" | "extensions" | "account" | "feeds" | "appearance" | "icons" | "reading" | "list" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
 
   /**
    * The sections, in the order someone looks for them: who I am, what is in the
@@ -89,6 +90,7 @@
     { id: "account", label: "Account", note: "HardlyReader account, devices" },
     { id: "feeds", label: "Feeds", note: "Indent, import and export", phone: true },
     { id: "appearance", label: "Appearance", note: "Colours, page, background" },
+    { id: "icons", label: "Category icons", note: "A picture per category" },
     { id: "reading", label: "Reading", note: "Text, pictures, read state" },
     { id: "list", label: "Post list", note: "Row ends, corners, tiles", phone: true },
     { id: "layout", label: "Layout", note: "Pane widths and arrangement" },
@@ -126,6 +128,7 @@
     account: false,
     feeds: false,
     appearance: false,
+    icons: false,
     reading: false,
     list: false,
     layout: false,
@@ -343,6 +346,11 @@
               {#if feedsNote}
                 <p class="hint" role="status">{feedsNote}</p>
               {/if}
+            {:else if section.id === "icons"}
+              <!-- The one place a wrong guess can be corrected. It lists every
+                   category the sidebar draws, so a category with no glyph is
+                   visible here as a gap rather than as a missing feature. -->
+              <IconsPanel />
             {:else if section.id === "reading"}
               <ReadingPanel />
             {:else if section.id === "list"}

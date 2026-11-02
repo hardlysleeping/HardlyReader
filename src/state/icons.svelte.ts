@@ -18,7 +18,7 @@
  */
 
 import { guessIcon } from "../lib/category-icon";
-import { hasIcon, iconsFromValue, type IconChoices } from "../lib/icons";
+import { hasIcon, iconsFromValue, type IconChoices } from "../lib/icons/index";
 
 const STORAGE_KEY = "hardlyreader.icons.v1";
 
