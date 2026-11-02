@@ -120,6 +120,15 @@ const reader = at("src/state/reader.svelte.ts");
   check("the desktop posts pane draws stories", /\{#if buzz\.active\}\s*\n\s*<BuzzList \/>/.test(main));
   check("...and so does the phone's pane 2", /\{#if buzz\.active\}\s*\n\s*<BuzzList \/>/.test(stack));
   check("a story opens its coverage", /buzz\.select\(open \? null : story\.id\)/.test(list));
+  // Coverage is the third pane, not a disclosure under the row.
+  check("the story row draws no coverage of its own", !list.includes('class="coverage"'));
+  check("...and the pane does", /\{#if buzz\.coverageOpen && reader\.selectedId === null\}/.test(main));
+  check("...on a phone too", /\{#if buzz\.coverageOpen && reader\.selectedId === null\}/.test(stack));
+  check(
+    "coverage is a list of the feeds' own tellings",
+    /story\.articles as article/.test(at("src/components/BuzzCoverage.svelte")),
+  );
+  check("the arrows walk the stories", /buzz\.active && buzz\.story !== null[\s\S]{0,80}buzz\.step\(intent\.delta\)/.test(main));
   check("...and an article is the reader's own selection", /reader\.select\(item\)/.test(state));
   check("the window is fetched without touching the stream", /async recentItems\(/.test(reader));
   check("...and never moves activeStream", !/activeStream\s*=/.test(state));

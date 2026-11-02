@@ -23,6 +23,7 @@
 
   import ArticleList from "./ArticleList.svelte";
   import BuzzList from "./BuzzList.svelte";
+  import BuzzCoverage from "./BuzzCoverage.svelte";
   import { buzz } from "../state/buzz.svelte";
   import ReaderPane from "./ReaderPane.svelte";
   import Sidebar from "./Sidebar.svelte";
@@ -295,7 +296,11 @@
             <ArticleList />
           {/if}
         {:else}
-          <ReaderPane {onClose} {onLock} />
+          {#if buzz.coverageOpen && reader.selectedId === null}
+            <BuzzCoverage />
+          {:else}
+            <ReaderPane {onClose} {onLock} />
+          {/if}
         {/if}
       </section>
     {/each}

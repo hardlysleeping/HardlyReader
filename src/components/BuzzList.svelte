@@ -13,6 +13,8 @@
  */
 
 import { buzz } from "../state/buzz.svelte";
+import { layout } from "../state/layout.svelte";
+import { mobileNav } from "../state/mobile-nav.svelte";
 
 /** "just now", "40m", "6h", "3d" — coarse on purpose: this is age, not a clock. */
 function ageOf(at: number, now: number = Date.now()): string {
@@ -57,10 +59,17 @@ function ageOf(at: number, now: number = Date.now()): string {
       {#each buzz.stories as story (story.id)}
         {@const open = buzz.storyId === story.id}
         <div class="story" class:open>
+          <!-- A story opens in the third pane, not inside its own row: coverage is
+               four tellings of one event, and that is something to read beside the
+               list rather than a disclosure under it. Pressing the open story
+               again puts the pane back. -->
           <button
             class="line"
             aria-expanded={open}
-            onclick={() => buzz.select(open ? null : story.id)}
+            onclick={() => {
+              buzz.select(open ? null : story.id);
+              if (!open && layout.device === "phone") mobileNav.show(3);
+            }}
           >
             <span class="title">{story.title}</span>
             <span class="meta">
@@ -71,17 +80,6 @@ function ageOf(at: number, now: number = Date.now()): string {
               · {ageOf(story.newest)}
             </span>
           </button>
-
-          {#if open}
-            <div class="coverage">
-              {#each story.articles as article (article.id)}
-                <button class="cover" onclick={() => buzz.openArticle(article)}>
-                  <span class="feed">{article.origin?.title ?? "A feed"}</span>
-                  <span class="age">{ageOf(article.published ?? story.newest)}</span>
-                </button>
-              {/each}
-            </div>
-          {/if}
         </div>
       {/each}
     {/if}
@@ -191,43 +189,8 @@ function ageOf(at: number, now: number = Date.now()): string {
     font-weight: 600;
   }
 
-  /* The coverage is the story as each feed told it: a feed name and an age,
-     quiet enough that the difference between the lines is the point. */
-  .coverage {
-    display: flex;
-    flex-direction: column;
-    padding: 0 16px 8px 22px;
-  }
 
-  .cover {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 7px 0;
-    border: 0;
-    background: none;
-    color: var(--text-dim);
-    font: inherit;
-    font-size: 12px;
-    text-align: left;
-    cursor: pointer;
-  }
 
-  .cover:hover {
-    color: var(--text);
-  }
 
-  .cover .feed {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
-  .cover .age {
-    flex: none;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
 </style>

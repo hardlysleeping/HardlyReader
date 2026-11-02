@@ -6,6 +6,7 @@
   import FloodLayer from "../components/FloodLayer.svelte";
   import CategoryMenu from "../components/CategoryMenu.svelte";
   import IconPickerPopover from "../components/IconPickerPopover.svelte";
+  import BuzzCoverage from "../components/BuzzCoverage.svelte";
   import { iconPicker } from "../state/icon-picker.svelte";
   import Header from "../components/Header.svelte";
   import LayoutSwitch from "../components/LayoutSwitch.svelte";
@@ -423,6 +424,12 @@
         return;
       case "stream":
         event.preventDefault();
+        // In Buzz, with a story open, the arrows walk the stories: that is the
+        // list in hand, and the same key that walks posts everywhere else.
+        if (buzz.active && buzz.story !== null && focused.selectedId === null) {
+          buzz.step(intent.delta);
+          return;
+        }
         // Up/Down belong to the pane you are in: with a post on screen they walk
         // the posts, and with the feed list in hand they walk the feeds, which is
         // what they have always done here. Same list, same order as the view on
@@ -1305,7 +1312,11 @@
     </div>
 
     <div class="slot article" class:away={!slots.article} bind:this={articleSlot}>
-      <ReaderPane onClose={closeArticle} onLock={mode === 1 ? lockFromArticle : undefined} />
+      {#if buzz.coverageOpen && reader.selectedId === null}
+        <BuzzCoverage />
+      {:else}
+        <ReaderPane onClose={closeArticle} onLock={mode === 1 ? lockFromArticle : undefined} />
+      {/if}
     </div>
 
     <!-- The seam between the posts and the article when they are stacked: the
