@@ -8,6 +8,20 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [0.6.26] — 2026-11-02
 
+### Added
+
+- **Buzz.** A bolt at the top of the sidebar finds the stories several of your
+  feeds are telling at once: one engine, ranked coverage-first, over the last 48
+  hours. Topics are a name plus the words a reader gives them — the articles pane
+  becomes the topic's stories, and the topic rows stay collapsed with their feeds'
+  icons until asked.
+- **A category can wear a picture**, guessed from its name when it has none, and
+  a wrong guess gets a way to be corrected: the category menu's *Icon…* opens the
+  picker anchored at the press, with the automatic guess as one of the choices.
+- **A phone can swipe to the next article.** Past the end of an article the swipe
+  fills the same line the wheel fills, with the same resistance and the same
+  "scroll effort" setting, and releasing at a full line loads the next article.
+
 ### Changed
 
 - **An unfolded feed stays put.** On a phone, opening a feed now scrolls its row
