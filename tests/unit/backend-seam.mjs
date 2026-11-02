@@ -83,6 +83,15 @@ check(
   "and it declares nothing about capabilities on the server's behalf",
   plain.capabilities === undefined,
 );
+check("a server account has a queue to send later", typeof plain.flush === "function");
+check(
+  "and the same account gets the same queue twice over",
+  serverBackend(session).flush !== undefined && serverBackend(session) !== plain,
+);
+check(
+  "a caller that wants no queueing gets the plain backend",
+  serverBackend(session, { queue: false }).flush === undefined,
+);
 
 const seen = [];
 const wrapped = serverBackend(session, {
@@ -103,7 +112,20 @@ check(
 check("no options still builds", serverBackend(session, {}).kind === "greader");
 check(
   "the seam builds a server backend and nothing else",
-  /const built: ReaderBackend = new GReaderBackend\(transport, session\);/.test(profile),
+  /const plain: ReaderBackend = new GReaderBackend\(transport, session\);/.test(profile),
+);
+check(
+  "and puts the write queue in front of it",
+  /new OfflineBackend\(plain, \{/.test(profile) && /journal: options\.journal \?\? journalFor\(/.test(profile),
+);
+check(
+  "one queue per account, so two backends cannot send the same mark twice",
+  /const journals = new Map<string, WriteJournal>\(\)/.test(profile) &&
+    /journal = new WriteJournal\(new IdbJournalBank\(\), slug\)/.test(profile),
+);
+check(
+  "and the queue can be handed back plain when a caller wants no queueing",
+  /options\.queue === false\s*\n\s*\? plain/.test(profile),
 );
 
 if (failures > 0) {

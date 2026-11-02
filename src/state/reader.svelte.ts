@@ -367,6 +367,39 @@ export class ReaderState {
   }
 
   /**
+   * Sends read and star marks that were queued while the account could not reach
+   * its server.
+   *
+   * Called when the network comes back and at the start of a pull, which are the
+   * two moments the reason for queueing has gone. The sidebar is re-read only when
+   * something actually landed: a reconnect with an empty queue is not worth four
+   * requests, and a reconnect that sent marks changed the unread counts the sidebar
+   * prints.
+   *
+   * A library on this device has no queue — its marks are written to its own store
+   * as they are made — so `flush` is absent and this does nothing, rather than
+   * pretending to send.
+   */
+  async flushWrites(force = false): Promise<number> {
+    let backend: ReaderBackend;
+    try {
+      backend = this.source();
+    } catch {
+      return 0;
+    }
+    if (backend.flush === undefined) return 0;
+    let sent = 0;
+    try {
+      sent = await backend.flush(force);
+    } catch (error) {
+      this.error = message(error);
+      return 0;
+    }
+    if (sent > 0) void this.loadSidebar();
+    return sent;
+  }
+
+  /**
    * Whether the reader pays for HardlySyncing.
    *
    * A plain boolean, and the shell is what fills it (`App.svelte`, from the one
@@ -3194,6 +3227,9 @@ export class ReaderState {
       // from rows written before this press.
       const fetcher = this.source().fetchNew;
       if (fetcher !== undefined) await fetcher.call(this.source(), { wake: "manual" });
+      // Marks made while the server was unreachable go before the reads below, so
+      // the answer they fetch is the one that has heard about them.
+      await this.flushWrites(true);
       // Forced: the stream cache is good for a minute, and a sync answered from
       // it would look like nothing happened while the bar still ran to the end.
       // Pressing sync is a request for the server's answer, not this window's.

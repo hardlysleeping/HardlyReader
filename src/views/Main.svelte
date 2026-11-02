@@ -189,6 +189,28 @@
   });
 
   /**
+   * The network is back: send the marks made while it was gone.
+   *
+   * Read and star marks are written on the device and sent when there is somewhere
+   * to send them (`api/offline`), and the queue's own retry has been backing off
+   * since the last attempt. `online` is the browser's statement that the reason for
+   * waiting is over, so it is asked to go now rather than at the end of the backoff.
+   * A queue with nothing in it costs nothing: the backend answers without a request.
+   *
+   * The listener lives for as long as the reader is launched, like the return one
+   * above, and is taken down with it.
+   */
+  $effect(() => {
+    const started = launched;
+    if (!started) return;
+    const onOnline = (): void => {
+      void reader.flushWrites(true);
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  });
+
+  /**
    * One column has two levels, not three: the feed list (where a feed opens its
    * posts in place) and the article. There is no posts screen to step into, so
    * nothing tracks it.

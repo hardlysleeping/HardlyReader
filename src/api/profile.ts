@@ -27,6 +27,8 @@ import { LocalBackend } from "./local/local-backend";
 import { LocalStore } from "./local/store";
 import { openLocalDatabase, type LocalDatabaseOptions } from "./local/open";
 import { accountSlug, type AccountIdentity } from "../lib/account-key";
+import { IdbJournalBank, WriteJournal } from "./offline/journal";
+import { OfflineBackend } from "./offline/backend";
 
 /**
  * The one place a server account's backend is built.
@@ -50,11 +52,47 @@ export interface ServerBackendOptions {
   /**
    * A wrapper around the built backend: the whole point of the seam.
    *
-   * Called with the plain backend and expected to return something that still
-   * behaves like it. Nothing here inspects the result, so a suite can hand in a
+   * Called with the built backend — the queued one, not the plain one, so a wrapper
+   * sees what the reader sees — and expected to return something that still behaves
+   * like a backend. Nothing here inspects the result, so a suite can hand in a
    * recorder and see exactly what the app asked for.
    */
   wrap?: (backend: ReaderBackend) => ReaderBackend;
+  /**
+   * The queue this account's marks go into. Built from the account when absent.
+   *
+   * Shells it in so a caller can share one queue across two backends for the same
+   * account, which is what keeps a mark made through one visible to the other.
+   */
+  journal?: WriteJournal;
+  /**
+   * Whether read and star marks are queued at all. **On** everywhere in the app.
+   *
+   * Off is for a probe that wants the server's own answer to a write: `flush` is
+   * then absent, which is the interface's way of saying nothing is ever queued.
+   */
+  queue?: boolean;
+}
+
+/**
+ * One queue per account, for as long as the app is running.
+ *
+ * Two backends are built for a signed-in account — the profile's and the reader's
+ * fallback — and they must share a queue: a mark recorded through one has to be
+ * visible to the other, or the same post could be sent twice and the overlay could
+ * paint the older answer. The slug is the only thing that identifies an account
+ * here, so it is the key.
+ */
+const journals = new Map<string, WriteJournal>();
+
+function journalFor(identity: AccountIdentity): WriteJournal {
+  const slug = accountSlug(identity);
+  let journal = journals.get(slug);
+  if (journal === undefined) {
+    journal = new WriteJournal(new IdbJournalBank(), slug);
+    journals.set(slug, journal);
+  }
+  return journal;
 }
 
 /** The backend a signed-in server account is read through. */
@@ -62,7 +100,13 @@ export function serverBackend(
   session: Session,
   options: ServerBackendOptions = {},
 ): ReaderBackend {
-  const built: ReaderBackend = new GReaderBackend(transport, session);
+  const plain: ReaderBackend = new GReaderBackend(transport, session);
+  const built =
+    options.queue === false
+      ? plain
+      : new OfflineBackend(plain, {
+          journal: options.journal ?? journalFor({ serverUrl: session.serverUrl, email: session.email }),
+        });
   return options.wrap === undefined ? built : options.wrap(built);
 }
 

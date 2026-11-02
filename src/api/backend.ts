@@ -135,6 +135,20 @@ export interface ReaderBackend {
     wake?: "launch" | "resume" | "background" | "manual";
     signal?: AbortSignal;
   }): Promise<unknown>;
+
+  /**
+   * Sends whatever this backend queued while it could not reach its server, and
+   * answers how many decisions now live there.
+   *
+   * **Absent means nothing is ever queued.** A library on this device writes to
+   * itself, so a mark is on disk the moment it is made; only a backend whose
+   * writes have somewhere to travel has anything to send later. The caller must
+   * not invent a queue to stand in — there is nothing to send.
+   *
+   * `force` skips whatever backoff a failed attempt left behind. Coming back
+   * online is exactly that event: the reason for waiting has changed.
+   */
+  flush?(force?: boolean): Promise<number>;
 }
 
 /** The items a stream page carries, for callers that only want those. */
