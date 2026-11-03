@@ -28,6 +28,7 @@ import {
   percentOf,
   syncDescription,
   syncReadout,
+  writesReadout,
 } from "../../src/lib/sync-progress.ts";
 
 let passed = 0;
@@ -479,6 +480,63 @@ const counts = (waiting) => waiting.filter((request) => stepOf(request.url) !== 
   checkOk("the header shows the running step", /reader\.sync\.step/.test(header));
   checkOk("...inside the readout beside the count", /\{readout\}/.test(header));
   checkOk("the readout is described in full for a screen reader", /aria-valuetext=\{description\}/.test(header));
+}
+
+
+/* ---- the queue's readout, beside the sync one ---------------------------------- */
+
+check("nothing queued says nothing", () => {
+  assert.equal(writesReadout({ pending: 0, last: null }, false), null);
+});
+
+check("a running sync owns the slot", () => {
+  assert.equal(writesReadout({ pending: 3, last: "unreached" }, true), null);
+});
+
+check("one mark is one mark", () => {
+  const read = writesReadout({ pending: 1, last: "unreached" }, false);
+  assert.equal(read.text, "1 waiting");
+  assert.match(read.title, /^1 mark waiting/);
+});
+
+check("several marks are a count", () => {
+  const read = writesReadout({ pending: 7, last: null }, false);
+  assert.equal(read.text, "7 waiting");
+  assert.match(read.title, /^7 marks waiting/);
+});
+
+check("an unreached server is said in those words, and only then", () => {
+  assert.match(writesReadout({ pending: 2, last: "unreached" }, false).title, /could not be reached/);
+  assert.doesNotMatch(writesReadout({ pending: 2, last: null }, false).title, /could not be reached/);
+  assert.doesNotMatch(writesReadout({ pending: 2, last: "landed" }, false).title, /could not be reached/);
+});
+
+check("a refused sign-in says the marks cannot go until it is fixed", () => {
+  assert.match(writesReadout({ pending: 2, last: "unauthorised" }, false).title, /signed in again/);
+});
+
+check("nothing ever claims to know about the network", () => {
+  for (const last of [null, "landed", "waiting", "unreached", "unauthorised", "refused"]) {
+    const read = writesReadout({ pending: 4, last }, false);
+    assert.doesNotMatch(read.title, /offline|no network|you are disconnected/i, `last=${last}`);
+  }
+});
+
+/* ---- and both bars draw it, in the one slot ----------------------------------- */
+
+{
+  const header = readFileSync(new URL("../../src/components/Header.svelte", import.meta.url), "utf8");
+  checkOk("the desktop bar draws the queue beside sync", /const waiting = \$derived\(writesReadout\(reader\.writes/.test(header));
+  checkOk("in the sync readout's slot, not beside it", /\{#if waiting\}[^]*\{:else if refreshing\}/.test(header));
+  const phone = readFileSync(new URL("../../src/components/PhoneHeader.svelte", import.meta.url), "utf8");
+  checkOk("the phone bar draws it the same way", /\{#if waiting\}[^]*\{:else if refreshing\}/.test(phone));
+  checkOk(
+    "and it is words, not a control",
+    /class="queued" title=\{waiting\.title\}/.test(header) &&
+      /class="queued" title=\{waiting\.title\}/.test(phone) &&
+      !/onclick=\{[^}]*waiting/i.test(header) &&
+      !/onclick=\{[^}]*waiting/i.test(phone),
+  );
 }
 
 console.log(`${passed} checks passed${failures === 0 ? "" : `, ${failures} failure(s)`}`);

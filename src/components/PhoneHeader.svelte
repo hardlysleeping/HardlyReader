@@ -49,7 +49,7 @@
    * one step out lives here — one strip, one step, one place to look.
    */
   import type { Snippet } from "svelte";
-  import { syncDescription, syncReadout } from "../lib/sync-progress";
+  import { syncDescription, syncReadout, writesReadout } from "../lib/sync-progress";
   import { layout } from "../state/layout.svelte";
   import { chrome } from "../state/chrome.svelte";
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
@@ -193,6 +193,8 @@
 
   const refreshing = $derived(reader.sync.active);
   const readout = $derived(syncReadout(reader.sync));
+  /** Unsent marks, in the sync readout's slot: one place on a phone bar, not two. */
+  const waiting = $derived(writesReadout(reader.writes, reader.sync.active));
   const description = $derived(syncDescription(reader.sync));
 
   /**
@@ -329,7 +331,13 @@
     </svg>
   </button>
 
-  {#if refreshing}
+  {#if waiting}
+    <!-- Unsent marks, in the sync readout's slot on this bar. Silent when the queue
+         is empty: the phone bar has room for what is happening, not for a status. -->
+    <span class="queued" title={waiting.title}>
+      <span class="readout">{waiting.text}</span>
+    </span>
+  {:else if refreshing}
     <!-- The count and the percentage, for as long as the sync lasts, in the same
          words the desktop bar uses. It sits beside the button rather than over
          the title: the number is read while the list is read. -->
@@ -606,6 +614,18 @@
     align-items: center;
     min-width: 0;
     margin-left: 2px;
+  }
+
+  .queued {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    min-width: 0;
+    margin-left: 2px;
+  }
+
+  .queued .readout {
+    color: var(--muted);
   }
 
   .readout {

@@ -32,7 +32,7 @@
  *    in). A 4xx that names the request is not retried — the server looked at it
  *    and refused — and the mark is dropped rather than looping forever.
  */
-import type { ReaderBackend, BackendKind } from "../backend";
+import type { ReaderBackend, BackendKind, WriteStatus } from "../backend";
 import {
   AuthError,
   HttpError,
@@ -241,6 +241,21 @@ export class OfflineBackend implements ReaderBackend {
   async pendingMarks(): Promise<{ read: Map<string, boolean>; starred: Map<string, boolean> }> {
     await this.journal.open();
     return { read: valuesFor(this.journal, "read"), starred: valuesFor(this.journal, "starred") };
+  }
+
+  /**
+   * The queue for the readout beside sync: how many, and how the last attempt went.
+   *
+   * `idle` — no attempt this session — is reported as `null` rather than as
+   * success, because "nothing has been tried" and "the last try worked" are
+   * different facts and only one of them is worth drawing as settled.
+   */
+  async writeStatus(): Promise<WriteStatus> {
+    await this.journal.open();
+    return {
+      pending: this.journal.size,
+      last: this.lastFlush.stop === "idle" ? null : this.lastFlush.stop,
+    };
   }
 
   /** The marks a page should be painted with, applied to the server's page. */

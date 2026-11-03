@@ -73,7 +73,7 @@ import {
   type SidebarIndentState,
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
-import type { QueuedMarks, ReaderBackend } from "../api/backend";
+import type { QueuedMarks, ReaderBackend, WriteStatus } from "../api/backend";
 import { scopeIdentity, serverBackend, syncProfile, type ReaderProfile } from "../api/profile";
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "../lib/account-key";
 import {
@@ -418,6 +418,36 @@ export class ReaderState {
   }
 
   /**
+   * What the queue holds, for the readout beside the sync control.
+   *
+   * Two numbers and an outcome, all measured: `pending` is the queue's own size and
+   * `last` is how the last send ended. Nothing here asks the browser whether it has
+   * a network — that is a different question from whether the server answered, and
+   * the second is the one the reader is asking.
+   */
+  writes = $state<WriteStatus>({ pending: 0, last: null });
+
+  /** Re-reads the status after anything that could have changed it. */
+  private async readWriteStatus(): Promise<void> {
+    let backend: ReaderBackend;
+    try {
+      backend = this.source();
+    } catch {
+      this.writes = { pending: 0, last: null };
+      return;
+    }
+    if (backend.writeStatus === undefined) {
+      this.writes = { pending: 0, last: null };
+      return;
+    }
+    try {
+      this.writes = await backend.writeStatus();
+    } catch {
+      /* a status that cannot be read is not a status worth drawing */
+    }
+  }
+
+  /**
    * Sends read and star marks that were queued while the account could not reach
    * its server.
    *
@@ -446,6 +476,7 @@ export class ReaderState {
       this.error = message(error);
       return 0;
     }
+    await this.readWriteStatus();
     if (sent > 0) void this.loadSidebar();
     return sent;
   }
@@ -2830,6 +2861,9 @@ export class ReaderState {
     // launch with no sync would otherwise never keep anything: the first sync of the
     // day is not the first moment the reader may lose the network.
     void this.warmOfflineCopy();
+    // The queue's size can have changed while this was out (a flush, a press), and
+    // the readout beside sync draws the queue.
+    void this.readWriteStatus();
     return true;
   }
 
@@ -4129,6 +4163,7 @@ export class ReaderState {
       // session is a post that reads unread on the next launch with no network — and
       // by then the queue is empty, so nothing can correct it.
       this.cacheActiveStream();
+      void this.readWriteStatus();
       this.broadcast(item.id, { read });
     } catch (error) {
       item.categories = previous;
@@ -4160,6 +4195,7 @@ export class ReaderState {
         // The same reason as `setRead`: the page on disk has to carry the star, or a
         // launch with no network draws it unstarred with an empty queue.
         this.cacheActiveStream();
+        void this.readWriteStatus();
       }
       void this.loadSidebar();
     } catch (error) {

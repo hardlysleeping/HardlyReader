@@ -527,5 +527,33 @@ const SESSION = {
   check("and the page was rebuilt rather than mutated", page.items[0] !== undefined);
 }
 
+
+/* ---- and the readout can ask the queue what it holds ---------------------- */
+
+{
+  const bank = new MemoryJournalBank();
+  const journal = new WriteJournal(bank, "account-c");
+  const server = stubServer();
+  const backend = new OfflineBackend(server.inner, { journal, autoFlush: false });
+
+  equal("nothing queued, nothing tried", await backend.writeStatus(), { pending: 0, last: null });
+
+  await journal.record("read", ["post-1"], true);
+  equal("a queued mark is counted before anything is tried", await backend.writeStatus(), { pending: 1, last: null });
+
+  const sent = await backend.flush(true);
+  equal("one sent", sent, 1);
+  equal("and the status says so, with nothing left", await backend.writeStatus(), { pending: 0, last: "landed" });
+
+  await journal.record("read", ["post-2"], true);
+  server.failWith(new TypeError("Failed to fetch"));
+  await backend.flush(true);
+  equal("a connection that was never made is reported as unreached", await backend.writeStatus(), { pending: 1, last: "unreached" });
+
+  server.failWith(new AuthError("nope", 401));
+  await backend.flush(true);
+  equal("a dead credential is named as such", (await backend.writeStatus()).last, "unauthorised");
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

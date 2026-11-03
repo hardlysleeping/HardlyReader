@@ -122,7 +122,7 @@ by the overlay on the next live read, and by the server once the queue lands.
 
 ## What is proven, and where
 
-`tests/unit/offline-writes.mjs`, 55 checks:
+`tests/unit/offline-writes.mjs`, 61 checks:
 
 - a queued mark survives a restart, last value wins, the two registers stay
   separate, the queue keeps the order of the presses;
@@ -142,12 +142,28 @@ by the overlay on the next live read, and by the server once the queue lands.
 - `serverBackend(session)` gives a server account a queue; a local library keeps
   its own store and has no queue, because its marks are already on disk;
 - the queue answers `pendingMarks()` for a page the backend did not send, and a
-  mark reads the same whether the server spells it `user/-/…` or `user/1/…`.
+  mark reads the same whether the server spells it `user/-/…` or `user/1/…`;
+- `writeStatus()` counts what is queued before anything is tried, and names the
+  last attempt as `landed`, `unreached` or `unauthorised`.
 
 The offline copy is its own suite, `tests/unit/offline-copy.mjs`, 50 checks: the
 ceilings, the twelve-hour staleness rule, never-kept feeds first, junk stamps, and
 that the reader writes it to disk only (`keepStreamOnDisk`) so a kept page can
 never become the page the list shows.
+
+## What the top bar says
+
+The queue is drawn in the one slot the sync readout already owns, and only when
+there is something to say: `3 waiting`, in the muted tone, with the reason in the
+tooltip. A running sync takes the slot instead — two readouts in the same place
+would fight for the same 60 pixels.
+
+Both numbers are measured, never inferred: `pending` is the queue's own size and
+`last` is how the most recent send ended (`unreached`, `unauthorised`, `refused`,
+`landed`). `navigator.onLine` is not consulted — a browser that believes it has a
+network is not a server that answered — so the bar says "could not be reached"
+only after an attempt genuinely did not reach anything, and says nothing at all
+about a queue it has never tried to send.
 
 ## What the offline copy costs, and what it does not do
 

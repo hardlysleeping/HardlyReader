@@ -164,6 +164,29 @@ export interface ReaderBackend {
    * on a train, with the queue still holding that decision.
    */
   pendingMarks?(): Promise<QueuedMarks>;
+
+  /**
+   * What the queue holds, and how the last attempt to send it ended.
+   *
+   * The readout beside the sync control draws from this and nothing else: a count
+   * that is measured, and an outcome that was reported, never `navigator.onLine`
+   * — the browser saying a network exists is not the server saying it answered.
+   *
+   * Absent for a backend with no queue, which is why a local library says nothing.
+   */
+  writeStatus?(): Promise<WriteStatus>;
+}
+
+/**
+ * The queue, as one thing to draw.
+ *
+ * `last` is `null` until an attempt has been made in this session: "nothing has
+ * gone wrong yet" and "nothing has been tried" are different states, and a readout
+ * that showed the first while the second was true would be guessing.
+ */
+export interface WriteStatus {
+  pending: number;
+  last: "landed" | "waiting" | "unreached" | "unauthorised" | "refused" | null;
 }
 
 /** The outstanding decisions, one map per register. */

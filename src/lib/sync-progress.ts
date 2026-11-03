@@ -189,3 +189,34 @@ export function createSyncTracker(): SyncTracker {
     },
   };
 }
+
+/**
+ * The words beside the sync control when there are unsent marks.
+ *
+ * The same slot the sync readout uses, because it answers the same question — what
+ * is happening to what I did — and a second place on screen for it would be a second
+ * thing to look at. `null` means say nothing: no queue, or a sync already drawing
+ * that slot with its own numbers.
+ *
+ * The words are about the queue, never about the network: `last` is what the last
+ * attempt reported, so "not reaching the server" is only said when an attempt
+ * genuinely did not reach it. `navigator.onLine` is not consulted — a browser that
+ * believes it has a network is not a server that answered.
+ */
+export function writesReadout(
+  writes: { pending: number; last: string | null },
+  syncing: boolean,
+): { text: string; title: string } | null {
+  if (syncing || writes.pending <= 0) return null;
+  const count = writes.pending === 1 ? "1 mark waiting" : `${writes.pending} marks waiting`;
+  switch (writes.last) {
+    case "unreached":
+      return { text: `${writes.pending} waiting`, title: `${count}. The server could not be reached; they go when it can.` };
+    case "unauthorised":
+      return { text: `${writes.pending} waiting`, title: `${count}. The server refused the sign-in, so they cannot be sent until it is signed in again.` };
+    case "refused":
+      return { text: `${writes.pending} waiting`, title: `${count}. The server refused some of them.` };
+    default:
+      return { text: `${writes.pending} waiting`, title: `${count}. They are sent as soon as the connection allows.` };
+  }
+}
