@@ -105,6 +105,15 @@ export interface WriteOutcome {
   failed: AccountFailure[];
 }
 
+/** What a fan-out refresh did, per account. */
+export interface RefreshOutcome {
+  refreshed: string[];
+  failed: AccountFailure[];
+}
+
+/** The four reasons `fetchNew` accepts, spelled once. */
+export type RefreshWake = "launch" | "resume" | "background" | "manual";
+
 /**
  * The order the merged column is drawn in: newest first, and a stable tiebreak so
  * two items published in the same second do not swap places between renders.
@@ -222,6 +231,60 @@ export class AccountAggregate {
   /** Stars or unstars items, each on the account its id names. */
   async markStarred(itemIds: string[], starred: boolean): Promise<WriteOutcome> {
     return this.delegate(itemIds, (backend, ids) => backend.setStarred(ids, starred));
+  }
+
+  /**
+   * Brings every enabled account up to date: fetch what has been published, then
+   * send whatever that account queued while its server was unreachable.
+   *
+   * **One account at a time, in Pane 1's order.** A phone that started a local
+   * crawl and three network flushes at the same instant would be a burst on the
+   * radio at the exact moment the reader is trying to draw, and the local crawl is
+   * the expensive one — running it beside a flurry of small writes is how a launch
+   * sync comes to feel slow. Sequential also makes the failure order readable: the
+   * first account that fails is the first one in the list, not whichever promise
+   * settled first.
+   *
+   * **A failure is one account's, never the set's.** Everything after it still
+   * runs; that is the whole reason this exists rather than a `Promise.all` at the
+   * call site.
+   *
+   * **`flush` is forced.** The reason for pressing sync — or for the timer firing —
+   * is that the thing which was down may be up again, and a backoff left over from
+   * the outage is a wait whose reason has changed.
+   *
+   * `except` is for the account the reader is already refreshing itself, so a
+   * focused account is not fetched twice and its progress bar keeps one owner.
+   */
+  async refreshAll(
+    wake: RefreshWake = "manual",
+    options: { except?: string } = {},
+  ): Promise<RefreshOutcome> {
+    const refreshed: string[] = [];
+    const failed: AccountFailure[] = [];
+
+    for (const profile of this.accounts.enabled()) {
+      if (options.except !== undefined && profile.slug === options.except) continue;
+      const backend = this.accounts.backend(profile.slug);
+      if (!backend) continue;
+      // A server crawls on its own and a library on this device does not; a
+      // backend with neither a fetch nor a queue has nothing to do here and is
+      // not counted as refreshed, because nothing was asked of it.
+      if (backend.fetchNew === undefined && backend.flush === undefined) continue;
+      try {
+        if (backend.fetchNew !== undefined) await backend.fetchNew({ wake });
+        if (backend.flush !== undefined) await backend.flush(true);
+        refreshed.push(profile.slug);
+      } catch (error) {
+        failed.push({
+          slug: profile.slug,
+          label: profile.label,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return { refreshed, failed };
   }
 
   /**

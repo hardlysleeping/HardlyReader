@@ -200,13 +200,15 @@ check(
   check(
     "opening the app checks freshness by itself",
     // `!DEMO` first: a demo library has sample feeds and no network, so it must not refresh.
-    /if \(!DEMO && !chrome\.autoSync && !reader\.sync\.active && refreshDueOnLaunch\(reader\.lastSyncAt\)\)/.test(main),
+    // Whitespace-insensitive: the condition is laid out over several lines so the
+    // fan-out guard can sit beside the other three answers.
+    /!DEMO[\s\S]{0,80}!chrome\.autoSync[\s\S]{0,80}!reader\.sync\.active[\s\S]{0,80}refreshDueOnLaunch\(reader\.lastSyncAt\)/.test(main),
   );
   check(
     "and does not spend the same five requests twice",
     // Exactly one owner: when the interval timer is on, its own launch check
     // fires, and this path stands down.
-    /!DEMO && !chrome\.autoSync && !reader\.sync\.active && refreshDueOnLaunch/.test(main),
+    /!DEMO[\s\S]{0,80}!chrome\.autoSync[\s\S]{0,80}!reader\.sync\.active[\s\S]{0,120}refreshDueOnLaunch/.test(main),
   );
   check(
     "and the interval timer takes the same answer",

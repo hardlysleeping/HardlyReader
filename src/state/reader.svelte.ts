@@ -82,6 +82,7 @@ import {
   type ReaderProfile,
 } from "../api/profile";
 import { AccountRegistry } from "../api/registry";
+import { AccountAggregate, type AccountFailure } from "../api/aggregate";
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "../lib/account-key";
 import {
   clearApiSnapshot,
@@ -341,6 +342,39 @@ export class ReaderState {
    */
   private readonly accounts = new AccountRegistry();
   accountList = $state<ReaderProfile[]>([]);
+
+  /**
+   * The set, seen as one thing to read from, write to and refresh.
+   *
+   * Built once from the registry because it holds nothing of its own: every
+   * question it answers it answers by asking a slug's backend, so a new instance
+   * per call would be the same object with a different address.
+   */
+  private readonly aggregate = new AccountAggregate(this.accounts);
+
+  /**
+   * The accounts a fan-out refresh could not reach, and why.
+   *
+   * One entry per account, drawn beside the sync control: "3 of 4 fetched, this one
+   * did not, here is what it said" is the only honest summary when several accounts
+   * share a button. Cleared by the next fan-out that has nothing to report, so a
+   * failure does not outlive its cause.
+   */
+  accountErrors = $state<AccountFailure[]>([]);
+
+  /** The fan-out in flight: one at a time, however many callers ask. */
+  private refreshingAll: Promise<void> | null = null;
+
+  /**
+   * True while a fan-out is running, for anything deciding whether to start another.
+   *
+   * The sync bar's `active` is not enough: the other accounts are being fetched
+   * before the focused one's pass begins the bar, and a timer that read only the
+   * bar would start a second fan-out inside the first.
+   */
+  get refreshingEveryAccount(): boolean {
+    return this.refreshingAll !== null;
+  }
 
   /**
    * The accounts a merged view reads: everything not explicitly turned off.
@@ -3523,6 +3557,42 @@ export class ReaderState {
     // visible — five steps on the bar and the same list underneath. The same
     // fault `refresh()` was fixed for, on the launch that runs without a press.
     await this.reloadStream({ force: true });
+  }
+
+  /**
+   * Syncs every account in the window, then the one being read.
+   *
+   * The other accounts go first and the focused one goes last through `refresh()`,
+   * which already owns the progress bar, the readout and the offline-copy pass —
+   * so a fan-out that fetched three accounts and then re-read the focused one has
+   * one bar on screen, not four. `except` is what keeps the focused account from
+   * being fetched twice.
+   *
+   * Nothing here throws: an account that could not be reached lands in
+   * `accountErrors` and the rest still run. A sync button that failed entirely
+   * because the second account's server was down would be reporting the wrong
+   * thing about the first.
+   */
+  async refreshAll(wake: "launch" | "resume" | "background" | "manual" = "manual"): Promise<void> {
+    if (!this.canRead) return;
+    // One fan-out at a time. A resume while the timer's pass is still running is
+    // the same pass, and two of them would double every flush in the set.
+    if (this.refreshingAll !== null) return this.refreshingAll;
+
+    const run = (async (): Promise<void> => {
+      const focused = this.profile === null ? undefined : profileSlug(this.profile);
+      const outcome = await this.aggregate.refreshAll(wake, { except: focused });
+      this.accountErrors = outcome.failed;
+      // The focused account last, through the path the header already draws.
+      await this.refresh();
+    })();
+
+    this.refreshingAll = run;
+    try {
+      await run;
+    } finally {
+      this.refreshingAll = null;
+    }
   }
 
   async refresh(): Promise<void> {

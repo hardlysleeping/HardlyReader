@@ -45,8 +45,43 @@ mkdirSync(GEN_DIR, { recursive: true });
 writeFileSync(join(GEN_DIR, "reader-accounts.mjs"), buildReaderModule());
 const { ReaderState } = await import(pathToFileURL(join(GEN_DIR, "reader-accounts.mjs")).href);
 
+/** A backend that answers nothing: the registry and the reader never read through it. */
 function backend(kind = "greader") {
   return { kind };
+}
+
+/**
+ * A backend that can actually be synced: one that answers empty lists and records
+ * the crawls it was asked for. `refresh()` reaches `loadSidebar` and `reloadStream`,
+ * so a bare `{ kind }` is not enough once a check drives it.
+ */
+function syncable(log, name) {
+  return {
+    kind: "greader",
+    async profile() {
+      return { userId: "0", userName: name };
+    },
+    async subscriptions() {
+      return [];
+    },
+    async tags() {
+      return [];
+    },
+    async unreadCounts() {
+      return [];
+    },
+    async stream(id) {
+      return { id, items: [] };
+    },
+    async setRead() {},
+    async setStarred() {},
+    async subscribe() {},
+    async unsubscribe() {},
+    async moveFeed() {},
+    async fetchNew(options) {
+      log.push(`${name}:${options?.wake}`);
+    },
+  };
 }
 
 function session(email) {
@@ -125,6 +160,58 @@ function readerWith(list) {
   // By slug, not identity: `profile` and `backend` are runes, so Svelte hands back a
   // proxy and `pane.profile === a` is false for the same account.
   check("...and reads the same account", pane.profile !== null && pane.profile.slug === a.slug);
+}
+
+// ---------------------------------------------------------------------------
+// Syncing the set: the other accounts first, the focused one through refresh().
+// ---------------------------------------------------------------------------
+
+{
+  const calls = [];
+  const first = syncProfile(session("first@example.com"), syncable(calls, "first@example.com"));
+  const second = syncProfile(session("second@example.com"), syncable(calls, "second@example.com"));
+  const reader = new ReaderState();
+  reader.adoptAccounts([first, second]);
+  // The account being read, as `start()` would have left it.
+  reader.profile = second;
+  reader.backend = second.backend;
+
+  let thrown = null;
+  try {
+    await reader.refreshAll("manual");
+  } catch (error) {
+    thrown = error;
+  }
+  check("a fan-out refresh finishes without throwing", thrown === null, String(thrown));
+  equal(
+    "the account that is not on screen is fetched by the fan-out",
+    calls.filter((entry) => entry.startsWith("first@example.com")),
+    ["first@example.com:manual"],
+  );
+  equal(
+    "and the focused account is fetched exactly once, by its own path",
+    calls.filter((entry) => entry.startsWith("second@example.com")).length,
+    1,
+  );
+  check("no account is left in the error list", reader.accountErrors.length === 0, JSON.stringify(reader.accountErrors));
+  check("the guard is released afterwards", reader.refreshingEveryAccount === false);
+}
+
+{
+  const reader = new ReaderState();
+  const failing = syncProfile(session("down@example.com"), {
+    ...syncable([], "down"),
+    fetchNew: async () => {
+      throw new Error("503 from the server");
+    },
+  });
+  reader.adoptAccounts([failing]);
+  const focused = syncProfile(session("focused@example.com"), syncable([], "focused"));
+  reader.profile = focused;
+  reader.backend = focused.backend;
+  await reader.refreshAll("background");
+  equal("an account that could not be reached is reported by name", reader.accountErrors.map((e) => e.message), ["503 from the server"]);
+  equal("and the account it belongs to", reader.accountErrors.map((e) => e.slug), [failing.slug]);
 }
 
 // ---------------------------------------------------------------------------

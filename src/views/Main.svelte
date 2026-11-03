@@ -156,8 +156,8 @@
         // request to learn that a `demo://` URL is not a feed.
         enabled: () => !DEMO && chrome.autoSync,
         hours: () => hours,
-        sync: () => reader.refresh(),
-        busy: () => reader.sync.active,
+        sync: () => reader.refreshAll(),
+        busy: () => reader.sync.active || reader.refreshingEveryAccount,
         launch: refreshDueOnLaunch(reader.lastSyncAt),
       }),
     );
@@ -190,15 +190,21 @@
       // interval timer when the reader turned it on: that one fires at its own
       // `launch` check, and five requests twice is not more current than five
       // requests once. Exactly one of the two owns the launch sync.
-      if (!DEMO && !chrome.autoSync && !reader.sync.active && refreshDueOnLaunch(reader.lastSyncAt)) {
-        void reader.refresh();
+      if (
+        !DEMO &&
+        !chrome.autoSync &&
+        !reader.sync.active &&
+        !reader.refreshingEveryAccount &&
+        refreshDueOnLaunch(reader.lastSyncAt)
+      ) {
+        void reader.refreshAll("launch");
       }
       const onReturn = (): void => {
         if (DEMO) return;
         if (document.visibilityState !== "visible") return;
-        if (reader.sync.active) return;
+        if (reader.sync.active || reader.refreshingEveryAccount) return;
         if (!refreshDueOnReturn(chrome.refreshOnReturn, reader.lastSyncAt)) return;
-        void reader.refresh();
+        void reader.refreshAll("resume");
       };
       document.addEventListener("visibilitychange", onReturn);
       return () => document.removeEventListener("visibilitychange", onReturn);
