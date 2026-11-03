@@ -95,6 +95,23 @@ function journalFor(identity: AccountIdentity): WriteJournal {
   return journal;
 }
 
+/**
+ * Drops one account's queued marks, when the account leaves this device.
+ *
+ * Without this, a sign-out leaves `hardlyreader-writes` holding that account's
+ * decisions forever: nothing else in the app knows the slug once the session is
+ * gone, so the rows are unreachable and un-clearable. It is not a security matter
+ * (the marks say "read", not what was read) — it is a leak of disk that only grows.
+ */
+export function forgetQueue(slug: string): void {
+  const journal = journals.get(slug);
+  if (journal === undefined) return;
+  journals.delete(slug);
+  void journal.clear().catch(() => {
+    /* an un-cleared queue is untidy, never wrong */
+  });
+}
+
 /** The backend a signed-in server account is read through. */
 export function serverBackend(
   session: Session,

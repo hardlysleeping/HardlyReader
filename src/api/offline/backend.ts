@@ -48,6 +48,7 @@ import {
 } from "../freshrss";
 import type { MoveFeedRequest, SubscribeRequest } from "../backend";
 import type { PendingMark, WriteJournal } from "./journal";
+import { withState } from "../../lib/marks";
 
 /** How long a queue that met a network failure is left alone. */
 const RETRY_MS = 20_000;
@@ -95,13 +96,6 @@ export interface FlushReport {
 /** The per-item answer about one register, as a map the overlay can ask. */
 function valuesFor(journal: WriteJournal, kind: "read" | "starred"): Map<string, boolean> {
   return journal.values(kind);
-}
-
-/** A category list with one register forced to the reader's answer. */
-function withMark(categories: readonly string[], state: string, value: boolean | undefined): string[] {
-  if (value === undefined) return [...categories];
-  const without = categories.filter((category) => category !== state);
-  return value ? [...without, state] : without;
 }
 
 export class OfflineBackend implements ReaderBackend {
@@ -260,7 +254,7 @@ export class OfflineBackend implements ReaderBackend {
       const wantsStarred = starred.get(item.id);
       if (wantsRead === undefined && wantsStarred === undefined) return item;
       const before = item.categories ?? [];
-      const after = withMark(withMark(before, STATE_READ, wantsRead), STATE_STARRED, wantsStarred);
+      const after = withState(withState(before, STATE_READ, wantsRead), STATE_STARRED, wantsStarred);
       if (after.length === before.length && after.every((category, at) => category === before[at])) return item;
       changed = true;
       return { ...item, categories: after };

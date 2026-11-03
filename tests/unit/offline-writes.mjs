@@ -498,5 +498,34 @@ const SESSION = {
   );
 }
 
+
+/* ---- the overlay reads a state the way a server spells it ----------------- */
+
+{
+  // The defect this holds shut: `withMark` compared the whole category id, so on a
+  // Miniflux — which spells its own user, `user/1/state/com.google/read` — an un-read
+  // could not remove the state and the row still drew as read while the queue held
+  // the opposite decision. `withState` matches the `/state/...` tail.
+  const bank = new MemoryJournalBank();
+  const journal = new WriteJournal(bank, "account-b");
+  const miniflux = {
+    ...stubServer().inner,
+    async stream(streamId) {
+      return {
+        id: streamId,
+        items: [
+          { id: "post-1", title: "One", categories: ["user/1/state/com.google/read", "user/1/state/com.google/starred"] },
+        ],
+      };
+    },
+  };
+  const backend = new OfflineBackend(miniflux, { journal, autoFlush: false });
+  await journal.record("read", ["post-1"], false);
+  await journal.record("starred", ["post-1"], false);
+  const page = await backend.stream("user/1/state/com.google/reading-list", {});
+  equal("a Miniflux spelling is removed, not left beside the new answer", page.items[0].categories, []);
+  check("and the page was rebuilt rather than mutated", page.items[0] !== undefined);
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

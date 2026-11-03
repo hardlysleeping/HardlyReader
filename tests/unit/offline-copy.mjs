@@ -145,22 +145,84 @@ equal("an empty id is dropped", parseKept(JSON.stringify({ "": NOW }), NOW).size
   const reader = readFileSync(join(root, "src/state/reader.svelte.ts"), "utf8");
   check("a sync warms the copy, after the list", /if \(this\.error === null\) void this\.warmOfflineCopy\(\);/.test(reader));
   check(
-    "into the same cache the reader paints from, never a second one",
-    /this\.rememberStream\(feedId, keptPageFor\.items, keptPageFor\.continuation\);/.test(reader),
+    "and a launch without a sync warms it too, once the feeds are known",
+    /this\.persistSidebar\(counts\.value\);\s*\n[^]{0,400}void this\.warmOfflineCopy\(\);/.test(reader),
   );
   check("one feed at a time", /for \(const feedId of plan\) \{/.test(reader) && !/Promise\.all\(plan/.test(reader));
-  check("it stops when the sync did not work", /if \(this\.error !== null\) break;/.test(reader));
   check("and it is off unless the setting says so", /if \(!this\.keepOfflineCopy \|\| !this\.canRead\) return 0;/.test(reader));
 
   const main = readFileSync(join(root, "src/views/Main.svelte"), "utf8");
   check("the setting drives it", /reader\.keepOfflineCopy = on && !DEMO;/.test(main));
-  check("and a demo library is never warmed", /if \(on && !DEMO\) void reader\.warmOfflineCopy\(\);/.test(main));
 
   const prefs = readFileSync(join(root, "src/lib/chrome-prefs.ts"), "utf8");
   check("the preference is on unless turned off", /offlineCopy: saved\.offlineCopy !== false/.test(prefs));
 
   const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
   check("and the row says what it costs", /At most 20 feeds per sync, and a feed kept in the last 12/.test(panel));
+}
+
+
+/* ---- a kept page is a disk seed, never the page the list shows ------------- */
+
+{
+  // The defect this holds shut: a warm pass that wrote through `rememberStream`
+  // installed eight posts as this session's answer, stamped fresh, and so the whole
+  // sidebar opened short with no revalidation. A kept page has to be a disk seed.
+  const reader = readFileSync(join(root, "src/state/reader.svelte.ts"), "utf8");
+  check(
+    "the copy is written to disk, not into the list's cache",
+    /await this\.keepStreamOnDisk\(feedId, keptPageFor\.items, keptPageFor\.continuation\);/.test(reader),
+  );
+  check(
+    "and the warm pass never calls rememberStream",
+    !/this\.rememberStream\(feedId/.test(reader),
+  );
+  check(
+    "a stream the reader is holding in memory is not written over",
+    /if \(this\.streamCache\.peek\(stream\) !== undefined\) return;/.test(reader),
+  );
+  check(
+    "and a shorter page never replaces a longer one on disk",
+    /const held = await readCached<DiskStream>\(key\);\s*\n\s*if \(held !== undefined && held\.value\.items\.length >= items\.length\) return;/.test(reader),
+  );
+}
+
+/* ---- one pass at a time, however many callers ask ------------------------- */
+
+{
+  const reader = readFileSync(join(root, "src/state/reader.svelte.ts"), "utf8");
+  check("the pass is guarded against a second one", /if \(this\.warming !== null\) return this\.warming;/.test(reader));
+  check("and the guard is cleared when it ends", /this\.warming = null;/.test(reader));
+  const main = readFileSync(join(root, "src/views/Main.svelte"), "utf8");
+  check(
+    "the effect does not track the sidebar it reads",
+    /untrack\(\(\) => void reader\.warmOfflineCopy\(\)\);/.test(main),
+  );
+}
+
+/* ---- and it stops for the right reasons ---------------------------------- */
+
+{
+  const reader = readFileSync(join(root, "src/state/reader.svelte.ts"), "utf8");
+  check("two failures in a row end the pass", /if \(failed >= 2\) break;/.test(reader));
+  check("turning the switch off ends it too", /if \(!this\.keepOfflineCopy\) break;/.test(reader));
+  check("a stale error banner does not stop it", !/if \(this\.error !== null\) break;/.test(reader));
+}
+
+/* ---- and a mark reaches the page on disk --------------------------------- */
+
+{
+  const reader = readFileSync(join(root, "src/state/reader.svelte.ts"), "utf8");
+  const read = reader.slice(reader.indexOf("async setRead(item: StreamItem"));
+  check(
+    "a read mark is written to the cached page",
+    /await this\.source\(\)\.setRead\(\[item\.id\], read\);\s*\n[^]{0,400}this\.cacheActiveStream\(\);/.test(reader),
+  );
+  check(
+    "a star mark too",
+    /await this\.source\(\)\.setStarred\(\[item\.id\], !starred\);\s*\n[^]{0,600}this\.cacheActiveStream\(\);/.test(reader),
+  );
+  check("and both go through the shared state helper", /withState\(previous, STATE_READ, read\)/.test(reader) && /withState\(previous, STATE_STARRED, !starred\)/.test(reader));
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

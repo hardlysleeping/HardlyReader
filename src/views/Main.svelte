@@ -134,7 +134,11 @@
   $effect(() => {
     const on = chrome.offlineCopy;
     reader.keepOfflineCopy = on && !DEMO;
-    if (on && !DEMO) void reader.warmOfflineCopy();
+    if (!on || DEMO) return;
+    // Untracked: the pass reads the sidebar's subscriptions, and tracking that would
+    // re-run this effect every time the sidebar loaded and start a second pass behind
+    // the first. The switch is the only dependency this effect is allowed to have.
+    untrack(() => void reader.warmOfflineCopy());
   });
 
   $effect(() => {

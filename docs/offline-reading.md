@@ -10,7 +10,7 @@ the same screen:
 | the reading | how it stays readable with no network |
 |---|---|
 | **the sidebar** — feeds, folders, counts | the last successful read is stored per account (`state/persist.ts`) and painted before the first request; a launch with no network keeps those rows |
-| **the post lists** — a stream's page, its continuation | the last page of every recently opened stream is on disk too (`stream:<stream>`, 60 streams), painted immediately and revalidated behind it; a failed revalidation leaves the page alone |
+| **the post lists** — a stream's page, its continuation | the last page of every recently opened stream is on disk too (`stream:<stream>`, 60 streams), painted immediately and revalidated behind it; a failed revalidation leaves the page alone. On top of that, the **offline copy** keeps the last 8 posts of every feed (`lib/offline-copy.ts`), so a feed never opened this session still opens with something in it |
 | **the article text** | a saved-text cache keeps both halves of what the pane draws — the feed's own HTML and the extracted article — for every post that was opened, so the second open is a disk read, not a request |
 | **the marks** — read, starred | `api/offline` — the queue this document is about |
 
@@ -113,13 +113,16 @@ by the overlay on the next live read, and by the server once the queue lands.
   network and still say so. They are rare, they change structure rather than one
   flag, and two devices editing structure offline is a merge problem this version
   has no answer for.
-- **No new UI.** No banner, no badge, no "offline mode". The guardrail for this
-  release is that the three panes, the themes, the views and the keyboard flow are
-  what they were; a mark that lands is drawn exactly like a mark that lands.
+- **No new screen, no badge, no "offline mode" to switch into.** The three panes, the
+  themes, the views and the keyboard flow are what they were, and a mark that lands
+  is drawn exactly like a mark that lands. The one control the mode has is a Settings
+  row ("Keep feeds for offline", under Refreshing) because the offline copy spends
+  requests, and spending them without a way to stop is not a default — it is a
+  surprise.
 
 ## What is proven, and where
 
-`tests/unit/offline-writes.mjs`, 44 checks:
+`tests/unit/offline-writes.mjs`, 55 checks:
 
 - a queued mark survives a restart, last value wins, the two registers stay
   separate, the queue keeps the order of the presses;
@@ -137,7 +140,25 @@ by the overlay on the next live read, and by the server once the queue lands.
 - a queue that cannot be written sends the mark the old way, keeps no phantom
   copy, and lets a real failure reach the reader;
 - `serverBackend(session)` gives a server account a queue; a local library keeps
-  its own store and has no queue, because its marks are already on disk.
+  its own store and has no queue, because its marks are already on disk;
+- the queue answers `pendingMarks()` for a page the backend did not send, and a
+  mark reads the same whether the server spells it `user/-/…` or `user/1/…`.
+
+The offline copy is its own suite, `tests/unit/offline-copy.mjs`, 50 checks: the
+ceilings, the twelve-hour staleness rule, never-kept feeds first, junk stamps, and
+that the reader writes it to disk only (`keepStreamOnDisk`) so a kept page can
+never become the page the list shows.
+
+## What the offline copy costs, and what it does not do
+
+Eight posts a feed, at most twenty feeds a pass, one request at a time, and a feed
+kept in the last twelve hours is not asked again — so a normal day is one pass,
+not one per sync. It never replaces a page the reader is holding in memory, and it
+never writes a shorter page over a longer one on disk.
+
+It does not fetch article text or pictures: a post whose body was never opened has
+no body, and a picture never shown has no bytes. Those are separate caches and
+separate budgets.
 
 Not proven by tests, and worth a hand check on the release build: reading for a
 few minutes in airplane mode, killing the app, relaunching still in airplane

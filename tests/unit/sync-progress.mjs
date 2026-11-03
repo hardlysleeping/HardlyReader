@@ -267,6 +267,7 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"./floods.svelte"', floodsModule],
   ['"../lib/stream-cycle"', absolute("src/lib/stream-cycle.ts")],
   ['"../lib/offline-copy"', absolute("src/lib/offline-copy.ts")],
+  ['"../lib/marks"', absolute("src/lib/marks.ts")],
   ['"../lib/dwell"', absolute("src/lib/dwell.ts")],
   ['"../lib/contextmenu"', absolute("src/lib/contextmenu.ts")],
   ['"../lib/sync-progress"', absolute("src/lib/sync-progress.ts")],

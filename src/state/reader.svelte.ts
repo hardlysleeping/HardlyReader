@@ -6,6 +6,7 @@ import { landingItem, step } from "../lib/reading-order";
 import { stepIndex } from "../lib/list-view";
 import { isNoopDrop, moveInOrder, moveNotice, sortByOrder } from "../lib/feed-order";
 import { attemptOrder } from "../lib/stream-cycle";
+import { withState } from "../lib/marks";
 import { OFFLINE_COPY, feedsToWarm, keptPage, parseKept, serializeKept } from "../lib/offline-copy";
 import { StreamLoads } from "../lib/stream-loads";
 import { StreamPerf, type StreamSource } from "../lib/stream-perf";
@@ -271,24 +272,6 @@ export interface ReaderDeps {
   pane?: boolean;
 }
 
-/**
- * One post's categories with one state forced to a value.
- *
- * The same rule `isRead`/`isStarred` read (a `/state/<name>` suffix), applied to a
- * copy: the states a server sent and the states the queue holds are the same
- * register, so forcing one is removing whatever spelling of it is there and adding
- * it back if the answer is true.
- */
-function withState(categories: readonly string[], state: string, value: boolean | undefined): string[] {
-  if (value === undefined) return [...categories];
-  // Matched on the `/state/...` tail, never on the literal id: a server spells the
-  // user part its own way (`user/1/state/...` on a Miniflux), and the register is
-  // the state, not who is making it.
-  const suffix = state.slice(state.indexOf("/state/"));
-  const without = categories.filter((category) => !category.endsWith(suffix));
-  return value ? [...without, state] : without;
-}
-
 export class ReaderState {
   /**
    * What a reader needs from whatever made it.
@@ -489,6 +472,20 @@ export class ReaderState {
    */
   async warmOfflineCopy(): Promise<number> {
     if (!this.keepOfflineCopy || !this.canRead) return 0;
+    // One pass at a time. Two callers can ask at once — the setting being turned on
+    // and a sync finishing — and without this the same feeds are fetched twice, which
+    // is exactly the traffic this feature claims not to spend.
+    if (this.warming !== null) return this.warming;
+    this.warming = this.runWarm();
+    try {
+      return await this.warming;
+    } finally {
+      this.warming = null;
+    }
+  }
+
+  /** The pass itself; `warmOfflineCopy` owns the guard and the clearing of it. */
+  private async runWarm(): Promise<number> {
     const scope = this.scope;
     const storage = typeof localStorage === "undefined" ? undefined : localStorage;
     if (scope === null || storage === undefined) return 0;
@@ -502,20 +499,25 @@ export class ReaderState {
     const feeds = this.subscriptions.map((feed) => feed.id).filter((id) => id.startsWith("feed/"));
     const plan = feedsToWarm(feeds, kept, now);
     let warmed = 0;
+    let failed = 0;
     for (const feedId of plan) {
       // One at a time on purpose: this runs behind the reader's own work, and a
       // burst of twenty streams at once is what makes a small server slow for the
       // person actually reading it.
-      if (this.error !== null) break;
+      if (!this.keepOfflineCopy) break;
+      // Two failures in a row is a network that is not there, not a feed that is
+      // broken: the rest of the pass would be twenty more of the same. A lone
+      // failure is skipped and the pass carries on — the next sync is its retry.
+      if (failed >= 2) break;
       try {
         const page = await this.source().stream(feedId, { count: OFFLINE_COPY.perFeed });
         const keptPageFor = keptPage(page.items, page.continuation);
-        this.rememberStream(feedId, keptPageFor.items, keptPageFor.continuation);
+        await this.keepStreamOnDisk(feedId, keptPageFor.items, keptPageFor.continuation);
         kept.set(feedId, Date.now());
         warmed += 1;
+        failed = 0;
       } catch {
-        // A feed that fails is skipped, not retried: the next sync is the retry.
-        continue;
+        failed += 1;
       }
     }
     if (warmed > 0) {
@@ -2823,6 +2825,11 @@ export class ReaderState {
     // while the next read is out.
     this.rememberSidebar(sidebarKey, feeds.value, counts.value);
     this.persistSidebar(counts.value);
+    // The feeds are known now, which is the one thing a copy pass needs to decide
+    // which of them are worth keeping. It runs here as well as after a sync because a
+    // launch with no sync would otherwise never keep anything: the first sync of the
+    // day is not the first moment the reader may lose the network.
+    void this.warmOfflineCopy();
     return true;
   }
 
@@ -3221,6 +3228,35 @@ export class ReaderState {
     void writeCached<DiskStream>(key, { items, continuation }).then(() => pruneStreams(prefix));
   }
 
+  /**
+   * Keeps a feed's page **on disk only**, for the offline copy.
+   *
+   * Not `rememberStream`, on purpose. That method also installs the page as this
+   * session's answer, stamped now — so a warm pass handing it eight posts would
+   * make eight the page the reader sees, look fresh for a minute so nothing
+   * revalidates it, and evict the fifty the reader already had. The copy is a
+   * disk seed: `reloadStream` paints it and then always asks the server, which is
+   * exactly the behaviour a kept page should have.
+   *
+   * Two rules, both about not losing a better answer to a worse one: a stream the
+   * reader already holds in memory is never written over, and a page on disk is
+   * only replaced by one that is at least as long.
+   */
+  private async keepStreamOnDisk(
+    stream: string,
+    items: StreamItem[],
+    continuation: string | undefined,
+  ): Promise<void> {
+    if (this.streamCache.peek(stream) !== undefined) return;
+    const key = this.diskKey(`stream:${stream}`);
+    const prefix = this.diskKey("stream:");
+    if (key === null || prefix === null) return;
+    const held = await readCached<DiskStream>(key);
+    if (held !== undefined && held.value.items.length >= items.length) return;
+    await writeCached<DiskStream>(key, { items, continuation });
+    pruneStreams(prefix);
+  }
+
   /** Keeps the cache in step after a local edit (read, star, page load). */
   private cacheActiveStream(): void {
     if (this.activeStream !== "") this.rememberStream(this.activeStream, this.items, this.continuation);
@@ -3333,6 +3369,9 @@ export class ReaderState {
    * the store, so the store keeps having no opinion about a settings switch.
    */
   keepOfflineCopy = $state(false);
+
+  /** The pass in flight, if any: one at a time, however many callers ask. */
+  private warming: Promise<number> | null = null;
 
   /**
    * Fetches new articles, then re-reads what the library now holds.
@@ -4076,9 +4115,9 @@ export class ReaderState {
     if (wasRead === read) return;
 
     const previous = item.categories ?? [];
-    const next = read
-      ? [...previous.filter((c) => c !== STATE_READ), STATE_READ]
-      : previous.filter((c) => c !== STATE_READ);
+    // Through the shared helper, not a literal comparison: a Miniflux spells the
+    // state `user/1/state/com.google/read`, and `!==` would leave it there.
+    const next = withState(previous, STATE_READ, read);
 
     this.busyItems.set(item.id, true);
     item.categories = next;
@@ -4086,6 +4125,10 @@ export class ReaderState {
 
     try {
       await this.source().setRead([item.id], read);
+      // The local edit goes to the disk copy too. A mark that only lives in this
+      // session is a post that reads unread on the next launch with no network — and
+      // by then the queue is empty, so nothing can correct it.
+      this.cacheActiveStream();
       this.broadcast(item.id, { read });
     } catch (error) {
       item.categories = previous;
@@ -4101,9 +4144,7 @@ export class ReaderState {
     if (!this.canRead || this.busyItems.get(item.id)) return;
     const starred = isStarred(item);
     const previous = item.categories ?? [];
-    const next = starred
-      ? previous.filter((c) => c !== STATE_STARRED)
-      : [...previous.filter((c) => c !== STATE_STARRED), STATE_STARRED];
+    const next = withState(previous, STATE_STARRED, !starred);
 
     this.busyItems.set(item.id, true);
     item.categories = next;
@@ -4115,6 +4156,10 @@ export class ReaderState {
         this.items = this.items.filter((entry) => entry.id !== item.id);
         this.cacheActiveStream();
         if (this.selectedId === item.id) this.selectedId = null;
+      } else {
+        // The same reason as `setRead`: the page on disk has to carry the star, or a
+        // launch with no network draws it unstarred with an empty queue.
+        this.cacheActiveStream();
       }
       void this.loadSidebar();
     } catch (error) {
