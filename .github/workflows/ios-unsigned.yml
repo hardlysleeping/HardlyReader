@@ -103,12 +103,33 @@ jobs:
           echo "project: $PROJ"
           XCODEGEN=$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)
           "$XCODEGEN" generate --spec project.yml
-          grep -q 'ShareSheet.swift in Sources' "$PROJ/project.pbxproj" || {
-            echo "ShareSheet.swift is not in the app target's compile sources"
-            grep -n 'ShareSheet' "$PROJ/project.pbxproj" || true
-            exit 1
-          }
-          echo "the share bridge is in the app target"
+          for swift in ShareSheet.swift StatusBar.swift; do
+            grep -q "$swift in Sources" "$PROJ/project.pbxproj" || {
+              echo "$swift is not in the app target's compile sources"
+              grep -n "${swift%.swift}" "$PROJ/project.pbxproj" || true
+              exit 1
+            }
+          done
+          echo "the native files are in the app target"
+
+      - name: Let the app hide the status bar
+        run: |
+          set -euo pipefail
+          # `StatusBar.swift` hides the bar in landscape through the global
+          # `UIApplication.setStatusBarHidden`, and iOS only honours that call
+          # when the app's view controllers do not own the appearance — so the
+          # generated Info.plist has to say so. The plist is a build product
+          # (`tauri ios init` regenerates it), which is why this is a step here
+          # and not a file in the repo.
+          PLIST=$(find src-tauri/gen/apple -name 'Info.plist' -not -path '*/build/*' -print -quit)
+          [ -n "$PLIST" ] || { echo "no Info.plist in gen/apple"; exit 1; }
+          echo "plist: $PLIST"
+          if /usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "$PLIST" >/dev/null 2>&1; then
+            /usr/libexec/PlistBuddy -c 'Set :UIViewControllerBasedStatusBarAppearance false' "$PLIST"
+          else
+            /usr/libexec/PlistBuddy -c 'Add :UIViewControllerBasedStatusBarAppearance bool false' "$PLIST"
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "$PLIST"
 
       - name: Build unsigned .app
         run: |
@@ -149,11 +170,11 @@ jobs:
           BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
           echo "binary: $BIN"
           strings -a "$BIN" > build/binary-strings.txt
-          for symbol in hardlyreader-share-sheet-1 share_sheet; do
+          for symbol in hardlyreader-share-sheet-1 share_sheet hardlyreader-status-bar-1; do
             if grep -q -- "$symbol" build/binary-strings.txt; then
               echo "found in the binary: $symbol"
             else
-              echo "MISSING from the binary: $symbol — the share bridge was not linked"
+              echo "MISSING from the binary: $symbol — that native half was not linked"
               exit 1
             fi
           done

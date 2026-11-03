@@ -1286,6 +1286,7 @@
     class:tucked={stackDrawn && layout.stackTuck !== null}
     class:folded={mode === 2 && folded}
     class:articleless={articleSpare}
+    class:solo={articleSolo}
     class:sliding={sliding || articleSlide}
     class:resizing
     bind:this={panes}

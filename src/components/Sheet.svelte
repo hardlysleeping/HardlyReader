@@ -168,7 +168,13 @@
     background: var(--surface);
     color: var(--text);
     box-shadow: 0 -18px 44px rgb(0 0 0 / 45%);
-    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    padding-bottom: max(10px, var(--safe-bottom, 0px));
+    /* The sheet is the window's width, so on its side it reaches the notch: the
+       same two numbers the panes pay, from the same place (`app.css` declares
+       `--safe-*` once). Only the bottom was paid before, which put the rows'
+       left edge under the housing in landscape. */
+    padding-left: var(--safe-left, 0px);
+    padding-right: var(--safe-right, 0px);
     /* The finger owns the position while it is down; the spring is only for
        the trip back to rest, so the sheet never lags the hand. */
     transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);

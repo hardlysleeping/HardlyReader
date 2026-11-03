@@ -340,7 +340,11 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 0;
+    /* The close button and the count are the top bar of the picture: on its side
+       the notch is on an edge, so the side padding is the inset's when that is
+       wider than the 12px the portrait frame wants. */
+    padding: calc(var(--safe-top, 0px) + 8px) max(12px, var(--safe-right, 0px)) 0
+      max(12px, var(--safe-left, 0px));
   }
 
   .counter {
@@ -419,10 +423,15 @@
   }
 
   /* A phone in landscape is 390pt tall: the band keeps one line of caption and
-     the four controls, and the picture gets the rest. */
+     the four controls, and the picture gets the rest. The band is the frame's
+     width, so it pays both side insets there — the notch is on an edge, and a
+     caption under it is a caption nobody can read. Numbers from `--safe-*`
+     (`app.css`), never `env()` here: one source of insets. */
   @media (orientation: landscape) {
     .band {
-      padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+      padding-bottom: calc(var(--safe-bottom, 0px) + 8px);
+      padding-left: max(14px, var(--safe-left, 0px));
+      padding-right: max(14px, var(--safe-right, 0px));
     }
   }
 

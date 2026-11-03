@@ -781,19 +781,32 @@ html[data-device="phone"] .panes > .slot.feeds {
 }
 
 @media (orientation: landscape) {
+  /* The left rim is always the feed column's: in every frame it is drawn in, it
+     is the leftmost thing on the screen. */
   html[data-device="phone"] .panes > .slot.feeds {
     padding-left: var(--safe-left);
   }
 
-  html[data-device="phone"] .panes > .slot.article {
+  /* The right rim belongs to whichever column actually reaches it, and that is
+     not one column: the article is outermost in three panes, the posts are when
+     the article has been given away (`articleless`) or when the frame draws two
+     columns, and in one column the feeds are. A phone on its side puts the
+     notch *on an edge*, so a column that does not pay it runs its text under
+     the housing — which is what "dynamic margins for that space" means here:
+     the inset follows the frame rather than sitting on one nominated pane. */
+  html[data-device="phone"] .panes > .slot.article,
+  html[data-device="phone"] .panes.one > .slot.feeds,
+  html[data-device="phone"] .panes.two > .slot.posts,
+  html[data-device="phone"] .panes.articleless > .slot.posts {
     padding-right: var(--safe-right);
   }
 
-  /* With no post open the article's column is given to the posts
-     (`articleless`, see `Main.svelte`), which makes the posts the outermost
-     column on the right — so the notch's inset is theirs for as long as they
-     hold that edge. */
-  html[data-device="phone"] .panes.articleless > .slot.posts {
+  /* A column that is the whole frame is the outermost on both sides: one
+     column's article level, and the article alone when the list has gone with
+     the post (`.solo`, `articleSolo` in `Main.svelte`). */
+  html[data-device="phone"] .panes.one > .slot.article,
+  html[data-device="phone"] .panes.solo > .slot.article {
+    padding-left: var(--safe-left);
     padding-right: var(--safe-right);
   }
 }

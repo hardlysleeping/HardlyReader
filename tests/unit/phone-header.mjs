@@ -278,10 +278,48 @@ check(
 );
 check("and the stack carries that class", /class="layer stack-scroller"/.test(stack));
 check(
-  "landscape insets only the outermost columns",
-  /@media \(orientation: landscape\) \{\s*html\[data-device="phone"\] \.panes > \.slot\.feeds \{\s*padding-left: var\(--safe-left\);\s*\}\s*html\[data-device="phone"\] \.panes > \.slot\.article \{\s*padding-right: var\(--safe-right\);\s*\}/.test(
+  "landscape insets the outermost columns",
+  /@media \(orientation: landscape\) \{\s*\/\*[\s\S]{0,300}?\*\/\s*html\[data-device="phone"\] \.panes > \.slot\.feeds \{\s*padding-left: var\(--safe-left\);\s*\}/.test(
     app,
   ),
+);
+check(
+  "...and the right rim follows whichever column reaches it",
+  // One edge, several owners: the article in three panes, the posts when the
+  // article has been given away or the frame is two columns, the feeds in one
+  // column. Naming only the article left the posts running under the housing in
+  // two panes and the tree doing the same in one.
+  /html\[data-device="phone"\] \.panes > \.slot\.article,\s*html\[data-device="phone"\] \.panes\.one > \.slot\.feeds,\s*html\[data-device="phone"\] \.panes\.two > \.slot\.posts,\s*html\[data-device="phone"\] \.panes\.articleless > \.slot\.posts \{\s*padding-right: var\(--safe-right\);\s*\}/.test(
+    app,
+  ),
+);
+check(
+  "...and a column that is the whole frame pays both",
+  /html\[data-device="phone"\] \.panes\.one > \.slot\.article,\s*html\[data-device="phone"\] \.panes\.solo > \.slot\.article \{\s*padding-left: var\(--safe-left\);\s*padding-right: var\(--safe-right\);\s*\}/.test(
+    app,
+  ),
+);
+check(
+  "...and the view names the solo frame the rule keys on",
+  /class:solo=\{articleSolo\}/.test(read("src/views/Main.svelte")),
+);
+check(
+  "the sheet and the picture's band pay the same side insets",
+  // Both are the frame's width, so on its side both reach the notch.
+  /padding-left: var\(--safe-left, 0px\);\s*padding-right: var\(--safe-right, 0px\);/.test(read("src/components/Sheet.svelte")) &&
+    /padding-left: max\(14px, var\(--safe-left, 0px\)\);\s*padding-right: max\(14px, var\(--safe-right, 0px\)\);/.test(
+      read("src/components/ImageViewer.svelte"),
+    ),
+);
+check(
+  "the status bar is hidden on its side, by a file the release proves is linked",
+  // A WKWebView cannot ask for this, and Tauri's iOS project is a build product,
+  // so it is one Swift file plus the Info.plist key that makes the global call
+  // honoured - and a marker string the workflow greps out of the binary.
+  /class func load\(\)/.test(read("src-tauri/ios/StatusBar.swift")) &&
+    /interfaceOrientation\.isLandscape/.test(read("src-tauri/ios/StatusBar.swift")) &&
+    /hardlyreader-status-bar-1/.test(read(".github/workflows/ios-unsigned.yml")) &&
+    /UIViewControllerBasedStatusBarAppearance/.test(read(".github/workflows/ios-unsigned.yml")),
 );
 check(
   "and the bottom of every pane, not of the container it is measured from",

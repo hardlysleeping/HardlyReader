@@ -87,7 +87,16 @@ check("it portals out of the bar that opens it", /document\.body\.appendChild/.t
 check("Escape closes it", /event\.key !== "Escape"/.test(sheet));
 check("the scrim is a real button, not a clickable div", /class="scrim"/.test(sheet) && /<button/.test(sheet));
 check("reduced motion is respected", /prefers-reduced-motion: reduce/.test(sheet));
-check("it rides inside the safe area", /env\(safe-area-inset-bottom\)/.test(sheet));
+check(
+  "it rides inside the safe area",
+  // From the app's one set of numbers, not a second `env()`: `app.css` declares
+  // `--safe-*` so the sheet, the header and the panes cannot disagree about
+  // where the screen ends. Sides too, because in landscape the notch is on an
+  // edge and the sheet is the frame's width.
+  /padding-bottom: max\(10px, var\(--safe-bottom, 0px\)\)/.test(sheet) &&
+    /padding-left: var\(--safe-left, 0px\)/.test(sheet) &&
+    /padding-right: var\(--safe-right, 0px\)/.test(sheet),
+);
 
 const controls = read("components/ReadingControls.svelte");
 check("the phone branch exists", /onPhone\s*\?\s*|onPhone\)/.test(controls) || /const onPhone/.test(controls));
