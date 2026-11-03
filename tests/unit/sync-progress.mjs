@@ -22,6 +22,7 @@ import ts from "typescript";
 
 import {
   SYNC_IDLE,
+  accountFailureReadout,
   SYNC_STEPS,
   SYNC_TOTAL,
   createSyncTracker,
@@ -539,6 +540,45 @@ check("nothing ever claims to know about the network", () => {
       /class="queued" title=\{waiting\.title\}/.test(phone) &&
       !/onclick=\{[^}]*waiting/i.test(header) &&
       !/onclick=\{[^}]*waiting/i.test(phone),
+  );
+}
+
+/* ---- an account that did not answer ------------------------------------------- */
+
+{
+  const none = accountFailureReadout([], false);
+  checkOk("nothing is drawn when every account answered", none === null);
+
+  const one = accountFailureReadout([{ label: "work@example.com", message: "503 from the server" }]);
+  checkOk("one account is named, not counted", one !== null && one.text === "work@example.com");
+  checkOk("and its reason is in the title", one.title.includes("503 from the server"));
+
+  const two = accountFailureReadout([
+    { label: "work@example.com", message: "503" },
+    { label: "home@example.com", message: "offline" },
+  ]);
+  checkOk("two are a count, because two names is not a readout", two.text === "2 accounts");
+  checkOk("with both reasons in the title", two.title.includes("work@example.com") && two.title.includes("home@example.com"));
+  checkOk("and both failures said out loud", /2 accounts could not be reached/.test(two.title));
+
+  checkOk(
+    "nothing is drawn while a sync is running — the progress owns that slot",
+    accountFailureReadout([{ label: "a", message: "b" }], true) === null,
+  );
+
+  const header = readFileSync(new URL("../../src/components/Header.svelte", import.meta.url), "utf8");
+  const phone = readFileSync(new URL("../../src/components/PhoneHeader.svelte", import.meta.url), "utf8");
+  checkOk("both bars draw it", /accountFailureReadout\(reader\.accountErrors/.test(header) && /accountFailureReadout\(reader\.accountErrors/.test(phone));
+  checkOk(
+    "in the sync readout's own slot, after the queue",
+    /\{#if waiting\}[^]*\{:else if unreachable\}[^]*\{:else if refreshing\}/.test(header) &&
+      /\{#if waiting\}[^]*\{:else if unreachable\}[^]*\{:else if refreshing\}/.test(phone),
+  );
+  checkOk(
+    "as words with the reasons in a title, not as a control",
+    /class="queued failed" title=\{unreachable\.title\}/.test(header) &&
+      /class="queued failed" title=\{unreachable\.title\}/.test(phone) &&
+      !/onclick=\{[^}]*unreachable/i.test(header),
   );
 }
 

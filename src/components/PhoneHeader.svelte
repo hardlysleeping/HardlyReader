@@ -49,7 +49,7 @@
    * one step out lives here — one strip, one step, one place to look.
    */
   import type { Snippet } from "svelte";
-  import { syncDescription, syncReadout, writesReadout } from "../lib/sync-progress";
+  import { accountFailureReadout, syncDescription, syncReadout, writesReadout } from "../lib/sync-progress";
   import { layout } from "../state/layout.svelte";
   import { chrome } from "../state/chrome.svelte";
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
@@ -195,6 +195,8 @@
   const readout = $derived(syncReadout(reader.sync));
   /** Unsent marks, in the sync readout's slot: one place on a phone bar, not two. */
   const waiting = $derived(writesReadout(reader.writes, reader.sync.active));
+  /** Accounts a fan-out sync could not reach: one of them failing is not the sync failing. */
+  const unreachable = $derived(accountFailureReadout(reader.accountErrors, reader.sync.active));
   const description = $derived(syncDescription(reader.sync));
 
   /**
@@ -336,6 +338,12 @@
          is empty: the phone bar has room for what is happening, not for a status. -->
     <span class="queued" title={waiting.title}>
       <span class="readout">{waiting.text}</span>
+    </span>
+  {:else if unreachable}
+    <!-- An account that did not answer, in the same slot: the sync happened for the
+         others, so the button cannot say it failed. Names and reasons are the title. -->
+    <span class="queued failed" title={unreachable.title}>
+      <span class="readout">{unreachable.text}</span>
     </span>
   {:else if refreshing}
     <!-- The count and the percentage, for as long as the sync lasts, in the same
@@ -622,6 +630,12 @@
     align-items: center;
     min-width: 0;
     margin-left: 2px;
+  }
+
+  /* An account that did not answer: the same quiet slot, in the warning ink the app
+     already uses for something that went wrong and can be put right. */
+  .queued.failed {
+    color: var(--warn, #d08770);
   }
 
   .queued .readout {

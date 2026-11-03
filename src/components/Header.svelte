@@ -2,7 +2,7 @@
   import { type Snippet } from "svelte";
 
   import { serverLabel } from "../lib/server-label";
-  import { syncDescription, syncReadout, writesReadout } from "../lib/sync-progress";
+  import { accountFailureReadout, syncDescription, syncReadout, writesReadout } from "../lib/sync-progress";
   import { reader } from "../state/reader.svelte";
   import AccountsPanel from "./AccountsPanel.svelte";
   import ReadingControls from "./ReadingControls.svelte";
@@ -135,6 +135,8 @@
   const readout = $derived(syncReadout(reader.sync));
   /** The queue, in the same slot the sync readout uses: one place for "what is happening". */
   const waiting = $derived(writesReadout(reader.writes, reader.sync.active));
+  /** Accounts a fan-out sync could not reach: one of them failing is not the sync failing. */
+  const unreachable = $derived(accountFailureReadout(reader.accountErrors, reader.sync.active));
   const description = $derived(syncDescription(reader.sync));
 
   /**
@@ -264,6 +266,13 @@
          the queue is empty — an "all sent" badge is a control that says nothing. -->
     <span class="queued" title={waiting.title}>
       <span class="readout">{waiting.text}</span>
+    </span>
+  {:else if unreachable}
+    <!-- An account that did not answer, in the same slot and for the same reason:
+         the sync happened for the others, so the button cannot say it failed. The
+         names and the reasons are in the title. -->
+    <span class="queued failed" title={unreachable.title}>
+      <span class="readout">{unreachable.text}</span>
     </span>
   {:else if refreshing}
     <span
@@ -503,6 +512,12 @@
     align-items: center;
     min-width: 0;
     margin-left: 2px;
+  }
+
+  /* An account that did not answer: the same quiet slot, in the warning ink the app
+     already uses for something that went wrong and can be put right. */
+  .queued.failed {
+    color: var(--warn, #d08770);
   }
 
   .queued .readout {

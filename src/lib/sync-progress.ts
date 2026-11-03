@@ -220,3 +220,29 @@ export function writesReadout(
       return { text: `${writes.pending} waiting`, title: `${count}. They are sent as soon as the connection allows.` };
   }
 }
+
+/**
+ * The accounts a fan-out sync could not reach, in the sync bar's own slot.
+ *
+ * A sync button shared by several accounts cannot report one of them as "the sync
+ * failed": the others did happen, and their rows are on screen. So the bar says how
+ * many did not answer — one named account is worth naming, more than one is a count —
+ * and the reason for each is in the tooltip, where the reader went looking when the
+ * row was empty.
+ *
+ * Nothing is drawn while a sync is running: the progress readout owns that space.
+ */
+export function accountFailureReadout(
+  errors: readonly { label: string; message: string }[],
+  syncing = false,
+): { text: string; title: string } | null {
+  if (syncing || errors.length === 0) return null;
+  const title = errors.map((error) => `${error.label} — ${error.message}`).join("\n");
+  if (errors.length === 1) {
+    return { text: errors[0].label, title: `${errors[0].label} could not be reached.\n${title}` };
+  }
+  return {
+    text: `${errors.length} accounts`,
+    title: `${errors.length} accounts could not be reached.\n${title}`,
+  };
+}
