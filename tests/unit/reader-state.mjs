@@ -163,7 +163,8 @@ function buildReaderModule() {
     .replaceAll('"../lib/extract-ledger"', JSON.stringify(absolute("src/lib/extract-ledger.ts")))
     .replaceAll('"../lib/full-text"', JSON.stringify(absolute("src/lib/full-text.ts")))
     .replaceAll('"../lib/offline-copy"', JSON.stringify(absolute("src/lib/offline-copy.ts")))
-    .replaceAll('"../lib/marks"', JSON.stringify(absolute("src/lib/marks.ts")));
+    .replaceAll('"../lib/marks"', JSON.stringify(absolute("src/lib/marks.ts")))
+    .replaceAll('"../api/registry"', JSON.stringify(absolute("src/api/registry.ts")));
 }
 
 function subscription(id, title, label) {

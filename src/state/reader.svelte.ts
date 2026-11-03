@@ -74,7 +74,14 @@ import {
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
 import type { QueuedMarks, ReaderBackend, WriteStatus } from "../api/backend";
-import { scopeIdentity, serverBackend, syncProfile, type ReaderProfile } from "../api/profile";
+import {
+  profileSlug,
+  scopeIdentity,
+  serverBackend,
+  syncProfile,
+  type ReaderProfile,
+} from "../api/profile";
+import { AccountRegistry } from "../api/registry";
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "../lib/account-key";
 import {
   clearApiSnapshot,
@@ -318,6 +325,90 @@ export class ReaderState {
    */
   profile = $state<ReaderProfile | null>(null);
   backend = $state<ReaderBackend | null>(null);
+
+  /**
+   * Every account this window knows, and the one it is reading.
+   *
+   * `profile` is a *pointer* into this set, not the set: one account is focused —
+   * it is whose streams, preferences and panes are on screen — while the rest are
+   * still signed in and still answerable by slug. The registry is the storage (it
+   * never mutates a profile, and dropping an account drops its queued marks with
+   * it); `accountList` is the same set as a rune, because Pane 1 draws it and a
+   * plain `Map` would not repaint.
+   *
+   * Nothing else may write `accountList`: it is a mirror, and a second writer is
+   * how the list and the registry start disagreeing about who is signed in.
+   */
+  private readonly accounts = new AccountRegistry();
+  accountList = $state<ReaderProfile[]>([]);
+
+  /**
+   * The accounts a merged view reads: everything not explicitly turned off.
+   *
+   * A getter rather than a second rune: it reads `accountList`, so it is reactive
+   * without a copy that could drift. Turning an account off is a display decision —
+   * it stays signed in, keeps its keys and still answers by slug.
+   */
+  get mergedAccounts(): ReaderProfile[] {
+    return this.accountList.filter((profile) => profile.enabled !== false);
+  }
+
+  /** Writes the registry into the rune. The only writer. */
+  private publishAccounts(): void {
+    this.accountList = this.accounts.all();
+  }
+
+  /**
+   * Fills the set from somewhere else — a restore from disk, or a pane copying the
+   * account it was opened from.
+   */
+  adoptAccounts(list: readonly ReaderProfile[]): void {
+    for (const profile of list) this.accounts.add(profile);
+    this.publishAccounts();
+  }
+
+  /**
+   * Switches to an account already signed in.
+   *
+   * A no-op when it is the one being read: `start()` re-hydrates everything, and
+   * pressing the account you are already in should not cost a round trip.
+   */
+  async focus(slug: string): Promise<boolean> {
+    const profile = this.accounts.get(slug);
+    if (profile === null) return false;
+    if (this.profile !== null && profileSlug(this.profile) === slug) return true;
+    await this.start(profile);
+    return true;
+  }
+
+  /**
+   * Turns an account on or off for the merged views.
+   *
+   * Writes a new object rather than editing the profile in place: `profile` may be
+   * the very account being switched off for merging, and a mode that silently
+   * changed the object the reading UI is bound to is a change nobody was told about.
+   */
+  enableAccount(slug: string, enabled: boolean): boolean {
+    const profile = this.accounts.get(slug);
+    if (profile === null) return false;
+    this.accounts.add({ ...profile, enabled });
+    this.publishAccounts();
+    return true;
+  }
+
+  /**
+   * Signs an account out of this window.
+   *
+   * Refuses the account being read: the reading UI is bound to its backend and its
+   * streams, and dropping it here would leave the app drawing a library nobody is
+   * signed in to. Switching first is one call (`focus`), and it is the caller's.
+   */
+  removeAccount(slug: string): boolean {
+    if (this.profile !== null && profileSlug(this.profile) === slug) return false;
+    if (!this.accounts.remove(slug)) return false;
+    this.publishAccounts();
+    return true;
+  }
 
   /**
    * Whose device keys these are: the signed-in account's, or the device's own.
@@ -2567,6 +2658,10 @@ export class ReaderState {
    */
   async start(input: ReaderProfile | Session): Promise<void> {
     const profile: ReaderProfile = "kind" in input ? input : syncProfile(input);
+    // Filed before anything reads it: a launch that fails mid-hydration still has an
+    // account in Pane 1, and the next launch finds it where it left it.
+    this.accounts.add(profile);
+    this.publishAccounts();
     this.resetForAccount();
     this.profile = profile;
     this.backend = profile.backend;
@@ -3978,6 +4073,7 @@ export class ReaderState {
     this.session = other.session;
     this.profile = other.profile;
     this.backend = other.backend;
+    this.adoptAccounts(other.accountList);
     this.paid = other.paid;
     this.believed = other.believed;
     this.observed = other.observed;
