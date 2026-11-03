@@ -149,6 +149,16 @@ export interface LocalProfile {
   readonly label: string;
   readonly backend: ReaderBackend;
   readonly session: null;
+  /**
+   * Whether a merged view reads this account.
+   *
+   * Absent means yes: every profile built before this field existed is one the
+   * reader signed in on purpose, and a field defaulting to `false` would silently
+   * empty the app for anyone upgrading. Only an explicit `false` takes an account
+   * out of `AccountRegistry.enabled()` — it is still signed in, still in Pane 1,
+   * still answerable by slug; it is simply not part of "all accounts".
+   */
+  readonly enabled?: boolean;
 }
 
 /** A library served by FreshRSS, Miniflux, Tiny Tiny RSS or The Old Reader. */
@@ -159,6 +169,8 @@ export interface SyncProfile {
   readonly label: string;
   readonly backend: ReaderBackend;
   readonly session: Session;
+  /** See `LocalProfile.enabled`: absent means part of a merged view. */
+  readonly enabled?: boolean;
 }
 
 export type ReaderProfile = LocalProfile | SyncProfile;
