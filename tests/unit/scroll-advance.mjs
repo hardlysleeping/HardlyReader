@@ -1,7 +1,8 @@
 import {
   EFFORT_DEFAULT, EFFORT_HARD_MAX, EFFORT_HARD_MIN, EFFORT_MAX, EFFORT_MIN, PULL_THRESHOLD,
-  RESISTANCE, accumulate, clampEffort, contribution, directionOf, progressOf, shouldAdvance,
-  SWIPE_GAIN, swipePull, swipeTravel, thresholdFor, travelToAdvance, withinSlider,
+  RESISTANCE, accumulate, clampEffort, contribution, directionOf, effortForSwipePx, peekOf,
+  progressOf, shouldAdvance, SWIPE_GAIN, swipePxFor, swipePull, swipeTravel, thresholdFor,
+  travelToAdvance, withinSlider,
 } from "../../src/lib/scroll-advance.ts";
 
 let failures = 0;
@@ -138,7 +139,7 @@ check("the article listens to the finger", /ontouchstart=\{onArticleTouchStart\}
 check("only from the end of the article", /if \(performance\.now\(\) < settleUntil \|\| !atEnd\(el\)\) return;/.test(pane));
 check("advance-on-scroll decides whether it exists", /if \(!reading\.advanceOnScroll \|\| !el \|\| event\.touches\.length !== 1\) return;/.test(pane));
 check("it fills the wheel's own accumulator", /pull = travel > 0 \? swipePull\(travel, threshold\) : 0;/.test(pane));
-check("letting go early puts the pull back", /const fire = shouldAdvance\(pull, threshold\);\s*swipeId = null;\s*resetPull\(\);\s*if \(!fire\) return;/.test(pane));
+check("letting go early puts the pull back", /const fire = shouldAdvance\(pull, threshold\);\s*swipeId = null;\s*if \(!fire\) \{[\s\S]{0,240}?springBack\(\);/.test(pane));
 check("a finished swipe advances forward, once", /settleUntil = performance\.now\(\) \+ SETTLE_MS;\s*void store\.advanceArticle\(1\);/.test(pane));
 // The line has to be on the content's edge: the article's bar sits on the
 // pane's edge now, and the first attempt drew the line behind it — a swipe with
@@ -150,6 +151,59 @@ check("and along the words' top edge when it fills upwards",
   /style:top=\{pull < 0 \? \(barAtBottom \? "0px" : `\$\{barHeight\}px`\) : "auto"\}/.test(pane));
 
 check("a drag that turns into a scroll is given up", /if \(!atEnd\(el\)\) \{[\s\S]{0,140}?swipeId = null;\s*resetPull\(\);/.test(pane));
+
+/* ---------------------------------------------------------------------------
+ * The drag the owner asked to be longer, and the reveal he asked to be optional
+ * ------------------------------------------------------------------------- */
+
+// "default is too low need 150% increase for the amount i need to drag before it
+// scrolls to the next article" — the finger's gain came down from 4, so a full
+// pull is 273px of thumb instead of 182. The wheel's 728px is untouched.
+check("half again as long as it was", Math.abs(swipeTravel() - 273) <= 1, String(swipeTravel()));
+check(
+  "...which is 1.5x the old 182px",
+  Math.abs(swipeTravel() / 182 - 1.5) < 0.01,
+  String((swipeTravel() / 182).toFixed(3)),
+);
+check("and the wheel still costs what it did", Math.abs(travelToAdvance() - 728) <= 2, String(travelToAdvance()));
+
+// One store, two units: the desktop row shows the multiplier, the phone's shows
+// the distance. 273px is ×1 and each tenth of effort is about 27px.
+check("the phone's distance is the wheel's effort", swipePxFor(1) === swipeTravel(), `${swipePxFor(1)} vs ${swipeTravel()}`);
+check("×1.5 is half again as far", swipePxFor(1.5) > swipeTravel() * 1.45 && swipePxFor(1.5) < swipeTravel() * 1.55, String(swipePxFor(1.5)));
+check("a distance converts back to the effort it means", effortForSwipePx(273) === 1, String(effortForSwipePx(273)));
+check("round trip in pixels", [110, 273, 410].every((px) => Math.abs(swipePxFor(effortForSwipePx(px)) - px) <= 3));
+check("nonsense pixels are the default", effortForSwipePx(NaN) === EFFORT_DEFAULT && effortForSwipePx(0) === EFFORT_HARD_MIN);
+
+// The reveal starts before the apex, not at it: an apex-only reveal would be a
+// flash on the last pixel.
+const apex = swipeTravel();
+check("nothing is revealed on the way down", peekOf(0) === 0 && peekOf(apex * 0.5) === 0);
+check("it begins in the last eighth of the curve", peekOf(apex * 0.9) > 0 && peekOf(apex * 0.8) === 0);
+check("the apex is half revealed", Math.abs(peekOf(apex) - 0.5) < 0.06, String(peekOf(apex).toFixed(2)));
+check("a little past it completes", peekOf(apex * 1.2) === 1);
+check("and it never exceeds the layer", peekOf(apex * 9) === 1);
+check("off means off, whatever the finger does", peekOf(apex * 9, PULL_THRESHOLD, false) === 0 && peekOf(9999, PULL_THRESHOLD, false) === 0);
+check("it grows with the finger", peekOf(apex * 0.95) > peekOf(apex * 0.9));
+check("a longer drag moves the reveal with it", peekOf(swipePxFor(2) * 0.9, thresholdFor(2)) > 0);
+
+// And the pane: a curve back, not a disappearance; the post lifts; the reveal
+// is the setting's.
+check("letting go springs back on a curve", /function springBack\(\)[\s\S]{0,700}?1 - Math\.pow\(1 - t, 3\)/.test(pane));
+check("...for a quarter of a second", /const SPRING_MS = 260;/.test(pane));
+check("...and a wheel pause uses it too", /pullTimer = setTimeout\(\(\) => \{\s*pullTimer = null;\s*\/\/ A pause is a release[\s\S]{0,60}?springBack\(\);/.test(pane));
+check("the reveal is the setting's to give", /peek = peekOf\(travelPx, threshold, reading\.apexPeek\);/.test(pane));
+check("the open post lifts out of the way", /style:transform=\{peek > 0 \? `translateY\(\$\{\(-peek \* PEEK_LIFT\)/.test(pane));
+check("the next post is drawn behind it", /<div class="next" style:--peek=\{peek\} aria-hidden="true">/.test(pane) && /Next post/.test(pane));
+check("a switch is still the quiet one", /resetPull\(\);\s*settleUntil = performance\.now\(\) \+ SETTLE_MS;\s*void store\.advanceArticle\(1\);/.test(pane));
+
+// The Aa panel the phone opens has the row; the desktop's does not, because a
+// cursor has no drag to shorten.
+const controls = readFileSync(new URL("../../src/components/ReadingPanel.svelte", import.meta.url), "utf8");
+check("the phone's Aa panel carries the drag row", /Drag to next/.test(controls) && /\{swipePx\}px/.test(controls));
+check("...and the reveal switch", /Reveal next/.test(controls) && /reading\.setApexPeek/.test(controls));
+check("both rows are gated on the phone", /\{#if phone\}\n  <div class="row">\n    <span class="key">Drag to next<\/span>/.test(controls));
+check("the row writes the same store the desktop does", /reading\.stepScrollEffort\(-1\)/.test(controls) && /reading\.stepScrollEffort\(1\)/.test(controls));
 
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

@@ -31,6 +31,8 @@
   } from "../lib/reading-layout";
   import { reading } from "../state/reading.svelte";
   import { reader } from "../state/reader.svelte";
+  import { layout } from "../state/layout.svelte";
+  import { EFFORT_MAX, EFFORT_MIN, swipePxFor } from "../lib/scroll-advance";
   import { FLIP_EDGE } from "../lib/reading-layout";
   import IndentControl from "./IndentControl.svelte";
 
@@ -57,6 +59,20 @@
    * will have.
    */
   const thumbPx = $derived(thumbWidthPx(reading.rowScale, reading.thumbScale));
+
+  /**
+   * The drag distance, in pixels, that the effort setting draws on a phone.
+   *
+   * The desktop's row says "×1.5" because a wheel is counted in notches; a thumb
+   * is counted in where the finger has to get to, so the same store is shown
+   * here as the distance it actually is.
+   */
+  const swipePx = $derived(swipePxFor(reading.scrollEffort));
+  /** The same distance said as a share of the screen it is dragged on. */
+  const screenShare = $derived(
+    Math.round((swipePx / Math.max(1, typeof window === "undefined" ? 800 : window.innerHeight)) * 100),
+  );
+  const phone = $derived(layout.device === "phone");
   const atDefaults = $derived(
     isDefaultLayout({
       textScale: reading.textScale,
@@ -234,6 +250,53 @@
     >Auto {reading.autoMarkSeconds}s</button>
   </div>
 </div>
+
+<!-- A phone's answer to the wheel's "Scroll effort" row in Settings: the same
+     store, said in the unit a thumb is measured in. 273px is a third of a
+     390-wide phone, which is the number that tells you whether the drag is too
+     long — a multiplier does not. Gated on the phone because a cursor has no
+     drag to shorten; a desktop keeps the multiplier row in Settings. -->
+{#if phone}
+  <div class="row">
+    <span class="key">Drag to next</span>
+    <div
+      class="stepper"
+      role="group"
+      aria-label="How far to drag before the next post"
+      title={`${swipePx}px of thumb fills the pull — ${screenShare}% of this screen's height`}
+    >
+      <button
+        onclick={() => reading.stepScrollEffort(-1)}
+        disabled={reading.scrollEffort <= EFFORT_MIN}
+        aria-label="Shorter drag"
+      >−</button>
+      <span class="value">{swipePx}px</span>
+      <button
+        onclick={() => reading.stepScrollEffort(1)}
+        disabled={reading.scrollEffort >= EFFORT_MAX}
+        aria-label="Longer drag"
+      >+</button>
+    </div>
+  </div>
+
+  <!-- Off is the quiet switch the owner kept: let go and the next post simply
+       loads. On, the last stretch of the pull slides this post away and shows
+       the next one's headline behind it. -->
+  <div class="row">
+    <span class="key">Reveal next</span>
+    <button
+      class="toggle"
+      class:on={reading.apexPeek}
+      aria-pressed={reading.apexPeek}
+      onclick={() => reading.setApexPeek(!reading.apexPeek)}
+      title={reading.apexPeek
+        ? "At the end of the pull this post slides away and the next one shows behind it"
+        : "The pull only fills its line; the next post loads when you let go"}
+    >
+      {reading.apexPeek ? "On" : "Off"}
+    </button>
+  </div>
+{/if}
 
 <!-- At the bottom because it governs the whole panel rather than one row:
      every − and + above moves by this much. -->

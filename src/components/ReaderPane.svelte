@@ -21,6 +21,7 @@
   import {
     SETTLE_MS,
     accumulate,
+    peekOf,
     progressOf,
     shouldAdvance,
     swipePull,
@@ -402,6 +403,33 @@
   /** Nothing counts towards a switch until the wheel has been still this long. */
   let settleUntil = 0;
 
+  /** How long a release takes to put a half-made pull back. */
+  const SPRING_MS = 260;
+
+  /** Finger travel past the end, in the pixels the curve counts. */
+  let travelPx = $state(0);
+
+  /**
+   * How far the next post has been revealed at the apex, 0..1.
+   *
+   * Always 0 unless "Reveal next" is on: the owner kept the quiet version where
+   * letting go simply loads the next post.
+   */
+  let peek = $state(0);
+
+  /** How much of the pane the open post slides away by, at a full reveal. */
+  const PEEK_LIFT = 26;
+
+  /** The post after the open one, for the reveal — the same one a step opens. */
+  const nextPost = $derived.by(() => {
+    const items = store.listItems;
+    const at = items.findIndex((candidate) => candidate.id === store.selectedId);
+    return at >= 0 ? (items[at + 1] ?? null) : null;
+  });
+
+  /** A spring-back already running, so a second release cannot fight the first. */
+  let springRaf = 0;
+
   function reduceMotion(): boolean {
     return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
@@ -414,15 +442,61 @@
     store.setArticleScroll(el.scrollTop <= 2, end);
     store.rememberScroll("article", el.scrollTop);
     // Leaving the bottom gives the pull back: it is a gesture, not a latch.
-    if (!end) pull = 0;
+    if (!end) resetPull();
   }
 
   function resetPull(): void {
+    if (springRaf !== 0) {
+      cancelAnimationFrame(springRaf);
+      springRaf = 0;
+    }
     pull = 0;
+    peek = 0;
+    travelPx = 0;
     if (pullTimer !== null) {
       clearTimeout(pullTimer);
       pullTimer = null;
     }
+  }
+
+  /**
+   * Letting go before the pull is full: put it back on a curve, not instantly.
+   *
+   * An instant reset reads as the gesture being cancelled — the line was there,
+   * then it was not, and nothing explains the gap. A quarter of a second of
+   * ease-out is the same motion the reveal took on the way out, run backwards,
+   * so a half-made drag that you change your mind about visibly returns.
+   * `prefers-reduced-motion` still snaps: the reset is a courtesy, not content.
+   */
+  function springBack(): void {
+    const fromPull = pull;
+    const fromPeek = peek;
+    if (fromPull === 0 && fromPeek === 0) {
+      travelPx = 0;
+      return;
+    }
+    if (springRaf !== 0) cancelAnimationFrame(springRaf);
+    springRaf = 0;
+    if (reduceMotion()) {
+      resetPull();
+      return;
+    }
+    const started = performance.now();
+    const step = (now: number): void => {
+      const t = Math.min(1, (now - started) / SPRING_MS);
+      const eased = 1 - Math.pow(1 - t, 3);
+      pull = fromPull * (1 - eased);
+      peek = fromPeek * (1 - eased);
+      if (t < 1) {
+        springRaf = requestAnimationFrame(step);
+      } else {
+        pull = 0;
+        peek = 0;
+        travelPx = 0;
+        springRaf = 0;
+      }
+    };
+    springRaf = requestAnimationFrame(step);
   }
 
   function atEnd(el: HTMLElement): boolean {
@@ -463,8 +537,9 @@
     pull = accumulate(pull, event.deltaY, threshold);
     if (pullTimer !== null) clearTimeout(pullTimer);
     pullTimer = setTimeout(() => {
-      pull = 0;
       pullTimer = null;
+      // A pause is a release: the same curve puts the pull back.
+      springBack();
     }, 700);
     if (!shouldAdvance(pull, threshold)) return;
     const direction = pull > 0 ? 1 : -1;
@@ -497,6 +572,14 @@
     if (!reading.advanceOnScroll || !el || event.touches.length !== 1) return;
     // The flick that carried you into this article must not also take the next.
     if (performance.now() < settleUntil || !atEnd(el)) return;
+    // A new press takes the pull over from whatever was still springing back.
+    if (springRaf !== 0) {
+      cancelAnimationFrame(springRaf);
+      springRaf = 0;
+    }
+    pull = 0;
+    peek = 0;
+    travelPx = 0;
     swipeId = event.touches[0].identifier;
     swipeStart = event.touches[0].clientY;
   }
@@ -513,15 +596,26 @@
       return;
     }
     const travel = swipeStart - touch.clientY;
+    travelPx = Math.max(0, travel);
     pull = travel > 0 ? swipePull(travel, threshold) : 0;
+    // Past 85% of the apex the post starts to move out of the way and the next
+    // one shows behind it — only when "Reveal next" is on; off, this is 0 and
+    // the pull is the line filling, exactly as it was.
+    peek = peekOf(travelPx, threshold, reading.apexPeek);
   }
 
   function onArticleTouchEnd(): void {
     if (swipeId === null) return;
     const fire = shouldAdvance(pull, threshold);
     swipeId = null;
+    if (!fire) {
+      // Let go early: back on a curve, so a drag you thought better of returns
+      // instead of vanishing.
+      springBack();
+      return;
+    }
+    // The switch itself is the quiet one: the next post loads with no fanfare.
     resetPull();
-    if (!fire) return;
     settleUntil = performance.now() + SETTLE_MS;
     void store.advanceArticle(1);
   }
@@ -1068,11 +1162,26 @@
          two ways up. With advance-on-scroll on, up is the previous post, as it is
          for the wheel. With it off there is nothing higher to reach, so up is out
          of the reader and back to the list it came from. -->
+    <!-- The next post, on the layer under the article: with "Reveal next" on it
+         is what the pull uncovers, so the last stretch has somewhere to go. Text
+         only — the post itself has not been fetched yet, and a picture we do not
+         have would slide away with the finger and then be replaced. Nothing is
+         drawn when the pull has not reached the reveal, so the ordinary pull is
+         the line filling. -->
+    {#if peek > 0 && nextPost}
+      <div class="next" style:--peek={peek} aria-hidden="true">
+        <span class="next-label">Next post</span>
+        <span class="next-feed">{nextPost.origin?.title ?? ""}</span>
+        <span class="next-title">{nextPost.title || "(untitled)"}</span>
+      </div>
+    {/if}
     <article
       bind:this={scroller}
+      class:lifted={peek > 0}
       tabindex="-1"
       style:--page-width={pageWidth > 0 ? `${pageWidth}px` : null}
       style:--page-height={pageHeight > 0 ? `${pageHeight}px` : null}
+      style:transform={peek > 0 ? `translateY(${(-peek * PEEK_LIFT).toFixed(2)}%)` : null}
       data-scroll="article"
       data-scroll-axis="y"
       {onscroll}
@@ -1245,6 +1354,8 @@
     right: 0;
     bottom: 0;
     left: 0;
+    /* Over the article it reports on, and over the post it uncovers. */
+    z-index: 3;
     height: 3px;
     transform: scaleX(var(--p, 0));
     transform-origin: left center;
@@ -1362,6 +1473,10 @@
   }
 
   .toolbar {
+    /* Above the article, which lifts away at the end of a pull: the bar is the
+       one thing in the pane that must not slide. */
+    position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -1445,6 +1560,12 @@
   article {
     --gutter: clamp(16px, 5vw, 48px);
     flex: 1;
+    /* A layer of its own, above the next post it uncovers: without an opaque
+       background the reveal would show through the words, and without a
+       z-index the layer would sit under the pull line it belongs to. */
+    position: relative;
+    z-index: 1;
+    background: var(--bg);
     overflow-y: auto;
     /* Nothing in an article is wider than an article: a table, a code block or a
        video that cannot fit is a thing to shrink, and the sideways scroll that
@@ -1460,6 +1581,62 @@
     padding-block: 22px 64px;
     max-width: none;
     width: 100%;
+  }
+
+  /* The post the pull is about to open, drawn under the one on screen. Words
+     only: the article is fetched when it opens, so a picture that is not there
+     yet would slide away with the finger and then change under it. Bottom
+     aligned, because the strip it is revealed in grows up from the pane's own
+     bottom edge as the open post lifts out of the way. */
+  .next {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 3px;
+    padding: 0 18px calc(10px + var(--safe-bottom, 0px));
+    background: var(--bg-alt);
+    opacity: calc(0.4 + 0.6 * var(--peek, 0));
+    pointer-events: none;
+  }
+
+  .next-label {
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .next-feed {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .next-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+    font-size: 17px;
+    font-weight: 650;
+    line-height: 1.25;
+    color: var(--text);
+  }
+
+  /* Only while the reveal is running. A permanent will-change on the article
+     would keep a pane-sized layer alive for the whole session. */
+  article.lifted {
+    will-change: transform;
+  }
+
+  /* With the bar under the article, the strip the reveal uncovers starts above
+     the bar, not at the pane's edge: the next post's words pad past it or they
+     are drawn behind it. */
+  .reader.bar-bottom .next {
+    padding-bottom: calc(10px + var(--safe-bottom, 0px) + var(--bar-h, 40px));
   }
 
   /* Headline, byline and prose keep a readable measure in the middle. */
