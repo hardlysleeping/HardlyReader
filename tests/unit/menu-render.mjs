@@ -101,7 +101,10 @@ try {
     check("Pin is drawn", body.includes(">Pin<"));
     // Three: hide/show, pin, and Icon… — the chooser, which writes nothing
     // until one is picked.
-    check("three items: hide/show, pin and the icon chooser", count(body, 'role="menuitem"') === 3, String(count(body, 'role="menuitem"')));
+    // Four: refresh, hide/show, pin and the icon chooser.
+    check("four items: refresh, hide/show, pin and the icon chooser", count(body, 'role="menuitem"') === 4, String(count(body, 'role="menuitem"')));
+    check("refresh is the first thing offered", body.indexOf('>Refresh<') < body.indexOf('>Show<'));
+    check("...and it says what the server will and will not do", /title="Reads this category/.test(body));
     check("...the chooser says Icon…", body.includes(">Icon…<"));
   }
 
@@ -114,13 +117,16 @@ try {
   {
     const body = draw(categoryMenu(state(), "Uncategorized", false));
     check("an unknown category renders a disabled toggle", /<button[^>]*role="menuitem"[^>]*disabled/.test(body));
+    // Refresh is never disabled: reading a row again asks nothing of the server
+    // that could fail, and the one row that cannot be hidden can still be read.
+    check("...but refresh still is not", body.indexOf('>Refresh<') > 0 && body.indexOf('>Refresh<') < body.indexOf("disabled"));
     check("...with the reason as a note", body.includes("This category has no id on the server"));
     check("...and pin stays usable", count(body, "disabled") === 1, String(count(body, "disabled")));
   }
 
   {
     const body = draw(categoryMenu(parseState({ available: false }), "Technology", false));
-    check("without Hidden Categories both rows are drawn", count(body, 'role="menuitem"') === 3 && body.includes(">Pin<"));
+    check("without Hidden Categories both rows are drawn", count(body, 'role="menuitem"') === 4 && body.includes(">Pin<"));
     check("...Hide is the disabled one", count(body, "disabled") === 1, String(count(body, "disabled")));
     check("...and the note explains it", /not answering/.test(body), "no note");
   }
@@ -129,7 +135,7 @@ try {
     const busy = draw(categoryMenu(state(), "Technology", false), { busy: true });
     // Every item, the chooser included: a menu is disabled while a write is in
     // flight, and opening a chooser over one would be a second thing to answer.
-    check("a write in flight disables the items", count(busy, "disabled") === 3, String(count(busy, "disabled")));
+    check("a write in flight disables the items", count(busy, "disabled") === 4, String(count(busy, "disabled")));
   }
 
   {
@@ -146,6 +152,10 @@ try {
     // The three answers are radios in their own group: a feed is not a category,
     // so there is still no hide/view item anywhere in this menu.
     check("...and no view item", !asked.includes(">Hide<") && !asked.includes(">Show<"));
+    // The same row the category has: a feed is refreshed, and the wording says
+    // the reading is the app's while the crawl is the server's.
+    check("...offering a refresh first", asked.indexOf(">Refresh<") > 0 && asked.indexOf(">Refresh<") < asked.indexOf(">Pin<"));
+    check("...which says the crawl is the server's", /title="Reads this feed from the server again\. New posts arrive once the server has crawled it\."/.test(asked));
     check("...but a feed can be pinned", asked.includes(">Pin<"));
     // Indent is a sidebar setting with its own strip; it has no business in a
     // right-click menu, where a mis-drag would change every feed's indent.
@@ -186,6 +196,8 @@ try {
     check("...marking the destructive one", /class="item[^"]*danger[^"]*"[^>]*>Remove feed</.test(confirming));
     check("...saying what it costs", confirming.includes("removes the feed"));
     check("...and asking nothing else while it is up", count(confirming, 'role="menuitemradio"') === 0);
+    // Reading the feed again is safe whatever the menu is asking, so it stays.
+    check("...but refresh stays, because reading a feed changes nothing", confirming.includes(">Refresh<"));
   }
 
   {

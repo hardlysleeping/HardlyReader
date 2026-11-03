@@ -412,5 +412,50 @@ function state(overrides = {}) {
   check("the menu draws the pin's hint as its tooltip", /title=\{pin\.hint \?\? ""\}/.test(menuSource));
 }
 
+/* ---------------------------------------------------------------------------
+ * Refresh, on both kinds of row
+ * ------------------------------------------------------------------------- */
+
+// The owner: "need to be able to refresh feeds and update on long press for
+// categories and feeds not just sync". One item, both rows, first in the menu,
+// and it never disables: it is a read, and the only thing here that can be
+// asked for while the account is in any state at all.
+{
+  const category = categoryMenu(parseState({ available: false }), "Technology", false);
+  const feed = feedMenu("Ars Technica", false);
+  check("a category row can be refreshed", category.refresh.label === "Refresh" && category.refresh.action.type === "refresh");
+  check("...and so can a feed row", feed.refresh.label === "Refresh" && feed.refresh.action.type === "refresh");
+  check("it is never disabled, even with no extension and no id", !category.refresh.disabled && !feed.refresh.disabled);
+  // The wording is the honest half: reading is ours, crawling is the server's.
+  check("the hint says the crawl is the server's", /server has crawled/.test(feed.refresh.hint ?? ""), String(feed.refresh.hint));
+  check("...on a category too", /server has crawled/.test(category.refresh.hint ?? ""));
+  // A removal question is still a removal question; refresh does not join it,
+  // because it is the one item that changes nothing.
+  check("the removal question keeps it", feedMenu("Ars Technica", true).refresh.action.type === "refresh");
+
+  const readerSource = readFileSync(new URL("../../src/state/reader.svelte.ts", import.meta.url), "utf8");
+  check(
+    "the action closes the menu and refreshes the row",
+    /case "refresh": \{\s*this\.menu = null;/.test(readerSource) &&
+      /await this\.refreshRow\(stream, target\.kind === "category"\)/.test(readerSource),
+  );
+  check(
+    "a category refreshes the label every feed under it carries",
+    /this\.categories\.find\(\(group\) => group\.label === target\.label\)\?\.id/.test(readerSource),
+  );
+  const row = readerSource.slice(readerSource.indexOf("async refreshRow("), readerSource.indexOf("async refreshRow(") + 1600);
+  check("the row's refresh flushes pending writes first", /\.\.\.?flushWrites\(true\)/.test(row) || /await this\.flushWrites\(true\)/.test(row));
+  check("...asks the server for the counts beside it", /this\.loadSidebar\(this\.syncReport\)/.test(row));
+  check("...forcibly, not from this window's cache", /reloadStream\(\{ force: true/.test(row));
+  check(
+    "...and only when the row is what is on screen",
+    /onScreen/.test(row) && /\.\.\.?\(onScreen \? \[this\.reloadStream/.test(row.replace(/\n/g, " ")),
+  );
+  check(
+    "a local library is asked to fetch, as the sync does",
+    /const fetcher = this\.source\(\)\.fetchNew;/.test(row) && /fetcher\.call\(this\.source\(\), \{ wake: "manual" \}\)/.test(row),
+  );
+}
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

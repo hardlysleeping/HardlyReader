@@ -687,6 +687,69 @@ try {
     check("...and changes nothing that is drawn", feeds.feedExtractVersion === settled);
     check("a feed the reader has not touched has no verdict", feeds.feedTruncated("feed/https://example.invalid/whole") === false);
   }
+
+// --- refreshing one row ------------------------------------------------------
+// "Refresh" on a feed or a category is a read, not a crawl: the app can ask for
+// a stream's newest page, and the crawl is the server's own. What is checked
+// here is the part the app decides — that a row not on screen does not throw
+// away the reader's place, and that the row it *is* on screen is re-read even
+// though this window has a cached copy of it.
+{
+  const json = (body) => new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+  const seen = [];
+  globalThis.fetch = async (url) => {
+    const text = decodeURIComponent(String(url));
+    seen.push(text);
+    if (text.includes("unread-count")) return json({ unreadcounts: [] });
+    // The real list, so the groups a category row is looked up in survive the
+    // reload the refresh itself performs.
+    if (text.includes("subscription/list")) {
+      return json({
+        subscriptions: [
+          subscription("feed/1", "First", "Tech"),
+          subscription("feed/2", "Second", "Tech"),
+        ],
+      });
+    }
+    if (text.includes("token")) return new Response("token", { status: 200, headers: { "Content-Type": "text/plain" } });
+    return json({ id: "stream", items: [] });
+  };
+
+  const r = new ReaderState();
+  r.session = { serverUrl: "https://example.invalid", token: "token", username: "user" };
+  r.subscriptions = [
+    subscription("feed/1", "First", "Tech"),
+    subscription("feed/2", "Second", "Tech"),
+  ];
+
+  await r.openStream("feed/1", "First");
+  seen.length = 0;
+  await r.refreshRow("feed/2", false);
+  check("a row that is not on screen leaves the open list alone", !seen.some((url) => url.includes("stream/contents")), seen.join(" | "));
+  check("...but reads the counts the row draws", seen.some((url) => url.includes("unread-count")), seen.join(" | "));
+
+  seen.length = 0;
+  await r.refreshRow("feed/1", false);
+  check("the open feed is read again", seen.some((url) => url.includes("stream/contents/feed/1")), seen.join(" | "));
+  // Forced, so it is a request even though the page is cached and fresh.
+  seen.length = 0;
+  await r.refreshRow("feed/1", false);
+  check("...every time, not from this window's cache", seen.some((url) => url.includes("stream/contents/feed/1")), seen.join(" | "));
+
+  // A category row answers for the feeds under it: the open one included.
+  seen.length = 0;
+  await r.refreshRow("user/-/label/Tech", true);
+  check("a category refreshes the feed on screen inside it", seen.some((url) => url.includes("stream/contents/feed/1")), seen.join(" | "));
+
+  // ...and a category the open stream is not in does not touch the list.
+  seen.length = 0;
+  await r.refreshRow("user/-/label/Art", true);
+  check("a category the open feed is not in leaves the list alone", !seen.some((url) => url.includes("stream/contents")), seen.join(" | "));
+}
+
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });
 }

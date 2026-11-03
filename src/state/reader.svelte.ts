@@ -2376,6 +2376,56 @@ export class ReaderState {
         // ignored so the switch stays exhaustive over `MenuAction`.
         this.menu = null;
         return null;
+      case "refresh": {
+        this.menu = null;
+        // The row's own stream: a feed is itself, a category is the label every
+        // feed under it carries.
+        const stream =
+          target.kind === "feed"
+            ? target.id
+            : this.categories.find((group) => group.label === target.label)?.id;
+        if (stream === undefined) return null;
+        await this.refreshRow(stream, target.kind === "category");
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Refresh one row: a feed, or a category and the feeds under it.
+   *
+   * The honest half is the server's. A GReader endpoint has no "crawl this feed
+   * now" call — FreshRSS says as much in its own tracker — so on an account this
+   * asks for that stream's newest page and the counts beside it, and posts
+   * appear once the server has crawled them. A library on this device does have
+   * a fetch, and then this really does go and read the feed, which is the same
+   * difference `refresh()` already has.
+   *
+   * The open list is reloaded only when the row is what is on screen — the feed
+   * itself, or a category one of whose feeds is the open stream. Doing it for
+   * every row would throw away the reader's place in a stream they were not
+   * asking about.
+   */
+  async refreshRow(stream: string, category: boolean): Promise<void> {
+    if (!this.canRead) return;
+    this.sync = this.syncTracker.begin();
+    try {
+      const fetcher = this.source().fetchNew;
+      if (fetcher !== undefined) await fetcher.call(this.source(), { wake: "manual" });
+      await this.flushWrites(true);
+      const open = this.activeStream;
+      const onScreen =
+        open === stream ||
+        (category &&
+          (this.categories.find((group) => group.id === stream)?.feeds ?? []).some(
+            (feed) => feed.id === open,
+          ));
+      await Promise.all([
+        this.loadSidebar(this.syncReport),
+        ...(onScreen ? [this.reloadStream({ force: true, report: this.syncReport })] : []),
+      ]);
+    } finally {
+      this.sync = this.syncTracker.finish();
     }
   }
 

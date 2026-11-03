@@ -191,6 +191,7 @@ export type MenuAction =
   | { type: "hidden"; hidden: boolean }
   | { type: "pin"; pinned: boolean }
   | { type: "full-text"; mode: FullTextMode }
+  | { type: "refresh" }
   | { type: "remove-feed" }
   | { type: "confirm-remove" }
   | { type: "cancel-remove" }
@@ -216,6 +217,18 @@ export interface MenuModel {
   label: string;
   /** Why the items cannot be used, when they cannot. */
   note: string | null;
+  /**
+   * Refresh this row: read it from the server again, now.
+   *
+   * First, and never disabled, because it is the only item here that is not a
+   * write and the only one that can be asked for at any moment. What it can
+   * promise is the server's answer, not the server's crawl: a GReader endpoint
+   * has no "fetch this feed now" call, so on an account the row asks for that
+   * stream's newest page and the counts beside it, and a feed's new posts appear
+   * when the server has crawled them — which it does on its own. A library on
+   * this device does have a fetch, and that one really does go and get the feed.
+   */
+  refresh: MenuItemModel;
   /** Hide/Show. Null for a feed row. */
   toggle: MenuItemModel | null;
   /**
@@ -292,6 +305,13 @@ export function categoryMenu(
     kind: "category",
     label,
     note: notes.length === 0 ? null : notes.join(" "),
+    refresh: {
+      action: { type: "refresh" },
+      label: "Refresh",
+      checked: false,
+      disabled: false,
+      hint: "Reads this category's feeds and counts from the server again. New posts arrive once the server has crawled them.",
+    },
     // One entry, whichever storage it lands in. There is one mark on a
     // category, and it is a pin. Where it is kept is the half the reader cannot
     // see, so the hint says it — in the same words the band's pin uses.
@@ -363,6 +383,13 @@ export function feedMenu(
     kind: "feed",
     label: title,
     note: confirming ? "This removes the feed and its unread items from the server." : null,
+    refresh: {
+      action: { type: "refresh" },
+      label: "Refresh",
+      checked: false,
+      disabled: false,
+      hint: "Reads this feed from the server again. New posts arrive once the server has crawled it.",
+    },
     toggle: null,
     pin: confirming
       ? null
