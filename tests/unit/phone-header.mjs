@@ -316,8 +316,11 @@ check(
   // A WKWebView cannot ask for this, and Tauri's iOS project is a build product,
   // so it is one Swift file plus the Info.plist key that makes the global call
   // honoured - and a marker string the workflow greps out of the binary.
-  /class func load\(\)/.test(read("src-tauri/ios/StatusBar.swift")) &&
-    /interfaceOrientation\.isLandscape/.test(read("src-tauri/ios/StatusBar.swift")) &&
+  // Objective-C, not Swift: the hook is `+load`, and Swift refuses to compile
+  // that selector ("method 'load()' defines Objective-C class method 'load',
+  // which is not permitted by Swift"). The first CI run of this fix failed on it.
+  /\+ \(void\)load/.test(read("src-tauri/ios/StatusBar.m")) &&
+    /UIInterfaceOrientationIsLandscape/.test(read("src-tauri/ios/StatusBar.m")) &&
     /hardlyreader-status-bar-1/.test(read(".github/workflows/ios-unsigned.yml")) &&
     /UIViewControllerBasedStatusBarAppearance/.test(read(".github/workflows/ios-unsigned.yml")),
 );

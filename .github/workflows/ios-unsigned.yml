@@ -95,7 +95,7 @@ jobs:
           if [ -n "$EXISTING" ]; then SOURCES=$(dirname "$EXISTING"); else SOURCES=src-tauri/gen/apple/Sources; fi
           [ -d "$SOURCES" ] || { echo "no Swift source directory in gen/apple"; exit 1; }
           echo "swift sources: $SOURCES"
-          cp -v src-tauri/ios/*.swift "$SOURCES/"
+          cp -v src-tauri/ios/*.swift src-tauri/ios/*.m "$SOURCES/"
           cd src-tauri/gen/apple
           set -- *.xcodeproj
           PROJ="$1"
@@ -103,10 +103,10 @@ jobs:
           echo "project: $PROJ"
           XCODEGEN=$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)
           "$XCODEGEN" generate --spec project.yml
-          for swift in ShareSheet.swift StatusBar.swift; do
-            grep -q "$swift in Sources" "$PROJ/project.pbxproj" || {
-              echo "$swift is not in the app target's compile sources"
-              grep -n "${swift%.swift}" "$PROJ/project.pbxproj" || true
+          for native in ShareSheet.swift StatusBar.m; do
+            grep -q "$native in Sources" "$PROJ/project.pbxproj" || {
+              echo "$native is not in the app target's compile sources"
+              grep -n "${native%%.*}" "$PROJ/project.pbxproj" || true
               exit 1
             }
           done
@@ -115,7 +115,7 @@ jobs:
       - name: Let the app hide the status bar
         run: |
           set -euo pipefail
-          # `StatusBar.swift` hides the bar in landscape through the global
+          # `StatusBar.m` hides the bar in landscape through the global
           # `UIApplication.setStatusBarHidden`, and iOS only honours that call
           # when the app's view controllers do not own the appearance — so the
           # generated Info.plist has to say so. The plist is a build product
