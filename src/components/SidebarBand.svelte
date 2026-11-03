@@ -331,6 +331,25 @@
       <path d="M6 9l6 6 6-6" />
     </svg>
   </button>
+  {#if locked}
+    <!-- The pin, on its own strip between the caret and everything the curtain
+         covers.
+         It was folded away with the rest for a while, on the argument that a
+         control changing the list the lock just covered is a control whose result
+         nobody can check — and the owner's answer is that a pin is *what* is
+         shown, not what is in it: choosing "Starred only" or "without pins" is
+         reading the list that is left, and needing the passcode first is the lock
+         doing something nobody asked it to. On a phone the lock also folds the
+         band (`collapseBandForLock`), which is why this sits *outside* the reveal
+         rather than in the compact row: folded, the band is a caret, and the pin
+         stays under the thumb.
+         The curtain still applies to what it says: while locked `bandFacts` gives
+         the pin no word and names it by the count alone, so the strip cannot be
+         read as a statement about what is hidden. -->
+    <div class="band compact pinstrip">
+      {@render pinControl()}
+    </div>
+  {/if}
   {#if facts.row}
     <div
       class="reveal"
@@ -341,15 +360,10 @@
     >
     {#if locked}
       <!-- Locked: the band compacts to low-key glyphs on a quieter face. The
-           eye is not among them — a bare eye still says a filter exists — and
-           no word is drawn. Only the lock stays, because it is the way back in
-           and the one thing a locked band is for.
-
-           The pin used to stay beside it as "what to show, not what is in it".
-           That reads well on paper and badly on a phone: the pin filters the
-           list, the list is what the lock just covered, and a control that
-           changes a hidden thing while the band is locked is a control nobody
-           can check the result of. It is one fold away with everything else. -->
+           eye is not among them — a bare eye still says a filter exists — and no
+           word is drawn. The pin is not here either: it keeps its own strip above
+           this row (see the caret's own comment), because a phone folds the whole
+           band the moment the lock lands. What is left is the way back in. -->
       <div class="band compact">
         <span class="seat" aria-hidden="true"></span>
         <button
@@ -789,6 +803,15 @@
   .band.compact .ctl {
     min-height: 22px;
     padding: 2px 3px;
+  }
+
+  /* The pin's own strip above the locked row: one control, at the right where it
+     has always been, on the quiet face the locked band wears. Two columns rather
+     than the band's three, so the pin does not centre itself in a row with
+     nothing beside it. */
+  .band.compact.pinstrip {
+    grid-template-columns: minmax(0, 1fr) auto;
+    margin-bottom: 2px;
   }
 
   .band.compact .ctl.pin {
