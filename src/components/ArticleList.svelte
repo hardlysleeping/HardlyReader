@@ -1825,6 +1825,12 @@
       <p class="empty">
         {#if store.authorFilter !== null && store.items.length > 0}
           Nothing in this stream by {store.authorFilter}.
+        {:else if store.items.length > 0 && reading.articleFilter === "unread"}
+          <!-- A feed with nothing new is not an empty feed: say so, and offer the
+               half of the filter that has the posts in it. Nothing here asks the
+               server — the list is already loaded, so this is one press away. -->
+          Nothing unread here.
+          <button class="inline" onclick={() => setFilter("read")}>Show what you have read</button>
         {:else if store.items.length > 0}
           Nothing matches “{ARTICLE_FILTER_LABELS[reading.articleFilter]}”.
         {:else}
@@ -2985,8 +2991,17 @@
     }
 
     .filter {
-      padding: 6px 10px;
+      /* Wider than a mouse target, and narrower than this was: four pills (with
+         Read) measured 237px against a 217px header, so the 10px sides came in to
+         7px. The height is untouched, which is the half a thumb needs. */
+      padding: 6px 7px;
       font-size: 10.5px;
+    }
+
+    /* Four pills on one row at 390 wide: the gaps come in with the sides, or the
+       last one runs off the header's edge. */
+    .filters {
+      gap: 3px;
     }
 
     /* The list's toggles are thumb targets on a phone, not pointer targets. */
@@ -3673,6 +3688,19 @@
     padding: 24px 16px;
     font-size: 13px;
     color: var(--muted);
+  }
+
+  /* The one press out of an empty unread list: a link, not a button, because it
+     changes what this column shows rather than doing something. */
+  .empty .inline {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
   }
 
   .more {

@@ -14,13 +14,21 @@
 import { isRead, isStarred, type StreamItem } from "../api/freshrss";
 import { authorNameOf } from "./people";
 
-/** In the order the control draws them. */
-export const ARTICLE_FILTERS = ["unread", "all", "starred"] as const;
+/**
+ * In the order the control draws them.
+ *
+ * `read` sits beside `all` because it is the other half of `unread`: a feed with
+ * nothing new is not an empty feed once you can ask for what you have already
+ * read. It is a filter over what is loaded like the rest, so switching to it is
+ * instant and touches no cache.
+ */
+export const ARTICLE_FILTERS = ["unread", "all", "read", "starred"] as const;
 export type ArticleFilter = (typeof ARTICLE_FILTERS)[number];
 
 export const ARTICLE_FILTER_LABELS: Record<ArticleFilter, string> = {
   unread: "Unread",
   all: "All",
+  read: "Read",
   starred: "Starred",
 };
 
@@ -35,6 +43,11 @@ export function filterItems(items: readonly StreamItem[], filter: ArticleFilter)
       return items.filter((item) => !isRead(item));
     case "starred":
       return items.filter((item) => isStarred(item));
+    case "read":
+      // What `unread` leaves out, and the only way to reach the posts in a feed
+      // that has nothing new — otherwise that feed draws an empty list and there
+      // is no answer on screen for "this feed used to have things in it".
+      return items.filter((item) => isRead(item));
     default:
       // Same array contents, new array: callers may sort or splice what they get.
       return items.slice();
