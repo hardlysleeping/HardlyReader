@@ -780,7 +780,7 @@
      overlay landing on it. */
   .ctl:hover:not(:disabled) {
     background: color-mix(in srgb, var(--tone) 20%, transparent);
-    color: color-mix(in srgb, var(--tone) 64%, #fff);
+    color: var(--tone);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 52%, transparent);
   }
 
@@ -789,7 +789,7 @@
   .ctl:active:not(:disabled) {
     transform: scale(0.97);
     background: color-mix(in srgb, var(--tone) 30%, transparent);
-    color: color-mix(in srgb, var(--tone) 42%, #fff);
+    color: var(--tone);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 74%, transparent);
   }
 
@@ -973,5 +973,20 @@
 
   .passcode .notice {
     color: var(--danger, #e06c75);
+  }
+  /* The seat's tint is an 11–20% wash, so the tone at full strength reads
+     3.1:1 there in the light theme. Dark faces keep the tone; light faces take
+     it darkened, which is the same hue at a contrast a 9px word can carry. */
+  :global([data-theme="light"]) .lbl,
+  :global(:root:not([data-theme])) .lbl {
+    color: color-mix(in srgb, var(--tone) 64%, #04121c);
+  }
+  :global([data-theme="dark"]) .lbl {
+    color: var(--tone);
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme])) .lbl {
+      color: var(--tone);
+    }
   }
 </style>

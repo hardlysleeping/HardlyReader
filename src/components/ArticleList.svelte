@@ -2016,8 +2016,10 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 21px;
-    height: 19px;
+    /* 24px is the WCAG 2.5.8 floor. The glyph inside is unchanged; this is the
+       hit area around it, which was 21x19 and hard to land on. */
+    width: 24px;
+    height: 24px;
     padding: 0;
     border: 0;
     border-radius: 5px;

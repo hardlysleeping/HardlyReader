@@ -304,7 +304,9 @@
   });
 </script>
 
-<main class="shell">
+<main class="shell" id="content" tabindex="-1">
+  <!-- First in the tab order: the reader's own chrome repeats on every screen. -->
+  <a class="skip-link" href="#content">Skip to content</a>
   {#if checking}
     <!-- A splash that says nothing reads as a blank window, and a cold start
          here can take seconds before the first request lands. -->
@@ -369,6 +371,26 @@
     border: 1px solid var(--border-soft);
     font-size: 0.85em;
     pointer-events: none;
+  }
+
+  .skip-link {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 100;
+    transform: translate(-50%, -120%);
+    padding: 10px 16px;
+    border-radius: 0 0 10px 10px;
+    background: var(--text);
+    color: var(--bg);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .skip-link:focus-visible {
+    transform: translate(-50%, 0);
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   .shell {

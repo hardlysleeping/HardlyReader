@@ -84,8 +84,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 21px;
-    height: 19px;
+    /* WCAG 2.5.8: 24x24 minimum. The glyph is unchanged. */
+    width: 24px;
+    height: 24px;
     padding: 0;
     border: 0;
     border-radius: 5px;

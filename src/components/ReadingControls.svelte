@@ -131,7 +131,7 @@
     class="step small"
     onclick={() => step(-1)}
     disabled={stepSmaller}
-    aria-label={`Smaller ${stepWhat}`}
+    aria-label={`A− smaller ${stepWhat}`}
     title={`Smaller ${stepWhat} (${stepPercentReadout})`}
   >
     <span aria-hidden="true">A<span class="sign">−</span></span>
@@ -140,7 +140,7 @@
     class="step big"
     onclick={() => step(1)}
     disabled={stepBigger}
-    aria-label={`Bigger ${stepWhat}`}
+    aria-label={`A+ bigger ${stepWhat}`}
     title={`Bigger ${stepWhat} (${stepPercentReadout})`}
   >
     <span aria-hidden="true">A<span class="sign">+</span></span>
