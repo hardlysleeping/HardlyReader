@@ -585,6 +585,45 @@ const panning = (documentElement) => documentElement.classList.contains("drag-pa
   ui.dispose();
 }
 
+// ---------------------------------------------------------------------------
+// A row that has been picked up. The hold lifts it and the ghost follows the
+// finger; the tree must not slide under it at the same time. Both hands used to
+// be live on one finger — the list scrolled while the row was carried — and on
+// a phone that is what a reorder felt like: the picture lagging the hand and the
+// row it was aimed at moving away.
+// ---------------------------------------------------------------------------
+{
+  const ui = page();
+  // The class `lib/feed-drag` sets the moment a row is lifted.
+  ui.documentElement.classList.add("feed-dragging");
+  const before = top(ui.scroller);
+  send("pointerdown", ui.row, { pointerType: "touch", clientX: 120, clientY: 300, timeStamp: tick() });
+  send("pointermove", ui.row, { pointerType: "touch", clientX: 120, clientY: 288, timeStamp: tick() });
+  send("pointermove", ui.row, { pointerType: "touch", clientX: 120, clientY: 260, timeStamp: tick() });
+  check(
+    "a finger on a carried row does not scroll the tree under it",
+    top(ui.scroller) === before,
+    `${before} → ${top(ui.scroller)}`,
+  );
+  check("and the pan never marks the document as its own", !panning(ui.documentElement));
+  const up = send("pointerup", ui.row, { pointerType: "touch", clientX: 120, clientY: 260, timeStamp: tick() });
+  check("the release is left to the drag: no throw, no swallowed click", up.defaultPrevented !== true);
+  flushFrames();
+  check("and nothing keeps moving after it", top(ui.scroller) === before, String(top(ui.scroller)));
+  ui.documentElement.classList.remove("feed-dragging");
+  ui.dispose();
+}
+
+// ...and without the folded row, the same gesture still pans: the rule is about
+// who owns the finger, not about rows.
+{
+  const ui = page();
+  const before = top(ui.scroller);
+  drag(ui.row, { pointerType: "touch", pixels: 30 });
+  check("a finger on a row that is not lifted still pans the tree", top(ui.scroller) === before + 30, `${before} → ${top(ui.scroller)}`);
+  ui.dispose();
+}
+
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
 

@@ -177,7 +177,23 @@ check(
 );
 check(
   "and a hand that overtakes the throw does not inherit its speed",
-  /if \(!panning\) \{[\s\S]{0,300}stopFling\(\)/.test(source),
+  /panning = true;[\s\S]{0,300}?stopFling\(\)/.test(source),
+);
+// A row that has been picked up belongs to `lib/feed-drag`: the hold lifts it and
+// the ghost follows the finger. Both hands used to be live on that one finger, so
+// the tree scrolled under the row being carried — the drag felt like it was
+// fighting the list, and the drop landed where the finger was rather than where
+// the list had moved to.
+check(
+  "a carried row is the drag's gesture, not the pan's",
+  /const ROW_DRAG_CLASS = "feed-dragging"/.test(source) &&
+    /if \(document\.documentElement\.classList\.contains\(ROW_DRAG_CLASS\)\) \{\s*releaseGesture\(\);\s*return;/.test(
+      source,
+    ),
+);
+check(
+  "...given up outright, so the release cannot throw either",
+  /function releaseGesture\(\): void \{\s*pointer = null;\s*container = null;\s*panning = false;/.test(source),
 );
 check("the wheel catches it too", /function onWheel\(\): void \{\s*stopFling\(\)/.test(source));
 check("the throw is cancelled when the module is removed", /return \(\) => \{\s*stopFling\(\);/.test(source));

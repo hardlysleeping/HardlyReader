@@ -56,6 +56,15 @@ const CONTROL_THRESHOLD = 10;
 /** How long after a pan ends a click is still considered part of it. */
 const CLICK_GRACE = 250;
 
+/**
+ * The class `lib/feed-drag` puts on the document the moment a row is picked up.
+ *
+ * Read as a class rather than imported as a flag on purpose: the drag writes it
+ * for the stylesheet already, and a second registry of "who owns the finger"
+ * would be a second thing to keep in step. Nothing else in the app may use it.
+ */
+const ROW_DRAG_CLASS = "feed-dragging";
+
 /** Targets that own pointer movement themselves, whatever the pointer is. */
 const OWNS_POINTER = "input, textarea, select, option, [contenteditable='true'], .gutter";
 
@@ -149,6 +158,17 @@ export function installDragScroll(): () => void {
     if (fling === null) return;
     cancelAnimationFrame(fling.raf);
     fling = null;
+  }
+
+  /** Put this press down without a throw, a swallow or a scroll. */
+  function releaseGesture(): void {
+    pointer = null;
+    container = null;
+    panning = false;
+    samples = [];
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+    window.removeEventListener("pointercancel", onPointerUp);
   }
 
   /**
@@ -248,6 +268,20 @@ export function installDragScroll(): () => void {
   function onPointerMove(event: PointerEvent) {
     if (!container || event.pointerId !== pointer) return;
     if (!panning) {
+      // A row that has been picked up is the drag's gesture, not the pan's.
+      //
+      // Both hands were live on the same finger: the hold lifted the row and
+      // the ghost followed it, and at the same time this module saw the travel
+      // and scrolled the tree — so the list slid under the row being carried,
+      // two scroll positions and a transform answering one thumb. On a phone
+      // that is the whole of "the drag feels wrong": the picture lags, the row
+      // it is aimed at moves away, and the drop lands where the finger was, not
+      // where the list is. The press is given up outright, so the release
+      // cannot throw either; `lib/feed-drag` owns the click that ends it.
+      if (document.documentElement.classList.contains(ROW_DRAG_CLASS)) {
+        releaseGesture();
+        return;
+      }
       if (Math.hypot(event.clientX - startX, event.clientY - startY) < threshold) return;
       panning = true;
       // A throw the hand overtakes is over: grabbing again mid-flight must not

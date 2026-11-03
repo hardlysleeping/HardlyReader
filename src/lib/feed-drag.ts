@@ -406,21 +406,38 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
     pending = null;
     if (at === null || !dragging) return;
     let y = at.y;
+    let edge = false;
     if (scroller !== null) {
       const rect = scroller.getBoundingClientRect();
+      const was = scroller.scrollTop;
       if (y < rect.top + EDGE) {
-        scroller.scrollTop -= EDGE_STEP;
+        scroller.scrollTop = was - EDGE_STEP;
         y = Math.max(y, rect.top + EDGE);
       } else if (y > rect.bottom - EDGE) {
-        scroller.scrollTop += EDGE_STEP;
+        scroller.scrollTop = was + EDGE_STEP;
         y = Math.min(y, rect.bottom - EDGE);
       }
+      // `edge` is "the list actually moved", not "the finger is in the band":
+      // at either end of the tree the scroll is spent, and a loop that asked
+      // for another frame anyway would run for as long as the drag did.
+      edge = scroller.scrollTop !== was;
     }
     const next = dropTargetAt(at.x, y, options);
     const changed =
       next?.target !== target?.target || (next?.before ?? null) !== (target?.before ?? null);
     target = next;
     if (changed) handlers.onHover(next);
+    // Held in the edge, the list has to keep moving under a finger that is not
+    // moving. Frames were only ever asked for by a pointer event, so a thumb
+    // parked at the bottom of the tree stopped scrolling and the drag looked
+    // stuck exactly where it is usually held longest — and the row it was aimed
+    // at was only ever re-tested when the finger twitched. The same point is
+    // asked again on the next frame, which is also what keeps the highlight on
+    // the row passing under it.
+    if (edge) {
+      pending = at;
+      frame = requestAnimationFrame(flush);
+    }
   }
 
   function onMove(event: PointerEvent) {
