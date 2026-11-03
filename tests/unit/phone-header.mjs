@@ -134,13 +134,15 @@ check(
 // as padding, so the surface behind the clock is still the header's. It was 42,
 // which is a desktop toolbar's height; on a phone that reads as a gap between
 // the clock and the app rather than as a bar.
-// The bar's top edge has to land *below* the clock, not on it. The inset is
+// The bar's top edge has to land *below* the island, not under it. The inset is
 // paid minus `--status-lift`, declared once on the root: at 24 of a 62pt inset
-// the bar's top row was the clock's last row and the status bar clipped its
-// hairline. 18 leaves 6px of air — a margin, not a band.
+// the bar's top row was the clock's last row; at 18 of a 59pt inset its controls
+// started inside the housing and the owner reported the back button and the 1/2/3
+// control cut off by the notch. A lift may only spend the air that is under the
+// island — 2 leaves ~9pt of clear band above the controls on a 59pt inset.
 check(
-  "the bar clears the status bar by a hair, not by a band",
-  /--status-lift: 18px;/.test(app) && (app.match(/--status-lift:/g) ?? []).length === 1,
+  "the bar clears the island by a few points, not by a band",
+  /--status-lift: 2px;/.test(app) && (app.match(/--status-lift:/g) ?? []).length === 1,
 );
 
 check(

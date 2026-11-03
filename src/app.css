@@ -493,13 +493,17 @@ html.drag-panning :is(button, a, [role="button"]):active:not(.on):not([aria-pres
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   /* How much of the status bar the header rides over. The clock does not use the
-     whole inset — on a 62pt inset the clock block ends around 38 — so the bar
-     starts that much higher than the raw inset and the surface behind the clock
-     is still the bar's, with no band of nothing above its controls.
-     18 rather than 24: at 24 the bar's top edge landed on the clock's last row
-     and the status bar clipped its hairline, which read as a bar tucked under
-     the clock. 18 leaves 6px of air — the margin a phone needs, and no more. */
-  --status-lift: 18px;
+     whole inset: the island and the clock live in the top of it, and the last few
+     points are air. The bar starts that much higher than the raw inset so there is
+     no band of nothing between the status bar and its controls.
+     2, not 18 or 6. At 18 the bar's controls started 41pt down a 59pt inset —
+     inside the housing instead of under it — and the owner reported the back
+     button and the 1/2/3 control **cut off by the notch**; at 6 they started at
+     56pt with the island's lower edge around 48, which is air on paper and reads
+     as cramped on the phone. The air under the island is all a lift may spend,
+     and he asked for a slightly bigger margin, so the bar takes 2 and leaves ~9pt
+     of clear band above its controls. */
+  --status-lift: 2px;
 }
 
 /* The page owns every pixel the app does not, so a strip left by a safe-area
