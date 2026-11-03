@@ -125,4 +125,47 @@ function divSpan(text, className) {
   });
 }
 
+// A category's posts in one pane. The posts column does not exist there, so a
+// press that only opens the stream paints it nowhere: the category has to be
+// given the same unfolded list a feed gets, or the gesture does nothing at all.
+{
+  const anchor = source.slice(source.indexOf("async function anchorCategory"));
+  const body = anchor.slice(0, anchor.indexOf("\n  }", anchor.indexOf("pinFeed(category.id)")));
+  check("a category in one pane unfolds like a feed, by taking the same slot", () => {
+    assert.match(body, /reader\.setExpandedFeed\(category\.id\)/);
+    assert.match(body, /openStream\(category\.id, category\.label\)/);
+  });
+  check("...and it opens the stream, so the posts are the category's own", () => {
+    assert.match(source, /reader\.openStream\(category\.id, category\.label\)/);
+  });
+  check("the category's list is drawn under its heading, not somewhere else", () => {
+    assert.match(
+      markup,
+      /\{#if inlinePosts && expandedFeed === category\.id\}[\s\S]{0,400}<ArticleList nested \/>/,
+    );
+  });
+  check("there is still one list, so a feed and a category cannot both be open", () => {
+    assert.equal(markup.split("<ArticleList nested />").length - 1, 2);
+    assert.match(markup, /\{#if inlinePosts && expandedFeed === feed\.id\}/);
+  });
+  check("a double tap in one pane anchors the category rather than the dead stack", () => {
+    const block = source.slice(source.indexOf("if (doubled) {"), source.indexOf("if (!inlinePosts) {"));
+    assert.match(block, /if \(inlinePosts\) \{\s*void anchorCategory\(category\);/);
+    assert.doesNotMatch(block, /mobileNav\.show\(2\)/);
+  });
+  check("the count beside the heading opens it too, since the row itself folds", () => {
+    assert.match(markup, /if \(inlinePosts\) void anchorCategory\(category\);/);
+  });
+  check("tapping the heading again closes the posts, as a feed's row does", () => {
+    const block = source.slice(source.indexOf("if (openStreamId !== category.id)"));
+    assert.match(block.slice(0, 600), /if \(expandedFeed === category\.id\) \{\s*void collapseInline\(\);/);
+  });
+  check("the way back finds a category's row, not only a feed's", () => {
+    assert.match(source, /`\[data-drop-feed="\$\{id\}"\], \[data-drop-cat-row="\$\{id\}"\]`/);
+  });
+  check("the heading carries the unfolded ink the feed row carries", () => {
+    assert.match(source, /\.feed\.unfolded,\s*[\s\S]{0,200}\.group-title\.unfolded \{/);
+  });
+}
+
 console.log(`\n${passed}/${passed} checks passed`);

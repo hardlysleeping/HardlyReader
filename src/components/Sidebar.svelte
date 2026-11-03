@@ -508,10 +508,14 @@
     if (doubled) {
       // Unfolded first, because a folded category has no feeds to show and the
       // posts it opens are its feeds'. Then the posts, whichever layout this is:
-      // one panel has to be *shown* them, since its sidebar does not move.
+      // one panel draws them under the heading, because its sidebar does not
+      // move and a posts column it does not have would paint them nowhere.
       if (folded) toggle(category.id);
+      if (inlinePosts) {
+        void anchorCategory(category);
+        return;
+      }
       openCategory(category);
-      if (inlinePosts) mobileNav.show(2);
       return;
     }
     if (!inlinePosts) {
@@ -526,7 +530,13 @@
     }
     if (openStreamId !== category.id) {
       if (folded) toggle(category.id);
-      openCategory(category);
+      void anchorCategory(category);
+      return;
+    }
+    // Its posts are already the unfolded list: this tap closes them, the way a
+    // second tap on a feed's row does.
+    if (expandedFeed === category.id) {
+      void collapseInline();
       return;
     }
     toggle(category.id);
@@ -571,9 +581,46 @@
    * options under it are sticky against this number, so the title and the four
    * views stay put while the posts scroll beneath them.
    */
+  /**
+   * The row that carries a stream's unfold, whichever kind of stream it is: a
+   * feed's posts sit under the feed's row, a category's under its heading, and
+   * both are rows in the same tree.
+   */
+  function unfoldedRow(id: string): HTMLElement | null {
+    if (feedTree === null) return null;
+    return feedTree.querySelector<HTMLElement>(
+      `[data-drop-feed="${id}"], [data-drop-cat-row="${id}"]`,
+    );
+  }
+
+  /**
+   * One panel, a category: its whole stream drawn under the heading, the way a
+   * feed's posts are drawn under the feed.
+   *
+   * The posts column does not exist here, so `openCategory` alone loads the
+   * stream and paints it nowhere. This asks the same question the feed row asks
+   * — which list is unfolded — and answers it with the category's id, so the
+   * one nested `ArticleList` serves both kinds of row and the reader keeps the
+   * same mark, the same views and the same scroll.
+   */
+  async function anchorCategory(category: CategoryGroup): Promise<void> {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    if (expandedFeed === category.id) {
+      await collapseInline();
+      return;
+    }
+    reader.setExpandedFeed(category.id);
+    await reader.openStream(category.id, category.label);
+    await tick();
+    pinFeed(category.id);
+  }
+
   function pinFeed(id: string): void {
     if (feedTree === null) return;
-    const row = feedTree.querySelector<HTMLElement>(`[data-drop-feed="${id}"]`);
+    const row = unfoldedRow(id);
     if (row === null) return;
     feedRowHeight = row.offsetHeight;
     const offset =
@@ -592,7 +639,7 @@
     reader.setExpandedFeed(null);
     await tick();
     if (id === null || feedTree === null) return;
-    const row = feedTree.querySelector<HTMLElement>(`[data-drop-feed="${id}"]`);
+    const row = unfoldedRow(id);
     if (row === null) return;
     const offset =
       row.getBoundingClientRect().top - feedTree.getBoundingClientRect().top + feedTree.scrollTop;
@@ -1469,6 +1516,7 @@
         <button
           class="row group-title"
           class:active={openStreamId === category.id}
+          class:unfolded={inlinePosts && expandedFeed === category.id}
           class:pinned
           class:is-hidden={hiddenCat}
           class:drop-into={drop !== null && drop.target === category.label && drop.before === null}
@@ -1528,13 +1576,24 @@
         </button>
         <button
           class="open"
-          onclick={() => openCategory(category)}
+          onclick={() => {
+            if (inlinePosts) void anchorCategory(category);
+            else openCategory(category);
+          }}
           title={`Open posts in ${category.label}`}
           aria-label={`Open posts in ${category.label}`}
         >
           <span class="count">{reader.countFor(category.id)}</span>
         </button>
       </div>
+
+      {#if inlinePosts && expandedFeed === category.id}
+        <!-- One panel, this category's whole stream: the same nested list a
+             feed unfolds, so the four views, the marks and the scroll are the
+             ones a feed has. It sits under the heading rather than replacing
+             the tree, because the feeds are still how the reader moves on. -->
+        <ArticleList nested />
+      {/if}
 
       {#if !folded}
         {#each category.feeds as feed, index (feed.id)}
@@ -1750,7 +1809,7 @@
     <button
       class="unfold-close"
       onclick={collapseInline}
-      aria-label="Collapse this feed"
+      aria-label="Show the feeds again"
       title="Back to the feeds"
     >
       <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -2455,7 +2514,10 @@
     color: var(--text);
   }
 
-  .feed.unfolded {
+  .feed.unfolded,
+  /* A category whose posts are unfolded reads the same way, for the same
+     reason: the heading is what the posts are, so it carries the ink. */
+  .group-title.unfolded {
     color: var(--text);
     font-weight: 600;
   }

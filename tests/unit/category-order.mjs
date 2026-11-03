@@ -151,7 +151,7 @@ check(
   /if \(pickedCategory !== category\.id\) \{\s*pickedCategory = category\.id;\s*if \(folded\) toggle\(category\.id\);\s*return;\s*\}/.test(
     sidebar,
   ) &&
-    /if \(openStreamId !== category\.id\) \{\s*if \(folded\) toggle\(category\.id\);\s*openCategory\(category\);\s*return;\s*\}/.test(
+    /if \(openStreamId !== category\.id\) \{\s*if \(folded\) toggle\(category\.id\);\s*void anchorCategory\(category\);\s*return;\s*\}/.test(
       sidebar,
     ),
 );
@@ -161,24 +161,27 @@ check(
 );
 // A double tap is one gesture, not two taps that undo each other. On a window
 // the pair used to toggle twice and land back where it started; in one panel the
-// posts were fetched behind a sidebar that never moved.
+// posts were fetched behind a sidebar that never moved, because the only thing
+// the double tap did there was call the portrait stack's `show(2)` — which the
+// one-column walk does not have.
 check(
   "a double tap on a category opens its posts",
   /const doubled = lastCategoryTap\.id === category\.id && now - lastCategoryTap\.at < DOUBLE_TAP_MS/.test(
     sidebar,
   ) &&
-    /if \(doubled\) \{[\s\S]{0,400}?if \(folded\) toggle\(category\.id\);\s*openCategory\(category\);/.test(
+    /if \(doubled\) \{[\s\S]{0,900}?if \(folded\) toggle\(category\.id\);\s*if \(inlinePosts\) \{\s*void anchorCategory\(category\);\s*return;\s*\}\s*openCategory\(category\);/.test(
       sidebar,
     ),
 );
 check(
   "...and does not fold the group it just opened",
-  /if \(doubled\) \{[\s\S]{0,400}?return;\s*\}/.test(sidebar) &&
+  /if \(doubled\) \{[\s\S]{0,900}?return;\s*\}/.test(sidebar) &&
     sidebar.indexOf("if (doubled)") < sidebar.indexOf("if (!inlinePosts) {\n      toggle"),
 );
 check(
-  "...and one panel is shown the posts, since its sidebar does not move",
-  /if \(inlinePosts\) mobileNav\.show\(2\)/.test(sidebar),
+  "...and one panel is given the posts, since its sidebar does not move",
+  /if \(inlinePosts\) \{\s*void anchorCategory\(category\);\s*return;\s*\}/.test(sidebar) &&
+    !/mobileNav\.show\(2\);[\s\S]{0,40}openCategory/.test(sidebar),
 );
 check(
   "the double-tap window is a phone's own",
@@ -186,8 +189,10 @@ check(
 );
 
 check(
-  "the count button still opens the same stream",
-  /onclick=\{\(\) => openCategory\(category\)\}/.test(sidebar),
+  "the count button still opens the same stream, unfurled where it sits in one panel",
+  /onclick=\{\(\) => \{\s*if \(inlinePosts\) void anchorCategory\(category\);\s*else openCategory\(category\);\s*\}\}/.test(
+    sidebar,
+  ),
 );
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
