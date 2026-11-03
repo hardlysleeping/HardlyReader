@@ -32,11 +32,13 @@ import {
   readIndentOpen,
   readPinPad,
   readGestures,
+  readOfflineCopy,
   readRefreshOnReturn,
   writeAutoSync,
   writeAutoSyncHours,
   writeBandCollapsed,
   writeGestures,
+  writeOfflineCopy,
   writeIndentOpen,
   writePinPad,
   writeRefreshOnReturn,
@@ -100,6 +102,9 @@ class ChromeState {
    */
   gestures = $state<GesturePrefs>({ ...GESTURE_DEFAULTS });
 
+  /** Whether the last few posts of every feed are kept on this device. */
+  offlineCopy = $state(true);
+
   load(): void {
     const account = this.account();
     this.bandCollapsed = readBandCollapsed(browserStorage(), account);
@@ -112,6 +117,7 @@ class ChromeState {
     this.autoSyncHours = readAutoSyncHours(browserStorage(), account);
     this.refreshOnReturn = readRefreshOnReturn(browserStorage(), account);
     this.gestures = readGestures(browserStorage(), account);
+    this.offlineCopy = readOfflineCopy(browserStorage(), account);
   }
 
   /** The account this chrome belongs to, or null before sign-in. */
@@ -187,6 +193,12 @@ class ChromeState {
     if (sameRefreshOnReturn(this.refreshOnReturn, next)) return;
     this.refreshOnReturn = next;
     writeRefreshOnReturn(browserStorage(), next, this.account());
+  }
+
+  setOfflineCopy(on: boolean): void {
+    if (this.offlineCopy === on) return;
+    this.offlineCopy = on;
+    writeOfflineCopy(browserStorage(), on, this.account());
   }
 
   toggleBand(): void {

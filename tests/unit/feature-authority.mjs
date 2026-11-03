@@ -121,6 +121,7 @@ function buildReaderModule() {
     .replaceAll('"../lib/stream-loads"', JSON.stringify(absolute("src/lib/stream-loads.ts")))
     .replaceAll('"../lib/stream-perf"', JSON.stringify(absolute("src/lib/stream-perf.ts")))
     .replaceAll('"../lib/stream-scroll"', JSON.stringify(absolute("src/lib/stream-scroll.ts")))
+    .replaceAll('"../lib/offline-copy"', JSON.stringify(absolute("src/lib/offline-copy.ts")))
     .replaceAll('"./reading.svelte"', JSON.stringify(buildReadingModule()))
     .replaceAll('"./theme.svelte"', JSON.stringify(buildThemeModule()))
     .replaceAll('"./floods.svelte"', JSON.stringify(buildFloodsModule()))

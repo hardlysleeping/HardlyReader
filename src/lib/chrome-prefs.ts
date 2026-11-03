@@ -65,6 +65,15 @@ export interface ChromePrefs {
   refreshOnReturn: RefreshOnReturn;
   /** The gestures this device answers to; see `lib/gestures.ts`. */
   gestures: GesturePrefs;
+  /**
+   * Whether the last few posts of every feed are kept on this device.
+   *
+   * On unless it was turned off: it is what makes a launch with no network show
+   * something rather than an error, and it costs one small request per feed at
+   * most twice a day (`lib/offline-copy.ts`). The row that turns it off says what
+   * it costs, which is why the default is allowed to be on.
+   */
+  offlineCopy: boolean;
 }
 
 const DEFAULT_PREFS: ChromePrefs = {
@@ -75,6 +84,7 @@ const DEFAULT_PREFS: ChromePrefs = {
   autoSyncHours: AUTO_SYNC_DEFAULT_HOURS,
   refreshOnReturn: REFRESH_ON_RETURN_DEFAULT,
   gestures: { ...GESTURE_DEFAULTS },
+  offlineCopy: true,
 };
 
 /**
@@ -96,6 +106,7 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
       autoSyncHours?: unknown;
       refreshOnReturn?: unknown;
       gestures?: unknown;
+      offlineCopy?: unknown;
     };
     return {
       bandCollapsed: saved.bandCollapsed === true,
@@ -105,6 +116,9 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
       autoSyncHours: parseAutoSyncHours(saved.autoSyncHours),
       refreshOnReturn: parseRefreshOnReturn(saved.refreshOnReturn),
       gestures: parseGestures(saved.gestures),
+      // Written by a build that had the row; absent elsewhere, and then the default
+      // stands rather than reading as "turned off".
+      offlineCopy: saved.offlineCopy !== false,
     };
   } catch {
     // Corrupt JSON, or storage throwing: both quiet defaults are safe.
@@ -224,6 +238,22 @@ export function writeRefreshOnReturn(
   account: AccountIdentity | null = null,
 ): void {
   patchPrefs(storage, account, { refreshOnReturn: parseRefreshOnReturn(value) });
+}
+
+/** Kept on this device unless it was turned off. */
+export function readOfflineCopy(
+  storage: StorageLike | undefined,
+  account: AccountIdentity | null = null,
+): boolean {
+  return readPrefs(storage, account).offlineCopy;
+}
+
+export function writeOfflineCopy(
+  storage: StorageLike | undefined,
+  on: boolean,
+  account: AccountIdentity | null = null,
+): void {
+  patchPrefs(storage, account, { offlineCopy: on });
 }
 
 /** The gestures this device answers to, whole — one record, one write. */

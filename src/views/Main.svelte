@@ -123,6 +123,20 @@
     prefs.observe();
   });
 
+  /**
+   * The offline copy follows the setting, and a switch turned on takes effect now.
+   *
+   * Written here rather than read inside the store for the same reason every other
+   * preference is: the reading store holds no opinion about a settings switch. A
+   * reader who turns it on should not have to wait for the next sync to find out
+   * whether it did anything, so a pass runs when it is switched on.
+   */
+  $effect(() => {
+    const on = chrome.offlineCopy;
+    reader.keepOfflineCopy = on && !DEMO;
+    if (on && !DEMO) void reader.warmOfflineCopy();
+  });
+
   $effect(() => {
     const enabled = chrome.autoSync;
     const hours = chrome.autoSyncHours;

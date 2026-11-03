@@ -215,7 +215,8 @@ function buildReaderModule() {
     .replaceAll('"../lib/full-text"', JSON.stringify(absolute("src/lib/full-text.ts")))
     .replaceAll('"../lib/stream-loads"', JSON.stringify(absolute("src/lib/stream-loads.ts")))
     .replaceAll('"../lib/stream-perf"', JSON.stringify(absolute("src/lib/stream-perf.ts")))
-    .replaceAll('"../lib/stream-scroll"', JSON.stringify(absolute("src/lib/stream-scroll.ts")));
+    .replaceAll('"../lib/stream-scroll"', JSON.stringify(absolute("src/lib/stream-scroll.ts")))
+    .replaceAll('"../lib/offline-copy"', JSON.stringify(absolute("src/lib/offline-copy.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
   const out = join(GEN_DIR, "positions-reader.mjs");
   writeFileSync(out, code);

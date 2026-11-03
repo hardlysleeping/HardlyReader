@@ -6,6 +6,7 @@ import { landingItem, step } from "../lib/reading-order";
 import { stepIndex } from "../lib/list-view";
 import { isNoopDrop, moveInOrder, moveNotice, sortByOrder } from "../lib/feed-order";
 import { attemptOrder } from "../lib/stream-cycle";
+import { OFFLINE_COPY, feedsToWarm, keptPage, parseKept, serializeKept } from "../lib/offline-copy";
 import { StreamLoads } from "../lib/stream-loads";
 import { StreamPerf, type StreamSource } from "../lib/stream-perf";
 import { StreamScroll } from "../lib/stream-scroll";
@@ -161,6 +162,9 @@ const LARGE_SIDEBAR_FEEDS = 150;
  * now, and a pre-scoping blob is adopted once by the account it named.
  */
 const PREFS_BASE = "hardlyreader.prefs.v1";
+
+/** When each feed's last page was kept on this device, per account. */
+const KEPT_BASE = "hardlyreader.offline-copy.v1";
 
 interface DiskStream {
   items: StreamItem[];
@@ -461,6 +465,67 @@ export class ReaderState {
     }
     if (sent > 0) void this.loadSidebar();
     return sent;
+  }
+
+  /**
+   * Keeps the last few posts of every feed on this device, so a launch with no
+   * network still has something to open.
+   *
+   * The queue (`api/offline`) rescues the decisions a reader makes offline; this
+   * rescues the reading. A feed never opened in this session has nothing in the
+   * stream cache, so tapping it on a train is a spinner and then an error — which
+   * reads as the app being broken rather than as the network being absent.
+   *
+   * It writes into the **same** cache the reader already paints from
+   * (`rememberStream` → `stream:<id>` on disk), never a second one: two caches
+   * would disagree about what a feed holds within a week. A feed that already has
+   * a copy younger than `OFFLINE_COPY.staleMs` is not asked for again, and one pass
+   * touches at most `OFFLINE_COPY.maxFeeds` feeds — the arithmetic is in
+   * `lib/offline-copy.ts`, which is where it can be tested without a server.
+   *
+   * Nothing here reports progress or shows a count. It is background work with a
+   * visible result (a feed that opens offline), and a readout for it would be one
+   * more thing on screen that is not the reader's list.
+   */
+  async warmOfflineCopy(): Promise<number> {
+    if (!this.keepOfflineCopy || !this.canRead) return 0;
+    const scope = this.scope;
+    const storage = typeof localStorage === "undefined" ? undefined : localStorage;
+    if (scope === null || storage === undefined) return 0;
+    const now = Date.now();
+    let kept: Map<string, number>;
+    try {
+      kept = parseKept(readAccountValue(storage, KEPT_BASE, scope), now);
+    } catch {
+      kept = new Map();
+    }
+    const feeds = this.subscriptions.map((feed) => feed.id).filter((id) => id.startsWith("feed/"));
+    const plan = feedsToWarm(feeds, kept, now);
+    let warmed = 0;
+    for (const feedId of plan) {
+      // One at a time on purpose: this runs behind the reader's own work, and a
+      // burst of twenty streams at once is what makes a small server slow for the
+      // person actually reading it.
+      if (this.error !== null) break;
+      try {
+        const page = await this.source().stream(feedId, { count: OFFLINE_COPY.perFeed });
+        const keptPageFor = keptPage(page.items, page.continuation);
+        this.rememberStream(feedId, keptPageFor.items, keptPageFor.continuation);
+        kept.set(feedId, Date.now());
+        warmed += 1;
+      } catch {
+        // A feed that fails is skipped, not retried: the next sync is the retry.
+        continue;
+      }
+    }
+    if (warmed > 0) {
+      try {
+        writeAccountValue(storage, KEPT_BASE, scope, serializeKept(kept));
+      } catch {
+        /* storage full or blocked: the copy is still on screen, it just re-fetches */
+      }
+    }
+    return warmed;
   }
 
   /**
@@ -3261,6 +3326,15 @@ export class ReaderState {
   lastSyncAt = $state(0);
 
   /**
+   * Whether this window keeps the last few posts of every feed on the device.
+   *
+   * Set from the reader's preference (`chrome.offlineCopy`) and read only by
+   * `warmOfflineCopy`. It lives here rather than being read from `chrome` inside
+   * the store, so the store keeps having no opinion about a settings switch.
+   */
+  keepOfflineCopy = $state(false);
+
+  /**
    * Fetches new articles, then re-reads what the library now holds.
    *
    * Only a backend that fetches has anything to do here; a server-side crawler
@@ -3301,6 +3375,10 @@ export class ReaderState {
         this.loadSidebar(this.syncReport),
         this.reloadStream({ force: true, report: this.syncReport }),
       ]);
+      // After the list the reader is looking at, never before it: keeping a copy of
+      // every feed is background work, and a sync that waited for it would feel
+      // slower in exchange for something nobody asked to watch.
+      if (this.error === null) void this.warmOfflineCopy();
     } finally {
       // Not `done: total`: a sync that lost a fetch ends short, because that is
       // what happened. One of two overlapping syncs ending does not end the

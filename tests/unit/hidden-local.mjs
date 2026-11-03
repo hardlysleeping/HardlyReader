@@ -135,7 +135,8 @@ function buildReaderModule() {
     .replaceAll('"../lib/feed-move"', JSON.stringify(absolute("src/lib/feed-move.ts")))
     .replaceAll('"../lib/opml"', JSON.stringify(absolute("src/lib/opml.ts")))
     .replaceAll('"../lib/extract-ledger"', JSON.stringify(absolute("src/lib/extract-ledger.ts")))
-    .replaceAll('"../lib/full-text"', JSON.stringify(absolute("src/lib/full-text.ts")));
+    .replaceAll('"../lib/full-text"', JSON.stringify(absolute("src/lib/full-text.ts")))
+    .replaceAll('"../lib/offline-copy"', JSON.stringify(absolute("src/lib/offline-copy.ts")));
 }
 
 const { isHiddenCategory, parseState } = await import(absolute("src/api/hardlyread.ts"));
