@@ -293,7 +293,9 @@ function method(source, name) {
   );
   check(
     "with the pane's own name on it, which the fold does not change",
-    /data-pane="article" aria-label="Article"/.test(readerPane),
+    // The section now carries the bar's placement and measured height, so the
+    // attributes are no longer on one line.
+    /data-pane="article"[\s\S]{0,200}?aria-label="Article"/.test(readerPane),
   );
 }
 

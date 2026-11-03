@@ -915,13 +915,20 @@
   }
 </script>
 
-<section class="reader" data-pane="article" aria-label="Article">
+<section
+  class="reader"
+  class:bar-bottom={barAtBottom}
+  style:--bar-h={`${barHeight}px`}
+  data-pane="article"
+  aria-label="Article"
+>
   {#if item}
     <!-- One column on a phone has no second pane to fall back to: the way out of
-         the article floats over it at the same corner the unfolded feed's own
-         collapse control pins to, so leaving is one press wherever the article is
-         scrolled to. Everywhere else the bar's arrow is still the way out, and
-         there is no floating twin of it. -->
+         the article floats over it in the bottom right corner — the same corner,
+         and the same 10px off it, as the unfolded feed's own "Show the feeds
+         again" disc, which is the control the thumb has just used — so leaving is
+         one press wherever the article is scrolled to. Everywhere else the bar's
+         arrow is still the way out, and there is no floating twin of it. -->
     {#if floatingBack}
       <button class="float-back" onclick={() => onClose?.()} aria-label="Back to list">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" /></svg>
@@ -1282,8 +1289,12 @@
      wherever the article is scrolled to. */
   .float-back {
     position: absolute;
-    top: 7px;
-    left: 8px;
+    /* The thumb's corner, and the one the unfolded feed's collapse disc uses:
+       10px off the right edge, 30px above the bottom, both plus the home
+       indicator's inset. It was top-left, which is the one corner a hand holding
+       a phone cannot reach while reading. */
+    right: 10px;
+    bottom: calc(30px + var(--safe-bottom, 0px));
     z-index: 30;
     display: inline-flex;
     align-items: center;
@@ -1297,6 +1308,15 @@
     color: var(--text-dim);
     box-shadow: 0 2px 10px rgb(0 0 0 / 0.25);
     cursor: pointer;
+  }
+
+  /* The bar is a full-width row and it is at the bottom by default: the disc,
+     in the corner it now shares with the bar's right-hand controls, would be
+     drawn on top of them. Lifted clear by the bar's measured height — which
+     carries the home indicator's inset, and so differs per phone — plus the same
+     10px of breath the list's disc keeps from the counts. */
+  .reader.bar-bottom .float-back {
+    bottom: calc(var(--bar-h, 40px) + 10px);
   }
 
   .float-back:hover {

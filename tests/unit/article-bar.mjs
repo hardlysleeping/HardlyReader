@@ -99,12 +99,33 @@ check(
 );
 
 check(
-  "the floating disc hides the bar's arrow only while they share a corner",
+  "the way out floats in the thumb's corner, not the top left",
+  // Owner, 2026-11-02: "i want the floating back button where the floating
+  // collapse button is on article view, bottom right, not top left". The numbers
+  // are the unfolded feed's own collapse disc (`Sidebar.svelte` `.unfold-close`:
+  // right 10, bottom 30 + the inset) so the two controls sit in one place.
+  /\.float-back \{[\s\S]{0,400}?right: 10px;[\s\S]{0,120}?bottom: calc\(30px \+ var\(--safe-bottom, 0px\)\);/.test(
+    pane,
+  ) && !/top: 7px;/.test(pane),
+);
+
+check(
+  "and it is lifted clear of the bar when the bar is at the bottom",
+  // The bar is a full-width row and at the bottom by default; the disc would be
+  // drawn over its right-hand controls. The height is the bar's own measured one
+  // (`bind:clientHeight`), because it carries the home indicator's inset.
+  /\.reader\.bar-bottom \.float-back \{\s*bottom: calc\(var\(--bar-h, 40px\) \+ 10px\);/.test(pane) &&
+    /style:--bar-h=\{`\$\{barHeight\}px`\}/.test(pane) &&
+    /class:bar-bottom=\{barAtBottom\}/.test(pane),
+);
+
+check(
+  "the floating disc hides the bar's arrow while the disc is the way out",
   /const discOverBar = \$derived\(floatingBack && !barAtBottom\);/.test(pane) &&
     /\{#if !discOverBar\}\s*<button class="icon" onclick=\{\(\) => onClose\?\.\(\)\} aria-label="Back to list">←<\/button>/.test(
       pane,
     ),
-  "at the bottom the disc is at the other end, so the bar keeps its arrow",
+  "at the bottom the bar keeps its own arrow, so the way out is never missing",
 );
 
 /* ---------------------------------------------------------------------------
