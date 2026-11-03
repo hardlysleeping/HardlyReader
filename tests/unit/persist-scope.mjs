@@ -344,7 +344,8 @@ await tick();
       .replaceAll('"../api/transport"', JSON.stringify(absolute("src/api/transport.ts")))
       .replaceAll('"../api/backend"', JSON.stringify(absolute("src/api/backend.ts")))
       .replaceAll('"../api/greader-backend"', JSON.stringify(absolute("src/api/greader-backend.ts")))
-      .replaceAll('"../api/profile"', JSON.stringify(absolute("src/api/profile.ts")))
+      .replaceAll('"../api/session"', JSON.stringify(absolute("src/api/session.ts")))
+.replaceAll('"../api/profile"', JSON.stringify(absolute("src/api/profile.ts")))
       .replaceAll('"../lib/search"', JSON.stringify(absolute("src/lib/search.ts")))
       .replaceAll('"./persist"', JSON.stringify(absolute("src/state/persist.ts")));
     mkdirSync(GEN_DIR, { recursive: true });

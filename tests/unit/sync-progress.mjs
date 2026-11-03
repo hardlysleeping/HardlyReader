@@ -257,6 +257,7 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"../api/transport"', absolute("src/api/transport.ts")],
   ['"../api/backend"', absolute("src/api/backend.ts")],
   ['"../api/greader-backend"', absolute("src/api/greader-backend.ts")],
+  ['"../api/session"', absolute("src/api/session.ts")],
   ['"../api/profile"', absolute("src/api/profile.ts")],
   ['"../lib/reading-order"', absolute("src/lib/reading-order.ts")],
   ['"../lib/feed-order"', absolute("src/lib/feed-order.ts")],

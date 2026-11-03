@@ -138,8 +138,28 @@ function readerWith(list) {
 {
   const reader = readerWith([local, a, b]);
   equal("three accounts, one of them on this device", reader.accountList.length, 3);
+  // A library with feeds in it is an account like any other; this one is empty, so it
+  // is not part of a merged view — an account that holds nothing is not one of the
+  // accounts a column is drawn from.
+  equal("an empty library is not merged", reader.mergedAccounts.map((p) => p.slug), [a.slug, b.slug]);
+  reader.accountSidebars = {
+    [local.slug]: {
+      slug: local.slug,
+      label: local.label,
+      kind: "local",
+      categories: [
+        {
+          id: "c1",
+          label: "Mine",
+          feeds: [{ id: "feed/9", title: "Mine", url: "https://example.com/mine", categories: [] }],
+        },
+      ],
+      counts: new Map(),
+      error: null,
+    },
+  };
   check(
-    "the local library merges alongside the servers",
+    "the local library merges alongside the servers once it holds a feed",
     reader.mergedAccounts.some((p) => p.kind === "local") && reader.mergedAccounts.length === 3,
   );
   reader.enableAccount(local.slug, false);

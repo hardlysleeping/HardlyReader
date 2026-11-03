@@ -1,5 +1,6 @@
 import { SvelteMap } from "svelte/reactivity";
 
+import { readSessions } from "../api/session";
 import type { OpmlFeed } from "../lib/opml";
 import { addFeedsMessage, parseFeedUrls, type AddFeedsResult } from "../lib/add-feeds";
 import { landingItem, step } from "../lib/reading-order";
@@ -8,7 +9,7 @@ import { isNoopDrop, moveInOrder, moveNotice, sortByOrder } from "../lib/feed-or
 import { attemptOrder } from "../lib/stream-cycle";
 import { withState } from "../lib/marks";
 import { OFFLINE_COPY, feedsToWarm, keptPage, parseKept, serializeKept } from "../lib/offline-copy";
-import { StreamLoads } from "../lib/stream-loads";
+import { StreamLoads, type StreamLoad } from "../lib/stream-loads";
 import { StreamPerf, type StreamSource } from "../lib/stream-perf";
 import { StreamScroll } from "../lib/stream-scroll";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
@@ -82,7 +83,7 @@ import {
   type ReaderProfile,
 } from "../api/profile";
 import { AccountRegistry } from "../api/registry";
-import { AccountAggregate, type AccountFailure } from "../api/aggregate";
+import { AccountAggregate, splitId, type AccountFailure } from "../api/aggregate";
 import { countFeeds, groupFeedList, type FeedGroup } from "../lib/feed-groups";
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "../lib/account-key";
 import {
@@ -408,9 +409,69 @@ export class ReaderState {
   /** Which account bands Pane 1 has open. The focused account's tree is always drawn. */
   openAccountGroups = $state<string[]>([]);
 
+  /**
+   * The account sections of the merged column, in Pane 1's order.
+   *
+   * Empty whenever the column is one account's — every feed, every category, and
+   * every stream in a window with a single account. The posts list draws a heading
+   * over each section and nothing at all when this is empty.
+   */
+  mergedSections = $state<{ key: string; label: string; items: StreamItem[] }[]>([]);
+
+  /**
+   * True when an account is known to hold at least one feed.
+   *
+   * An account nobody has read yet counts as holding something — hiding a real
+   * account because its tree has not been fetched would be worse than drawing a
+   * heading over it.
+   */
+  accountHoldsFeeds(profile: ReaderProfile): boolean {
+    const slug = profileSlug(profile);
+    if (this.isFocused(slug)) return this.subscriptions.length > 0;
+    const copy = this.accountSidebars[slug];
+    if (copy === undefined) {
+      // A library on this device is read straight away when the accounts are filed
+      // (`primeAccounts`), so "not read yet" there means it is empty: it is on the
+      // disk under the thumb, not behind a network call that has not come back.
+      return profile.kind !== "local";
+    }
+    return copy.categories.length > 0;
+  }
+
+  /**
+   * Reads every account on this device that is not the one being read.
+   *
+   * Their trees are on the disk, so the answer is immediate and costs nothing — and
+   * without it an empty library cannot be told from one with feeds in it, which is
+   * exactly what decides whether Pane 1 draws account bands at all.
+   */
+  primeLocalAccounts(): void {
+    for (const profile of this.accountList) {
+      if (profile.kind !== "local") continue;
+      if (this.isFocused(profileSlug(profile))) continue;
+      if (this.accountSidebars[profileSlug(profile)] !== undefined) continue;
+      void this.loadAccountSidebar(profileSlug(profile));
+    }
+  }
+
+  /**
+   * The accounts that get a band in Pane 1, in that order. Empty when there is
+   * nothing to tell apart.
+   *
+   * Bands exist so a row can be attributed, and a window with one real account has
+   * nothing to attribute. A library **on this device** is always filed — it is where
+   * a first feed goes — but an empty one is not an account anybody switches to, so a
+   * single FreshRSS account beside it is one account here, not two: that is the app it
+   * has always been, with no headings over anything.
+   */
+  get bandedAccounts(): ReaderProfile[] {
+    const holding = this.accountList.filter((profile) => this.accountHoldsFeeds(profile));
+    return holding.length > 1 ? holding : [];
+  }
+
   /** One account needs no bands: there is nothing to tell apart. */
   get hasAccountGroups(): boolean {
-    return this.accountList.length > 1;
+    return this.bandedAccounts.length > 0;
   }
 
   /**
@@ -522,10 +583,17 @@ export class ReaderState {
   }
 
   /** How many feeds an account draws, for the band's own count. */
-  feedCountIn(slug: string): number {
+  /**
+   * How many feeds an account holds, or `null` while that is not known yet.
+   *
+   * A band that has never been opened has not read its account, and a `0` there
+   * would be a count the window made up: "not read" and "empty" are different
+   * answers, so the row says nothing until it knows.
+   */
+  feedCountIn(slug: string): number | null {
     const sidebar = this.accountSidebars[slug];
     if (sidebar !== undefined) return countFeeds(sidebar.categories);
-    return this.isFocused(slug) ? this.subscriptions.length : 0;
+    return this.isFocused(slug) ? this.subscriptions.length : null;
   }
 
   /**
@@ -536,7 +604,13 @@ export class ReaderState {
    * it stays signed in, keeps its keys and still answers by slug.
    */
   get mergedAccounts(): ReaderProfile[] {
-    return this.accountList.filter((profile) => profile.enabled !== false);
+    // An account that holds nothing is not part of a merged view, however it is
+    // flagged: the library on this device is always filed, and an empty one beside a
+    // single server would otherwise be the second account that turns merging on —
+    // drawing one account's posts under a heading as if they were several.
+    return this.accountList.filter(
+      (profile) => profile.enabled !== false && this.accountHoldsFeeds(profile),
+    );
   }
 
   /** Writes the registry into the rune. The only writer. */
@@ -586,6 +660,7 @@ export class ReaderState {
       this.openAccountGroups = [...this.openAccountGroups, settled.slug];
     }
     this.publishAccounts();
+    this.primeLocalAccounts();
   }
 
   /**
@@ -595,6 +670,7 @@ export class ReaderState {
   adoptAccounts(list: readonly ReaderProfile[]): void {
     for (const profile of list) this.accounts.add(profile);
     this.publishAccounts();
+    this.primeLocalAccounts();
   }
 
   /**
@@ -2840,6 +2916,7 @@ export class ReaderState {
    */
   private resetForAccount(): void {
     this.subscriptions = [];
+    this.mergedSections = [];
     this.tags = [];
     this.items = [];
     this.counts.clear();
@@ -2888,6 +2965,13 @@ export class ReaderState {
    */
   async start(input: ReaderProfile | Session): Promise<void> {
     const profile: ReaderProfile = "kind" in input ? input : syncProfile(input);
+    // Every account this device has signed in, in the order they were added, before
+    // the one being resumed is filed — so Pane 1 keeps that order across launches
+    // instead of putting whichever account was last read at the top. Without this a
+    // launch knows exactly one account, and with nothing to put a band on, the bands
+    // would be a feature that only exists until the app is restarted. Nothing here
+    // reads them: a band fetches its tree when it is opened.
+    this.adoptAccounts(readSessions().map((session) => syncProfile(session)));
     // Filed before anything reads it: a launch that fails mid-hydration still has an
     // account in Pane 1, and the next launch finds it where it left it.
     this.fileAccount(profile);
@@ -3120,6 +3204,7 @@ export class ReaderState {
     // Nor are the copies Pane 1 drew under the other accounts' bands.
     this.accountSidebars = {};
     this.openAccountGroups = [];
+    this.mergedSections = [];
     this.stateRouteMissing = false;
     this.apiSnapshotPainted = false;
     this.favorites = unavailableFavorites();
@@ -3586,9 +3671,12 @@ export class ReaderState {
 
   /** Measured, not guessed: the last stream load, and where it came from. */
   lastStreamMs = $state(0);
-  lastStreamSource = $state<"cache" | "network">("network");
+  lastStreamSource = $state<"cache" | "network" | "merged">("network");
 
   private rememberStream(stream: string, items: StreamItem[], continuation: string | undefined): void {
+    // A merged page is several accounts' rows under one stream id; remembering it
+    // would hand the next launch one account's cache entry holding everybody's posts.
+    if (this.mergesStream(stream)) return;
     this.streamCache.set(stream, items, continuation);
     const key = this.diskKey(`stream:${stream}`);
     const prefix = this.diskKey("stream:");
@@ -3920,11 +4008,76 @@ export class ReaderState {
     await this.reloadStream();
   }
 
+  /**
+   * True when a stream is drawn from every merged account.
+   *
+   * Only the two streams every account has by definition: the reading list and
+   * starred. A feed or a category is one server's row whose id means nothing
+   * elsewhere — `feed/12` is a different feed on every server — so merging those
+   * would invent rows rather than combine them.
+   */
+  mergesStream(stream: string): boolean {
+    if (this.mergedAccounts.length < 2) return false;
+    return stream === READING_LIST || stream === STATE_STARRED;
+  }
+
+  /**
+   * One page drawn from every account that is part of the merge.
+   *
+   * Deliberately outside `reloadStream`'s cache path: the memory and disk caches are
+   * keyed by one account's stream id, so a page holding three accounts' rows would
+   * be painted later as one account's answer — the wrong rows under the right title,
+   * with no way to tell. A merged page is therefore always asked for, and never
+   * remembered. It claims no continuation either: "the next page" of three
+   * interleaved reading lists is not one of them, so the column ends where the last
+   * account's first page ends rather than paging into one account's older rows.
+   */
+  private async loadMergedStream(stream: string, load: StreamLoad): Promise<void> {
+    this.loadingList = this.items.length === 0;
+    this.error = null;
+    const started = performance.now();
+    try {
+      const page = await this.aggregate.stream(stream, { count: PAGE_SIZE });
+      if (!this.loads.current(load) || this.activeStream !== stream) return;
+      this.lastStreamSource = "merged";
+      this.lastStreamMs = Math.round(performance.now() - started);
+      this.mergedSections = page.sections.map((section) => ({
+        key: section.slug,
+        label: section.label,
+        items: section.items,
+      }));
+      if (!sameStreamPage({ items: this.items, continuation: this.continuation }, page)) {
+        this.items = page.items;
+        this.continuation = undefined;
+        this.measurePaint("network");
+      }
+      // An account that did not answer is named in the header, beside sync — the
+      // rows that did arrive are still worth drawing, and they are what is on screen.
+      this.accountErrors = page.failures;
+      this.reportSwitch();
+    } catch (error) {
+      this.error = message(error);
+      this.items = [];
+      this.continuation = undefined;
+    } finally {
+      const current = this.loads.current(load);
+      this.loads.settle(load);
+      if (current && this.activeStream === stream) this.loadingList = false;
+    }
+  }
+
   async reloadStream(
     options: { force?: boolean; report?: SyncReport } = {},
   ): Promise<void> {
     if (!this.canRead) return;
     const stream = this.activeStream;
+    // A merged column is composed, not cached: it takes its own path before any of
+    // the cache and prefetch machinery below can answer for one account.
+    if (this.mergesStream(stream)) {
+      const load = this.loads.begin(stream);
+      await this.loadMergedStream(stream, load);
+      return;
+    }
     // The newest load for this stream wins. The one it replaces is aborted
     // here, and would be dropped on arrival even if the abort lost the race.
     const load = this.loads.begin(stream);
@@ -4026,6 +4179,9 @@ export class ReaderState {
       if (this.activeStream !== stream) return;
       this.lastStreamSource = "network";
       this.lastStreamMs = Math.round(performance.now() - started);
+      // This page is one account's: any headings left from a merged column belong
+      // to rows that are no longer here.
+      if (this.mergedSections.length > 0) this.mergedSections = [];
       // Only a payload that says something different is worth a repaint: the
       // rows are keyed, but re-running all of them costs a frame and the scroll
       // anchor for a picture that would come out identical.
@@ -4519,6 +4675,35 @@ export class ReaderState {
    * On failure the local change is rolled back rather than left lying: the
    * server is the only source of truth for unread counts.
    */
+  /**
+   * Sends one mark to whoever owns the row.
+   *
+   * A row in a merged column carries its account in its own id (`slug/providerId`,
+   * see `api/aggregate`), so this is not a guess: a composed id goes to the
+   * aggregate, which splits it and refuses an account this window does not have,
+   * and a plain id — every row of a single-account window, and every row of a feed
+   * or category — goes to the account on screen as it always has.
+   */
+  private async sendRead(ids: string[], read: boolean): Promise<void> {
+    if (ids.length > 0 && splitId(ids[0]) !== null) {
+      const outcome = await this.aggregate.markRead(ids, read);
+      const failed = outcome.failed[0];
+      if (failed !== undefined) throw new Error(`${failed.label} — ${failed.message}`);
+      return;
+    }
+    await this.source().setRead(ids, read);
+  }
+
+  private async sendStarred(ids: string[], starred: boolean): Promise<void> {
+    if (ids.length > 0 && splitId(ids[0]) !== null) {
+      const outcome = await this.aggregate.markStarred(ids, starred);
+      const failed = outcome.failed[0];
+      if (failed !== undefined) throw new Error(`${failed.label} — ${failed.message}`);
+      return;
+    }
+    await this.source().setStarred(ids, starred);
+  }
+
   async setRead(item: StreamItem, read: boolean): Promise<void> {
     if (!this.canRead || this.busyItems.get(item.id)) return;
     const wasRead = isRead(item);
@@ -4534,7 +4719,7 @@ export class ReaderState {
     this.adjustUnread(item, read ? -1 : 1);
 
     try {
-      await this.source().setRead([item.id], read);
+      await this.sendRead([item.id], read);
       // The local edit goes to the disk copy too. A mark that only lives in this
       // session is a post that reads unread on the next launch with no network — and
       // by then the queue is empty, so nothing can correct it.
@@ -4561,7 +4746,7 @@ export class ReaderState {
     item.categories = next;
 
     try {
-      await this.source().setStarred([item.id], !starred);
+      await this.sendStarred([item.id], !starred);
       this.broadcast(item.id, { starred: !starred });
       if (starred && this.activeStream === STATE_STARRED) {
         this.items = this.items.filter((entry) => entry.id !== item.id);

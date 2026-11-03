@@ -216,11 +216,22 @@ equal("an empty id is dropped", parseKept(JSON.stringify({ "": NOW }), NOW).size
   const read = reader.slice(reader.indexOf("async setRead(item: StreamItem"));
   check(
     "a read mark is written to the cached page",
-    /await this\.source\(\)\.setRead\(\[item\.id\], read\);\s*\n[^]{0,400}this\.cacheActiveStream\(\);/.test(reader),
+    // `sendRead` routes it (the aggregate for a row from another account) and then
+    // the local edit goes to the disk copy, as it always did.
+    /await this\.sendRead\(\[item\.id\], read\);\s*\n[^]{0,500}this\.cacheActiveStream\(\);/.test(reader),
   );
   check(
     "a star mark too",
-    /await this\.source\(\)\.setStarred\(\[item\.id\], !starred\);\s*\n[^]{0,600}this\.cacheActiveStream\(\);/.test(reader),
+    /await this\.sendStarred\(\[item\.id\], !starred\);\s*\n[^]{0,600}this\.cacheActiveStream\(\);/.test(reader),
+  );
+  check(
+    "and a mark from another account's row goes to that account",
+    /private async sendRead\(ids: string\[\], read: boolean\)[\s\S]{0,400}?this\.aggregate\.markRead\(ids, read\)/.test(reader) &&
+      /private async sendStarred\(ids: string\[\], starred: boolean\)[\s\S]{0,400}?this\.aggregate\.markStarred\(ids, starred\)/.test(reader),
+  );
+  check(
+    "a plain id still goes to the account on screen",
+    /await this\.source\(\)\.setRead\(ids, read\);/.test(reader) && /await this\.source\(\)\.setStarred\(ids, starred\);/.test(reader),
   );
   check("and both go through the shared state helper", /withState\(previous, STATE_READ, read\)/.test(reader) && /withState\(previous, STATE_STARRED, !starred\)/.test(reader));
 }

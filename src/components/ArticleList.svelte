@@ -32,7 +32,7 @@
   import { canFitWindow, fitWindowTo, screenSize } from "../lib/window-fit";
   import { openExternal } from "../lib/open-external";
   import { isExternalHttp } from "../lib/sanitize";
-  import { tabbed, type Tabbed } from "../lib/date-tabs";
+  import { tabbed, tabbedAccounts, type Tabbed } from "../lib/date-tabs";
   import { pullDown } from "../lib/pull";
   import { armsLongPress, LongPressTracker, realTimers } from "../lib/contextmenu";
   import { framesOf } from "../lib/carousel";
@@ -423,9 +423,16 @@
    * grid are read by the shape of what is in them, and a tab between two cards
    * would break the page of them. Every other view gets the bare posts.
    */
+  // More than one account in the column: each gets a heading, with its own months and
+  // weeks under it. One account draws exactly what it always drew — the headings are
+  // for telling accounts apart, and there is nothing to tell apart.
+  const sections = $derived(store.mergedSections);
+
   const entries = $derived<Tabbed<StreamItem>[]>(
     view === "list"
-      ? tabbed(store.listItems, closedTabs)
+      ? sections.length > 0
+        ? tabbedAccounts(sections, closedTabs)
+        : tabbed(store.listItems, closedTabs)
       : store.listItems.map((item) => ({ kind: "post" as const, item })),
   );
 
@@ -1612,7 +1619,8 @@
         <button
           class="tab"
           class:closed={entry.closed}
-          class:month={entry.tab.level === 0}
+          class:account={entry.tab.fold === "account"}
+          class:month={entry.tab.fold === "month"}
           style:--depth={entry.tab.level}
           aria-expanded={!entry.closed}
           onclick={() => toggleTab(entry.tab.key)}
@@ -3130,6 +3138,17 @@
   }
 
   /* A month is the heading of the list, so it is the one that speaks up. */
+  /* The account a list belongs to. A whole reading list is not a month: it is the
+     heading the months are filed under, so it says its name in the size it was
+     written in and holds the pane's edge — the fold underneath is what steps in. */
+  .items .tab.account {
+    color: var(--text);
+    font-weight: 600;
+    font-size: calc(11px * var(--row-scale, 1));
+    letter-spacing: 0.01em;
+    border-color: var(--border);
+  }
+
   .items .tab.month {
     color: var(--text-dim);
     text-transform: uppercase;

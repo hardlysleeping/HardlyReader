@@ -13,6 +13,7 @@
  */
 import {
   tabbed,
+  tabbedAccounts,
   millisOf,
   weekKey,
   monthKey,
@@ -115,6 +116,67 @@ check("an empty list is an empty fold", tabbed([], new Set()).length === 0);
 check("a post with no time still lands in a tab", tabbed([{ id: "x" }], new Set()).filter((e) => e.kind === "tab").length === 2);
 check("millisOf prefers the microsecond stamp", millisOf({ timestampUsec: "1000000" }) === 1000);
 check("and falls back to the published seconds", millisOf({ published: 2 }) === 2000);
+
+// ---------------------------------------------------------------------------
+// More than one account in the column: a heading per account, dates inside it.
+// ---------------------------------------------------------------------------
+
+{
+  const work = [post("w1", 2026, 10, 22), post("w2", 2026, 10, 21)];
+  const home = [post("h1", 2026, 10, 23)];
+  const folded = tabbedAccounts(
+    [
+      { key: "aaaa1111", label: "work@example.com", items: work },
+      { key: "bbbb2222", label: "home@example.com", items: home },
+    ],
+    new Set(),
+  );
+
+  const heads = folded.filter((e) => e.kind === "tab" && e.tab.level === 0);
+  check("one heading per account, in the order given", heads.map((e) => e.tab.label).join(" | ") === "work@example.com | home@example.com", heads.map((e) => e.tab.label).join(" | "));
+  check("each heading counts its own posts", heads.map((e) => e.tab.count).join(",") === "2,1", heads.map((e) => e.tab.count).join(","));
+  check("every post is still drawn", folded.filter((e) => e.kind === "post").length === 3);
+  check(
+    "a post sits under its own account, not the other one's",
+    folded.filter((e) => e.kind === "post").map((e) => e.item.id).join("") === "w1w2h1",
+    folded.filter((e) => e.kind === "post").map((e) => e.item.id).join(""),
+  );
+  check(
+    "the months and weeks are a level deeper than the account",
+    folded.filter((e) => e.kind === "tab" && e.tab.level > 0).every((e) => e.tab.level === 1 || e.tab.level === 2),
+  );
+
+  // The same week exists in both accounts: closing one must not fold the other.
+  const weekTabs = folded.filter((e) => e.kind === "tab" && e.tab.level === 2);
+  check("the same week in two accounts is two tabs", weekTabs.length === 2, String(weekTabs.length));
+  check("with different keys", weekTabs[0].tab.key !== weekTabs[1].tab.key, `${weekTabs[0].tab.key} / ${weekTabs[1].tab.key}`);
+
+  const closedOne = tabbedAccounts(
+    [
+      { key: "aaaa1111", label: "work@example.com", items: work },
+      { key: "bbbb2222", label: "home@example.com", items: home },
+    ],
+    new Set([weekTabs[0].tab.key]),
+  );
+  check(
+    "closing that week takes only its own posts — the other account's week stays open",
+    closedOne.filter((e) => e.kind === "post").map((e) => e.item.id).join("") === "h1",
+    closedOne.filter((e) => e.kind === "post").map((e) => e.item.id).join(""),
+  );
+
+  const closedAccount = tabbedAccounts(
+    [
+      { key: "aaaa1111", label: "work@example.com", items: work },
+      { key: "bbbb2222", label: "home@example.com", items: home },
+    ],
+    new Set(["aaaa1111"]),
+  );
+  check(
+    "closing an account takes everything under it",
+    closedAccount.filter((e) => e.kind === "post").map((e) => e.item.id).join("") === "h1",
+  );
+  check("but keeps the heading, so it can be opened again", closedAccount.filter((e) => e.kind === "tab" && e.tab.level === 0).length === 2);
+}
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -91,9 +91,13 @@ function twoAccounts(backendA = backend(), backendB = backend()) {
 
 // ——— the identity carries the account ———
 
-equal("a composed id is the slug, a slash, and the provider's own id", composeId("a1b2c3d4", SHARED), `a1b2c3d4/${SHARED}`);
-equal("it splits back into exactly what it was made from", splitId(`a1b2c3d4/${SHARED}`), { slug: "a1b2c3d4", itemId: SHARED });
+equal("a composed id is the slug, a slash, and the provider's own id", composeId("a1b2c3d4", SHARED), `hr:a1b2c3d4/${SHARED}`);
+equal("it splits back into exactly what it was made from", splitId(`hr:a1b2c3d4/${SHARED}`), { slug: "a1b2c3d4", itemId: SHARED });
 check("a bare provider id does not name an account", splitId(SHARED) === null, String(splitId(SHARED)));
+// The case that made this prefix necessary: a library on this device spells its own
+// ids `local/<feed>/<guid>`, whose first segment is a perfectly good slug.
+check("a local library's own id is not mistaken for an account", splitId("local/ZmVlZA/guid-1") === null, String(splitId("local/ZmVlZA/guid-1")));
+check("nor is a feed id", splitId("feed/12") === null);
 check("an empty id names nothing", splitId("") === null);
 check("a slug with nothing after it names nothing", splitId("a1b2c3d4/") === null);
 check("a path with no slug in front of it is not addressable", splitId("/tag:google.com,2005:reader/item/1") === null);
@@ -102,16 +106,35 @@ check("a path with no slug in front of it is not addressable", splitId("/tag:goo
 
 {
   const merged = mergePages("user/-/state/com.google/reading-list", [
-    { slug: "a1b2c3d4", contents: { id: "x", updated: 100, items: [item("a-old", 1_000_000), item("a-new", 3_000_000)] } },
-    { slug: "ffffffff", contents: { id: "x", updated: 200, items: [item("b-mid", 2_000_000)] } },
+    {
+      slug: "a1b2c3d4",
+      label: "work@example.com",
+      contents: { id: "x", updated: 100, items: [item("a-old", 1_000_000), item("a-new", 3_000_000)] },
+    },
+    {
+      slug: "ffffffff",
+      label: "home@example.com",
+      contents: { id: "x", updated: 200, items: [item("b-mid", 2_000_000)] },
+    },
   ]);
   equal("three rows from two accounts", merged.items.length, 3);
   equal(
-    "newest first, across accounts, not one account then the other",
+    "grouped by account, so a row's owner is the section it is under",
     merged.items.map((row) => row.id),
-    [`a1b2c3d4/a-new`, `ffffffff/b-mid`, `a1b2c3d4/a-old`],
+    [`hr:a1b2c3d4/a-new`, `hr:a1b2c3d4/a-old`, `hr:ffffffff/b-mid`],
   );
-  equal("every row says whose it is", merged.items.map((row) => splitId(row.id)?.slug), ["a1b2c3d4", "ffffffff", "a1b2c3d4"]);
+  equal(
+    "newest first inside each account",
+    merged.sections.map((section) => section.items.map((row) => splitId(row.id)?.itemId)),
+    [["a-new", "a-old"], ["b-mid"]],
+  );
+  equal("one section per account, named", merged.sections.map((section) => section.label), [
+    "work@example.com",
+    "home@example.com",
+  ]);
+  equal("sections keep Pane 1's order", merged.sections.map((section) => section.slug), ["a1b2c3d4", "ffffffff"]);
+  equal("and the flat list is the sections in order", merged.items.length, 3);
+  equal("every row says whose it is", merged.items.map((row) => splitId(row.id)?.slug), ["a1b2c3d4", "a1b2c3d4", "ffffffff"]);
   equal("the merged page is as fresh as the freshest account", merged.updated, 200);
   check("a merged page claims no continuation", merged.continuation === undefined, String(merged.continuation));
   equal("the merged page keeps the stream it was asked for", merged.id, "user/-/state/com.google/reading-list");
@@ -119,21 +142,21 @@ check("a path with no slug in front of it is not addressable", splitId("/tag:goo
 
 {
   const merged = mergePages("stream", [
-    { slug: "a1b2c3d4", contents: { id: "s", items: [item(SHARED, 5)] } },
-    { slug: "ffffffff", contents: { id: "s", items: [item(SHARED, 5)] } },
+    { slug: "a1b2c3d4", label: "one", contents: { id: "s", items: [item(SHARED, 5)] } },
+    { slug: "ffffffff", label: "two", contents: { id: "s", items: [item(SHARED, 5)] } },
   ]);
   equal("the same provider id in two accounts stays two rows", merged.items.length, 2);
   equal(
     "and neither row can be mistaken for the other",
     merged.items.map((row) => row.id),
-    [`a1b2c3d4/${SHARED}`, `ffffffff/${SHARED}`],
+    [`hr:a1b2c3d4/${SHARED}`, `hr:ffffffff/${SHARED}`],
   );
-  check("tied timestamps still order deterministically", merged.items[0].id < merged.items[1].id);
+  check("each lives in its own account's section", merged.sections.map((s) => s.items.length).join(",") === "1,1");
 }
 
 {
   const merged = mergePages("stream", [
-    { slug: "a1b2c3d4", contents: { id: "s", items: [item("one", 2_000_000), item("one", 2_000_000)] } },
+    { slug: "a1b2c3d4", label: "one", contents: { id: "s", items: [item("one", 2_000_000), item("one", 2_000_000)] } },
   ]);
   equal("the same row twice from one account is drawn once", merged.items.length, 1);
 }
@@ -149,7 +172,7 @@ check("a path with no slug in front of it is not addressable", splitId("/tag:goo
   const page = await aggregate.stream("user/-/state/com.google/reading-list", { n: 20 });
   equal("both accounts were asked", [backendA.calls.stream.length, backendB.calls.stream.length], [1, 1]);
   equal("with the same stream and options", [backendA.calls.stream[0].id, backendA.calls.stream[0].opts.n], ["user/-/state/com.google/reading-list", 20]);
-  equal("and both rows are drawn", page.items.map((row) => row.id), [`${a.slug}/a-row`, `${b.slug}/b-row`]);
+  equal("and both rows are drawn", page.items.map((row) => row.id), [`hr:${a.slug}/a-row`, `hr:${b.slug}/b-row`]);
   equal("nothing failed", page.failures, []);
 }
 
@@ -161,7 +184,7 @@ check("a path with no slug in front of it is not addressable", splitId("/tag:goo
   backendA.stream = async () => ({ id: "s", items: [item("a-row", 1_000_000)] });
 
   const page = await aggregate.stream("s");
-  equal("the account that answered is still drawn", page.items.map((row) => row.id), [`${a.slug}/a-row`]);
+  equal("the account that answered is still drawn", page.items.map((row) => row.id), [`hr:${a.slug}/a-row`]);
   equal("and the one that did not is named, by its own slug", page.failures.map((f) => [f.slug, f.message]), [[b.slug, "502 from the server"]]);
 
   const deadA = backend([], { streamFails: "offline" });
@@ -192,14 +215,14 @@ check("a path with no slug in front of it is not addressable", splitId("/tag:goo
   const { registry, a, b } = twoAccounts(backendA, backendB);
   const aggregate = new AccountAggregate(registry);
 
-  const outcome = await aggregate.markRead([`${b.slug}/${SHARED}`], true);
+  const outcome = await aggregate.markRead([`hr:${b.slug}/${SHARED}`], true);
   equal("the mark reached the account the row came from", backendB.calls.setRead, [{ ids: [SHARED], read: true }]);
   equal("and not the other one", backendA.calls.setRead, []);
   equal("the backend never sees the slug prefix", backendB.calls.setRead[0].ids[0], SHARED);
   equal("the outcome names the account it landed on", outcome.sent, [b.slug]);
   equal("with nothing failed", outcome.failed, []);
   check("neither account was touched by broadcast", backendA.calls.setStarred.length === 0);
-  check("a row from A is still addressable", (await aggregate.markStarred([`${a.slug}/other`], true)).sent.includes(a.slug));
+  check("a row from A is still addressable", (await aggregate.markStarred([`hr:${a.slug}/other`], true)).sent.includes(a.slug));
 }
 
 {
@@ -208,7 +231,7 @@ check("a path with no slug in front of it is not addressable", splitId("/tag:goo
   const { registry, a, b } = twoAccounts(backendA, backendB);
   const aggregate = new AccountAggregate(registry);
 
-  await aggregate.markRead([`${a.slug}/one`, `${b.slug}/two`, `${a.slug}/three`], false);
+  await aggregate.markRead([`hr:${a.slug}/one`, `hr:${b.slug}/two`, `hr:${a.slug}/three`], false);
   equal("one account receives one call with its own rows", backendA.calls.setRead, [{ ids: ["one", "three"], read: false }]);
   equal("and the other receives its own", backendB.calls.setRead, [{ ids: ["two"], read: false }]);
 }
@@ -221,7 +244,7 @@ check("a path with no slug in front of it is not addressable", splitId("/tag:goo
 
   let thrown = null;
   try {
-    await aggregate.markRead([`${a.slug}/one`, `99999999/two`], true);
+    await aggregate.markRead([`hr:${a.slug}/one`, `hr:99999999/two`], true);
   } catch (error) {
     thrown = error;
   }
@@ -247,7 +270,7 @@ check("a path with no slug in front of it is not addressable", splitId("/tag:goo
   const backendA = backend();
   const backendB = backend([], { writeFails: "401 from the server" });
   const { registry, a, b } = twoAccounts(backendA, backendB);
-  const outcome = await new AccountAggregate(registry).markRead([`${a.slug}/one`, `${b.slug}/two`], true);
+  const outcome = await new AccountAggregate(registry).markRead([`hr:${a.slug}/one`, `hr:${b.slug}/two`], true);
   equal("a write that landed on one account is reported as landed", outcome.sent, [a.slug]);
   equal("and the one that did not is named with its reason", outcome.failed.map((f) => [f.slug, f.message]), [[b.slug, "401 from the server"]]);
 }

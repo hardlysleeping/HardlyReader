@@ -529,8 +529,12 @@ check(
   (() => {
     const derive = listSource.slice(listSource.indexOf("const entries = $derived"));
     return (
-      /view === "list"\s*\? tabbed\(store\.listItems, closedTabs\)/.test(derive) &&
-      /: store\.listItems\.map/.test(derive)
+      // The list view folds, and folds by account first when several are in the
+      // column; every other view does not fold at all.
+      /view === "list"[\s\S]{0,200}?tabbedAccounts\(sections, closedTabs\)/.test(derive) &&
+      /tabbed\(store\.listItems, closedTabs\)/.test(derive) &&
+      /: store\.listItems\.map/.test(derive) &&
+      !/view !== "list"[\s\S]{0,80}?tabbed/.test(derive)
     );
   })(),
 );
@@ -558,9 +562,16 @@ check(
   })(),
 );
 check(
-  "a month is the level that speaks up",
-  /class:month=\{entry\.tab\.level === 0\}/.test(listSource) &&
+  "a month says it is a month, whatever depth it sits at",
+  /class:month=\{entry\.tab\.fold === "month"\}/.test(listSource) &&
     /\.items \.tab\.month \{/.test(listSource),
+);
+check(
+  "and an account is named as one, not read off its depth",
+  /class:account=\{entry\.tab\.fold === "account"\}/.test(listSource) &&
+    /\.items \.tab\.account \{/.test(listSource) &&
+    !/\.items \.tab\.account \{[^}]*text-transform: uppercase/.test(listSource),
+  "an account says its name in the case it was written in",
 );
 
 /*

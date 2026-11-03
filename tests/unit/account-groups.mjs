@@ -14,7 +14,7 @@
  */
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { localProfile, syncProfile } from "../../src/api/profile.ts";
 import { buildReaderModule, GEN_DIR } from "./build-reader.mjs";
 
@@ -87,6 +87,36 @@ function feed(id, title, label = "Tech") {
   equal("with no copy taken for a drawer that does not exist", Object.keys(reader.accountSidebars), []);
 }
 
+// ——— a single account beside an empty library is still one account ———
+
+{
+  // The case that made this necessary: FreshRSS, and the library on the device that
+  // has never had a feed in it. Two accounts in the registry, one account on screen.
+  const reader = new ReaderState();
+  const device = localProfile(backend(), "On this device");
+  const server = syncProfile(session("only@example.com"), backend([feed("feed/1", "One")]));
+  reader.adoptAccounts([device, server]);
+  reader.profile = server;
+  reader.subscriptions = [feed("feed/1", "One")];
+
+  check("the empty library is still in the registry", reader.accountList.length === 2);
+  equal("so no account gets a band", reader.bandedAccounts.map((p) => p.slug), []);
+  check("so the window draws no bands at all", reader.hasAccountGroups === false);
+  check("and the tree is not folded under a heading", reader.isAccountGroupOpen(server.slug) === true);
+
+  // The moment it holds a feed, it is an account and it gets a band.
+  device.enabled = false;
+  reader.subscriptions = [];
+  const withFeed = new ReaderState();
+  const device2 = localProfile(backend(), "On this device");
+  const server2 = syncProfile(session("only@example.com"), backend([feed("feed/1", "One")]));
+  withFeed.adoptAccounts([device2, server2]);
+  withFeed.profile = device2;
+  withFeed.subscriptions = [feed("feed/9", "Mine")];
+  equal("a library with a feed is an account", withFeed.bandedAccounts.length, 2);
+  check("and the window draws its bands", withFeed.hasAccountGroups === true);
+}
+
 // ——— the account being read opens, the other does not ———
 
 {
@@ -129,6 +159,8 @@ function feed(id, title, label = "Tech") {
   const countsBefore = atHome.backend.calls.unreadCounts;
   equal("a folded band has no copy of its own", reader.accountSidebars[atHome.slug], undefined);
   equal("and nothing was read for it", atHome.backend.calls.subscriptions, afterStart);
+  // Not read is not the same answer as empty: the band says nothing yet.
+  equal("a band nobody has opened says nothing rather than 0", reader.feedCountIn(atHome.slug), null);
 
   await reader.toggleAccountGroup(atHome.slug);
   equal("opening it reads that account's feeds, once", atHome.backend.calls.subscriptions, afterStart + 1);
@@ -209,6 +241,40 @@ function feed(id, title, label = "Tech") {
   await explicit.start(syncProfile(session("explicit@example.com"), backend()));
   await explicit.start({ ...localProfile(backend(), "On this device"), enabled: true });
   check("a library somebody turned on stays on", explicit.accountList.find((p) => p.kind === "local").enabled === true);
+}
+
+// ---------------------------------------------------------------------------
+// One account sees exactly what it saw before there were accounts.
+// ---------------------------------------------------------------------------
+
+{
+  const here = new URL("../..", import.meta.url).pathname;
+  const reader = readFileSync(join(here, "src/state/reader.svelte.ts"), "utf8");
+  check(
+    "bands are gated on more than one account",
+    /get bandedAccounts\(\)[\s\S]{0,200}?holding\.length > 1 \? holding : \[\]/.test(reader) &&
+      /get hasAccountGroups\(\)[\s\S]{0,80}?bandedAccounts\.length > 0/.test(reader),
+  );
+
+  const sidebar = readFileSync(join(here, "src/components/Sidebar.svelte"), "utf8");
+  check("and Pane 1 draws them behind that gate", /\{#if reader\.hasAccountGroups\}/.test(sidebar));
+  check(
+    "the tree is not folded under a band when there is only one account",
+    /isAccountGroupOpen\(slug: string\)[\s\S]{0,200}?if \(!this\.hasAccountGroups\) return true;/.test(reader),
+  );
+
+  const list = readFileSync(join(here, "src/components/ArticleList.svelte"), "utf8");
+  check(
+    "the posts column draws account headings only when there are sections",
+    /sections\.length > 0[\s\S]{0,120}?tabbedAccounts\(sections, closedTabs\)[\s\S]{0,120}?: tabbed\(store\.listItems, closedTabs\)/.test(list),
+  );
+
+  // A merged page is only ever built for more than one account, so a single
+  // account's column can never come back with sections in it.
+  check(
+    "and a single account never produces a merged page",
+    /mergesStream\(stream: string\): boolean \{[\s\S]{0,200}?mergedAccounts\.length < 2\) return false;/.test(reader),
+  );
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

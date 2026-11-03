@@ -50,9 +50,20 @@ const SLUG_SHAPE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 /** The separator between a slug and the id its backend spelled. Never in a slug. */
 export const AGGREGATE_SEPARATOR = "/";
 
-/** One row's identity: the account, then the id the provider gave it. */
+/**
+ * What makes a composed id say so.
+ *
+ * A bare `slug/id` would not have been enough: a library **on this device** spells its
+ * own item ids `local/<feed>/<guid>`, and the first segment of that is a perfectly
+ * good slug — so every mark made in a local library would have been read as "an
+ * account called local" and refused. The prefix is a namespace, and it is not a word
+ * any provider uses at the start of an id.
+ */
+export const AGGREGATE_PREFIX = "hr:";
+
+/** One row's identity: the namespace, the account, then the id the provider gave it. */
 export function composeId(slug: string, itemId: string): string {
-  return `${slug}${AGGREGATE_SEPARATOR}${itemId}`;
+  return `${AGGREGATE_PREFIX}${slug}${AGGREGATE_SEPARATOR}${itemId}`;
 }
 
 /**
@@ -62,11 +73,13 @@ export function composeId(slug: string, itemId: string): string {
  * whose) as well as on write paths; the write path is what refuses.
  */
 export function splitId(composed: string): { slug: string; itemId: string } | null {
-  const at = composed.indexOf(AGGREGATE_SEPARATOR);
-  if (at <= 0 || at >= composed.length - 1) return null;
-  const slug = composed.slice(0, at);
+  if (!composed.startsWith(AGGREGATE_PREFIX)) return null;
+  const rest = composed.slice(AGGREGATE_PREFIX.length);
+  const at = rest.indexOf(AGGREGATE_SEPARATOR);
+  if (at <= 0 || at >= rest.length - 1) return null;
+  const slug = rest.slice(0, at);
   if (!SLUG_SHAPE.test(slug)) return null;
-  return { slug, itemId: composed.slice(at + 1) };
+  return { slug, itemId: rest.slice(at + 1) };
 }
 
 /** An id that does not name an account this window can write to. */
@@ -94,8 +107,26 @@ export interface AccountFailure {
   message: string;
 }
 
-/** A merged page: the rows that answered, plus the accounts that did not. */
+/** One account's rows, as one section of a merged column. */
+export interface MergedSection {
+  /** The slug, used as the section's key — one section per account, in Pane 1's order. */
+  slug: string;
+  label: string;
+  items: StreamItem[];
+}
+
+/**
+ * A merged page: the rows that answered, grouped by account, plus the accounts that
+ * did not answer at all.
+ *
+ * **Grouped, not interleaved.** The column shows a row per account with its own posts
+ * under it, the way a category heads its feeds — because a reading list drawn from
+ * three servers is three reading lists, and interleaving them by date hides whose row
+ * a mark is about to touch. `items` is the same rows flattened in section order, for
+ * anything that only wants a list.
+ */
 export interface MergedContents extends StreamContents {
+  sections: MergedSection[];
   failures: AccountFailure[];
 }
 
@@ -134,31 +165,32 @@ function rank(item: StreamItem): number {
  */
 export function mergePages(
   id: string,
-  pages: { slug: string; contents: StreamContents }[],
-): StreamContents {
-  const seen = new Set<string>();
-  const items: StreamItem[] = [];
+  pages: { slug: string; label?: string; contents: StreamContents }[],
+): StreamContents & { sections: MergedSection[] } {
+  const sections: MergedSection[] = [];
   let updated: number | undefined;
 
-  for (const { slug, contents } of pages) {
+  for (const { slug, label, contents } of pages) {
     if (contents.updated !== undefined) {
       updated = updated === undefined ? contents.updated : Math.max(updated, contents.updated);
     }
+    const seen = new Set<string>();
+    const items: StreamItem[] = [];
     for (const item of contents.items ?? []) {
       const composed = composeId(slug, item.id);
       if (seen.has(composed)) continue;
       seen.add(composed);
       items.push({ ...item, id: composed });
     }
+    items.sort((left, right) => {
+      const byTime = rank(right) - rank(left);
+      if (byTime !== 0) return byTime;
+      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+    });
+    sections.push({ slug, label: label ?? slug, items });
   }
 
-  items.sort((left, right) => {
-    const byTime = rank(right) - rank(left);
-    if (byTime !== 0) return byTime;
-    return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
-  });
-
-  return { id, updated, items };
+  return { id, updated, sections, items: sections.flatMap((section) => section.items) };
 }
 
 /** The reading UI's window onto every signed-in account. */
@@ -192,11 +224,12 @@ export class AccountAggregate {
     const settled = await Promise.allSettled(
       readers.map(async (reader) => ({
         slug: reader.slug,
+        label: reader.profile.label,
         contents: await reader.backend.stream(streamId, options),
       })),
     );
 
-    const answered: { slug: string; contents: StreamContents }[] = [];
+    const answered: { slug: string; label: string; contents: StreamContents }[] = [];
     const failures: AccountFailure[] = [];
     settled.forEach((result, index) => {
       const reader = readers[index];

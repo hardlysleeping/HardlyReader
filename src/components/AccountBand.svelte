@@ -64,7 +64,9 @@
            reader's own list lying about what it holds. -->
       <span class="acct-off">not merged</span>
     {/if}
-    <span class="acct-count">{feeds}</span>
+    {#if feeds !== null}
+      <span class="acct-count">{feeds}</span>
+    {/if}
   </button>
 
   {#if open && !focused}

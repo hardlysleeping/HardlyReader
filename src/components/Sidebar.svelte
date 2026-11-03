@@ -1340,7 +1340,7 @@
        so no band is drawn and the sidebar looks exactly as it always has. -->
   {#if reader.hasAccountGroups}
     <div class="acct-bands">
-      {#each reader.accountList as account (account.slug)}
+      {#each reader.bandedAccounts as account (account.slug)}
         <AccountBand {account} />
       {/each}
     </div>
