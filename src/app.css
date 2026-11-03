@@ -187,6 +187,29 @@ body {
   text-size-adjust: 100%;
 }
 
+/* A field smaller than 16px is a page zoom on iOS, not a small font.
+   ---------------------------------------------------------------------------
+
+   iOS scales the whole page in when a text field under 16px takes focus, and it
+   does not scale back out when the keyboard closes — the passcode box at 12px
+   did exactly that, and the reader was left looking at a magnified app with
+   nothing to press that would undo it (`index.html` refuses zoom by gesture;
+   this is the zoom that arrives without one). Exactly that engine, in the app
+   and in Safari, is what `-webkit-touch-callout` is alone in naming, so the
+   floor lives here rather than under a width query — a desktop needs no floor
+   and must keep its own sizes.
+
+   `1em` rather than `1rem`: a field only has to be as large as the text around
+   it, and the reading size is a setting. Both halves keep the field at or above
+   the number iOS refuses to scale for. */
+@supports (-webkit-touch-callout: none) {
+  input:not([type="checkbox"], [type="radio"], [type="range"]),
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+
 /* Native feel, not a web page.
    ---------------------------------------------------------------------------
 

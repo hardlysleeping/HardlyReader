@@ -216,15 +216,22 @@ const list = read("../../src/components/ArticleList.svelte");
 check("the star, read and source toggles own the pointer for the mouse", /class="acts" data-no-drag-scroll/.test(list));
 check("and the rule that gives it to them is the one the module reads", /\[data-no-drag-scroll\]/.test(source));
 
-// Taking the pan from the browser is a per-surface decision: the three readers
-// hand it over so a flick throws, and everything else (menus, panels, dialogs)
-// keeps the browser's own panning.
+// Taking the pan from the browser is a per-surface decision, and it is now the
+// other way round for the two surfaces a reader scrolls: the post list and the
+// article let the platform scroll them (a `scrollTop` written per pointermove is
+// a main-thread scroll, and the compositor drops frames on it on a phone), while
+// the feed tree keeps `none` because a carried row needs the finger to be the
+// app's. Menus, panels and dialogs keep the browser's own panning either way.
 const sidebar = read("../../src/components/Sidebar.svelte");
 const reader = read("../../src/components/ReaderPane.svelte");
-check("the post list hands the pointer over", /\.items \{[^}]*touch-action: none;/.test(list));
-check("so does the feed tree", /\.scroll \{[^}]*touch-action: none;/.test(sidebar));
-check("and the article", /article \{[^}]*touch-action: none;/.test(reader));
+check("the post list leaves the finger to the browser", /\.items \{[^}]*touch-action: pan-y;/.test(list));
+check("the feed tree keeps the finger for the row drag", /\.scroll \{[^}]*touch-action: none;/.test(sidebar));
+check("and the article leaves it to the browser", /article \{[^}]*touch-action: pan-y;/.test(reader));
 check("the app's page-level panning is untouched", /touch-action: pan-x pan-y;/.test(css));
+check(
+  "a finger is only claimed where CSS says the app owns it",
+  /if \(finger && getComputedStyle\(container\)\.touchAction !== "none"\) return;/.test(source),
+);
 
 // The throw's numbers, so the feel cannot drift away from what was measured.
 check("the throw's constants live in the model", /export const FLING = \{/.test(flingSource));

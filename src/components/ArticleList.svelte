@@ -2272,11 +2272,16 @@
        already keeps, so the column is inset by one number rather than two. */
     padding-top: 12px;
     padding-bottom: 12px;
-    /* The list is panned by the app, not by the browser: the drag module scrolls
-       this box and throws it, so a flick and a mouse drag feel the same. The
-       browser's own panning would take the gesture away mid-drag (a pointercancel
-       a few px in) and it has no throw to offer in its place. */
-    touch-action: none;
+    /* The list scrolls the way the platform scrolls it. It was panned by the
+       app's drag module (`touch-action: none`) so a flick and a mouse drag felt
+       the same — but a scroll driven by `scrollTop` on every pointermove is a
+       main-thread scroll on a WebView, and on a phone it drops frames on every
+       column of prose. A finger now gets the compositor's own pan, with the
+       momentum the platform already has; the mouse keeps the app's 1:1 drag and
+       its throw (`lib/drag-scroll.ts` only claims a container whose computed
+       `touch-action` is `none`). The tree in the sidebar keeps `none` because a
+       carried feed row needs the finger to be the app's. */
+    touch-action: pan-y;
     /* The scroll port is the measure of "how much you can see", so a picture
        can be capped against it rather than against the window: in a three-pane
        desktop window the list is most of the height, on a phone it is all of

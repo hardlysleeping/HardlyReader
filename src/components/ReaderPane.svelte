@@ -1450,9 +1450,13 @@
        video that cannot fit is a thing to shrink, and the sideways scroll that
        came with them was a second axis on a screen that has one. */
     overflow-x: clip;
-    /* The article is panned by the app's drag module like the lists: the browser
-       would take the pointer on the first move and then stop dead on release. */
-    touch-action: none;
+    /* The article scrolls the way the platform scrolls it: `scrollTop` written
+       on every pointermove is a main-thread scroll, and an article is the
+       longest thing in the app. A finger gets the compositor's pan and its
+       momentum; the mouse still gets the app's drag and throw, because
+       `lib/drag-scroll.ts` claims only a container whose `touch-action` is
+       `none`. */
+    touch-action: pan-y;
     padding-block: 22px 64px;
     max-width: none;
     width: 100%;

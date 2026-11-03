@@ -805,17 +805,26 @@
     padding: 2px 3px;
   }
 
-  /* The pin's own strip above the locked row: one control, at the right where it
-     has always been, on the quiet face the locked band wears. Two columns rather
-     than the band's three, so the pin does not centre itself in a row with
-     nothing beside it. */
+  /* The pin's own strip above the locked row: one control, on the quiet face the
+     locked band wears. It used to keep the right edge of a two-column row — a
+     22px glyph in a 200px band, which read as something left behind rather than
+     the one control the strip has. Alone, it takes the strip's whole width and
+     centres its glyph: the seat is the width of the band, so the strip reads as
+     one wide button instead of a stray mark at its end. */
   .band.compact.pinstrip {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     margin-bottom: 2px;
   }
 
-  .band.compact .ctl.pin {
-    justify-self: end;
+  .band.compact.pinstrip .ctl.pin {
+    justify-self: stretch;
+    min-width: 0;
+    min-height: 30px;
+  }
+
+  .band.compact.pinstrip .ctl.pin svg {
+    width: 16px;
+    height: 16px;
   }
 
   /* A thumb is not a cursor: on touch the same seats keep enough body to be
@@ -824,6 +833,10 @@
     .ctl,
     .band.compact .ctl {
       min-height: 34px;
+    }
+
+    .band.compact.pinstrip .ctl.pin {
+      min-height: 38px;
     }
   }
 
@@ -905,6 +918,20 @@
   .passcode input:focus-visible {
     outline: 2px solid var(--tone-lock-closed);
     outline-offset: 1px;
+  }
+
+  /* 12px is the size that fits the band's surface, and it is also the size that
+     makes iOS zoom the whole app in the moment the box takes focus — the page
+     comes back unzoomed only if something else zooms it out, which nothing here
+     does. So a thumb device gets 16, the size iOS refuses to zoom for, and a
+     pointer keeps the 12 that fits beside 11px buttons. The floor for every
+     other field in the app is in `app.css`. This rule sits after the size it
+     overrides on purpose: same specificity, so the later one wins. */
+  @media (pointer: coarse) {
+    .passcode input {
+      font-size: 16px;
+      letter-spacing: 0.14em;
+    }
   }
 
   .passcode .go {

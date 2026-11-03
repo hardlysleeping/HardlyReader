@@ -238,6 +238,16 @@ export function installDragScroll(): () => void {
     caughtPress = flingCaught;
     container = scrollableFrom(origin);
     if (!container) return;
+    // A surface that pans natively is the browser's to scroll, not ours.
+    //
+    // `touch-action: none` is the app saying it takes the finger — that is how
+    // the feed tree keeps row reordering to itself. Everywhere the platform
+    // pans (the post list, the article), a finger must be left alone: had both
+    // hands moved, the box would scroll twice, once by the compositor and once
+    // by `scrollTop`, and the app's own write is the one that drops frames. The
+    // mouse is unaffected — `touch-action` is not a thing a mouse reads — so a
+    // drag with a cursor keeps its 1:1 pan and its throw.
+    if (finger && getComputedStyle(container).touchAction !== "none") return;
     panSeq += 1;
     pointer = event.pointerId;
     panning = false;
