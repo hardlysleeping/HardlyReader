@@ -297,5 +297,30 @@ function method(source, name) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Walking in from one panel. One panel never draws a rail and `collapsed` is
+// false there by definition, so a fold left over from another mode is invisible
+// for as long as you are in it. It used to be inherited: pressing 2 landed on
+// posts and article — the same frame the fold leaves — with nothing open, which
+// is two panes of which one says "Select an article". Pressing 2 from one panel
+// now starts with the panes the button names.
+{
+  const rule = "if (mode === 2 && this.mode === 1) this.sidebarCollapsed = false;";
+  check(
+    "walking from one panel into two puts the feeds back",
+    layout.includes(rule),
+  );
+  check(
+    "...before the mode is recorded, so the frame is drawn unfolded rather than corrected",
+    layout.indexOf(rule) > layout.indexOf("so: grow to the columns and restore them") &&
+      layout.indexOf(rule) < layout.indexOf("this.setMode(mode);", layout.indexOf(rule)),
+  );
+  check(
+    "and only on that way in: three panes keeps the fold a reader made to read wide",
+    !/mode === 2 && this\.mode !== 2\) this\.sidebarCollapsed = false/.test(layout) &&
+      (layout.match(/this\.sidebarCollapsed = false/g) || []).length === 1,
+  );
+}
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

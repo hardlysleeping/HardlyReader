@@ -779,6 +779,16 @@ class LayoutState {
         this.syncThresholds();
       }
     }
+    // One panel has nothing to fold — `collapsed` is false there by definition,
+    // and the walks it has never draw a rail — so the flag is invisible for as
+    // long as you are in it. Carrying that invisible flag into two panes drew
+    // the posts and the article: the second and third pane, which is a frame
+    // nobody asked for, and with no post open half of it says "Select an
+    // article". Walking in from one panel starts with the two panes the button
+    // names, feeds and posts. Deliberately only that way in: a reader who
+    // folded the feeds in three panes to read wide and then presses 2 is asking
+    // for the same page, narrower, not for the tree back.
+    if (mode === 2 && this.mode === 1) this.sidebarCollapsed = false;
     this.setMode(mode);
     const target = fitTarget(
       mode,
