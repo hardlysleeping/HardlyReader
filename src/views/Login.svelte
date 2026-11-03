@@ -646,6 +646,9 @@
   @media (pointer: coarse) {
     input.text {
       min-height: 44px;
+      /* The one field size iOS does not zoom the page for. 0.9rem is 14.4px,
+         which is under it: the login box magnified the whole app on focus. */
+      font-size: 16px;
     }
 
     .field input.text {

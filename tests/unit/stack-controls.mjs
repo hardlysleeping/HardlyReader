@@ -482,7 +482,7 @@ check(
   /const overlaid = \$derived\(vertical && layout\.stacked && tuck !== null\)/.test(gutter) &&
     /\.seam\.overlaid \{[\s\S]{0,160}position: absolute;[\s\S]{0,80}height: 6px;/.test(gutter) &&
     /style:top=\{overlaid \? offset : undefined\}/.test(gutter) &&
-    /calc\(\$\{\(layout\.stackShare \* 100\)\.toFixed\(2\)\}% - \$\{STACK_GUTTER \/ 2\}px\)/.test(gutter),
+    /calc\(\$\{\(layout\.shareDrawn\(pair\) \* 100\)\.toFixed\(2\)\}% - \$\{STACK_GUTTER \/ 2\}px\)/.test(gutter),
 );
 check(
   "and its aria text names what is away, not only the percentage",
@@ -528,8 +528,8 @@ check(
   );
   check(
     "the seam is one component on the one grid",
-    (main.match(/<PaneGutter axis="y" \/>/g) ?? []).length === 1,
-    String((main.match(/<PaneGutter axis="y" \/>/g) ?? []).length),
+    (main.match(/<PaneGutter axis="y" pair=\{articlePair\} \/>/g) ?? []).length === 1,
+    String((main.match(/<PaneGutter axis="y" pair=\{articlePair\} \/>/g) ?? []).length),
   );
   check(
     "and its slot is the slot the tuck keeps, at every tuck",

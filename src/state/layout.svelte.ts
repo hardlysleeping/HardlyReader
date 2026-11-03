@@ -52,6 +52,9 @@ import {
   stackBottomPane,
   stackTemplate,
   stackTopPane,
+  pairShare,
+  pairShareBack,
+  pairTemplate,
   thresholdsFor,
   widthFor,
 } from "../lib/panes";
@@ -978,6 +981,37 @@ class LayoutState {
     return stackTemplate(this.stacked ? this.stackShare : STACK_SHARE.fallback);
   }
 
+  /**
+   * The rows of a phone's pair: the same four tracks, with the list's half drawn
+   * a fifth narrower than the share says.
+   *
+   * A phone's pair is the whole screen, so the seam there is a preference about
+   * what the reader is looking at; at an even split both halves are too short to
+   * read. It is only how it is *drawn* — `stackShare` keeps what was set, and a
+   * seam drag converts back (see `shareFromDrawn`) — so a reader who sets a
+   * split, opens a post, and closes it finds the split where they left it.
+   */
+  get pairRows(): string {
+    return pairTemplate(this.stacked ? this.stackShare : STACK_SHARE.fallback, this.stackSwapped);
+  }
+
+  /**
+   * The share the seam is actually drawn at.
+   *
+   * The rows and the handle have to agree or the handle floats away from the
+   * seam it is supposed to sit on, so both read this. `pair` is whether the
+   * frame being drawn is the phone's pair.
+   */
+  shareDrawn(pair: boolean): number {
+    const asked = this.stacked ? this.stackShare : STACK_SHARE.fallback;
+    return pair ? pairShare(asked, this.stackSwapped) : asked;
+  }
+
+  /** The setting a seam dragged to `drawn` implies — the inverse of the above. */
+  shareFromDrawn(drawn: number, pair: boolean): number {
+    return pair ? pairShareBack(drawn, this.stackSwapped) : drawn;
+  }
+
   get stackRows(): string {
     return this.rows(this.stacked);
   }
@@ -1302,8 +1336,8 @@ class LayoutState {
   }
 
   /** Double-click on the stacked seam: half, the shape it ships with. */
-  resetShare(): void {
-    this.dragShare(STACK_SHARE.fallback);
+  resetShare(share: number = STACK_SHARE.fallback): void {
+    this.dragShare(share);
     this.save();
   }
 

@@ -258,6 +258,15 @@
     outline-offset: 1px;
   }
 
+  /* The account fields are where a password or an email is typed, and iOS scales
+     the whole app in for a field under 16px and never scales back out. 12px
+     beside a cursor, 16 on a thumb. After the rule it overrides, on purpose. */
+  @media (pointer: coarse) {
+    .field {
+      font-size: 16px;
+    }
+  }
+
   .address .door {
     flex: 0 0 auto;
   }

@@ -1297,7 +1297,7 @@
     class:resizing
     bind:this={panes}
     style:grid-template-columns={columns}
-    style:grid-template-rows={layout.rows(stackDrawn || articlePair)}
+    style:grid-template-rows={articlePair ? layout.pairRows : layout.rows(stackDrawn)}
     style:--slide-ms={`${motionMs(layout.motion)}ms`}
     style:--slide-ease={motionEase(layout.motion)}
     style:--t1={`${trackList[0]}px`}
@@ -1375,7 +1375,7 @@
          swap and tuck controls live on it, and it stays where the share is even
          while one of the two panes is away. -->
     <div class="slot seam-y gut-stack" class:away={!slots.seamStack}>
-      <PaneGutter axis="y" />
+      <PaneGutter axis="y" pair={articlePair} />
     </div>
 
     {#if drawer}

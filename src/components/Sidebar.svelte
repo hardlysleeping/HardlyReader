@@ -2259,6 +2259,15 @@
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   }
 
+  /* A thumb device gets 16px: iOS scales the whole page in for a field under it
+     and never scales back out (`app.css` says the same for every other field).
+     12px is fine beside a cursor; it is a zoom on a phone. */
+  @media (pointer: coarse) {
+    .buzz-input {
+      font-size: 16px;
+    }
+  }
+
   .buzz-actions {
     display: flex;
     gap: 6px;
@@ -2700,7 +2709,17 @@
   }
 
   :global(html[data-device="phone"]) .find-input {
-    font-size: 13.5px;
+    /* 16 is the size iOS refuses to zoom the page for; 13.5 magnified the whole
+       app when the search box took focus and never scaled back. */
+    font-size: 16px;
+  }
+
+  /* The same floor for a thumb device that is not a phone — a tablet is coarse
+     too, and its `.find-input` would otherwise be the 12.5px a cursor gets. */
+  @media (pointer: coarse) {
+    .find-input {
+      font-size: 16px;
+    }
   }
 
   :global(html[data-device="phone"]) .glass {
@@ -3089,6 +3108,17 @@
     line-height: 16px;
     resize: none;
     overflow-y: auto;
+  }
+
+  /* The add-a-feed box is the field the reader types a URL into, so it is the
+     one that magnifies the app on iOS at 12px. A thumb device gets 16 and a
+     line-height that keeps a pasted list readable. After the size it overrides,
+     on purpose: same specificity, so the later rule wins. */
+  @media (pointer: coarse) {
+    .url {
+      font-size: 16px;
+      line-height: 1.35;
+    }
   }
 
   .url.grow {
