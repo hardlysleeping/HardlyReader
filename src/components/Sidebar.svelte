@@ -27,6 +27,7 @@
   import { createFeedDrag, LIST_CATEGORIES } from "../lib/feed-drag";
   import { reading } from "../state/reading.svelte";
   import { reader, type CategoryGroup, type ReaderState } from "../state/reader.svelte";
+  import AccountBand from "./AccountBand.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
   import { statusFacts } from "../lib/band";
   import { groupHits, searchFeeds } from "../lib/search";
@@ -1334,6 +1335,18 @@
       <p class="find-note">No post text indexed yet — feed names still match.</p>
     {/if}
   {:else}
+  <!-- More than one account: each gets a band with its own name on it, and the tree
+       under it is that account's. With one account there is nothing to tell apart,
+       so no band is drawn and the sidebar looks exactly as it always has. -->
+  {#if reader.hasAccountGroups}
+    <div class="acct-bands">
+      {#each reader.accountList as account (account.slug)}
+        <AccountBand {account} />
+      {/each}
+    </div>
+  {/if}
+
+  {#if reader.isAccountGroupOpen(reader.profile?.slug ?? "")}
   <!-- Buzz sits above Reading list because it is the wider view: the stories
        several feeds are carrying, before you pick a feed. Pressing it opens the
        section; pressing it again shuts it, and nothing else on the row moves. -->
@@ -1671,6 +1684,7 @@
       {/if}
     </div>
   {/each}
+  {/if}
   {/if}
 
   {#if startsHere}

@@ -220,7 +220,11 @@ function readerWith(list) {
 
 check(
   "start() files the account before it hydrates anything",
-  /this\.accounts\.add\(profile\);\s*this\.publishAccounts\(\);\s*this\.resetForAccount\(\);/.test(readerFile),
+  /this\.fileAccount\(profile\);\s*this\.resetForAccount\(\);/.test(readerFile),
+);
+check(
+  "…and filing an account is what puts it in the list",
+  /private fileAccount\(profile: ReaderProfile\): void \{[\s\S]{0,2000}?this\.accounts\.add\(settled\);\s*[\s\S]{0,900}?this\.publishAccounts\(\);/.test(readerFile),
 );
 check(
   "starting on an account already being read is not a second round trip",

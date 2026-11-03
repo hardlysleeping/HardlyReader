@@ -83,6 +83,7 @@ import {
 } from "../api/profile";
 import { AccountRegistry } from "../api/registry";
 import { AccountAggregate, type AccountFailure } from "../api/aggregate";
+import { countFeeds, groupFeedList, type FeedGroup } from "../lib/feed-groups";
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "../lib/account-key";
 import {
   clearApiSnapshot,
@@ -235,6 +236,23 @@ export interface CategoryGroup {
   feeds: Subscription[];
 }
 
+/**
+ * One account's sidebar, as that account's server answered it.
+ *
+ * The focused account's rows live in the reader's own state (`subscriptions`,
+ * `counts`); this is the copy beside them, so Pane 1 can draw a second account's
+ * categories without the window switching account to look at them.
+ */
+export interface AccountSidebar {
+  slug: string;
+  label: string;
+  kind: "greader" | "local";
+  categories: FeedGroup[];
+  counts: Map<string, number>;
+  /** Why this account's rows could not be read, when they could not. */
+  error: string | null;
+}
+
 /** What the open menu is about. It decides which items the menu draws. */
 type MenuTarget =
   | { kind: "category"; label: string }
@@ -377,6 +395,140 @@ export class ReaderState {
   }
 
   /**
+   * Every account's rows, by slug — what Pane 1 draws under an account's band.
+   *
+   * The focused account's sidebar is already the reader's own state; this is the
+   * copy beside it, so a second account's categories can be drawn without switching
+   * the window to that account. Read-only by design: pins, hidden categories and
+   * feed order are each account's own answers, and this window does not compose
+   * them for an account it is not reading.
+   */
+  accountSidebars = $state<Record<string, AccountSidebar>>({});
+
+  /** Which account bands Pane 1 has open. The focused account's tree is always drawn. */
+  openAccountGroups = $state<string[]>([]);
+
+  /** One account needs no bands: there is nothing to tell apart. */
+  get hasAccountGroups(): boolean {
+    return this.accountList.length > 1;
+  }
+
+  /**
+   * True when an account's band is folded out.
+   *
+   * With one account there is no band and the tree is simply drawn, which is also
+   * what a window that has only ever had one account expects to see. The account
+   * being read is seeded open by `fileAccount`, so arriving at a second account does
+   * not hide the one thing on screen.
+   */
+  isAccountGroupOpen(slug: string): boolean {
+    if (!this.hasAccountGroups) return true;
+    return this.openAccountGroups.includes(slug);
+  }
+
+  /** True when this slug's rows are the ones the reading UI is bound to. */
+  isFocused(slug: string): boolean {
+    return this.profile !== null && profileSlug(this.profile) === slug;
+  }
+
+  /**
+   * Reads one account's categories and counts.
+   *
+   * The focused account is answered from the reader's own state — a second request
+   * for rows already in memory is a request paid to learn nothing. Every other
+   * account gets two reads and a stored copy; a failure is stored as that account's
+   * `error`, never raised into `this.error`, because one account's server being down
+   * is not the sidebar's failure.
+   */
+  async loadAccountSidebar(slug: string, options: { force?: boolean } = {}): Promise<boolean> {
+    const profile = this.accounts.get(slug);
+    if (profile === null) return false;
+    // Already answered and nothing has asked for a fresh answer: a band that is
+    // opened, closed and opened again costs one read, not three. A sync passes
+    // `force`, because the pass that just ran is exactly what made the copy stale.
+    if (options.force !== true && !this.isFocused(slug) && this.accountSidebars[slug] !== undefined) {
+      return true;
+    }
+
+    if (this.isFocused(slug)) {
+      const categories = this.allCategories.map((group) => ({ ...group }));
+      this.accountSidebars = {
+        ...this.accountSidebars,
+        [slug]: {
+          slug,
+          label: profile.label,
+          kind: profile.kind,
+          categories,
+          counts: new Map(this.counts),
+          error: null,
+        },
+      };
+      return true;
+    }
+
+    const backend = this.accounts.backend(slug);
+    if (backend === null) return false;
+    try {
+      const [feeds, counts] = await Promise.all([backend.subscriptions(), backend.unreadCounts()]);
+      this.accountSidebars = {
+        ...this.accountSidebars,
+        [slug]: {
+          slug,
+          label: profile.label,
+          kind: profile.kind,
+          categories: groupFeedList(feeds),
+          counts: new Map(counts.map((entry) => [entry.id, entry.count])),
+          error: null,
+        },
+      };
+      return true;
+    } catch (error) {
+      this.accountSidebars = {
+        ...this.accountSidebars,
+        [slug]: {
+          slug,
+          label: profile.label,
+          kind: profile.kind,
+          categories: [],
+          counts: new Map(),
+          error: message(error),
+        },
+      };
+      return false;
+    }
+  }
+
+  /** Opens or closes one account's band, reading its rows the first time it opens. */
+  async toggleAccountGroup(slug: string): Promise<void> {
+    if (this.openAccountGroups.includes(slug)) {
+      this.openAccountGroups = this.openAccountGroups.filter((open) => open !== slug);
+      return;
+    }
+    this.openAccountGroups = [...this.openAccountGroups, slug];
+    if (this.accountSidebars[slug] === undefined) await this.loadAccountSidebar(slug);
+  }
+
+  /**
+   * Opens a stream that belongs to another account.
+   *
+   * Switching first and opening second: the stream id is that account's, and asking
+   * it of the account on screen would either 404 or, worse, find a different feed
+   * with the same id. A failed switch opens nothing.
+   */
+  async openInAccount(slug: string, streamId: string, title: string): Promise<boolean> {
+    if (!this.isFocused(slug) && !(await this.focus(slug))) return false;
+    await this.openStream(streamId, title);
+    return true;
+  }
+
+  /** How many feeds an account draws, for the band's own count. */
+  feedCountIn(slug: string): number {
+    const sidebar = this.accountSidebars[slug];
+    if (sidebar !== undefined) return countFeeds(sidebar.categories);
+    return this.isFocused(slug) ? this.subscriptions.length : 0;
+  }
+
+  /**
    * The accounts a merged view reads: everything not explicitly turned off.
    *
    * A getter rather than a second rune: it reads `accountList`, so it is reactive
@@ -390,6 +542,50 @@ export class ReaderState {
   /** Writes the registry into the rune. The only writer. */
   private publishAccounts(): void {
     this.accountList = this.accounts.all();
+  }
+
+  /**
+   * Files an account and decides, once, whether it joins the merged views.
+   *
+   * A library **on this device** is the exception: beside a sync service it starts
+   * out not merged. It is not a lesser account — it is the one that owns nothing but
+   * this device, so merging it by default would put local sample feeds, imports and
+   * anything a phone wrote offline into the middle of a server's reading list
+   * without anybody asking. It stays signed in, stays in Pane 1 and answers by slug;
+   * turning it on is one press.
+   *
+   * Both orders count, which is why this looks at the whole set rather than at what
+   * arrived: starting local and adding a server later is the same situation seen from
+   * the other end, and an account that was never given an `enabled` is one nobody has
+   * decided about yet. An explicit `enabled` is never overruled.
+   */
+  private fileAccount(profile: ReaderProfile): void {
+    const others = this.accounts.all().filter((known) => known.slug !== profile.slug);
+    const arrivingIsServer = profile.kind !== "local";
+    const anotherServer = others.some((known) => known.kind !== "local");
+    // A library that has never been decided about: no explicit `enabled` anywhere.
+    const undecidedLocal = others.find((known) => known.kind === "local" && known.enabled === undefined);
+
+    // A server arriving beside a library that never chose: the library steps out of
+    // the merged view, which is the state it would have been in had the server come
+    // first. Same rule, same result, whichever order the two arrive in.
+    if ((arrivingIsServer || anotherServer) && undecidedLocal !== undefined) {
+      this.accounts.add({ ...undecidedLocal, enabled: false });
+    }
+
+    const settled =
+      profile.kind === "local" && profile.enabled === undefined && anotherServer
+        ? { ...profile, enabled: false }
+        : profile;
+    this.accounts.add(settled);
+    // The account arriving is the one about to be read, and it opens on its own:
+    // arriving at a second account must not hide the one thing on screen. Accounts
+    // restored from disk come through `adoptAccounts` instead and stay folded,
+    // because a second tree appearing unfolded is a list that grew under the thumb.
+    if (!this.openAccountGroups.includes(settled.slug)) {
+      this.openAccountGroups = [...this.openAccountGroups, settled.slug];
+    }
+    this.publishAccounts();
   }
 
   /**
@@ -2694,10 +2890,16 @@ export class ReaderState {
     const profile: ReaderProfile = "kind" in input ? input : syncProfile(input);
     // Filed before anything reads it: a launch that fails mid-hydration still has an
     // account in Pane 1, and the next launch finds it where it left it.
-    this.accounts.add(profile);
-    this.publishAccounts();
+    this.fileAccount(profile);
     this.resetForAccount();
     this.profile = profile;
+    // The copy this slug had was drawn from the *previous* account's reader state;
+    // asking again rebuilds it from this one's.
+    if (this.accountSidebars[profile.slug] !== undefined) {
+      const kept = { ...this.accountSidebars };
+      delete kept[profile.slug];
+      this.accountSidebars = kept;
+    }
     this.backend = profile.backend;
     this.session = profile.session;
     this.error = null;
@@ -2915,6 +3117,9 @@ export class ReaderState {
     this.hiddenBusy = false;
     // The rows one account's server sent are not the next one's.
     this.rememberedSidebar = null;
+    // Nor are the copies Pane 1 drew under the other accounts' bands.
+    this.accountSidebars = {};
+    this.openAccountGroups = [];
     this.stateRouteMissing = false;
     this.apiSnapshotPainted = false;
     this.favorites = unavailableFavorites();
@@ -3585,6 +3790,11 @@ export class ReaderState {
       this.accountErrors = outcome.failed;
       // The focused account last, through the path the header already draws.
       await this.refresh();
+      // The open bands are drawn from copies taken before this pass; the moment the
+      // pass is over is the moment to replace them.
+      for (const slug of this.openAccountGroups) {
+        void this.loadAccountSidebar(slug, { force: true });
+      }
     })();
 
     this.refreshingAll = run;

@@ -139,6 +139,7 @@ function buildReaderModule() {
     .replaceAll('"../lib/offline-copy"', JSON.stringify(absolute("src/lib/offline-copy.ts")))
     .replaceAll('"../lib/marks"', JSON.stringify(absolute("src/lib/marks.ts")))
     .replaceAll('"../api/aggregate"', JSON.stringify(absolute("src/api/aggregate.ts")))
+    .replaceAll('"../lib/feed-groups"', JSON.stringify(absolute("src/lib/feed-groups.ts")))
     .replaceAll('"../api/registry"', JSON.stringify(absolute("src/api/registry.ts")));
 }
 
