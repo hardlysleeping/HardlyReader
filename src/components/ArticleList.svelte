@@ -1309,11 +1309,13 @@
 <section class="list" data-pane="posts" class:nested aria-label={store.activeTitle}>
   <header class="list-header">
     <div class="headline">
-      <!-- The bar above a phone already names this stream, one line up: drawing
-           the same words here as well cost a whole line of the column to say
-           nothing new. The count, the feed's own mark and the filter rows stay —
-           they are about this list, not about where you are. -->
-      {#if !nested && layout.device !== "phone"}
+      <!-- The stream's own name, drawn wherever nothing above already says it.
+           On a desktop that is every non-nested list (a nested one hangs under
+           the feed row that names it). On a phone the row above is not a title
+           any more: the posts scroll under this bar and the row goes with them,
+           so the bar carries the name — the owner's ask, "the category name to
+           stay at top too, like the scroll goes under it". -->
+      {#if !nested || layout.device === "phone"}
         <h1>{store.activeTitle}</h1>
       {/if}
       {#if feed}
@@ -2160,15 +2162,17 @@
     padding: 0 0 3px;
   }
 
-  /* On a phone an unfolded feed's post list hangs inside the sidebar's own
-     scroll box, so its bar can pin: it parks under the feed row that names it
-     (`--feed-row-h`, measured in the sidebar when the feed opens) and the posts
-     pass beneath instead of carrying the views away mid-scroll. */
+  /* On a phone an unfolded feed's post list hangs inside the sidebar's own scroll
+     box, so its bar pins — at the TOP of that box, not one row down. It used to
+     park under the feed row (`--feed-row-h`) while the row itself stayed stuck,
+     which read as a band sitting slightly below the top with rows passing above
+     and below it. One bar, at the top, wearing the stream's name: the tree
+     scrolls up and under it. */
   :global(html[data-device="phone"]) .list.nested .list-header {
     position: sticky;
-    top: var(--feed-row-h, 0px);
+    top: 0;
     z-index: 2;
-    padding-bottom: 4px;
+    padding: 2px 0 4px;
     background: var(--surface);
   }
 

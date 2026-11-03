@@ -883,8 +883,8 @@
 
   /**
    * The height of an unfolded feed's own row, in pixels, handed to the
-   * stylesheet as `--feed-row-h`: the nested post list's bar sticks *under* the
-   * row, and a sticky offset has to be a length the sheet knows. One number for
+   * stylesheet as `--feed-row-h`: the account bands size their rows to match a
+   * feed row, so a band and the tree under it read as one column. One number for
    * every row, because every feed row is the same height.
    */
   let feedRowHeight = $state(0);
@@ -2500,18 +2500,15 @@
      near the edge (8px + the extension's indent) and are told apart from their
      category by size, weight and colour rather than by a deep column. Category
      rows still take no indent: that is the hierarchy the indent expresses. */
-  /* An unfolded feed keeps its own row against the top of the tree while its
-     posts scroll under it: the name and the four views are the two things a
-     reader changes their mind about mid-feed, and both were scrolling away. Only
-     a phone, because that is the only layout where the posts live inside this
-     scroll box. The bar under the row sticks to `--feed-row-h`, measured when
-     the feed opens. */
-  :global(html[data-device="phone"]) .feed.unfolded {
-    position: sticky;
-    top: 0;
-    z-index: 3;
-    background: var(--surface);
-  }
+  /* An unfolded feed's row used to keep itself against the top of the tree while
+     its posts scrolled under it, and the post list's own bar parked one row down
+     (`--feed-row-h`) to sit beneath it. The owner read that as two bands: the
+     bar sat slightly below the top of the tree, rows passed above and below it,
+     and the strip never felt locked. It is one bar now — the post list's, which
+     pins at the top of the tree and carries the stream's own name (see
+     `ArticleList`, `.list.nested .list-header`) — so the row scrolls away with
+     the rest of the tree. The way back is the floating `unfold-close` disc,
+     which is where a thumb already reaches, and the name is on the bar. */
 
   .feed {
     /* The drop line is drawn against the row's own box, so the row has to be

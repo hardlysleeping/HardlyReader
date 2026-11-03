@@ -197,8 +197,12 @@ check(
   /const title = \$derived\.by\(\(\) => \{[\s\S]{0,200}?return depth === 3 \?/.test(header),
 );
 check(
-  "the posts pane stops drawing that same title on a phone",
-  /\{#if !nested && layout\.device !== "phone"\}[\s\S]{0,80}<h1>\{store\.activeTitle\}<\/h1>/.test(list),
+  "the posts pane draws the stream's name on a phone, at the top of the list",
+  /\{#if !nested \|\| layout\.device === "phone"\}[\s\S]{0,80}<h1>\{store\.activeTitle\}<\/h1>/.test(list),
+);
+check(
+  "...and its bar pins to the top of the tree, with the posts scrolling under it",
+  /html\[data-device="phone"\]\) \.list\.nested \.list-header \{[\s\S]{0,120}?position: sticky;\s*top: 0;/.test(list),
 );
 check(
   "the count, the feed's mark and the filters are not part of that",
