@@ -260,5 +260,92 @@ check(
   (readerFile.match(/this\.accountList = /g) ?? []).length === 1,
 );
 
+// ---------------------------------------------------------------------------
+// Paging a merged column: each account's cursor, its own rows, its own end.
+// ---------------------------------------------------------------------------
+
+{
+  /** A backend that pages: `continuation` names the next page. */
+  function paged(pages, asked) {
+    return {
+      kind: "greader",
+      async profile() {
+        return { userId: "0", userName: "someone" };
+      },
+      async subscriptions() {
+        return [];
+      },
+      async tags() {
+        return [];
+      },
+      async unreadCounts() {
+        return [];
+      },
+      async stream(id, opts) {
+        const cursor = opts?.continuation ?? "first";
+        asked.push(cursor);
+        const page = pages[cursor] ?? { items: [] };
+        return { id, items: page.items ?? [], continuation: page.next };
+      },
+      async setRead() {},
+      async setStarred() {},
+      async subscribe() {},
+      async unsubscribe() {},
+      async moveFeed() {},
+    };
+  }
+
+  const post = (id, usec) => ({ id, timestampUsec: String(usec), published: Math.round(usec / 1_000_000), title: id });
+  const askedFirst = [];
+  const askedSecond = [];
+  const first = syncProfile(
+    session("first@example.com"),
+    paged(
+      { first: { items: [post("f1", 3_000_000)], next: "a2" }, a2: { items: [post("f2", 1_000_000)] } },
+      askedFirst,
+    ),
+  );
+  const second = syncProfile(
+    session("second@example.com"),
+    paged(
+      { first: { items: [post("s1", 2_000_000)], next: "b2" }, b2: { items: [post("s2", 500_000)], next: "b3" } },
+      askedSecond,
+    ),
+  );
+
+  const reader = new ReaderState();
+  reader.adoptAccounts([first, second]);
+  await reader.start(first);
+  equal("both accounts are in the merged view", reader.mergedAccounts.length, 2);
+  check("so the stream is merged", reader.mergesStream(reader.activeStream) === true);
+  equal("the first page asked each account once", [askedFirst.length, askedSecond.length], [1, 1]);
+  equal("one section per account", reader.mergedSections.map((s) => s.key), [first.slug, second.slug]);
+  equal("with a cursor for each", Object.keys(reader.mergedCursors).length, 2);
+
+  await reader.loadMore();
+  equal("more asks each account from its own cursor", [askedFirst.at(-1), askedSecond.at(-1)], ["a2", "b2"]);
+  equal("and the new rows join their own account's section", reader.mergedSections.map((s) => s.items.length), [2, 2]);
+  equal("the flat list has all four", reader.items.length, 4);
+  equal("only the account that had more keeps a cursor", Object.keys(reader.mergedCursors), [second.slug]);
+  check("and the column says there is more to fetch", reader.hasMore === true);
+
+  await reader.loadMore();
+  equal("the account that ran out is not asked again", askedFirst.length, 2);
+  equal("the one that had more is", askedSecond.at(-1), "b3");
+  equal("and the column ends when nobody has a cursor", Object.keys(reader.mergedCursors).length, 0);
+  check("with nothing left, the column stops offering more", reader.hasMore === false);
+  const before = reader.items.length;
+  await reader.loadMore();
+  equal("with nothing left, more does nothing", reader.items.length, before);
+
+  // Switching to a single account's own view drops every trace of the merged page.
+  const alone = new ReaderState();
+  alone.adoptAccounts([first]);
+  await alone.start(first);
+  check("one account's column carries no sections", alone.mergedSections.length === 0);
+  check("a single account's column pages off its own continuation", alone.hasMore === alone.continuation !== undefined);
+  equal("and no cursors", alone.mergedCursors, {});
+}
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

@@ -128,6 +128,16 @@ export interface MergedSection {
 export interface MergedContents extends StreamContents {
   sections: MergedSection[];
   failures: AccountFailure[];
+  /**
+   * Where each account's next page begins, for the accounts that have one.
+   *
+   * A merged column has no single `continuation`: each account pages at its own
+   * pace, so "more" is one cursor per account. The reader hands this back on the
+   * next request rather than remembering it inside the aggregate, because the
+   * aggregate holds no state — the column on screen is the only place that knows
+   * which page is drawn.
+   */
+  cursors: Record<string, string>;
 }
 
 /** What a fan-out write did, per account. */
@@ -166,7 +176,7 @@ function rank(item: StreamItem): number {
 export function mergePages(
   id: string,
   pages: { slug: string; label?: string; contents: StreamContents }[],
-): StreamContents & { sections: MergedSection[] } {
+): StreamContents & { sections: MergedSection[]; cursors: Record<string, string> } {
   const sections: MergedSection[] = [];
   let updated: number | undefined;
 
@@ -190,7 +200,14 @@ export function mergePages(
     sections.push({ slug, label: label ?? slug, items });
   }
 
-  return { id, updated, sections, items: sections.flatMap((section) => section.items) };
+  const cursors: Record<string, string> = {};
+  for (const { slug, contents } of pages) {
+    if (contents.continuation !== undefined && contents.continuation !== "") {
+      cursors[slug] = contents.continuation;
+    }
+  }
+
+  return { id, updated, sections, items: sections.flatMap((section) => section.items), cursors };
 }
 
 /** The reading UI's window onto every signed-in account. */
@@ -215,17 +232,32 @@ export class AccountAggregate {
    * One page of `streamId` from every enabled account, merged.
    *
    * Answers `failures` beside the rows; throws only when *nothing* answered.
+   *
+   * **`cursors` turns this into "the page after these".** Each account is asked
+   * from its own cursor — the one `mergePages` handed back last time — and an
+   * account that has none is not asked at all: an account that has reached its end
+   * must not be dragged back to page one and re-drawn as if it had newer rows. The
+   * cursors are per account because `feed/12` and page two of a stream mean
+   * different things on every server.
    */
   async stream(
     streamId: string,
-    options?: Parameters<ReaderBackend["stream"]>[1],
+    options?: Parameters<ReaderBackend["stream"]>[1] & { cursors?: Record<string, string> },
   ): Promise<MergedContents> {
-    const readers = this.readers();
+    const { cursors, ...shared } = options ?? {};
+    const all = this.readers();
+    const readers =
+      cursors === undefined
+        ? all
+        : all.filter((reader) => cursors[reader.slug] !== undefined && cursors[reader.slug] !== "");
     const settled = await Promise.allSettled(
       readers.map(async (reader) => ({
         slug: reader.slug,
         label: reader.profile.label,
-        contents: await reader.backend.stream(streamId, options),
+        contents: await reader.backend.stream(
+          streamId,
+          cursors === undefined ? shared : { ...shared, continuation: cursors[reader.slug] },
+        ),
       })),
     );
 
@@ -245,6 +277,11 @@ export class AccountAggregate {
     });
 
     if (answered.length === 0) {
+      // Nobody was asked because every cursor ran out: an empty page, not an error.
+      // "No account could be read" is about accounts that were asked and failed.
+      if (readers.length === 0) {
+        return { ...mergePages(streamId, []), failures: [], cursors: {} };
+      }
       const first = failures[0];
       throw new Error(
         first

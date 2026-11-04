@@ -419,22 +419,37 @@ export class ReaderState {
   mergedSections = $state<{ key: string; label: string; items: StreamItem[] }[]>([]);
 
   /**
-   * True when an account is known to hold at least one feed.
+   * Where the next page begins, per account.
    *
-   * An account nobody has read yet counts as holding something — hiding a real
-   * account because its tree has not been fetched would be worse than drawing a
-   * heading over it.
+   * A merged column has no single `continuation` — each account pages at its own
+   * pace — so "more" is one cursor per account, and an account that has run out is
+   * absent from this map. Nothing here is cached: a merged page is never remembered
+   * (see `rememberStream`), so the column is the only thing holding a position.
+   */
+  mergedCursors = $state<Record<string, string>>({});
+
+  /**
+   * True when an account is counted as one.
+   *
+   * **A server always is.** It was signed in on purpose; whether its tree has come
+   * back yet, or whether it happens to hold no feeds, is not a reason to leave it out
+   * of a column that is meant to hold what it answers — and a subscription list that
+   * failed to load must not silently drop an account from the merge.
+   *
+   * **The library on this device is only an account when it holds a feed.** It is
+   * always filed — it is where a first feed goes — so an empty one beside a single
+   * server would otherwise be the second account that turns bands and headings on
+   * for a reader who has one account (owner, 2026-11-03: *"only show/use account
+   * rows if multiple accounts are being used"*). Its tree is read from the disk when
+   * the accounts are filed (`primeLocalAccounts`), so "not read yet" means empty here
+   * rather than "behind a request that has not come back".
    */
   accountHoldsFeeds(profile: ReaderProfile): boolean {
+    if (profile.kind !== "local") return true;
     const slug = profileSlug(profile);
     if (this.isFocused(slug)) return this.subscriptions.length > 0;
     const copy = this.accountSidebars[slug];
-    if (copy === undefined) {
-      // A library on this device is read straight away when the accounts are filed
-      // (`primeAccounts`), so "not read yet" there means it is empty: it is on the
-      // disk under the thumb, not behind a network call that has not come back.
-      return profile.kind !== "local";
-    }
+    if (copy === undefined) return false;
     return copy.categories.length > 0;
   }
 
@@ -2967,6 +2982,7 @@ export class ReaderState {
   private resetForAccount(): void {
     this.subscriptions = [];
     this.mergedSections = [];
+    this.mergedCursors = {};
     this.tags = [];
     this.items = [];
     this.counts.clear();
@@ -3255,6 +3271,7 @@ export class ReaderState {
     this.accountSidebars = {};
     this.openAccountGroups = [];
     this.mergedSections = [];
+    this.mergedCursors = {};
     this.stateRouteMissing = false;
     this.apiSnapshotPainted = false;
     this.favorites = unavailableFavorites();
@@ -4096,6 +4113,7 @@ export class ReaderState {
         label: section.label,
         items: section.items,
       }));
+      this.mergedCursors = page.cursors;
       if (!sameStreamPage({ items: this.items, continuation: this.continuation }, page)) {
         this.items = page.items;
         this.continuation = undefined;
@@ -4230,8 +4248,9 @@ export class ReaderState {
       this.lastStreamSource = "network";
       this.lastStreamMs = Math.round(performance.now() - started);
       // This page is one account's: any headings left from a merged column belong
-      // to rows that are no longer here.
+      // to rows that are no longer here, and so does any cursor it was holding.
       if (this.mergedSections.length > 0) this.mergedSections = [];
+      if (Object.keys(this.mergedCursors).length > 0) this.mergedCursors = {};
       // Only a payload that says something different is worth a repaint: the
       // rows are keyed, but re-running all of them costs a frame and the scroll
       // anchor for a picture that would come out identical.
@@ -4257,8 +4276,29 @@ export class ReaderState {
     }
   }
 
+  /**
+   * Whether the column has another page to fetch.
+   *
+   * A merged column has no single `continuation` — it has one cursor per account, so
+   * asking `continuation` there answers "no" forever and the Load more button never
+   * appears on a list drawn from two accounts.
+   */
+  get hasMore(): boolean {
+    if (this.mergesStream(this.activeStream)) {
+      return Object.keys(this.mergedCursors).length > 0;
+    }
+    return this.continuation !== undefined && this.continuation !== "";
+  }
+
   async loadMore(): Promise<void> {
-    if (!this.canRead || !this.continuation || this.loadingMore) return;
+    if (!this.canRead || this.loadingMore) return;
+    // A merged column pages by account, not by stream: each account is asked from
+    // its own cursor and the new rows are filed under that account's heading.
+    if (this.mergesStream(this.activeStream)) {
+      await this.loadMergedMore();
+      return;
+    }
+    if (!this.continuation) return;
     this.loadingMore = true;
     const requested = this.activeStream;
     try {
@@ -4273,6 +4313,48 @@ export class ReaderState {
         this.continuation = page.continuation;
         this.cacheActiveStream();
       }
+    } catch (error) {
+      this.error = message(error);
+    } finally {
+      this.loadingMore = false;
+    }
+  }
+
+  /**
+   * The next page of a merged column: one request per account that still has a
+   * cursor, filed under that account's heading.
+   *
+   * Nothing that is already on screen is redrawn: rows are appended per section and
+   * a duplicate id (the same post seen twice, which a server can do across a page
+   * boundary) is dropped. An account that has run out simply does not come back, so
+   * the column ends when every account has, rather than paging someone's page one.
+   */
+  private async loadMergedMore(): Promise<void> {
+    const requested = this.activeStream;
+    if (Object.keys(this.mergedCursors).length === 0) return;
+    this.loadingMore = true;
+    try {
+      const page = await this.aggregate.stream(requested, {
+        count: PAGE_SIZE,
+        cursors: this.mergedCursors,
+      });
+      if (this.activeStream !== requested) return;
+      const seen = new Set(this.mergedSections.flatMap((section) => section.items.map((item) => item.id)));
+      const byslug = new Map(this.mergedSections.map((section) => [section.key, section]));
+      for (const section of page.sections) {
+        const existing = byslug.get(section.slug);
+        const fresh = section.items.filter((item) => !seen.has(item.id));
+        if (existing === undefined) {
+          this.mergedSections = [...this.mergedSections, { key: section.slug, label: section.label, items: fresh }];
+          byslug.set(section.slug, { key: section.slug, label: section.label, items: fresh });
+          continue;
+        }
+        existing.items = [...existing.items, ...fresh];
+      }
+      this.mergedSections = [...this.mergedSections];
+      this.items = this.mergedSections.flatMap((section) => section.items);
+      this.mergedCursors = page.cursors;
+      this.accountErrors = page.failures;
     } catch (error) {
       this.error = message(error);
     } finally {

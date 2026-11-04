@@ -275,5 +275,85 @@ check("a path with no slug in front of it is not addressable", splitId("/tag:goo
   equal("and the one that did not is named with its reason", outcome.failed.map((f) => [f.slug, f.message]), [[b.slug, "401 from the server"]]);
 }
 
+/* ---- paging a merged column, one cursor per account ---------------------- */
+
+{
+  // A page that answers with a continuation, and remembers what it was asked.
+  function paged(slugItems, cursors) {
+    const asked = [];
+    return {
+      kind: "greader",
+      asked,
+      async profile() {
+        return { userId: "0", userName: "someone" };
+      },
+      async subscriptions() {
+        return [];
+      },
+      async tags() {
+        return [];
+      },
+      async unreadCounts() {
+        return [];
+      },
+      async stream(id, opts) {
+        asked.push(opts?.continuation ?? null);
+        const cursor = opts?.continuation;
+        const page = slugItems[cursor ?? "first"] ?? { items: [] };
+        return { id, items: page.items ?? [], continuation: page.next };
+      },
+      async setRead() {},
+      async setStarred() {},
+      async subscribe() {},
+      async unsubscribe() {},
+      async moveFeed() {},
+    };
+  }
+
+  const first = syncProfile(
+    session("first@example.com"),
+    paged({
+      first: { items: [item("f1", 3_000_000)], next: "a2" },
+      a2: { items: [item("f2", 1_000_000)], next: "a3" },
+    }),
+  );
+  const second = syncProfile(
+    session("second@example.com"),
+    paged({
+      first: { items: [item("s1", 2_000_000)], next: "b2" },
+      b2: { items: [item("s2", 500_000)] },
+    }),
+  );
+  const registry = new AccountRegistry();
+  registry.add(first);
+  registry.add(second);
+  const aggregate = new AccountAggregate(registry);
+
+  const page1 = await aggregate.stream("user/-/state/com.google/reading-list");
+  equal("each account's own continuation comes back", Object.keys(page1.cursors).length, 2);
+  equal("keyed by slug", page1.cursors[first.slug], "a2");
+  check("not folded into one stream continuation", page1.continuation === undefined);
+
+  const page2 = await aggregate.stream("user/-/state/com.google/reading-list", { cursors: page1.cursors });
+  equal(
+    "the next page asks each account from its own cursor",
+    [first.backend.asked.at(-1), second.backend.asked.at(-1)],
+    ["a2", "b2"],
+  );
+  equal(
+    "and files the rows under their own account",
+    page2.sections.map((s) => s.items.map((row) => splitId(row.id).itemId.replace("tag:google.com,2005:reader/item/", ""))),
+    [["f2"], ["s2"]],
+  );
+  equal("one account finishing does not stop the other", Object.keys(page2.cursors), [first.slug]);
+
+  // An account that has run out is not asked again.
+  const exhausted = await aggregate.stream("user/-/state/com.google/reading-list", { cursors: { [first.slug]: "a3" } });
+  equal("an account with no cursor is not asked", second.backend.asked.at(-1), "b2");
+  equal("and the one that is asked is", first.backend.asked.at(-1), "a3");
+  check("a page nobody had a cursor for is empty, not an error", exhausted.items.length === 0 && exhausted.failures.length === 0);
+  equal("with no cursors left", exhausted.cursors, {});
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 process.exit(failures === 0 ? 0 : 1);

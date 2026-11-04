@@ -1839,7 +1839,7 @@
       </p>
     {/if}
 
-    {#if store.continuation}
+    {#if store.hasMore}
       <button class="more" onclick={() => store.loadMore()} disabled={store.loadingMore}>
         {store.loadingMore ? "Loading…" : "Load more"}
       </button>
