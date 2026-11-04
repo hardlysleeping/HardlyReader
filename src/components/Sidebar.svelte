@@ -506,41 +506,25 @@
     const now = Date.now();
     const doubled = lastCategoryTap.id === category.id && now - lastCategoryTap.at < DOUBLE_TAP_MS;
     lastCategoryTap = doubled ? { id: "", at: 0 } : { id: category.id, at: now };
-    if (doubled) {
-      // Unfolded first, because a folded category has no feeds to show and the
-      // posts it opens are its feeds'. Then the posts, whichever layout this is:
-      // one panel draws them under the heading, because its sidebar does not
-      // move and a posts column it does not have would paint them nowhere.
-      if (folded) toggle(category.id);
-      if (inlinePosts) {
-        void anchorCategory(category);
-        return;
-      }
-      openCategory(category);
-      return;
-    }
-    if (!inlinePosts) {
-      toggle(category.id);
-      openCategory(category);
-      return;
-    }
-    if (pickedCategory !== category.id) {
+    // **A tap folds or unfolds, first time, on the whole row.** Nothing has to be
+    // selected first: the ladder this replaces (select, then open, then fold)
+    // meant a category could not be closed until it had been opened, which is the
+    // wrong way round for a list you fold to make room — and it made the arrow a
+    // thing you had to earn.
+    if (!doubled) {
       pickedCategory = category.id;
-      if (folded) toggle(category.id);
+      toggle(category.id);
       return;
     }
-    if (openStreamId !== category.id) {
-      if (folded) toggle(category.id);
+    // A double tap is the one gesture that means "show me its posts", and it is
+    // the only way left to ask for them from the heading: the count beside the
+    // name opens them in one press, which is the ordinary way.
+    if (folded) toggle(category.id);
+    if (inlinePosts) {
       void anchorCategory(category);
       return;
     }
-    // Its posts are already the unfolded list: this tap closes them, the way a
-    // second tap on a feed's row does.
-    if (expandedFeed === category.id) {
-      void collapseInline();
-      return;
-    }
-    toggle(category.id);
+    openCategory(category);
   }
 
   function openFeed(feed: Subscription) {
@@ -1570,21 +1554,27 @@
                not move, and on a phone it carries `.tap44` (see `app.css`),
                which lays a thumb-sized box over the caret. The press is still
                the row's press — the box is inside the button. -->
+          <!-- Everything left of the name is the fold's own area: the caret,
+               the pin and the category's picture. A press anywhere in it folds
+               or unfolds and does nothing else — which is the whole point, since
+               a press on this row in a multi-pane layout also opens the
+               category's posts, and a thumb aiming for the arrow kept landing in
+               it. The name is still the row's press; see `clickCategory`. -->
           <span class="fold-hit" class:tap44={layout.device === "phone"}>
             <svg class="fold" class:up={!folded} viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6 9l6 6 6-6" />
             </svg>
+            {#if pinned}
+              <svg class="pin" viewBox="0 0 24 24" role="img" aria-label={words.count}>
+                <path d={MARKER_PATH} />
+              </svg>
+            {/if}
+            {#if glyph !== null}
+              <!-- The category's own picture, at the row's ink: it sits before
+                   the name the way a folder's tab sits before its label. -->
+              <span class="cat-glyph" aria-hidden="true"><Glyph name={glyph} size={15} /></span>
+            {/if}
           </span>
-          {#if pinned}
-            <svg class="pin" viewBox="0 0 24 24" role="img" aria-label={words.count}>
-              <path d={MARKER_PATH} />
-            </svg>
-          {/if}
-          {#if glyph !== null}
-            <!-- The category's own picture, at the row's ink: it sits before the
-                 name the way a folder's tab sits before its label. -->
-            <span class="cat-glyph" aria-hidden="true"><Glyph name={glyph} size={15} /></span>
-          {/if}
           <span class="label">{category.label}</span>
         </button>
         <button
@@ -2397,6 +2387,14 @@
   .fold-hit {
     display: inline-flex;
     flex: none;
+    align-items: center;
+    /* The pin and the picture live in here now, so the row's own gap has to be
+       repeated inside: the row still spaces the fold's area from the name. */
+    gap: 8px;
+    /* A little wider than the glyph, because the point of the area is that a
+       thumb does not have to find a 13px arrow. */
+    padding: 0 2px 0 1px;
+    margin: 0 -2px 0 -1px;
   }
 
   :global(html[data-device="phone"]) .fold-hit.tap44 {

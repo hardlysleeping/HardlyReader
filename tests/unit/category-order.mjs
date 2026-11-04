@@ -129,35 +129,29 @@ check(
   ) === JSON.stringify(["Tech", "Design", "Art"]),
 );
 
-// A category is a feed. FreshRSS labels are streams, so the category's name opens
-// every post in every feed under it — and it still folds and unfolds the group,
-// which is what the name did before there was anything else to do with it.
+// A category is a feed. FreshRSS labels are streams, so the category's count
+// opens every post in every feed under it — and the row itself folds and unfolds
+// the group, on the first press, in every layout.
 check(
-  "the category's name opens its own stream and still folds the group",
-  /if \(!inlinePosts\) \{\s*toggle\(category\.id\);\s*openCategory\(category\);\s*return;\s*\}/.test(
-    sidebar,
-  ),
+  "one press folds the row it lands on, with nothing selected first",
+  /if \(!doubled\) \{\s*pickedCategory = category\.id;\s*toggle\(category\.id\);\s*return;\s*\}/.test(sidebar),
 );
+check("and the count beside the name is what opens the posts", /openCategory\(category\)/.test(sidebar));
 check(
   "and the click is the one the row calls",
   /onclick=\{\(\) => clickCategory\(category, folded\)\}/.test(sidebar) &&
     !/onclick=\{\(\) => \{[\s\S]{0,120}toggle\(category\.id\);/.test(sidebar),
 );
-// One panel is the exception: the list is the screen there, so a tap that both
-// opened a stream and folded a group would do one of them by accident. The first
-// tap picks the category, the next one on the same category opens it.
+// One panel and three panels now agree: a press folds, a double tap opens. The
+// second-tap ladder put the posts behind a selection nobody asked for.
 check(
-  "one panel needs the second tap before the posts change",
-  /if \(pickedCategory !== category\.id\) \{\s*pickedCategory = category\.id;\s*if \(folded\) toggle\(category\.id\);\s*return;\s*\}/.test(
-    sidebar,
-  ) &&
-    /if \(openStreamId !== category\.id\) \{\s*if \(folded\) toggle\(category\.id\);\s*void anchorCategory\(category\);\s*return;\s*\}/.test(
-      sidebar,
-    ),
+  "the second-tap ladder is gone",
+  !/if \(pickedCategory !== category\.id\)/.test(sidebar) &&
+    !/if \(openStreamId !== category\.id\)/.test(sidebar),
 );
 check(
-  "and a tap on the category that is already open folds it, as it always did",
-  /\n    toggle\(category\.id\);\n  \}/.test(sidebar),
+  "a tap on the category that is already open folds it, as it always did",
+  /toggle\(category\.id\);\n      return;/.test(sidebar),
 );
 // A double tap is one gesture, not two taps that undo each other. On a window
 // the pair used to toggle twice and land back where it started; in one panel the
@@ -169,14 +163,14 @@ check(
   /const doubled = lastCategoryTap\.id === category\.id && now - lastCategoryTap\.at < DOUBLE_TAP_MS/.test(
     sidebar,
   ) &&
-    /if \(doubled\) \{[\s\S]{0,900}?if \(folded\) toggle\(category\.id\);\s*if \(inlinePosts\) \{\s*void anchorCategory\(category\);\s*return;\s*\}\s*openCategory\(category\);/.test(
+    /if \(folded\) toggle\(category\.id\);\s*if \(inlinePosts\) \{\s*void anchorCategory\(category\);\s*return;\s*\}\s*openCategory\(category\);/.test(
       sidebar,
     ),
 );
 check(
   "...and does not fold the group it just opened",
-  /if \(doubled\) \{[\s\S]{0,900}?return;\s*\}/.test(sidebar) &&
-    sidebar.indexOf("if (doubled)") < sidebar.indexOf("if (!inlinePosts) {\n      toggle"),
+  // The double tap is the tail of `clickCategory`: one press returned above it.
+  /if \(!doubled\) \{[\s\S]{0,200}?return;\s*\}[\s\S]{0,400}?if \(folded\) toggle\(category\.id\);/.test(sidebar),
 );
 check(
   "...and one panel is given the posts, since its sidebar does not move",
