@@ -152,9 +152,11 @@ function matchesOne(element, part) {
 
 /** A box with something to scroll, which is the ancestor the module looks for. */
 class Scroller extends FakeElement {
-  constructor(tag = "div", { height = 400, content = 2000, top = 600 } = {}) {
+  constructor(tag = "div", { height = 400, content = 2000, top = 600, touchAction = "none" } = {}) {
     super(tag);
     this.overflowY = "auto";
+    /** What CSS says: `none` means the app owns the finger on this box. */
+    this.touchAction = touchAction;
     this.clientHeight = height;
     this.scrollHeight = content;
     this.clientWidth = 320;
@@ -206,6 +208,7 @@ globalThis.HTMLElement = FakeElement;
 globalThis.getComputedStyle = (element) => ({
   overflowY: element.overflowY,
   overflowX: element.overflowX,
+  touchAction: element.touchAction ?? "auto",
 });
 globalThis.requestAnimationFrame = (fn) => {
   rafSeq += 1;
@@ -302,12 +305,12 @@ function drag(target, { pointerType = "touch", pixels = 30, x = 120, y = 300 } =
  * `data-no-drag-scroll`, and a sidebar feed row, which is a button inside the
  * same opt-out. The rest is what a finger must still be refused by.
  */
-function page() {
+function page({ touchAction = "none" } = {}) {
   const documentElement = new FakeElement("html");
   const document = { documentElement };
   globalThis.document = document;
 
-  const scroller = new Scroller("div");
+  const scroller = new Scroller("div", { touchAction });
   scroller.classList.add("items");
   documentElement.append(scroller);
 
@@ -582,6 +585,80 @@ const panning = (documentElement) => documentElement.classList.contains("drag-pa
   check("it outlives the release by a frame, as it always did", panning(ui.documentElement));
   flushFrames();
   check("and is gone once that frame has run", !panning(ui.documentElement));
+  ui.dispose();
+}
+
+// ---------------------------------------------------------------------------
+// A row that has been picked up. The hold lifts it and the ghost follows the
+// finger; the tree must not slide under it at the same time. Both hands used to
+// be live on one finger — the list scrolled while the row was carried — and on
+// a phone that is what a reorder felt like: the picture lagging the hand and the
+// row it was aimed at moving away.
+// ---------------------------------------------------------------------------
+{
+  const ui = page();
+  // The class `lib/feed-drag` sets the moment a row is lifted.
+  ui.documentElement.classList.add("feed-dragging");
+  const before = top(ui.scroller);
+  send("pointerdown", ui.row, { pointerType: "touch", clientX: 120, clientY: 300, timeStamp: tick() });
+  send("pointermove", ui.row, { pointerType: "touch", clientX: 120, clientY: 288, timeStamp: tick() });
+  send("pointermove", ui.row, { pointerType: "touch", clientX: 120, clientY: 260, timeStamp: tick() });
+  check(
+    "a finger on a carried row does not scroll the tree under it",
+    top(ui.scroller) === before,
+    `${before} → ${top(ui.scroller)}`,
+  );
+  check("and the pan never marks the document as its own", !panning(ui.documentElement));
+  const up = send("pointerup", ui.row, { pointerType: "touch", clientX: 120, clientY: 260, timeStamp: tick() });
+  check("the release is left to the drag: no throw, no swallowed click", up.defaultPrevented !== true);
+  flushFrames();
+  check("and nothing keeps moving after it", top(ui.scroller) === before, String(top(ui.scroller)));
+  ui.documentElement.classList.remove("feed-dragging");
+  ui.dispose();
+}
+
+// ...and without the folded row, the same gesture still pans: the rule is about
+// who owns the finger, not about rows.
+{
+  const ui = page();
+  const before = top(ui.scroller);
+  drag(ui.row, { pointerType: "touch", pixels: 30 });
+  check("a finger on a row that is not lifted still pans the tree", top(ui.scroller) === before + 30, `${before} → ${top(ui.scroller)}`);
+  ui.dispose();
+}
+
+// ...and on a box the browser pans, the finger is not the app's at all.
+//
+// The post list and the article say `touch-action: pan-y`: a scroll written by
+// `scrollTop` on every pointermove is a main-thread scroll, and the compositor
+// scrolls a column of prose far better than this module can. The tree keeps
+// `none` because a carried feed row needs the finger to belong to the app — so
+// the switch is CSS, and the module reads it.
+{
+  const ui = page({ touchAction: "pan-y" });
+  const before = top(ui.scroller);
+  const down = send("pointerdown", ui.row, { pointerType: "touch", clientX: 120, clientY: 300, timeStamp: tick() });
+  const first = send("pointermove", ui.row, { pointerType: "touch", clientX: 120, clientY: 285, timeStamp: tick() });
+  const second = send("pointermove", ui.row, { pointerType: "touch", clientX: 120, clientY: 270, timeStamp: tick() });
+  check("a finger on a box the browser pans is not claimed", !down.defaultPrevented && !first.defaultPrevented && !second.defaultPrevented);
+  check("so the app writes no scroll position", top(ui.scroller) === before, `${before} → ${top(ui.scroller)}`);
+  check("and never marks the document as panning", !panning(ui.documentElement));
+  const up = send("pointerup", ui.row, { pointerType: "touch", clientX: 120, clientY: 270, timeStamp: tick() });
+  flushFrames();
+  check("a release on it throws nothing", !up.defaultPrevented && top(ui.scroller) === before);
+  // The click is still the row's: nothing was swallowed, because nothing was pan.
+  const click = send("click", ui.row);
+  check("the tap the finger made reaches the row", ui.row.clicks === 1 && !click.defaultPrevented, `clicks ${ui.row.clicks}`);
+  ui.dispose();
+}
+
+// The same box under a mouse is still the app's: `touch-action` is not a thing a
+// cursor reads, so a desktop drag keeps its 1:1 pan and its throw.
+{
+  const ui = page({ touchAction: "pan-y" });
+  const before = top(ui.scroller);
+  drag(ui.row, { pointerType: "mouse", pixels: 30 });
+  check("a mouse drag on the same box still pans it", top(ui.scroller) === before + 30, `${before} → ${top(ui.scroller)}`);
   ui.dispose();
 }
 

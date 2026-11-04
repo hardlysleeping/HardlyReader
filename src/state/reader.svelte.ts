@@ -1,12 +1,15 @@
 import { SvelteMap } from "svelte/reactivity";
 
+import { readSessions } from "../api/session";
 import type { OpmlFeed } from "../lib/opml";
 import { addFeedsMessage, parseFeedUrls, type AddFeedsResult } from "../lib/add-feeds";
 import { landingItem, step } from "../lib/reading-order";
 import { stepIndex } from "../lib/list-view";
 import { isNoopDrop, moveInOrder, moveNotice, sortByOrder } from "../lib/feed-order";
 import { attemptOrder } from "../lib/stream-cycle";
-import { StreamLoads } from "../lib/stream-loads";
+import { withState } from "../lib/marks";
+import { OFFLINE_COPY, feedsToWarm, keptPage, parseKept, serializeKept } from "../lib/offline-copy";
+import { StreamLoads, type StreamLoad } from "../lib/stream-loads";
 import { StreamPerf, type StreamSource } from "../lib/stream-perf";
 import { StreamScroll } from "../lib/stream-scroll";
 import { dwellMs, shouldArmDwell, successorId } from "../lib/dwell";
@@ -71,9 +74,17 @@ import {
   type SidebarIndentState,
 } from "../api/hardlyread";
 import { transport } from "../api/transport";
-import type { ReaderBackend } from "../api/backend";
-import { GReaderBackend } from "../api/greader-backend";
-import { scopeIdentity, syncProfile, type ReaderProfile } from "../api/profile";
+import type { QueuedMarks, ReaderBackend, WriteStatus } from "../api/backend";
+import {
+  profileSlug,
+  scopeIdentity,
+  serverBackend,
+  syncProfile,
+  type ReaderProfile,
+} from "../api/profile";
+import { AccountRegistry } from "../api/registry";
+import { AccountAggregate, splitId, type AccountFailure } from "../api/aggregate";
+import { countFeeds, groupFeedList, type FeedGroup } from "../lib/feed-groups";
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "../lib/account-key";
 import {
   clearApiSnapshot,
@@ -163,6 +174,9 @@ const LARGE_SIDEBAR_FEEDS = 150;
  */
 const PREFS_BASE = "hardlyreader.prefs.v1";
 
+/** When each feed's last page was kept on this device, per account. */
+const KEPT_BASE = "hardlyreader.offline-copy.v1";
+
 interface DiskStream {
   items: StreamItem[];
   continuation?: string;
@@ -221,6 +235,23 @@ export interface CategoryGroup {
   id: string;
   label: string;
   feeds: Subscription[];
+}
+
+/**
+ * One account's sidebar, as that account's server answered it.
+ *
+ * The focused account's rows live in the reader's own state (`subscriptions`,
+ * `counts`); this is the copy beside them, so Pane 1 can draw a second account's
+ * categories without the window switching account to look at them.
+ */
+export interface AccountSidebar {
+  slug: string;
+  label: string;
+  kind: "greader" | "local";
+  categories: FeedGroup[];
+  counts: Map<string, number>;
+  /** Why this account's rows could not be read, when they could not. */
+  error: string | null;
 }
 
 /** What the open menu is about. It decides which items the menu draws. */
@@ -316,6 +347,391 @@ export class ReaderState {
   backend = $state<ReaderBackend | null>(null);
 
   /**
+   * Every account this window knows, and the one it is reading.
+   *
+   * `profile` is a *pointer* into this set, not the set: one account is focused —
+   * it is whose streams, preferences and panes are on screen — while the rest are
+   * still signed in and still answerable by slug. The registry is the storage (it
+   * never mutates a profile, and dropping an account drops its queued marks with
+   * it); `accountList` is the same set as a rune, because Pane 1 draws it and a
+   * plain `Map` would not repaint.
+   *
+   * Nothing else may write `accountList`: it is a mirror, and a second writer is
+   * how the list and the registry start disagreeing about who is signed in.
+   */
+  private readonly accounts = new AccountRegistry();
+  accountList = $state<ReaderProfile[]>([]);
+
+  /**
+   * The set, seen as one thing to read from, write to and refresh.
+   *
+   * Built once from the registry because it holds nothing of its own: every
+   * question it answers it answers by asking a slug's backend, so a new instance
+   * per call would be the same object with a different address.
+   */
+  private readonly aggregate = new AccountAggregate(this.accounts);
+
+  /**
+   * The accounts a fan-out refresh could not reach, and why.
+   *
+   * One entry per account, drawn beside the sync control: "3 of 4 fetched, this one
+   * did not, here is what it said" is the only honest summary when several accounts
+   * share a button. Cleared by the next fan-out that has nothing to report, so a
+   * failure does not outlive its cause.
+   */
+  accountErrors = $state<AccountFailure[]>([]);
+
+  /** The fan-out in flight: one at a time, however many callers ask. */
+  private refreshingAll: Promise<void> | null = null;
+
+  /**
+   * True while a fan-out is running, for anything deciding whether to start another.
+   *
+   * The sync bar's `active` is not enough: the other accounts are being fetched
+   * before the focused one's pass begins the bar, and a timer that read only the
+   * bar would start a second fan-out inside the first.
+   */
+  get refreshingEveryAccount(): boolean {
+    return this.refreshingAll !== null;
+  }
+
+  /**
+   * Every account's rows, by slug — what Pane 1 draws under an account's band.
+   *
+   * The focused account's sidebar is already the reader's own state; this is the
+   * copy beside it, so a second account's categories can be drawn without switching
+   * the window to that account. Read-only by design: pins, hidden categories and
+   * feed order are each account's own answers, and this window does not compose
+   * them for an account it is not reading.
+   */
+  accountSidebars = $state<Record<string, AccountSidebar>>({});
+
+  /** Which account bands Pane 1 has open. The focused account's tree is always drawn. */
+  openAccountGroups = $state<string[]>([]);
+
+  /**
+   * The account sections of the merged column, in Pane 1's order.
+   *
+   * Empty whenever the column is one account's — every feed, every category, and
+   * every stream in a window with a single account. The posts list draws a heading
+   * over each section and nothing at all when this is empty.
+   */
+  mergedSections = $state<{ key: string; label: string; items: StreamItem[] }[]>([]);
+
+  /**
+   * Where the next page begins, per account.
+   *
+   * A merged column has no single `continuation` — each account pages at its own
+   * pace — so "more" is one cursor per account, and an account that has run out is
+   * absent from this map. Nothing here is cached: a merged page is never remembered
+   * (see `rememberStream`), so the column is the only thing holding a position.
+   */
+  mergedCursors = $state<Record<string, string>>({});
+
+  /**
+   * True when an account is counted as one.
+   *
+   * **A server always is.** It was signed in on purpose; whether its tree has come
+   * back yet, or whether it happens to hold no feeds, is not a reason to leave it out
+   * of a column that is meant to hold what it answers — and a subscription list that
+   * failed to load must not silently drop an account from the merge.
+   *
+   * **The library on this device is only an account when it holds a feed.** It is
+   * always filed — it is where a first feed goes — so an empty one beside a single
+   * server would otherwise be the second account that turns bands and headings on
+   * for a reader who has one account (owner, 2026-11-03: *"only show/use account
+   * rows if multiple accounts are being used"*). Its tree is read from the disk when
+   * the accounts are filed (`primeLocalAccounts`), so "not read yet" means empty here
+   * rather than "behind a request that has not come back".
+   */
+  accountHoldsFeeds(profile: ReaderProfile): boolean {
+    if (profile.kind !== "local") return true;
+    const slug = profileSlug(profile);
+    if (this.isFocused(slug)) return this.subscriptions.length > 0;
+    const copy = this.accountSidebars[slug];
+    if (copy === undefined) return false;
+    return copy.categories.length > 0;
+  }
+
+  /**
+   * Reads every account on this device that is not the one being read.
+   *
+   * Their trees are on the disk, so the answer is immediate and costs nothing — and
+   * without it an empty library cannot be told from one with feeds in it, which is
+   * exactly what decides whether Pane 1 draws account bands at all.
+   */
+  primeLocalAccounts(): void {
+    for (const profile of this.accountList) {
+      if (profile.kind !== "local") continue;
+      if (this.isFocused(profileSlug(profile))) continue;
+      if (this.accountSidebars[profileSlug(profile)] !== undefined) continue;
+      void this.loadAccountSidebar(profileSlug(profile));
+    }
+  }
+
+  /**
+   * The accounts that get a band in Pane 1, in that order. Empty when there is
+   * nothing to tell apart.
+   *
+   * Bands exist so a row can be attributed, and a window with one real account has
+   * nothing to attribute. A library **on this device** is always filed — it is where
+   * a first feed goes — but an empty one is not an account anybody switches to, so a
+   * single FreshRSS account beside it is one account here, not two: that is the app it
+   * has always been, with no headings over anything.
+   */
+  get bandedAccounts(): ReaderProfile[] {
+    const holding = this.accountList.filter((profile) => this.accountHoldsFeeds(profile));
+    return holding.length > 1 ? holding : [];
+  }
+
+  /** One account needs no bands: there is nothing to tell apart. */
+  get hasAccountGroups(): boolean {
+    return this.bandedAccounts.length > 0;
+  }
+
+  /**
+   * True when an account's band is folded out.
+   *
+   * With one account there is no band and the tree is simply drawn, which is also
+   * what a window that has only ever had one account expects to see. The account
+   * being read is seeded open by `fileAccount`, so arriving at a second account does
+   * not hide the one thing on screen.
+   */
+  isAccountGroupOpen(slug: string): boolean {
+    if (!this.hasAccountGroups) return true;
+    return this.openAccountGroups.includes(slug);
+  }
+
+  /** True when this slug's rows are the ones the reading UI is bound to. */
+  isFocused(slug: string): boolean {
+    return this.profile !== null && profileSlug(this.profile) === slug;
+  }
+
+  /**
+   * Reads one account's categories and counts.
+   *
+   * The focused account is answered from the reader's own state — a second request
+   * for rows already in memory is a request paid to learn nothing. Every other
+   * account gets two reads and a stored copy; a failure is stored as that account's
+   * `error`, never raised into `this.error`, because one account's server being down
+   * is not the sidebar's failure.
+   */
+  async loadAccountSidebar(slug: string, options: { force?: boolean } = {}): Promise<boolean> {
+    const profile = this.accounts.get(slug);
+    if (profile === null) return false;
+    // Already answered and nothing has asked for a fresh answer: a band that is
+    // opened, closed and opened again costs one read, not three. A sync passes
+    // `force`, because the pass that just ran is exactly what made the copy stale.
+    if (options.force !== true && !this.isFocused(slug) && this.accountSidebars[slug] !== undefined) {
+      return true;
+    }
+
+    if (this.isFocused(slug)) {
+      const categories = this.allCategories.map((group) => ({ ...group }));
+      this.accountSidebars = {
+        ...this.accountSidebars,
+        [slug]: {
+          slug,
+          label: profile.label,
+          kind: profile.kind,
+          categories,
+          counts: new Map(this.counts),
+          error: null,
+        },
+      };
+      return true;
+    }
+
+    const backend = this.accounts.backend(slug);
+    if (backend === null) return false;
+    try {
+      const [feeds, counts] = await Promise.all([backend.subscriptions(), backend.unreadCounts()]);
+      this.accountSidebars = {
+        ...this.accountSidebars,
+        [slug]: {
+          slug,
+          label: profile.label,
+          kind: profile.kind,
+          categories: groupFeedList(feeds),
+          counts: new Map(counts.map((entry) => [entry.id, entry.count])),
+          error: null,
+        },
+      };
+      return true;
+    } catch (error) {
+      this.accountSidebars = {
+        ...this.accountSidebars,
+        [slug]: {
+          slug,
+          label: profile.label,
+          kind: profile.kind,
+          categories: [],
+          counts: new Map(),
+          error: message(error),
+        },
+      };
+      return false;
+    }
+  }
+
+  /** Opens or closes one account's band, reading its rows the first time it opens. */
+  async toggleAccountGroup(slug: string): Promise<void> {
+    if (this.openAccountGroups.includes(slug)) {
+      this.openAccountGroups = this.openAccountGroups.filter((open) => open !== slug);
+      return;
+    }
+    this.openAccountGroups = [...this.openAccountGroups, slug];
+    if (this.accountSidebars[slug] === undefined) await this.loadAccountSidebar(slug);
+  }
+
+  /**
+   * Opens a stream that belongs to another account.
+   *
+   * Switching first and opening second: the stream id is that account's, and asking
+   * it of the account on screen would either 404 or, worse, find a different feed
+   * with the same id. A failed switch opens nothing.
+   */
+  async openInAccount(slug: string, streamId: string, title: string): Promise<boolean> {
+    if (!this.isFocused(slug) && !(await this.focus(slug))) return false;
+    await this.openStream(streamId, title);
+    return true;
+  }
+
+  /** How many feeds an account draws, for the band's own count. */
+  /**
+   * How many feeds an account holds, or `null` while that is not known yet.
+   *
+   * A band that has never been opened has not read its account, and a `0` there
+   * would be a count the window made up: "not read" and "empty" are different
+   * answers, so the row says nothing until it knows.
+   */
+  feedCountIn(slug: string): number | null {
+    const sidebar = this.accountSidebars[slug];
+    if (sidebar !== undefined) return countFeeds(sidebar.categories);
+    return this.isFocused(slug) ? this.subscriptions.length : null;
+  }
+
+  /**
+   * The accounts a merged view reads: everything not explicitly turned off.
+   *
+   * A getter rather than a second rune: it reads `accountList`, so it is reactive
+   * without a copy that could drift. Turning an account off is a display decision —
+   * it stays signed in, keeps its keys and still answers by slug.
+   */
+  get mergedAccounts(): ReaderProfile[] {
+    // An account that holds nothing is not part of a merged view, however it is
+    // flagged: the library on this device is always filed, and an empty one beside a
+    // single server would otherwise be the second account that turns merging on —
+    // drawing one account's posts under a heading as if they were several.
+    return this.accountList.filter(
+      (profile) => profile.enabled !== false && this.accountHoldsFeeds(profile),
+    );
+  }
+
+  /** Writes the registry into the rune. The only writer. */
+  private publishAccounts(): void {
+    this.accountList = this.accounts.all();
+  }
+
+  /**
+   * Files an account and decides, once, whether it joins the merged views.
+   *
+   * A library **on this device** is the exception: beside a sync service it starts
+   * out not merged. It is not a lesser account — it is the one that owns nothing but
+   * this device, so merging it by default would put local sample feeds, imports and
+   * anything a phone wrote offline into the middle of a server's reading list
+   * without anybody asking. It stays signed in, stays in Pane 1 and answers by slug;
+   * turning it on is one press.
+   *
+   * Both orders count, which is why this looks at the whole set rather than at what
+   * arrived: starting local and adding a server later is the same situation seen from
+   * the other end, and an account that was never given an `enabled` is one nobody has
+   * decided about yet. An explicit `enabled` is never overruled.
+   */
+  private fileAccount(profile: ReaderProfile): void {
+    const others = this.accounts.all().filter((known) => known.slug !== profile.slug);
+    const arrivingIsServer = profile.kind !== "local";
+    const anotherServer = others.some((known) => known.kind !== "local");
+    // A library that has never been decided about: no explicit `enabled` anywhere.
+    const undecidedLocal = others.find((known) => known.kind === "local" && known.enabled === undefined);
+
+    // A server arriving beside a library that never chose: the library steps out of
+    // the merged view, which is the state it would have been in had the server come
+    // first. Same rule, same result, whichever order the two arrive in.
+    if ((arrivingIsServer || anotherServer) && undecidedLocal !== undefined) {
+      this.accounts.add({ ...undecidedLocal, enabled: false });
+    }
+
+    const settled =
+      profile.kind === "local" && profile.enabled === undefined && anotherServer
+        ? { ...profile, enabled: false }
+        : profile;
+    this.accounts.add(settled);
+    // The account arriving is the one about to be read, and it opens on its own:
+    // arriving at a second account must not hide the one thing on screen. Accounts
+    // restored from disk come through `adoptAccounts` instead and stay folded,
+    // because a second tree appearing unfolded is a list that grew under the thumb.
+    if (!this.openAccountGroups.includes(settled.slug)) {
+      this.openAccountGroups = [...this.openAccountGroups, settled.slug];
+    }
+    this.publishAccounts();
+    this.primeLocalAccounts();
+  }
+
+  /**
+   * Fills the set from somewhere else — a restore from disk, or a pane copying the
+   * account it was opened from.
+   */
+  adoptAccounts(list: readonly ReaderProfile[]): void {
+    for (const profile of list) this.accounts.add(profile);
+    this.publishAccounts();
+    this.primeLocalAccounts();
+  }
+
+  /**
+   * Switches to an account already signed in.
+   *
+   * A no-op when it is the one being read: `start()` re-hydrates everything, and
+   * pressing the account you are already in should not cost a round trip.
+   */
+  async focus(slug: string): Promise<boolean> {
+    const profile = this.accounts.get(slug);
+    if (profile === null) return false;
+    if (this.profile !== null && profileSlug(this.profile) === slug) return true;
+    await this.start(profile);
+    return true;
+  }
+
+  /**
+   * Turns an account on or off for the merged views.
+   *
+   * Writes a new object rather than editing the profile in place: `profile` may be
+   * the very account being switched off for merging, and a mode that silently
+   * changed the object the reading UI is bound to is a change nobody was told about.
+   */
+  enableAccount(slug: string, enabled: boolean): boolean {
+    const profile = this.accounts.get(slug);
+    if (profile === null) return false;
+    this.accounts.add({ ...profile, enabled });
+    this.publishAccounts();
+    return true;
+  }
+
+  /**
+   * Signs an account out of this window.
+   *
+   * Refuses the account being read: the reading UI is bound to its backend and its
+   * streams, and dropping it here would leave the app drawing a library nobody is
+   * signed in to. Switching first is one call (`focus`), and it is the caller's.
+   */
+  removeAccount(slug: string): boolean {
+    if (this.profile !== null && profileSlug(this.profile) === slug) return false;
+    if (!this.accounts.remove(slug)) return false;
+    this.publishAccounts();
+    return true;
+  }
+
+  /**
    * Whose device keys these are: the signed-in account's, or the device's own.
    *
    * The session is the fallback rather than the rule: a caller that set only a
@@ -362,13 +778,203 @@ export class ReaderState {
     // always implied is built here, once, and kept.
     const session = this.session;
     if (session === null) throw new Error("No library is open");
-    const built = new GReaderBackend(transport, session);
+    const built = serverBackend(session);
     this.backend = built;
     return built;
   }
 
   /**
-   * Whether the reader pays for HardlyReader Sync.
+   * Paints the queued marks onto a page the backend did not send.
+   *
+   * A page restored from disk at launch, or the one still on screen when a read
+   * fails, is older than the queue: it was written before the reader marked any of
+   * its posts. Painting it as it stands would draw a post the reader marked read on
+   * a train as unread, while the queue still holds that decision and will send it.
+   *
+   * Only the queued marks are applied — the page is not otherwise touched, and an
+   * item whose mark is already drawn is left alone. A backend with no queue (a
+   * library on this device, which writes every mark straight to its store) has no
+   * `pendingMarks` and nothing to paint.
+   *
+   * `forStream` is the only guard, and the stream is the right one: a slow disk read
+   * must not stamp one stream's marks onto another that has since been opened. It is
+   * deliberately **not** the load token — a fetch that failed has already settled its
+   * load, and the failed fetch is exactly the case where the restored page stays on
+   * screen and needs the marks most.
+   */
+  private async overlayQueuedMarks(forStream: string): Promise<void> {
+    let backend: ReaderBackend;
+    try {
+      backend = this.source();
+    } catch {
+      return;
+    }
+    if (backend.pendingMarks === undefined) return;
+    let queued: QueuedMarks;
+    try {
+      queued = await backend.pendingMarks();
+    } catch {
+      return;
+    }
+    if (queued.read.size === 0 && queued.starred.size === 0) return;
+    if (this.activeStream !== forStream) return;
+    for (const item of this.items) {
+      const read = queued.read.get(item.id);
+      const starred = queued.starred.get(item.id);
+      if (read === undefined && starred === undefined) continue;
+      const before = item.categories ?? [];
+      const after = withState(withState(before, STATE_READ, read), STATE_STARRED, starred);
+      if (after.length === before.length && after.every((state, at) => state === before[at])) continue;
+      item.categories = after;
+    }
+  }
+
+  /**
+   * What the queue holds, for the readout beside the sync control.
+   *
+   * Two numbers and an outcome, all measured: `pending` is the queue's own size and
+   * `last` is how the last send ended. Nothing here asks the browser whether it has
+   * a network — that is a different question from whether the server answered, and
+   * the second is the one the reader is asking.
+   */
+  writes = $state<WriteStatus>({ pending: 0, last: null });
+
+  /** Re-reads the status after anything that could have changed it. */
+  private async readWriteStatus(): Promise<void> {
+    let backend: ReaderBackend;
+    try {
+      backend = this.source();
+    } catch {
+      this.writes = { pending: 0, last: null };
+      return;
+    }
+    if (backend.writeStatus === undefined) {
+      this.writes = { pending: 0, last: null };
+      return;
+    }
+    try {
+      this.writes = await backend.writeStatus();
+    } catch {
+      /* a status that cannot be read is not a status worth drawing */
+    }
+  }
+
+  /**
+   * Sends read and star marks that were queued while the account could not reach
+   * its server.
+   *
+   * Called when the network comes back and at the start of a pull, which are the
+   * two moments the reason for queueing has gone. The sidebar is re-read only when
+   * something actually landed: a reconnect with an empty queue is not worth four
+   * requests, and a reconnect that sent marks changed the unread counts the sidebar
+   * prints.
+   *
+   * A library on this device has no queue — its marks are written to its own store
+   * as they are made — so `flush` is absent and this does nothing, rather than
+   * pretending to send.
+   */
+  async flushWrites(force = false): Promise<number> {
+    let backend: ReaderBackend;
+    try {
+      backend = this.source();
+    } catch {
+      return 0;
+    }
+    if (backend.flush === undefined) return 0;
+    let sent = 0;
+    try {
+      sent = await backend.flush(force);
+    } catch (error) {
+      this.error = message(error);
+      return 0;
+    }
+    await this.readWriteStatus();
+    if (sent > 0) void this.loadSidebar();
+    return sent;
+  }
+
+  /**
+   * Keeps the last few posts of every feed on this device, so a launch with no
+   * network still has something to open.
+   *
+   * The queue (`api/offline`) rescues the decisions a reader makes offline; this
+   * rescues the reading. A feed never opened in this session has nothing in the
+   * stream cache, so tapping it on a train is a spinner and then an error — which
+   * reads as the app being broken rather than as the network being absent.
+   *
+   * It writes into the **same** cache the reader already paints from
+   * (`rememberStream` → `stream:<id>` on disk), never a second one: two caches
+   * would disagree about what a feed holds within a week. A feed that already has
+   * a copy younger than `OFFLINE_COPY.staleMs` is not asked for again, and one pass
+   * touches at most `OFFLINE_COPY.maxFeeds` feeds — the arithmetic is in
+   * `lib/offline-copy.ts`, which is where it can be tested without a server.
+   *
+   * Nothing here reports progress or shows a count. It is background work with a
+   * visible result (a feed that opens offline), and a readout for it would be one
+   * more thing on screen that is not the reader's list.
+   */
+  async warmOfflineCopy(): Promise<number> {
+    if (!this.keepOfflineCopy || !this.canRead) return 0;
+    // One pass at a time. Two callers can ask at once — the setting being turned on
+    // and a sync finishing — and without this the same feeds are fetched twice, which
+    // is exactly the traffic this feature claims not to spend.
+    if (this.warming !== null) return this.warming;
+    this.warming = this.runWarm();
+    try {
+      return await this.warming;
+    } finally {
+      this.warming = null;
+    }
+  }
+
+  /** The pass itself; `warmOfflineCopy` owns the guard and the clearing of it. */
+  private async runWarm(): Promise<number> {
+    const scope = this.scope;
+    const storage = typeof localStorage === "undefined" ? undefined : localStorage;
+    if (scope === null || storage === undefined) return 0;
+    const now = Date.now();
+    let kept: Map<string, number>;
+    try {
+      kept = parseKept(readAccountValue(storage, KEPT_BASE, scope), now);
+    } catch {
+      kept = new Map();
+    }
+    const feeds = this.subscriptions.map((feed) => feed.id).filter((id) => id.startsWith("feed/"));
+    const plan = feedsToWarm(feeds, kept, now);
+    let warmed = 0;
+    let failed = 0;
+    for (const feedId of plan) {
+      // One at a time on purpose: this runs behind the reader's own work, and a
+      // burst of twenty streams at once is what makes a small server slow for the
+      // person actually reading it.
+      if (!this.keepOfflineCopy) break;
+      // Two failures in a row is a network that is not there, not a feed that is
+      // broken: the rest of the pass would be twenty more of the same. A lone
+      // failure is skipped and the pass carries on — the next sync is its retry.
+      if (failed >= 2) break;
+      try {
+        const page = await this.source().stream(feedId, { count: OFFLINE_COPY.perFeed });
+        const keptPageFor = keptPage(page.items, page.continuation);
+        await this.keepStreamOnDisk(feedId, keptPageFor.items, keptPageFor.continuation);
+        kept.set(feedId, Date.now());
+        warmed += 1;
+        failed = 0;
+      } catch {
+        failed += 1;
+      }
+    }
+    if (warmed > 0) {
+      try {
+        writeAccountValue(storage, KEPT_BASE, scope, serializeKept(kept));
+      } catch {
+        /* storage full or blocked: the copy is still on screen, it just re-fetches */
+      }
+    }
+    return warmed;
+  }
+
+  /**
+   * Whether the reader pays for HardlySyncing.
    *
    * A plain boolean, and the shell is what fills it (`App.svelte`, from the one
    * capability that store owns). The reader is told the answer instead of asking
@@ -1585,7 +2191,7 @@ export class ReaderState {
    * Whether the cloud is the authority for the arrangement.
    *
    * The one thing that stops a write: a reader whose extras travel through
-   * HardlyReader Sync must not also push the order at the backend, or two writers
+   * HardlySyncing must not also push the order at the backend, or two writers
    * would own one arrangement and the loser would be whichever device nobody was
    * looking at. Whether there is a route to write to at all is the wire's own
    * question — `positionsRoute` is learned from the first read or the first `404`
@@ -1779,6 +2385,62 @@ export class ReaderState {
         // fact the menu will show next time it opens.
         this.setFeedExtract(target.id, action.mode);
         return null;
+      case "icon":
+        // The chooser is UI, and it is opened by whoever drew the menu: this
+        // store's job ends with the menu it just closed. Answered rather than
+        // ignored so the switch stays exhaustive over `MenuAction`.
+        this.menu = null;
+        return null;
+      case "refresh": {
+        this.menu = null;
+        // The row's own stream: a feed is itself, a category is the label every
+        // feed under it carries.
+        const stream =
+          target.kind === "feed"
+            ? target.id
+            : this.categories.find((group) => group.label === target.label)?.id;
+        if (stream === undefined) return null;
+        await this.refreshRow(stream, target.kind === "category");
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Refresh one row: a feed, or a category and the feeds under it.
+   *
+   * The honest half is the server's. A GReader endpoint has no "crawl this feed
+   * now" call — FreshRSS says as much in its own tracker — so on an account this
+   * asks for that stream's newest page and the counts beside it, and posts
+   * appear once the server has crawled them. A library on this device does have
+   * a fetch, and then this really does go and read the feed, which is the same
+   * difference `refresh()` already has.
+   *
+   * The open list is reloaded only when the row is what is on screen — the feed
+   * itself, or a category one of whose feeds is the open stream. Doing it for
+   * every row would throw away the reader's place in a stream they were not
+   * asking about.
+   */
+  async refreshRow(stream: string, category: boolean): Promise<void> {
+    if (!this.canRead) return;
+    this.sync = this.syncTracker.begin();
+    try {
+      const fetcher = this.source().fetchNew;
+      if (fetcher !== undefined) await fetcher.call(this.source(), { wake: "manual" });
+      await this.flushWrites(true);
+      const open = this.activeStream;
+      const onScreen =
+        open === stream ||
+        (category &&
+          (this.categories.find((group) => group.id === stream)?.feeds ?? []).some(
+            (feed) => feed.id === open,
+          ));
+      await Promise.all([
+        this.loadSidebar(this.syncReport),
+        ...(onScreen ? [this.reloadStream({ force: true, report: this.syncReport })] : []),
+      ]);
+    } finally {
+      this.sync = this.syncTracker.finish();
     }
   }
 
@@ -2319,6 +2981,8 @@ export class ReaderState {
    */
   private resetForAccount(): void {
     this.subscriptions = [];
+    this.mergedSections = [];
+    this.mergedCursors = {};
     this.tags = [];
     this.items = [];
     this.counts.clear();
@@ -2367,8 +3031,25 @@ export class ReaderState {
    */
   async start(input: ReaderProfile | Session): Promise<void> {
     const profile: ReaderProfile = "kind" in input ? input : syncProfile(input);
+    // Every account this device has signed in, in the order they were added, before
+    // the one being resumed is filed — so Pane 1 keeps that order across launches
+    // instead of putting whichever account was last read at the top. Without this a
+    // launch knows exactly one account, and with nothing to put a band on, the bands
+    // would be a feature that only exists until the app is restarted. Nothing here
+    // reads them: a band fetches its tree when it is opened.
+    this.adoptAccounts(readSessions().map((session) => syncProfile(session)));
+    // Filed before anything reads it: a launch that fails mid-hydration still has an
+    // account in Pane 1, and the next launch finds it where it left it.
+    this.fileAccount(profile);
     this.resetForAccount();
     this.profile = profile;
+    // The copy this slug had was drawn from the *previous* account's reader state;
+    // asking again rebuilds it from this one's.
+    if (this.accountSidebars[profile.slug] !== undefined) {
+      const kept = { ...this.accountSidebars };
+      delete kept[profile.slug];
+      this.accountSidebars = kept;
+    }
     this.backend = profile.backend;
     this.session = profile.session;
     this.error = null;
@@ -2586,6 +3267,11 @@ export class ReaderState {
     this.hiddenBusy = false;
     // The rows one account's server sent are not the next one's.
     this.rememberedSidebar = null;
+    // Nor are the copies Pane 1 drew under the other accounts' bands.
+    this.accountSidebars = {};
+    this.openAccountGroups = [];
+    this.mergedSections = [];
+    this.mergedCursors = {};
     this.stateRouteMissing = false;
     this.apiSnapshotPainted = false;
     this.favorites = unavailableFavorites();
@@ -2656,6 +3342,14 @@ export class ReaderState {
     // while the next read is out.
     this.rememberSidebar(sidebarKey, feeds.value, counts.value);
     this.persistSidebar(counts.value);
+    // The feeds are known now, which is the one thing a copy pass needs to decide
+    // which of them are worth keeping. It runs here as well as after a sync because a
+    // launch with no sync would otherwise never keep anything: the first sync of the
+    // day is not the first moment the reader may lose the network.
+    void this.warmOfflineCopy();
+    // The queue's size can have changed while this was out (a flush, a press), and
+    // the readout beside sync draws the queue.
+    void this.readWriteStatus();
     return true;
   }
 
@@ -3044,14 +3738,46 @@ export class ReaderState {
 
   /** Measured, not guessed: the last stream load, and where it came from. */
   lastStreamMs = $state(0);
-  lastStreamSource = $state<"cache" | "network">("network");
+  lastStreamSource = $state<"cache" | "network" | "merged">("network");
 
   private rememberStream(stream: string, items: StreamItem[], continuation: string | undefined): void {
+    // A merged page is several accounts' rows under one stream id; remembering it
+    // would hand the next launch one account's cache entry holding everybody's posts.
+    if (this.mergesStream(stream)) return;
     this.streamCache.set(stream, items, continuation);
     const key = this.diskKey(`stream:${stream}`);
     const prefix = this.diskKey("stream:");
     if (key === null || prefix === null) return;
     void writeCached<DiskStream>(key, { items, continuation }).then(() => pruneStreams(prefix));
+  }
+
+  /**
+   * Keeps a feed's page **on disk only**, for the offline copy.
+   *
+   * Not `rememberStream`, on purpose. That method also installs the page as this
+   * session's answer, stamped now — so a warm pass handing it eight posts would
+   * make eight the page the reader sees, look fresh for a minute so nothing
+   * revalidates it, and evict the fifty the reader already had. The copy is a
+   * disk seed: `reloadStream` paints it and then always asks the server, which is
+   * exactly the behaviour a kept page should have.
+   *
+   * Two rules, both about not losing a better answer to a worse one: a stream the
+   * reader already holds in memory is never written over, and a page on disk is
+   * only replaced by one that is at least as long.
+   */
+  private async keepStreamOnDisk(
+    stream: string,
+    items: StreamItem[],
+    continuation: string | undefined,
+  ): Promise<void> {
+    if (this.streamCache.peek(stream) !== undefined) return;
+    const key = this.diskKey(`stream:${stream}`);
+    const prefix = this.diskKey("stream:");
+    if (key === null || prefix === null) return;
+    const held = await readCached<DiskStream>(key);
+    if (held !== undefined && held.value.items.length >= items.length) return;
+    await writeCached<DiskStream>(key, { items, continuation });
+    pruneStreams(prefix);
   }
 
   /** Keeps the cache in step after a local edit (read, star, page load). */
@@ -3159,6 +3885,18 @@ export class ReaderState {
   lastSyncAt = $state(0);
 
   /**
+   * Whether this window keeps the last few posts of every feed on the device.
+   *
+   * Set from the reader's preference (`chrome.offlineCopy`) and read only by
+   * `warmOfflineCopy`. It lives here rather than being read from `chrome` inside
+   * the store, so the store keeps having no opinion about a settings switch.
+   */
+  keepOfflineCopy = $state(false);
+
+  /** The pass in flight, if any: one at a time, however many callers ask. */
+  private warming: Promise<number> | null = null;
+
+  /**
    * Fetches new articles, then re-reads what the library now holds.
    *
    * Only a backend that fetches has anything to do here; a server-side crawler
@@ -3181,6 +3919,47 @@ export class ReaderState {
     await this.reloadStream({ force: true });
   }
 
+  /**
+   * Syncs every account in the window, then the one being read.
+   *
+   * The other accounts go first and the focused one goes last through `refresh()`,
+   * which already owns the progress bar, the readout and the offline-copy pass —
+   * so a fan-out that fetched three accounts and then re-read the focused one has
+   * one bar on screen, not four. `except` is what keeps the focused account from
+   * being fetched twice.
+   *
+   * Nothing here throws: an account that could not be reached lands in
+   * `accountErrors` and the rest still run. A sync button that failed entirely
+   * because the second account's server was down would be reporting the wrong
+   * thing about the first.
+   */
+  async refreshAll(wake: "launch" | "resume" | "background" | "manual" = "manual"): Promise<void> {
+    if (!this.canRead) return;
+    // One fan-out at a time. A resume while the timer's pass is still running is
+    // the same pass, and two of them would double every flush in the set.
+    if (this.refreshingAll !== null) return this.refreshingAll;
+
+    const run = (async (): Promise<void> => {
+      const focused = this.profile === null ? undefined : profileSlug(this.profile);
+      const outcome = await this.aggregate.refreshAll(wake, { except: focused });
+      this.accountErrors = outcome.failed;
+      // The focused account last, through the path the header already draws.
+      await this.refresh();
+      // The open bands are drawn from copies taken before this pass; the moment the
+      // pass is over is the moment to replace them.
+      for (const slug of this.openAccountGroups) {
+        void this.loadAccountSidebar(slug, { force: true });
+      }
+    })();
+
+    this.refreshingAll = run;
+    try {
+      await run;
+    } finally {
+      this.refreshingAll = null;
+    }
+  }
+
   async refresh(): Promise<void> {
     if (!this.canRead) return;
     this.sync = this.syncTracker.begin();
@@ -3189,6 +3968,9 @@ export class ReaderState {
       // from rows written before this press.
       const fetcher = this.source().fetchNew;
       if (fetcher !== undefined) await fetcher.call(this.source(), { wake: "manual" });
+      // Marks made while the server was unreachable go before the reads below, so
+      // the answer they fetch is the one that has heard about them.
+      await this.flushWrites(true);
       // Forced: the stream cache is good for a minute, and a sync answered from
       // it would look like nothing happened while the bar still ran to the end.
       // Pressing sync is a request for the server's answer, not this window's.
@@ -3196,6 +3978,10 @@ export class ReaderState {
         this.loadSidebar(this.syncReport),
         this.reloadStream({ force: true, report: this.syncReport }),
       ]);
+      // After the list the reader is looking at, never before it: keeping a copy of
+      // every feed is background work, and a sync that waited for it would feel
+      // slower in exchange for something nobody asked to watch.
+      if (this.error === null) void this.warmOfflineCopy();
     } finally {
       // Not `done: total`: a sync that lost a fetch ends short, because that is
       // what happened. One of two overlapping syncs ending does not end the
@@ -3242,6 +4028,24 @@ export class ReaderState {
     return true;
   }
 
+  /**
+   * The newest `count` posts of a stream, for a caller that is not the list.
+   *
+   * Deliberately not `reloadStream`: it does not touch `items`, `activeStream`,
+   * the saved place, the stream cache or the error banner, and it throws to its
+   * caller instead of painting a banner. Buzz is a lens over the feeds, not a
+   * place the reader has navigated to.
+   */
+  async recentItems(
+    streamId: string,
+    count: number,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<StreamItem[]> {
+    if (!this.canRead) return [];
+    const page = await this.source().stream(streamId, { count, signal: options.signal });
+    return page.items;
+  }
+
   async openStream(streamId: string, title: string): Promise<void> {
     if (!this.suppressHistory && this.activeStream !== null && this.activeStream !== streamId) {
       this.streamHistory = [...this.streamHistory, { id: this.activeStream, title: this.activeTitle }].slice(-20);
@@ -3271,11 +4075,97 @@ export class ReaderState {
     await this.reloadStream();
   }
 
+  /**
+   * True when a stream is drawn from every merged account.
+   *
+   * Only the two streams every account has by definition: the reading list and
+   * starred. A feed or a category is one server's row whose id means nothing
+   * elsewhere — `feed/12` is a different feed on every server — so merging those
+   * would invent rows rather than combine them.
+   */
+  multiAccount = $state(true);
+  private accountViewVersion = 0;
+
+  /** Display-only: accounts, marks and subscriptions are never changed. */
+  async setMultiAccount(on: boolean): Promise<void> {
+    if (this.multiAccount === on) return;
+    this.multiAccount = on;
+    this.accountViewVersion += 1;
+    if (this.activeStream !== READING_LIST && this.activeStream !== STATE_STARRED) return;
+    this.items = [];
+    this.selectedId = null;
+    this.continuation = undefined;
+    this.mergedSections = [];
+    this.mergedCursors = {};
+    this.liveScroll.list = 0;
+    this.listScrollRestore = 0;
+    await this.reloadStream({ force: true });
+  }
+
+  mergesStream(stream: string): boolean {
+    if (!this.multiAccount || this.mergedAccounts.length < 2) return false;
+    return stream === READING_LIST || stream === STATE_STARRED;
+  }
+
+  /**
+   * One page drawn from every account that is part of the merge.
+   *
+   * Deliberately outside `reloadStream`'s cache path: the memory and disk caches are
+   * keyed by one account's stream id, so a page holding three accounts' rows would
+   * be painted later as one account's answer — the wrong rows under the right title,
+   * with no way to tell. A merged page is therefore always asked for, and never
+   * remembered. Paging uses each account's own cursor, never one continuation.
+   */
+  private async loadMergedStream(stream: string, load: StreamLoad): Promise<void> {
+    this.loadingList = this.items.length === 0;
+    this.error = null;
+    const started = performance.now();
+    try {
+      const page = await this.aggregate.stream(stream, { count: PAGE_SIZE });
+      if (!this.loads.current(load) || this.activeStream !== stream) return;
+      this.lastStreamSource = "merged";
+      this.lastStreamMs = Math.round(performance.now() - started);
+      this.mergedSections = page.sections.map((section) => ({
+        key: section.slug,
+        label: section.label,
+        items: section.items,
+      }));
+      this.mergedCursors = page.cursors;
+      if (!sameStreamPage({ items: this.items, continuation: this.continuation }, page)) {
+        this.items = page.items;
+        this.continuation = undefined;
+        this.measurePaint("network");
+      }
+      // An account that did not answer is named in the header, beside sync — the
+      // rows that did arrive are still worth drawing, and they are what is on screen.
+      this.accountErrors = page.failures;
+      this.reportSwitch();
+    } catch (error) {
+      if (!this.loads.current(load) || this.activeStream !== stream) return;
+      this.error = message(error);
+      this.items = [];
+      this.continuation = undefined;
+    } finally {
+      const current = this.loads.current(load);
+      this.loads.settle(load);
+      if (current && this.activeStream === stream) this.loadingList = false;
+    }
+  }
+
   async reloadStream(
     options: { force?: boolean; report?: SyncReport } = {},
   ): Promise<void> {
     if (!this.canRead) return;
     const stream = this.activeStream;
+    // A merged column is composed, not cached: it takes its own path before any of
+    // the cache and prefetch machinery below can answer for one account.
+    if (this.mergesStream(stream)) {
+      const load = this.loads.begin(stream);
+      await this.loadMergedStream(stream, load);
+      return;
+    }
+    this.mergedSections = [];
+    this.mergedCursors = {};
     // The newest load for this stream wins. The one it replaces is aborted
     // here, and would be dropped on arrival even if the abort lost the race.
     const load = this.loads.begin(stream);
@@ -3309,6 +4199,10 @@ export class ReaderState {
     if (cached !== undefined) {
       this.items = cached.items;
       this.continuation = cached.continuation;
+      // A page from memory or disk predates any mark made since it was written, so
+      // the marks still in the queue are painted onto it. Not awaited: the paint is
+      // the point, and a disk read of a handful of rows lands a tick later.
+      void this.overlayQueuedMarks(stream);
     } else if (this.items.length > 0) {
       // Switching to a stream we have never loaded: drop the previous stream's
       // articles now. Leaving them on screen under the new title reads as "the
@@ -3373,6 +4267,10 @@ export class ReaderState {
       if (this.activeStream !== stream) return;
       this.lastStreamSource = "network";
       this.lastStreamMs = Math.round(performance.now() - started);
+      // This page is one account's: any headings left from a merged column belong
+      // to rows that are no longer here, and so does any cursor it was holding.
+      if (this.mergedSections.length > 0) this.mergedSections = [];
+      if (Object.keys(this.mergedCursors).length > 0) this.mergedCursors = {};
       // Only a payload that says something different is worth a repaint: the
       // rows are keyed, but re-running all of them costs a frame and the scroll
       // anchor for a picture that would come out identical.
@@ -3398,22 +4296,87 @@ export class ReaderState {
     }
   }
 
+  /**
+   * Whether the column has another page to fetch.
+   *
+   * A merged column has no single `continuation` — it has one cursor per account, so
+   * asking `continuation` there answers "no" forever and the Load more button never
+   * appears on a list drawn from two accounts.
+   */
+  get hasMore(): boolean {
+    if (this.mergesStream(this.activeStream)) {
+      return Object.keys(this.mergedCursors).length > 0;
+    }
+    return this.continuation !== undefined && this.continuation !== "";
+  }
+
   async loadMore(): Promise<void> {
-    if (!this.canRead || !this.continuation || this.loadingMore) return;
+    if (!this.canRead || this.loadingMore) return;
+    // A merged column pages by account, not by stream: each account is asked from
+    // its own cursor and the new rows are filed under that account's heading.
+    if (this.mergesStream(this.activeStream)) {
+      await this.loadMergedMore();
+      return;
+    }
+    if (!this.continuation) return;
     this.loadingMore = true;
     const requested = this.activeStream;
+    const version = this.accountViewVersion;
     try {
       const page = await this.source().stream(requested, {
         count: PAGE_SIZE,
         continuation: this.continuation,
       });
       // Ignore the page if the user switched streams while it was in flight.
-      if (this.activeStream === requested) {
+      if (this.activeStream === requested && this.accountViewVersion === version) {
         const seen = new Set(this.items.map((item) => item.id));
         this.items = [...this.items, ...page.items.filter((item) => !seen.has(item.id))];
         this.continuation = page.continuation;
         this.cacheActiveStream();
       }
+    } catch (error) {
+      this.error = message(error);
+    } finally {
+      this.loadingMore = false;
+    }
+  }
+
+  /**
+   * The next page of a merged column: one request per account that still has a
+   * cursor, filed under that account's heading.
+   *
+   * Nothing that is already on screen is redrawn: rows are appended per section and
+   * a duplicate id (the same post seen twice, which a server can do across a page
+   * boundary) is dropped. An account that has run out simply does not come back, so
+   * the column ends when every account has, rather than paging someone's page one.
+   */
+  private async loadMergedMore(): Promise<void> {
+    const requested = this.activeStream;
+    const version = this.accountViewVersion;
+    if (Object.keys(this.mergedCursors).length === 0) return;
+    this.loadingMore = true;
+    try {
+      const page = await this.aggregate.stream(requested, {
+        count: PAGE_SIZE,
+        cursors: this.mergedCursors,
+      });
+      if (this.activeStream !== requested || this.accountViewVersion !== version) return;
+      const seen = new Set(this.mergedSections.flatMap((section) => section.items.map((item) => item.id)));
+      const byslug = new Map(this.mergedSections.map((section) => [section.key, section]));
+      for (const section of page.sections) {
+        const existing = byslug.get(section.slug);
+        const fresh = section.items.filter((item) => !seen.has(item.id));
+        if (existing === undefined) {
+          this.mergedSections = [...this.mergedSections, { key: section.slug, label: section.label, items: fresh }];
+          byslug.set(section.slug, { key: section.slug, label: section.label, items: fresh });
+          continue;
+        }
+        existing.items = [...existing.items, ...fresh];
+      }
+      this.mergedSections = [...this.mergedSections];
+      this.items = this.mergedSections.flatMap((section) => section.items);
+      this.mergedCursors = page.cursors;
+      this.accountErrors = page.failures;
     } catch (error) {
       this.error = message(error);
     } finally {
@@ -3697,9 +4660,11 @@ export class ReaderState {
    * it.
    */
   seedFrom(other: ReaderState): void {
+    this.multiAccount = other.multiAccount;
     this.session = other.session;
     this.profile = other.profile;
     this.backend = other.backend;
+    this.adoptAccounts(other.accountList);
     this.paid = other.paid;
     this.believed = other.believed;
     this.observed = other.observed;
@@ -3865,22 +4830,56 @@ export class ReaderState {
    * On failure the local change is rolled back rather than left lying: the
    * server is the only source of truth for unread counts.
    */
+  /**
+   * Sends one mark to whoever owns the row.
+   *
+   * A row in a merged column carries its account in its own id (`slug/providerId`,
+   * see `api/aggregate`), so this is not a guess: a composed id goes to the
+   * aggregate, which splits it and refuses an account this window does not have,
+   * and a plain id — every row of a single-account window, and every row of a feed
+   * or category — goes to the account on screen as it always has.
+   */
+  private async sendRead(ids: string[], read: boolean): Promise<void> {
+    if (ids.length > 0 && splitId(ids[0]) !== null) {
+      const outcome = await this.aggregate.markRead(ids, read);
+      const failed = outcome.failed[0];
+      if (failed !== undefined) throw new Error(`${failed.label} — ${failed.message}`);
+      return;
+    }
+    await this.source().setRead(ids, read);
+  }
+
+  private async sendStarred(ids: string[], starred: boolean): Promise<void> {
+    if (ids.length > 0 && splitId(ids[0]) !== null) {
+      const outcome = await this.aggregate.markStarred(ids, starred);
+      const failed = outcome.failed[0];
+      if (failed !== undefined) throw new Error(`${failed.label} — ${failed.message}`);
+      return;
+    }
+    await this.source().setStarred(ids, starred);
+  }
+
   async setRead(item: StreamItem, read: boolean): Promise<void> {
     if (!this.canRead || this.busyItems.get(item.id)) return;
     const wasRead = isRead(item);
     if (wasRead === read) return;
 
     const previous = item.categories ?? [];
-    const next = read
-      ? [...previous.filter((c) => c !== STATE_READ), STATE_READ]
-      : previous.filter((c) => c !== STATE_READ);
+    // Through the shared helper, not a literal comparison: a Miniflux spells the
+    // state `user/1/state/com.google/read`, and `!==` would leave it there.
+    const next = withState(previous, STATE_READ, read);
 
     this.busyItems.set(item.id, true);
     item.categories = next;
     this.adjustUnread(item, read ? -1 : 1);
 
     try {
-      await this.source().setRead([item.id], read);
+      await this.sendRead([item.id], read);
+      // The local edit goes to the disk copy too. A mark that only lives in this
+      // session is a post that reads unread on the next launch with no network — and
+      // by then the queue is empty, so nothing can correct it.
+      this.cacheActiveStream();
+      void this.readWriteStatus();
       this.broadcast(item.id, { read });
     } catch (error) {
       item.categories = previous;
@@ -3896,20 +4895,23 @@ export class ReaderState {
     if (!this.canRead || this.busyItems.get(item.id)) return;
     const starred = isStarred(item);
     const previous = item.categories ?? [];
-    const next = starred
-      ? previous.filter((c) => c !== STATE_STARRED)
-      : [...previous.filter((c) => c !== STATE_STARRED), STATE_STARRED];
+    const next = withState(previous, STATE_STARRED, !starred);
 
     this.busyItems.set(item.id, true);
     item.categories = next;
 
     try {
-      await this.source().setStarred([item.id], !starred);
+      await this.sendStarred([item.id], !starred);
       this.broadcast(item.id, { starred: !starred });
       if (starred && this.activeStream === STATE_STARRED) {
         this.items = this.items.filter((entry) => entry.id !== item.id);
         this.cacheActiveStream();
         if (this.selectedId === item.id) this.selectedId = null;
+      } else {
+        // The same reason as `setRead`: the page on disk has to carry the star, or a
+        // launch with no network draws it unstarred with an empty queue.
+        this.cacheActiveStream();
+        void this.readWriteStatus();
       }
       void this.loadSidebar();
     } catch (error) {

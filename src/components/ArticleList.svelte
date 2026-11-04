@@ -29,11 +29,17 @@
     type ListView,
   } from "../lib/list-view";
   import { near } from "../lib/near-view";
+  import { scrollPagination } from "../lib/scroll-pagination";
   import { canFitWindow, fitWindowTo, screenSize } from "../lib/window-fit";
   import { openExternal } from "../lib/open-external";
   import { isExternalHttp } from "../lib/sanitize";
-  import { tabbed, type Tabbed } from "../lib/date-tabs";
+  import { tabbed, tabbedAccounts, type Tabbed } from "../lib/date-tabs";
   import { pullDown } from "../lib/pull";
+  import { armsLongPress, LongPressTracker, realTimers } from "../lib/contextmenu";
+  import { framesOf } from "../lib/carousel";
+  import { carousel } from "../state/carousel.svelte";
+  import { pullLabels } from "../lib/gestures";
+  import { chrome } from "../state/chrome.svelte";
   import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { articleQueue, candidateFor } from "../lib/extract-queue";
   import { ledger } from "../lib/extract-ledger";
@@ -41,6 +47,7 @@
   import { bodies } from "../state/bodies.svelte";
   import { picture as drawPicture, pictures as pictureCache } from "../state/pictures.svelte";
   import { reader, type ReaderState } from "../state/reader.svelte";
+  import ListControls from "./ListControls.svelte";
   import { reading } from "../state/reading.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
   import { thumbnailFirst } from "../lib/images";
@@ -239,10 +246,81 @@
     };
   }
 
+  /**
+   * What the pull says, in the words of the answer it was given.
+   *
+   * Read here rather than in the action so the capsule cannot promise one thing
+   * and do another: the label and the callback are the same setting.
+   */
+  const pullWords = $derived(pullLabels(chrome.gestures.pull));
+
   /** A click within a moment of a swipe is the end of that swipe, not a tap. */
   function openedByTap(item: StreamItem): void {
     if (Date.now() - swipeAt < 400) return;
+    if (gridPressHeld) {
+      gridPressHeld = false;
+      return;
+    }
+    // A grid tile is a square crop of a picture, so a tap asks for the picture:
+    // the post is still one long press away, and that is the only view where a
+    // tap means something else.
+    if (view === "grid" && openPictures(item)) return;
     open(item);
+  }
+
+  /**
+   * The fullscreen viewer, over the posts this list is drawing.
+   *
+   * The frames are taken at the press rather than queried by the viewer, so the
+   * walk is exactly what the grid shows — same filter, same order, same posts —
+   * and star/read go through this list's reader, not the account's.
+   */
+  function openPictures(item: StreamItem): boolean {
+    const items = store.listItems;
+    const frames = framesOf(items, (post) => pixelOf(post));
+    return carousel.show(store, frames, item.id);
+  }
+
+  /** A tile's own picture, worked out once per post like the row's. */
+  function pixelOf(item: StreamItem): string | null {
+    return thumbnail(item);
+  }
+
+  /**
+   * A long press on a grid tile is the post, as it always was.
+   *
+   * The tracker is the sidebar's: same delay, same tolerance, same "a drag
+   * cancels it" rule, so a held tile cannot mean two things at once.
+   */
+  let gridPress: LongPressTracker | null = null;
+  let gridPressHeld = false;
+
+  function onTilePointerDown(event: PointerEvent, item: StreamItem): void {
+    if (view !== "grid") return;
+    if (!armsLongPress(event.pointerType)) return;
+    gridPressHeld = false;
+    gridPress?.cancel();
+    gridPress = new LongPressTracker(
+      () => {
+        gridPressHeld = true;
+        open(item);
+      },
+      realTimers,
+      chrome.gestures.longPressMs,
+    );
+    gridPress.start({
+      pointerType: event.pointerType,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+  }
+
+  function onTilePointerMove(event: PointerEvent): void {
+    gridPress?.move({ pointerType: event.pointerType, clientX: event.clientX, clientY: event.clientY });
+  }
+
+  function onTilePointerUp(): void {
+    gridPress?.cancel();
   }
 
   /**
@@ -346,9 +424,16 @@
    * grid are read by the shape of what is in them, and a tab between two cards
    * would break the page of them. Every other view gets the bare posts.
    */
+  // More than one account in the column: each gets a heading, with its own months and
+  // weeks under it. One account draws exactly what it always drew — the headings are
+  // for telling accounts apart, and there is nothing to tell apart.
+  const sections = $derived(store.mergedSections);
+
   const entries = $derived<Tabbed<StreamItem>[]>(
     view === "list"
-      ? tabbed(store.listItems, closedTabs)
+      ? sections.length > 0
+        ? tabbedAccounts(sections, closedTabs)
+        : tabbed(store.listItems, closedTabs)
       : store.listItems.map((item) => ({ kind: "post" as const, item })),
   );
 
@@ -782,6 +867,22 @@
     const next = card?.dataset.id ?? null;
     if (next === heldId) return;
     heldId = next;
+  }
+
+  /** Listen beside snapping, never replace or cancel its scroll/input handlers. */
+  function nextPageOnScroll(el: HTMLElement) {
+    return scrollPagination(el, {
+      port: scrollPort() ?? el,
+      state: () => ({
+        context: JSON.stringify([store.profile?.slug, store.activeStream, store.multiAccount, view]),
+        count: store.items.length,
+        hasMore: store.hasMore,
+        loading: store.loadingList || store.loadingMore,
+        blocked: resumeAt !== null || fitting || panFrom !== null || dragging !== null ||
+          document.documentElement.classList.contains("feed-dragging"),
+      }),
+      load: () => store.loadMore(),
+    });
   }
 
   function onCardsScroll(): void {
@@ -1225,11 +1326,13 @@
 <section class="list" data-pane="posts" class:nested aria-label={store.activeTitle}>
   <header class="list-header">
     <div class="headline">
-      <!-- The bar above a phone already names this stream, one line up: drawing
-           the same words here as well cost a whole line of the column to say
-           nothing new. The count, the feed's own mark and the filter rows stay —
-           they are about this list, not about where you are. -->
-      {#if !nested && layout.device !== "phone"}
+      <!-- The stream's own name, drawn wherever nothing above already says it.
+           On a desktop that is every non-nested list (a nested one hangs under
+           the feed row that names it). On a phone the row above is not a title
+           any more: the posts scroll under this bar and the row goes with them,
+           so the bar carries the name — the owner's ask, "the category name to
+           stay at top too, like the scroll goes under it". -->
+      {#if !nested || layout.device === "phone"}
         <h1>{store.activeTitle}</h1>
       {/if}
       {#if feed}
@@ -1310,6 +1413,9 @@
             {/if}
           </button>
         {/each}
+        <!-- The settings under the four shapes, in the one place a phone kept
+             neither of them: a sheet off the bar, over the list it changes. -->
+        <ListControls {view} />
         <!-- Read the tapped post here instead of in the article column. It sits
              inside the view group because it is a thing the Rows view does, and
              it is drawn only where Rows is: the other three shapes are for
@@ -1360,9 +1466,10 @@
           {/if}
           <!-- Everything below is a shape you set once, and a phone's bar has no
                room for it: row ends, their radius, and whether a picture fills
-               the end live in `Settings → Post list` there. The four shapes and
-               the filters stay on the bar, because they are what you use while
-               reading. -->
+               the end are in the options sheet `ListControls` opens, and in
+               `Settings → Post list`, both writing the same store. The four
+               shapes and the filters stay on the bar, because they are what you
+               use while reading. -->
           {#if layout.device !== "phone"}
           <!-- How the row ends: half a turn, or the pill. Both kept. -->
           <button
@@ -1502,11 +1609,14 @@
     class:flush-thumb={view === "regular" && reading.flushThumb}
     style={`--row-turn: ${rowTurn}px; --turn-tl: ${corners.tl}; --turn-tr: ${corners.tr}; --turn-br: ${corners.br}; --turn-bl: ${corners.bl}; --grid-template: ${gridTemplate(reading.gridColumns)}; --card-window: ${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
     use:cardWheel
+    use:nextPageOnScroll
     use:cardResize
     use:pullDown={{
-      label: "Pull down to check for new posts",
-      readyLabel: "Release to check for new posts",
+      label: pullWords.label,
+      readyLabel: pullWords.ready,
       enabled: () => !store.loadingList,
+      // Off is not "ignore it": the listener is not installed at all.
+      active: () => chrome.gestures.pull !== "off",
       onPull: () => void store.reloadStream({ force: true }),
     }}
   >
@@ -1529,7 +1639,8 @@
         <button
           class="tab"
           class:closed={entry.closed}
-          class:month={entry.tab.level === 0}
+          class:account={entry.tab.fold === "account"}
+          class:month={entry.tab.fold === "month"}
           style:--depth={entry.tab.level}
           aria-expanded={!entry.closed}
           onclick={() => toggleTab(entry.tab.key)}
@@ -1562,7 +1673,14 @@
         use:swipePages={{ item, count: strip.length }}
         style:--flip-edge={reading.flipEdge}
       >
-        <button class="item" onclick={() => openedByTap(item)}>
+        <button
+          class="item"
+          onclick={() => openedByTap(item)}
+          onpointerdown={(event) => onTilePointerDown(event, item)}
+          onpointermove={onTilePointerMove}
+          onpointerup={onTilePointerUp}
+          onpointercancel={onTilePointerUp}
+        >
           {#if placement === "top"}
             <span class="lead" aria-hidden="true">
               {#if loadNow(item.id)}
@@ -1725,6 +1843,12 @@
       <p class="empty">
         {#if store.authorFilter !== null && store.items.length > 0}
           Nothing in this stream by {store.authorFilter}.
+        {:else if store.items.length > 0 && reading.articleFilter === "unread"}
+          <!-- A feed with nothing new is not an empty feed: say so, and offer the
+               half of the filter that has the posts in it. Nothing here asks the
+               server — the list is already loaded, so this is one press away. -->
+          Nothing unread here.
+          <button class="inline" onclick={() => setFilter("read")}>Show what you have read</button>
         {:else if store.items.length > 0}
           Nothing matches “{ARTICLE_FILTER_LABELS[reading.articleFilter]}”.
         {:else}
@@ -1733,7 +1857,7 @@
       </p>
     {/if}
 
-    {#if store.continuation}
+    {#if store.hasMore}
       <button class="more" onclick={() => store.loadMore()} disabled={store.loadingMore}>
         {store.loadingMore ? "Loading…" : "Load more"}
       </button>
@@ -1926,8 +2050,10 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 21px;
-    height: 19px;
+    /* 24px is the WCAG 2.5.8 floor. The glyph inside is unchanged; this is the
+       hit area around it, which was 21x19 and hard to land on. */
+    width: 24px;
+    height: 24px;
     padding: 0;
     border: 0;
     border-radius: 5px;
@@ -2060,6 +2186,20 @@
     padding: 0 0 3px;
   }
 
+  /* On a phone an unfolded feed's post list hangs inside the sidebar's own scroll
+     box, so its bar pins — at the TOP of that box, not one row down. It used to
+     park under the feed row (`--feed-row-h`) while the row itself stayed stuck,
+     which read as a band sitting slightly below the top with rows passing above
+     and below it. One bar, at the top, wearing the stream's name: the tree
+     scrolls up and under it. */
+  :global(html[data-device="phone"]) .list.nested .list-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 2px 0 4px;
+    background: var(--surface);
+  }
+
   .list.nested .items {
     flex: 0 0 auto;
     overflow: visible;
@@ -2153,12 +2293,23 @@
        scrollable (which made every vertical flick drift sideways), and
        `data-scroll-axis="y"` is the same statement to the drag module. */
     overflow-x: clip;
+    /* The same air above the first row as below the last: a row's edge — its
+       accent hairline, its turn, and the dark band inside it — was drawn flush
+       against the header, so the first post of every list started under the
+       header's rule and read as clipped. 12px is what the foot of the list
+       already keeps, so the column is inset by one number rather than two. */
+    padding-top: 12px;
     padding-bottom: 12px;
-    /* The list is panned by the app, not by the browser: the drag module scrolls
-       this box and throws it, so a flick and a mouse drag feel the same. The
-       browser's own panning would take the gesture away mid-drag (a pointercancel
-       a few px in) and it has no throw to offer in its place. */
-    touch-action: none;
+    /* The list scrolls the way the platform scrolls it. It was panned by the
+       app's drag module (`touch-action: none`) so a flick and a mouse drag felt
+       the same — but a scroll driven by `scrollTop` on every pointermove is a
+       main-thread scroll on a WebView, and on a phone it drops frames on every
+       column of prose. A finger now gets the compositor's own pan, with the
+       momentum the platform already has; the mouse keeps the app's 1:1 drag and
+       its throw (`lib/drag-scroll.ts` only claims a container whose computed
+       `touch-action` is `none`). The tree in the sidebar keeps `none` because a
+       carried feed row needs the finger to be the app's. */
+    touch-action: pan-y;
     /* The scroll port is the measure of "how much you can see", so a picture
        can be capped against it rather than against the window: in a three-pane
        desktop window the list is most of the height, on a phone it is all of
@@ -2253,7 +2404,7 @@
      one continuous piece that closes the turn — no open end to read as a gap,
      and nothing outside the row to fill in afterwards, because the accent is the
      border of the shape the row already is. */
-  .items:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+  .items:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after {
     content: "";
     position: absolute;
     inset: 0 0 -1px 0;
@@ -2284,7 +2435,7 @@
   /* The same accent hung on the left: the thick edge, the dark band that gives it depth and the
      wash that lights it are all mirrored, because a band lit on one side only reads as thinner
      than the one it is mirroring. */
-  .items.turn-left:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+  .items.turn-left:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after {
     border-right: 0;
     border-left: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
     background:
@@ -2299,7 +2450,7 @@
   }
 
   /* Both ends: two thick edges, two bands, and the washes meeting in the middle of the row. */
-  .items.turn-both:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+  .items.turn-both:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after {
     border-left: 5px solid color-mix(in srgb, var(--accent) 92%, transparent);
     background:
       linear-gradient(to right, transparent calc(100% - 5px), rgba(0, 0, 0, 0.45) 100%),
@@ -2344,7 +2495,7 @@
      from either end rather than a thick end and a cut corner. The dark band that
      gives the right edge its depth is mirrored for the same reason — an accent
      5px wide that is lit flat reads thinner than the one that is not. */
-  .items.half-end:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+  .items.half-end:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after {
     border-top-left-radius: var(--turn-tl, 0);
     border-top-right-radius: var(--turn-tr, 0);
     border-bottom-right-radius: var(--turn-br, 0);
@@ -2486,7 +2637,7 @@
   /* The foot hung from the top: the thick accent and its dark band move to the top edge, and the
      foot keeps the thin line the top used to carry. Everything else about the shape is unchanged —
      it is the same slab, upside down. */
-  .items.half-end.turn-top:not(.compact):not(.cards):not(.grid) .row:not(.read)::after {
+  .items.half-end.turn-top:not(.compact):not(.cards):not(.grid) .row:where(:not(.read), .starred)::after {
     border-top-width: var(--foot);
     border-bottom-width: 0;
     background:
@@ -2503,6 +2654,14 @@
 
   .row.read {
     opacity: 0.48;
+  }
+
+  /* A starred post dims less than a plain read one: at 0.48 the star's gold goes
+     to mustard and reads as "not starred", which is the report this answers. It
+     sits above the hover rule on purpose — same specificity, later wins — so a
+     pointer still brightens the row to 0.85. */
+  .row.read.starred {
+    opacity: 0.62;
   }
 
   .row.read:hover,
@@ -2525,6 +2684,24 @@
   .row.starred {
     --accent: var(--star);
   }
+
+  /* A starred post keeps the star's edge once it has been read.
+
+     The star is a fact about the post, not about whether it is new: a post read
+     this morning and starred this afternoon was drawn with no gold at all, because
+     the accent edge above is the unread language and the wash was the only thing
+     the star could colour. The edge now belongs to `:where(:not(.read), .starred)`
+     — starred or unread — and the WASH stays unread-only, so the two states are
+     still told apart at a glance: a wash is new, an edge is starred, both is both. */
+  .items:not(.compact):not(.cards):not(.grid) .row.read.starred::after {
+    background: none;
+  }
+
+  /* And it dims less than a plain read post. At the read row's 0.48 the star's
+     gold goes to mustard, which is exactly what "some of them have no gold" looked
+     like; 0.62 keeps the row quieter than unread without turning the one colour
+     that says "starred" into a muddy one. It sits above, next to the rule it
+     softens, so a hover still brightens the row to 0.85. */
 
   .row:hover {
     background: var(--hover);
@@ -2762,7 +2939,7 @@
   }
 
   :global(html[data-device="phone"]) .grid .acts {
-    --tap44-gap: 3px;
+    --tap44-gap: 6px;
   }
 
   :global(html[data-device="phone"]) .cards .acts {
@@ -2832,8 +3009,17 @@
     }
 
     .filter {
-      padding: 6px 10px;
+      /* Wider than a mouse target, and narrower than this was: four pills (with
+         Read) measured 237px against a 217px header, so the 10px sides came in to
+         7px. The height is untouched, which is the half a thumb needs. */
+      padding: 6px 7px;
       font-size: 10.5px;
+    }
+
+    /* Four pills on one row at 390 wide: the gaps come in with the sides, or the
+       last one runs off the header's edge. */
+    .filters {
+      gap: 3px;
     }
 
     /* The list's toggles are thumb targets on a phone, not pointer targets. */
@@ -2994,6 +3180,17 @@
   }
 
   /* A month is the heading of the list, so it is the one that speaks up. */
+  /* The account a list belongs to. A whole reading list is not a month: it is the
+     heading the months are filed under, so it says its name in the size it was
+     written in and holds the pane's edge — the fold underneath is what steps in. */
+  .items .tab.account {
+    color: var(--text);
+    font-weight: 600;
+    font-size: calc(11px * var(--row-scale, 1));
+    letter-spacing: 0.01em;
+    border-color: var(--border);
+  }
+
   .items .tab.month {
     color: var(--text-dim);
     text-transform: uppercase;
@@ -3298,19 +3495,55 @@
     color: var(--text-dim);
   }
 
-  /* Grid keeps its toggles on the picture: a grid tile is one square of picture
-     with a line of text under it, and there is nowhere else to put them. */
+  /* Grid keeps the tile's picture whole. A square tile is the one view where
+     the picture *is* the item (a comic page, a photograph) and two toggles in
+     its corner cover the part the eye goes to first — so they sit under the
+     words instead: the tile becomes picture, text, then its two actions, and
+     nothing is drawn over the image at all. */
+  .grid .row {
+    flex-direction: column;
+  }
+
   .grid .acts {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    flex-direction: row;
-    gap: 3px;
-    padding: 2px;
-    border-radius: 7px;
-    /* Flat, not blurred: a backdrop filter is a layer per card, and this app
-       draws its cards by the dozen in a webview that renders in software. */
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    position: static;
+    order: 2;
+    width: 100%;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 0 8px 7px;
+    border-radius: 0;
+    background: none;
+  }
+
+  .grid .act {
+    width: 26px;
+    height: 26px;
+    opacity: 0.7;
+  }
+
+  .grid .act svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .grid .row:hover .act,
+  .grid .act.on,
+  .grid .act:focus-visible {
+    opacity: 1;
+  }
+
+  /* A thumb is not a pointer: the two actions under a tile grow to something a
+     finger can land on without eating the tile's text. */
+  @media (pointer: coarse) {
+    .grid .act {
+      width: 34px;
+      height: 34px;
+    }
+
+    .grid .act svg {
+      width: 18px;
+      height: 18px;
+    }
   }
 
   /* A card's picture is the post — a page of comics, a photograph — and the
@@ -3473,6 +3706,19 @@
     padding: 24px 16px;
     font-size: 13px;
     color: var(--muted);
+  }
+
+  /* The one press out of an empty unread list: a link, not a button, because it
+     changes what this column shows rather than doing something. */
+  .empty .inline {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
   }
 
   .more {

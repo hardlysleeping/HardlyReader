@@ -27,7 +27,21 @@
     which = "sidebar",
     axis = "x",
     fold = false,
-  }: { which?: "sidebar" | "list"; axis?: "x" | "y"; fold?: boolean } = $props();
+    pair = false,
+  }: {
+    which?: "sidebar" | "list";
+    axis?: "x" | "y";
+    fold?: boolean;
+    /**
+     * Whether the rows this seam splits are a phone's pair — the post list over
+     * the article. The pair is drawn with the list's half a fifth narrower than
+     * the share says (`pairShare` in `lib/panes`), so the handle reads the share
+     * that is *drawn* and converts what the finger produces back to a setting;
+     * reading `stackShare` here would leave the handle floating a fifth away
+     * from the seam it belongs to.
+     */
+    pair?: boolean;
+  } = $props();
 
   let dragging = $state(false);
   let frame = 0;
@@ -60,7 +74,7 @@
 
   /** Where the overlaid seam sits: the split, less half its own thickness. */
   const offset = $derived(
-    `calc(${(layout.stackShare * 100).toFixed(2)}% - ${STACK_GUTTER / 2}px)`,
+    `calc(${(layout.shareDrawn(pair) * 100).toFixed(2)}% - ${STACK_GUTTER / 2}px)`,
   );
 
   function onpointerdown(event: PointerEvent) {
@@ -68,7 +82,7 @@
     dragging = true;
     startPos = vertical ? event.clientY : event.clientX;
     if (vertical) {
-      startShare = layout.stackShare;
+      startShare = layout.shareDrawn(pair);
       // The column the rows are a percentage of is the grid, and the grid is the
       // *slot's* parent — not this seam's. `.seam` sits inside `.slot.seam-y`,
       // which is the 6px track the seam is drawn in, so measuring its parent
@@ -95,10 +109,11 @@
       // A phone's pair is the whole screen, so the seam is left wherever the
       // finger puts it; a window's column keeps its quarter-pane floor.
       const free = layout.device === "phone";
-      layout.dragShare(
-        clampShare(shareFromDrag(startShare, y - startPos, track), track, undefined, free),
-        free,
-      );
+      const moved = clampShare(shareFromDrag(startShare, y - startPos, track), track, undefined, free);
+      // The drag is measured against the seam on screen, so it is inverted back
+      // to a setting: otherwise the pair's fifth is taken again on every draw
+      // and the handle slides out from under the finger.
+      layout.dragShare(layout.shareFromDrawn(moved, pair), free);
       return;
     }
     layout.dragTo(which, startWidth + (x - startPos));
@@ -142,7 +157,9 @@
   }
 
   function reset(): void {
-    if (vertical) layout.resetShare();
+    // Double-click asks for half *on screen*, which for the pair is a setting a
+    // fifth wider than half.
+    if (vertical) layout.resetShare(pair ? layout.shareFromDrawn(0.5, pair) : undefined);
     else layout.reset(which);
   }
 
@@ -167,8 +184,11 @@
 
   const keys = $derived(vertical ? "↑ ↓" : "← →");
 
+  /** Where the seam is drawn: the share, narrowed when it is a phone's pair. */
+  const drawn = $derived(layout.shareDrawn(pair));
+
   /** The stacked seam's position, as the percentage its two panes are split by. */
-  const percent = $derived(Math.round(layout.stackShare * 100));
+  const percent = $derived(Math.round(drawn * 100));
 
   /**
    * What the split is, in words, including anything that is away right now.

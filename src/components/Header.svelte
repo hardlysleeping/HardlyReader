@@ -2,7 +2,7 @@
   import { type Snippet } from "svelte";
 
   import { serverLabel } from "../lib/server-label";
-  import { syncDescription, syncReadout } from "../lib/sync-progress";
+  import { accountFailureReadout, syncDescription, syncReadout, writesReadout } from "../lib/sync-progress";
   import { reader } from "../state/reader.svelte";
   import AccountsPanel from "./AccountsPanel.svelte";
   import ReadingControls from "./ReadingControls.svelte";
@@ -133,6 +133,10 @@
   /** The reader owns the steps; the header only reads them. */
   const refreshing = $derived(reader.sync.active);
   const readout = $derived(syncReadout(reader.sync));
+  /** The queue, in the same slot the sync readout uses: one place for "what is happening". */
+  const waiting = $derived(writesReadout(reader.writes, reader.sync.active));
+  /** Accounts a fan-out sync could not reach: one of them failing is not the sync failing. */
+  const unreachable = $derived(accountFailureReadout(reader.accountErrors, reader.sync.active));
   const description = $derived(syncDescription(reader.sync));
 
   /**
@@ -256,7 +260,21 @@
        rather than as a stub beside the button: one progress, one place. It sits
        still to the left of the button so the control you just pressed does not
        move. -->
-  {#if refreshing}
+  {#if waiting}
+    <!-- Unsent marks, in the slot the sync readout uses and never beside it: a sync
+         that is running owns this space with its own numbers. Nothing is drawn when
+         the queue is empty — an "all sent" badge is a control that says nothing. -->
+    <span class="queued" title={waiting.title}>
+      <span class="readout">{waiting.text}</span>
+    </span>
+  {:else if unreachable}
+    <!-- An account that did not answer, in the same slot and for the same reason:
+         the sync happened for the others, so the button cannot say it failed. The
+         names and the reasons are in the title. -->
+    <span class="queued failed" title={unreachable.title}>
+      <span class="readout">{unreachable.text}</span>
+    </span>
+  {:else if refreshing}
     <span
       class="progress"
       role="progressbar"
@@ -484,6 +502,26 @@
     min-width: 0;
     margin-left: 8px;
     animation: arrive 160ms ease-out;
+  }
+
+  /* Unsent marks: the same size and slot as the sync readout, in the muted tone
+     rather than the sync tone — nothing is happening, something is waiting. */
+  .queued {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    min-width: 0;
+    margin-left: 2px;
+  }
+
+  /* An account that did not answer: the same quiet slot, in the warning ink the app
+     already uses for something that went wrong and can be put right. */
+  .queued.failed {
+    color: var(--warn, #d08770);
+  }
+
+  .queued .readout {
+    color: var(--muted);
   }
 
   .readout {

@@ -113,6 +113,27 @@
   color-scheme: dark;
 }
 
+/* OLED: the dark palette with nothing lit that does not have to be, for a panel
+   where a black pixel draws no power. Both the page and the surfaces go to
+   #000; the borders are lifted a step so the panes stay distinguishable without
+   a fill to read them against. */
+:root[data-theme="oled"] {
+  /* Every surface is the page: charcoal panels on a black page is a dark theme
+     with a black margin, not an OLED one. Structure is carried by the borders
+     and by hover, which are the two things that were already doing the work. */
+  --bg: #000000;
+  --surface-solid: #000000;
+  --bg-alt: #000000;
+  --border: #34343e;
+  --border-soft: #1d1d24;
+  --hover: color-mix(in srgb, var(--accent) 14%, var(--bg));
+  --text: #f4f4f7;
+  --text-dim: #d2d2da;
+  --muted: #9b9ba6;
+  --star: #f2bf3c;
+  color-scheme: dark;
+}
+
 /* Explicit light: the same palette as the base, spelled out so it also wins on
    a machine whose OS is dark. */
 :root[data-theme="light"] {
@@ -174,6 +195,16 @@ body::after {
   opacity: var(--bg-dim, 0);
 }
 
+/* With a picture, the page stops painting its own colour over it.
+   `html` keeps the fill — it is what a webview shows in its own bounce — and
+   `body`/`#app` go transparent, which is the only way the picture layer (a
+   negative-z pseudo-element under both) can be seen at all. The veil above it
+   is still `--bg-dim`, so contrast remains the theme's decision. */
+:root[data-bg-picture] body,
+:root[data-bg-picture] #app {
+  background: transparent;
+}
+
 html,
 body {
   margin: 0;
@@ -185,6 +216,77 @@ body {
   touch-action: pan-x pan-y;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+}
+
+/* A field smaller than 16px is a page zoom on iOS, not a small font.
+   ---------------------------------------------------------------------------
+
+   iOS scales the whole page in when a text field under 16px takes focus, and it
+   does not scale back out when the keyboard closes — the passcode box at 12px
+   did exactly that, and the reader was left looking at a magnified app with
+   nothing to press that would undo it (`index.html` refuses zoom by gesture;
+   this is the zoom that arrives without one). Exactly that engine, in the app
+   and in Safari, is what `-webkit-touch-callout` is alone in naming, so the
+   floor lives here rather than under a width query — a desktop needs no floor
+   and must keep its own sizes.
+
+   `1em` rather than `1rem`: a field only has to be as large as the text around
+   it, and the reading size is a setting. Both halves keep the field at or above
+   the number iOS refuses to scale for. */
+@supports (-webkit-touch-callout: none) {
+  input:not([type="checkbox"], [type="radio"], [type="range"]),
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Native feel, not a web page.
+   ---------------------------------------------------------------------------
+
+   A WebView will select a label, show Copy / Look Up / Share on a long press,
+   flash a grey tap highlight and let a picture be dragged out of the window. A
+   native iOS app does none of those, and each one is a tell. So the chrome is
+   not selectable and offers no callout.
+
+   Zoom needs nothing here: `touch-action: pan-x pan-y` above already refuses
+   pinch, and refusing pinch also refuses the double-tap zoom, because on WebKit
+   they are the same gesture. That is also why this file adds **no** tap-pair
+   canceller of its own — the reader uses a double tap deliberately, on a
+   picture (`lib/picture-zoom.ts`, 320ms, same window as iOS), and a global
+   `preventDefault` on the second tap would be fighting it. HardlyTracking has
+   the JS half because its WebView has no such rule.
+
+   Selection comes back where it is the point: the article (`@html` lands in
+   `.content` — quoting what you are reading is the app working), a field you
+   are typing in, a code block, and anything marked `.selectable` (a feed URL,
+   an error worth pasting into an issue). */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+select,
+[contenteditable="true"],
+.selectable,
+.content,
+.content pre,
+.content code {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* A cover or an article picture is part of the layout, not a file to drop on
+   the desktop. Pointer drags (the list and article drag-scroll) are untouched:
+   this is the HTML5 image drag only. */
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
 }
 
 /* Slim, quiet scrollbars: they appear where there is more content, not as a
@@ -234,29 +336,74 @@ body {
   );
 }
 
-/* The pull gesture's feedback: one line at the top of the window, saying what
-   letting go will do. It is created by the action, so it cannot live in a
-   component's scoped styles. */
-.pull-pill {
+/* The pull's feedback: a capsule that rises out of the bottom edge and fills
+   with the accent until letting go does the thing. Appended to <body> by
+   `src/lib/pull.ts`, so it is styled here rather than in a component.
+   -----------------------------------------------------------------------------
+   The bottom edge, not the top: this gesture only happens on a touchscreen, and
+   a phone is held at the bottom — the words have to be where the hand holding
+   it can see them without leaving the drag. It rises on `--rise` (0..1) and
+   fills on `--fill`, both written by the gesture as the finger moves, and it is
+   only a transform and a scale, so the capsule tracks the finger instead of
+   chasing it. No transition while the pull is live, for the same reason: it
+   appears on the first pixel, not a fifth of a second after it. */
+.pull-slider {
   position: fixed;
-  top: 10px;
   left: 50%;
+  bottom: max(0px, env(safe-area-inset-bottom));
   z-index: 80;
-  transform: translateX(-50%);
-  padding: 3px 10px;
+  display: flex;
+  align-items: center;
+  /* One width for both sentences: the capsule must not jump size at the moment
+     the words change, or the fill it is drawing moves under the eye. */
+  justify-content: center;
+  min-width: 172px;
+  overflow: hidden;
+  padding: 4px 11px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
   color: var(--muted);
   font-size: 11px;
+  line-height: 16px;
   white-space: nowrap;
   pointer-events: none;
+  /* Fully out of sight at 0, and resting 10px clear of the edge at 1 — flush
+     against the edge it looked like a chip that had been clipped by the screen
+     rather than one that came up out of it. */
+  transform: translate(-50%, calc((1 - var(--rise, 0)) * (100% + 10px) - 10px));
 }
 
-.pull-pill.armed {
+/* The accent, filling from the left as the pull approaches the point where
+   letting go does something. It stops at that point, so a full capsule and a
+   ready gesture are the same moment. */
+.pull-slider .fill {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(var(--fill, 0));
+  transform-origin: left center;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.pull-slider .label {
+  position: relative;
+}
+
+.pull-slider.armed {
   color: var(--accent-text);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+/* Released: back under the edge it came from. The only transition it has. */
+.pull-slider.leaving {
+  transition: transform 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pull-slider.leaving {
+    transition: none;
+  }
 }
 
 body {
@@ -399,6 +546,18 @@ html.drag-panning :is(button, a, [role="button"]):active:not(.on):not([aria-pres
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
+  /* How much of the status bar the header rides over. The clock does not use the
+     whole inset: the island and the clock live in the top of it, and the last few
+     points are air. The bar starts that much higher than the raw inset so there is
+     no band of nothing between the status bar and its controls.
+     2, not 18 or 6. At 18 the bar's controls started 41pt down a 59pt inset —
+     inside the housing instead of under it — and the owner reported the back
+     button and the 1/2/3 control **cut off by the notch**; at 6 they started at
+     56pt with the island's lower edge around 48, which is air on paper and reads
+     as cramped on the phone. The air under the island is all a lift may spend,
+     and he asked for a slightly bigger margin, so the bar takes 2 and leaves ~9pt
+     of clear band above its controls. */
+  --status-lift: 2px;
 }
 
 /* The page owns every pixel the app does not, so a strip left by a safe-area
@@ -440,8 +599,9 @@ html[data-device="phone"] #app {
    than a header with a strip of page colour above it. */
 html[data-device="phone"] .phone-header {
   /* Higher than the inset, by the part of it the clock does not use: the bar's
-     controls clear the status bar without a band of nothing between them. */
-  padding-top: max(0px, calc(var(--safe-top) - 12px));
+     controls clear the status bar without a band of nothing between them. The
+     number is `--status-lift` on the root, so the height below agrees with it. */
+  padding-top: max(0px, calc(var(--safe-top) - var(--status-lift)));
   padding-left: max(10px, var(--safe-left));
   padding-right: max(10px, var(--safe-right));
 }
@@ -451,7 +611,7 @@ html[data-device="phone"] .phone-header {
    A phone on its side spends its height on the thing being read — 430pt, of
    which 36 is the bar and the rest is content. The status-bar strip above it is
    dead space in that orientation: the clock and the indicators are drawn over
-   the bar's own glass, which is why the bar keeps its 36px and starts at zero.
+   the bar's own glass, which is why the bar keeps its 40px and starts at zero.
    The left and right insets are still paid, because the notch is on a side there
    and a control under it is a control that cannot be pressed. */
 @media (orientation: landscape) {
@@ -496,28 +656,89 @@ html[data-device="phone"] .phone-header {
    activity seam below it loses its own line for the same reason (see `.aura`
    further down). */
 html[data-device="phone"] {
-  --glass-fill: color-mix(in srgb, var(--surface) 72%, transparent);
-  --glass-blur: blur(20px) saturate(180%);
+  /* The four parts of the material, and nothing per-surface.
+   *
+   * `--glass-fill` is the tint the blur sits in: less opaque than it used to be,
+   * because the blur below is doing more of the work now. `--glass-blur` gained
+   * `brightness(1.04)` — a real material lifts what it samples slightly, and
+   * without it a dark article behind the bar made the bar read as a shadow.
+   * `--glass-sheen` is the light the slab catches along its top, and `--glass-lit`
+   * is the hairline pair that makes it a slab instead of a rectangle: one white
+   * line inside the top edge, one dark line inside the bottom. Together they are
+   * the difference between a tinted strip and something with a thickness.
+   *
+   * `--glass-grain` is a 120px tile of fractal noise at 3.5% — the one part of
+   * this that is not decoration. A 26px blur over a photograph produces banded
+   * gradients on an OLED panel, and the system material never does; the grain is
+   * what stops the bar from showing rings. */
+  --glass-fill: color-mix(in srgb, var(--surface) 62%, transparent);
+  --glass-blur: blur(26px) saturate(190%) brightness(1.04);
   --glass-edge: color-mix(in srgb, var(--edge) 58%, transparent);
   --glass-radius: 10px;
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.075), rgb(255 255 255 / 0) 44%);
+  --glass-lit: inset 0 1px 0 rgb(255 255 255 / 0.12), inset 0 -1px 0 rgb(0 0 0 / 0.16);
   --glass-shadow: 0 10px 22px -18px rgb(0 0 0 / 0.6);
+  --glass-grain: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  /* Where the Aa panel opens: the bar's 40px, the part of the status bar it
+     sits under (`--safe-top - --status-lift`, the same numbers this file gives
+     the header), and 4px of breath. On the root rather than on the bar because the panel is
+     moved out of the header into `body` — the header is `overflow: hidden` with
+     a material that makes it a containing block for fixed children, so a panel
+     inside it was clipped to the bar and painted nothing (see
+     `ReadingControls.svelte`). A window's bar is 42px and keeps the component's
+     own 46px default. */
+  --rc-panel-top: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 44px);
+}
+
+/* Light glass is lit from the same side, but a white sheen on a light surface is
+   invisible, so the sheen is stronger and the inner bottom line is fainter: on
+   light the slab is defined by its highlight, on dark by its shadow. */
+html[data-device="phone"][data-theme="light"] {
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.55), rgb(255 255 255 / 0.1) 44%);
+  --glass-lit: inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 -1px 0 rgb(0 0 0 / 0.07);
+  --glass-shadow: 0 10px 22px -20px rgb(0 0 0 / 0.35);
+}
+
+@media (prefers-color-scheme: light) {
+  html[data-device="phone"]:not([data-theme]) {
+    --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.55), rgb(255 255 255 / 0.1) 44%);
+    --glass-lit: inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 -1px 0 rgb(0 0 0 / 0.07);
+    --glass-shadow: 0 10px 22px -20px rgb(0 0 0 / 0.35);
+  }
+}
+
+/* One rule for all three surfaces, so the sheen and the lit edge cannot land on
+   the bar and be forgotten on the sheet. The header's own border-bottom stays:
+   it is full-bleed, and the line is where it meets the content it floats over. */
+html[data-device="phone"] .phone-header,
+html[data-device="phone"] .phone-header .more,
+html[data-device="phone"] .sheet[role="dialog"],
+html[data-device="phone"] .panes > .slot.feeds {
+  background-color: var(--glass-fill);
+  background-image: var(--glass-grain), var(--glass-sheen);
+  box-shadow: var(--glass-lit), var(--glass-shadow);
 }
 
 html[data-device="phone"] .phone-header {
-  background: var(--glass-fill);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
+  /* The bar is full-bleed at the top of the screen, so its top edge *is* the
+     screen edge and a highlight there is never seen. The lip that reads is the
+     one facing the content: a hairline of light just above the border, which is
+     what makes the slab look like it has thickness rather than a drawn line. */
+  box-shadow:
+    inset 0 -1px 0 rgb(255 255 255 / 0.1),
+    var(--glass-shadow);
 }
 
 /* The one control on the bar that is a surface rather than a glyph. Its radius
    is the bar's inner radius and its hairline the bar's hairline, so it reads as
-   cut from the bar instead of laid on top of it. */
+   cut from the bar instead of laid on top of it. The fill, sheen and lit edge
+   come from the grouped rule above; what is here is only what is its own. */
 html[data-device="phone"] .phone-header .more {
   border-color: var(--glass-edge);
   border-radius: var(--glass-radius);
-  background: var(--glass-fill);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
@@ -526,7 +747,6 @@ html[data-device="phone"] .phone-header .more {
    here, full-bleed, so the hairline is the whole of its border. */
 html[data-device="phone"] .sheet[role="dialog"] {
   border: 1px solid var(--glass-edge);
-  background: var(--glass-fill);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
@@ -545,9 +765,9 @@ html[data-device="phone"] .sheet[role="dialog"] {
 
 /* Both fallbacks, because both are real phones.
 
-   The fill is 72% surface *with the backdrop doing the rest*. Where the
+   The fill is 62% surface *with the backdrop doing the rest*. Where the
    backdrop cannot be blurred — WebKit before `backdrop-filter`, a GPU that
-   refuses it, a system told to reduce transparency — 28% of whatever is behind
+   refuses it, a system told to reduce transparency — 38% of whatever is behind
    the bar showing through unblurred is not a material, it is a bar with the
    text sitting on the list. So the fill goes solid, and the hairline and the
    shadow stay: the surface is the same shape, only opaque.
@@ -616,23 +836,45 @@ html[data-device="phone"] .panes > .slot.article {
    `clientWidth`, which padding does not touch. */
 html[data-device="phone"] .panes > .slot.feeds {
   padding-bottom: 0;
-  background: var(--surface);
+  /* The column is the same material as the sheet that opens over it — the tint,
+     the grain and the light come from the grouped rule above, and the 26px
+     blur behind it is here — so the pane the reader lives in is the one the
+     dialogs are cut from rather than an opaque slab the glass only appears in
+     front of. Its shadow is a lip on the inner edge, not the slab's drop
+     shadow: this surface is the screen's height and has nothing below it to
+     cast onto. */
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: inset 1px 0 0 rgb(255 255 255 / 0.04);
 }
 
 @media (orientation: landscape) {
+  /* The left rim is always the feed column's: in every frame it is drawn in, it
+     is the leftmost thing on the screen. */
   html[data-device="phone"] .panes > .slot.feeds {
     padding-left: var(--safe-left);
   }
 
-  html[data-device="phone"] .panes > .slot.article {
+  /* The right rim belongs to whichever column actually reaches it, and that is
+     not one column: the article is outermost in three panes, the posts are when
+     the article has been given away (`articleless`) or when the frame draws two
+     columns, and in one column the feeds are. A phone on its side puts the
+     notch *on an edge*, so a column that does not pay it runs its text under
+     the housing — which is what "dynamic margins for that space" means here:
+     the inset follows the frame rather than sitting on one nominated pane. */
+  html[data-device="phone"] .panes > .slot.article,
+  html[data-device="phone"] .panes.one > .slot.feeds,
+  html[data-device="phone"] .panes.two > .slot.posts,
+  html[data-device="phone"] .panes.articleless > .slot.posts {
     padding-right: var(--safe-right);
   }
 
-  /* With no post open the article's column is given to the posts
-     (`articleless`, see `Main.svelte`), which makes the posts the outermost
-     column on the right — so the notch's inset is theirs for as long as they
-     hold that edge. */
-  html[data-device="phone"] .panes.articleless > .slot.posts {
+  /* A column that is the whole frame is the outermost on both sides: one
+     column's article level, and the article alone when the list has gone with
+     the post (`.solo`, `articleSolo` in `Main.svelte`). */
+  html[data-device="phone"] .panes.one > .slot.article,
+  html[data-device="phone"] .panes.solo > .slot.article {
+    padding-left: var(--safe-left);
     padding-right: var(--safe-right);
   }
 }
@@ -680,13 +922,13 @@ html[data-device="phone"] .tap44 {
 
 /* The phone bar's own controls need no class of their own: the bar has exactly
    three, and naming them here keeps the markup of a component that is already
-   phone-only free of a rule about phones. Their boxes stop at the bar's 36px so
+   phone-only free of a rule about phones. Their boxes stop at the bar's 40px so
    none of them hangs over the seam into the panes, where nothing is a control. */
 html[data-device="phone"] .phone-header :is(.step, .more, .sync) {
   position: relative;
   touch-action: manipulation;
   --tap44-w: 44px;
-  --tap44-h: 36px;
+  --tap44-h: 40px;
 }
 
 /* The stack's own bar is gone: the phone's bar is the one strip, and its three

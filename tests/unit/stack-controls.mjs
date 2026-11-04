@@ -482,7 +482,7 @@ check(
   /const overlaid = \$derived\(vertical && layout\.stacked && tuck !== null\)/.test(gutter) &&
     /\.seam\.overlaid \{[\s\S]{0,160}position: absolute;[\s\S]{0,80}height: 6px;/.test(gutter) &&
     /style:top=\{overlaid \? offset : undefined\}/.test(gutter) &&
-    /calc\(\$\{\(layout\.stackShare \* 100\)\.toFixed\(2\)\}% - \$\{STACK_GUTTER \/ 2\}px\)/.test(gutter),
+    /calc\(\$\{\(layout\.shareDrawn\(pair\) \* 100\)\.toFixed\(2\)\}% - \$\{STACK_GUTTER \/ 2\}px\)/.test(gutter),
 );
 check(
   "and its aria text names what is away, not only the percentage",
@@ -516,18 +516,20 @@ check(
     // list grows inside the list, so there is no second article drawn anywhere.
     "each pane is mounted once, in its own slot, whatever the mode",
     (main.match(/<ArticleList[ \/]/g) ?? []).length === 1 &&
-      (main.match(/<ReaderPane /g) ?? []).length === 1 &&
+      // `<ReaderPane` then attributes, possibly across lines: the prop list is
+      // longer than one line now that the walk passes `floatingBack`.
+      (main.match(/<ReaderPane\b/g) ?? []).length === 1 &&
       /class="slot posts"[\s\S]{0,120}?class:away=\{!slots\.posts\}/.test(main) &&
       /class="slot article" class:away=\{!slots\.article\}/.test(main),
   );
   check(
     "the article keeps its own handler for the walk and its close for the panes",
-    /<ReaderPane onClose=\{closeArticle\} onLock=\{mode === 1 \? lockFromArticle : undefined\} \/>/.test(main),
+    /<ReaderPane[\s\S]{0,160}?onClose=\{closeArticle\}[\s\S]{0,160}?onLock=\{mode === 1 \? lockFromArticle : undefined\}/.test(main),
   );
   check(
     "the seam is one component on the one grid",
-    (main.match(/<PaneGutter axis="y" \/>/g) ?? []).length === 1,
-    String((main.match(/<PaneGutter axis="y" \/>/g) ?? []).length),
+    (main.match(/<PaneGutter axis="y" pair=\{articlePair\} \/>/g) ?? []).length === 1,
+    String((main.match(/<PaneGutter axis="y" pair=\{articlePair\} \/>/g) ?? []).length),
   );
   check(
     "and its slot is the slot the tuck keeps, at every tuck",

@@ -7,6 +7,12 @@
  * before, so the last stretch needs a deliberate push. The pull is drawn as a
  * filling line at the bottom of the pane, which is the feedback: you can feel
  * how close the switch is before it happens.
+ *
+ * A finger gets the same curve, and the same line, from `swipePull`: it reports
+ * where it is rather than how far it just moved, so the gesture is one closed
+ * form of the same integral, worth `SWIPE_GAIN` wheel pixels per pixel of
+ * thumb. What fills the line is one number either way, so the two cannot drift
+ * apart in feel or in feedback.
  */
 
 /**
@@ -116,6 +122,101 @@ export function travelToAdvance(threshold = PULL_THRESHOLD, step = 1): number {
     travel += step;
   }
   return travel;
+}
+
+/**
+ * How much a finger's travel is worth against the wheel's own curve.
+ *
+ * The wheel needs 728px to fill the pull, which is a trackpad flick; the same
+ * 728px on a phone is an arm movement, not a swipe. This gain puts a full pull
+ * at 273px of thumb — a third of a 390x844 screen, one unhurried swipe — while
+ * keeping the shape identical, because what makes the gesture feel like a
+ * spring is the curve, not the distance. It was 4, which filled at 182px; the
+ * owner read that as "it switches before I have dragged anything" and asked for
+ * half again. Lowering the gain rather than raising the wheel's threshold is the
+ * narrow fix: the wheel's 728px was tuned by hand and is not in this complaint.
+ */
+export const SWIPE_GAIN = 2.67;
+
+/**
+ * Finger travel a full pull is worth, the inverse of `swipePull`.
+ *
+ * At the shipped gain this is 273px from 182: the owner asked for the drag to
+ * be half again as long as it was, because at 182 a thumb barely moved and the
+ * post was already leaving. The number he can change is the pull threshold's
+ * effort multiplier (`reading.scrollEffort`), which scales this distance with
+ * it — the phone's Aa panel shows the result in pixels rather than as a
+ * multiplier, since "×1.5" says nothing about where a third of the screen is.
+ */
+export function swipeTravel(threshold = PULL_THRESHOLD, gain = SWIPE_GAIN): number {
+  if (!(threshold > 0) || !(gain > 0)) return 0;
+  return Math.round(((RESISTANCE + 2) * threshold) / (2 * gain));
+}
+
+/** The drag distance, in pixels, that a chosen effort draws on a phone. */
+export function swipePxFor(effort: number, gain = SWIPE_GAIN): number {
+  return swipeTravel(thresholdFor(effort), gain);
+}
+
+/**
+ * The effort a pixel distance means, so a stepper in pixels writes the same
+ * store the wheel's multiplier row does. Linear because `swipeTravel` is:
+ * 273px is ×1, and every 27px above it is another tenth.
+ */
+export function effortForSwipePx(px: number, gain = SWIPE_GAIN): number {
+  const base = swipeTravel(PULL_THRESHOLD, gain);
+  if (!(base > 0) || !Number.isFinite(px)) return EFFORT_DEFAULT;
+  return clampEffort(px / base);
+}
+
+/**
+ * Where in the pull's last stretch the next post starts to come into view.
+ *
+ * Not at the apex: the apex is the half of the curve that costs the most, and a
+ * reveal that begins only when the pull is already full would flash. From 85%
+ * of it the post above slides away and the next one shows behind it, so the
+ * last push has somewhere to go — and letting go before the line fills puts
+ * both back on one curve.
+ */
+export const PEEK_FROM = 0.85;
+
+/** How much more travel completes the reveal, as a fraction of the apex. */
+export const PEEK_SPAN = 0.3;
+
+/**
+ * How far the next post has been revealed, 0..1, for a finger's travel.
+ *
+ * `off` is the setting: with "Reveal next" off this is always 0 and the pull is
+ * the bar filling, exactly as it was. Kept here rather than in the component so
+ * the curve can be tested without a finger.
+ */
+export function peekOf(
+  travel: number,
+  threshold = PULL_THRESHOLD,
+  on = true,
+  gain = SWIPE_GAIN,
+): number {
+  if (!on) return 0;
+  const apex = swipeTravel(threshold, gain);
+  if (!(apex > 0) || !(travel > 0)) return 0;
+  const start = apex * PEEK_FROM;
+  const span = Math.max(1, apex * PEEK_SPAN);
+  return Math.min(1, Math.max(0, (travel - start) / span));
+}
+
+/**
+ * The pull a finger's travel has built, on the wheel's own curve.
+ *
+ * `accumulate` integrates the resistance a notch at a time; a finger reports
+ * where it is rather than how far it just moved, so this is the same curve in
+ * closed form — `(1 + R p) dp = k dt`, solved for `p` — and the two agree to
+ * the pixel. Keeping it closed rather than stepping means a fast swipe cannot
+ * skip the expensive part of the curve by arriving with one big delta.
+ */
+export function swipePull(travel: number, threshold = PULL_THRESHOLD, gain = SWIPE_GAIN): number {
+  if (!(threshold > 0) || !(gain > 0) || !(travel > 0)) return 0;
+  const progress = (-1 + Math.sqrt(1 + (2 * RESISTANCE * gain * travel) / threshold)) / RESISTANCE;
+  return Math.min(threshold, progress * threshold);
 }
 
 /**

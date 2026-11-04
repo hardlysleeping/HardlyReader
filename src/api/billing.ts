@@ -1,5 +1,5 @@
 /**
- * Buying HardlyReader Sync on the web.
+ * Buying HardlySyncing on the web.
  *
  * The app's whole part in a purchase is four lines of JavaScript: ask the
  * billing service for a Checkout URL, hand it to the system browser, notice when
@@ -78,7 +78,7 @@ export class CheckoutError extends Error {
 
 /** What the panel shows when the browser has the payment and the app does not. */
 export const CHECKOUT_OPENED =
-  "Checkout is open in your browser — come back here when it is done and HardlyReader Sync will be waiting.";
+  "Checkout is open in your browser — come back here when it is done and HardlySyncing will be waiting.";
 
 export interface BeginCheckoutOptions {
   plan: PlanKey;
@@ -90,11 +90,25 @@ export interface BeginCheckoutOptions {
 }
 
 /**
+ * This app's own origin, so a purchase made here comes back here.
+ *
+ * The service sells one subscription to more than one app and returns the
+ * browser to the origin it is told; it accepts only an origin it serves. A
+ * native build has no origin to name (the webview is not where a browser tab
+ * lands), so it sends nothing and the service's own default applies.
+ */
+function ownOrigin(): string | undefined {
+  if (typeof location === "undefined" || !/^https?:$/.test(location.protocol)) return undefined;
+  return location.origin;
+}
+
+/**
  * Asks the service for a Checkout URL.
  *
- * The only thing sent is the plan name and the reader's token. The only thing
- * accepted back is an `https://` URL — a response that is not one is a refusal,
- * because the next thing that happens is that URL being opened for the reader.
+ * The only thing sent is the plan name, this app's origin and the reader's
+ * token. The only thing accepted back is an `https://` URL — a response that is
+ * not one is a refusal, because the next thing that happens is that URL being
+ * opened for the reader.
  */
 export async function beginCheckout(options: BeginCheckoutOptions): Promise<string> {
   const base = (options.base ?? billingUrl()).replace(/\/$/, "");
@@ -110,7 +124,7 @@ export async function beginCheckout(options: BeginCheckoutOptions): Promise<stri
         "Content-Type": "application/json",
         Authorization: `Bearer ${options.token}`,
       },
-      body: JSON.stringify({ plan: options.plan }),
+      body: JSON.stringify({ plan: options.plan, return: ownOrigin() }),
     });
   } catch (cause) {
     throw new CheckoutError("billing_unreachable", String(cause));
@@ -318,7 +332,7 @@ export class WebStore implements Store {
   async purchase(id: string): Promise<Receipt> {
     const plan = planKeyOf(id);
     if (plan === null) {
-      return noEntitlement(`${id} is not a HardlyReader Sync product`);
+      return noEntitlement(`${id} is not a HardlySyncing product`);
     }
     await openCheckout({ plan, token: this.token(), base: this.base, fetch: this.fetch, open: this.open });
     return { state: "none", productId: id, expiresAt: null, reason: CHECKOUT_OPENED };

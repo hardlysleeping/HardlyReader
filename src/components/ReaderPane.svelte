@@ -18,7 +18,15 @@
   import { hardenLinks, isExternalHttp, prepareImages, sanitizeArticle } from "../lib/sanitize";
   import { bodies } from "../state/bodies.svelte";
   import { picture as drawPicture } from "../state/pictures.svelte";
-  import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
+  import {
+    SETTLE_MS,
+    accumulate,
+    peekOf,
+    progressOf,
+    shouldAdvance,
+    swipePull,
+    thresholdFor,
+  } from "../lib/scroll-advance";
   import { fittedWidth } from "../lib/image-fit";
   import {
     atRest,
@@ -59,9 +67,16 @@
     onLock,
     onRead,
     store = reader,
+    floatingBack = false,
   }: {
     onClose?: () => void;
     onLock?: () => void;
+    /**
+     * Draw the way out as a floating control over the article instead of the
+     * first button in its bar. The caller decides: it is true only in the
+     * one-column phone layout, where this pane *is* the screen.
+     */
+    floatingBack?: boolean;
     /**
      * The reader whose post is drawn.
      *
@@ -79,6 +94,32 @@
      */
     onRead?: () => void;
   } = $props();
+
+  /**
+   * The bar sits under the article: eleven controls are reached with a thumb,
+   * and the top of the pane is the furthest corner of a phone. The reader can
+   * flip it back to the top from the bar itself, and the choice travels.
+   */
+  const barAtBottom = $derived(reading.articleBar === "bottom");
+
+  /**
+   * How tall the article's bar is, measured rather than guessed.
+   *
+   * The pull's line is the feedback for both the wheel and the finger, and it
+   * belongs on the edge of the *content* — which stopped being the pane's edge
+   * the moment the bar moved to the bottom of the article. Drawn at `bottom: 0`
+   * it was behind the bar, so the gesture had no feedback at all on a phone: the
+   * one place the swipe is the only way through. The bar is measured because it
+   * carries the home indicator's inset, which differs on every phone.
+   */
+  let barHeight = $state(0);
+
+  /**
+   * The floating disc owns the bar's own corner only while the bar is up there.
+   * At the bottom the two are at opposite ends of the pane, so the bar keeps
+   * its arrow: leaving an article should not need a reach back to the top.
+   */
+  const discOverBar = $derived(floatingBack && !barAtBottom);
 
   /** Locking needs something to lock with; without a passcode, say so instead. */
   const canLock = $derived(store.hiddenAvailable && store.hiddenHasPasscode && !store.hiddenLocked);
@@ -362,6 +403,33 @@
   /** Nothing counts towards a switch until the wheel has been still this long. */
   let settleUntil = 0;
 
+  /** How long a release takes to put a half-made pull back. */
+  const SPRING_MS = 260;
+
+  /** Finger travel past the end, in the pixels the curve counts. */
+  let travelPx = $state(0);
+
+  /**
+   * How far the next post has been revealed at the apex, 0..1.
+   *
+   * Always 0 unless "Reveal next" is on: the owner kept the quiet version where
+   * letting go simply loads the next post.
+   */
+  let peek = $state(0);
+
+  /** How much of the pane the open post slides away by, at a full reveal. */
+  const PEEK_LIFT = 26;
+
+  /** The post after the open one, for the reveal — the same one a step opens. */
+  const nextPost = $derived.by(() => {
+    const items = store.listItems;
+    const at = items.findIndex((candidate) => candidate.id === store.selectedId);
+    return at >= 0 ? (items[at + 1] ?? null) : null;
+  });
+
+  /** A spring-back already running, so a second release cannot fight the first. */
+  let springRaf = 0;
+
   function reduceMotion(): boolean {
     return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
@@ -374,15 +442,61 @@
     store.setArticleScroll(el.scrollTop <= 2, end);
     store.rememberScroll("article", el.scrollTop);
     // Leaving the bottom gives the pull back: it is a gesture, not a latch.
-    if (!end) pull = 0;
+    if (!end) resetPull();
   }
 
   function resetPull(): void {
+    if (springRaf !== 0) {
+      cancelAnimationFrame(springRaf);
+      springRaf = 0;
+    }
     pull = 0;
+    peek = 0;
+    travelPx = 0;
     if (pullTimer !== null) {
       clearTimeout(pullTimer);
       pullTimer = null;
     }
+  }
+
+  /**
+   * Letting go before the pull is full: put it back on a curve, not instantly.
+   *
+   * An instant reset reads as the gesture being cancelled — the line was there,
+   * then it was not, and nothing explains the gap. A quarter of a second of
+   * ease-out is the same motion the reveal took on the way out, run backwards,
+   * so a half-made drag that you change your mind about visibly returns.
+   * `prefers-reduced-motion` still snaps: the reset is a courtesy, not content.
+   */
+  function springBack(): void {
+    const fromPull = pull;
+    const fromPeek = peek;
+    if (fromPull === 0 && fromPeek === 0) {
+      travelPx = 0;
+      return;
+    }
+    if (springRaf !== 0) cancelAnimationFrame(springRaf);
+    springRaf = 0;
+    if (reduceMotion()) {
+      resetPull();
+      return;
+    }
+    const started = performance.now();
+    const step = (now: number): void => {
+      const t = Math.min(1, (now - started) / SPRING_MS);
+      const eased = 1 - Math.pow(1 - t, 3);
+      pull = fromPull * (1 - eased);
+      peek = fromPeek * (1 - eased);
+      if (t < 1) {
+        springRaf = requestAnimationFrame(step);
+      } else {
+        pull = 0;
+        peek = 0;
+        travelPx = 0;
+        springRaf = 0;
+      }
+    };
+    springRaf = requestAnimationFrame(step);
   }
 
   function atEnd(el: HTMLElement): boolean {
@@ -423,14 +537,87 @@
     pull = accumulate(pull, event.deltaY, threshold);
     if (pullTimer !== null) clearTimeout(pullTimer);
     pullTimer = setTimeout(() => {
-      pull = 0;
       pullTimer = null;
+      // A pause is a release: the same curve puts the pull back.
+      springBack();
     }, 700);
     if (!shouldAdvance(pull, threshold)) return;
     const direction = pull > 0 ? 1 : -1;
     resetPull();
     settleUntil = performance.now() + SETTLE_MS;
     void store.advanceArticle(direction);
+  }
+
+  /**
+   * The same pull, from a finger.
+   *
+   * A phone has no wheel, so until now the only way out of the bottom of an
+   * article was the `↑`/`↓` bar — dragging past the end simply stopped, because
+   * at the end there is no scroll left to give. This fills the same accumulator
+   * from the thumb and draws it with the same line, so a swipe up and a wheel
+   * push past the end are one gesture with one feedback: the further the
+   * finger goes the less each pixel counts, and letting go before the line is
+   * full puts it back.
+   *
+   * Downwards is deliberately not here: at the top of an article a downward
+   * drag is already `pullDown`'s (leave, or the previous post), and two
+   * handlers claiming one direction is how a gesture ends up firing twice.
+   */
+  let swipeId: number | null = null;
+  let swipeStart = 0;
+
+  function onArticleTouchStart(event: TouchEvent): void {
+    swipeId = null;
+    const el = scroller;
+    if (!reading.advanceOnScroll || !el || event.touches.length !== 1) return;
+    // The flick that carried you into this article must not also take the next.
+    if (performance.now() < settleUntil || !atEnd(el)) return;
+    // A new press takes the pull over from whatever was still springing back.
+    if (springRaf !== 0) {
+      cancelAnimationFrame(springRaf);
+      springRaf = 0;
+    }
+    pull = 0;
+    peek = 0;
+    travelPx = 0;
+    swipeId = event.touches[0].identifier;
+    swipeStart = event.touches[0].clientY;
+  }
+
+  function onArticleTouchMove(event: TouchEvent): void {
+    if (swipeId === null) return;
+    const el = scroller;
+    const touch = [...event.touches].find((candidate) => candidate.identifier === swipeId);
+    if (!touch || !el) return;
+    if (!atEnd(el)) {
+      // The drag became a scroll after all: it is drag-scroll's, not this.
+      swipeId = null;
+      resetPull();
+      return;
+    }
+    const travel = swipeStart - touch.clientY;
+    travelPx = Math.max(0, travel);
+    pull = travel > 0 ? swipePull(travel, threshold) : 0;
+    // Past 85% of the apex the post starts to move out of the way and the next
+    // one shows behind it — only when "Reveal next" is on; off, this is 0 and
+    // the pull is the line filling, exactly as it was.
+    peek = peekOf(travelPx, threshold, reading.apexPeek);
+  }
+
+  function onArticleTouchEnd(): void {
+    if (swipeId === null) return;
+    const fire = shouldAdvance(pull, threshold);
+    swipeId = null;
+    if (!fire) {
+      // Let go early: back on a curve, so a drag you thought better of returns
+      // instead of vanishing.
+      springBack();
+      return;
+    }
+    // The switch itself is the quiet one: the next post loads with no fanfare.
+    resetPull();
+    settleUntil = performance.now() + SETTLE_MS;
+    void store.advanceArticle(1);
   }
 
   // A new article opens at the edge you arrived from: its top when moving
@@ -822,10 +1009,29 @@
   }
 </script>
 
-<section class="reader" data-pane="article" aria-label="Article">
+<section
+  class="reader"
+  class:bar-bottom={barAtBottom}
+  style:--bar-h={`${barHeight}px`}
+  data-pane="article"
+  aria-label="Article"
+>
   {#if item}
-    <header class="toolbar">
-      <button class="icon" onclick={() => onClose?.()} aria-label="Back to list">←</button>
+    <!-- One column on a phone has no second pane to fall back to: the way out of
+         the article floats over it in the bottom right corner — the same corner,
+         and the same 10px off it, as the unfolded feed's own "Show the feeds
+         again" disc, which is the control the thumb has just used — so leaving is
+         one press wherever the article is scrolled to. Everywhere else the bar's
+         arrow is still the way out, and there is no floating twin of it. -->
+    {#if floatingBack}
+      <button class="float-back" onclick={() => onClose?.()} aria-label="Back to list">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 3.5 5 8l4.5 4.5" /></svg>
+      </button>
+    {/if}
+    <header class="toolbar" class:floating={discOverBar} class:bottom={barAtBottom} bind:clientHeight={barHeight}>
+      {#if !discOverBar}
+        <button class="icon" onclick={() => onClose?.()} aria-label="Back to list">←</button>
+      {/if}
       <button
         class="icon"
         aria-label="Previous article"
@@ -927,21 +1133,63 @@
           </svg>
         </button>
       {/if}
+      <!-- The bar's own placement, in the bar: pressing it moves everything,
+           this button included, to the other edge of the article. The picture is
+           an arrow pointing at the edge the bar would move to — drawn rather
+           than typed, and pointing at a line rather than curling, so it cannot
+           be read as the "open original" arrow at this end of the bar. -->
+      <button
+        class="icon side"
+        aria-label={barAtBottom ? "Move the article bar to the top" : "Move the article bar to the bottom"}
+        title={barAtBottom
+          ? "The bar is under the article, within a thumb's reach — click to put it back at the top"
+          : "The bar is at the top of the article — click to put it at the bottom, where a thumb is"}
+        onclick={() => reading.toggleArticleBar()}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          {#if barAtBottom}
+            <path d="M3 3.4h10" stroke-width="1.9" />
+            <path d="M8 13V6.4M5.2 9.2 8 6.4l2.8 2.8" />
+          {:else}
+            <path d="M3 12.6h10" stroke-width="1.9" />
+            <path d="M8 3v6.6M5.2 6.8 8 9.6l2.8-2.8" />
+          {/if}
+        </svg>
+      </button>
     </header>
 
     <!-- A finger dragging down at the top of an article means "up", and there are
          two ways up. With advance-on-scroll on, up is the previous post, as it is
          for the wheel. With it off there is nothing higher to reach, so up is out
          of the reader and back to the list it came from. -->
+    <!-- The next post, on the layer under the article: with "Reveal next" on it
+         is what the pull uncovers, so the last stretch has somewhere to go. Text
+         only — the post itself has not been fetched yet, and a picture we do not
+         have would slide away with the finger and then be replaced. Nothing is
+         drawn when the pull has not reached the reveal, so the ordinary pull is
+         the line filling. -->
+    {#if peek > 0 && nextPost}
+      <div class="next" style:--peek={peek} aria-hidden="true">
+        <span class="next-label">Next post</span>
+        <span class="next-feed">{nextPost.origin?.title ?? ""}</span>
+        <span class="next-title">{nextPost.title || "(untitled)"}</span>
+      </div>
+    {/if}
     <article
       bind:this={scroller}
+      class:lifted={peek > 0}
       tabindex="-1"
       style:--page-width={pageWidth > 0 ? `${pageWidth}px` : null}
       style:--page-height={pageHeight > 0 ? `${pageHeight}px` : null}
+      style:transform={peek > 0 ? `translateY(${(-peek * PEEK_LIFT).toFixed(2)}%)` : null}
       data-scroll="article"
       data-scroll-axis="y"
       {onscroll}
       {onwheel}
+      ontouchstart={onArticleTouchStart}
+      ontouchmove={onArticleTouchMove}
+      ontouchend={onArticleTouchEnd}
+      ontouchcancel={onArticleTouchEnd}
       use:pullDown={{
         label: reading.advanceOnScroll ? "Pull down for the previous post" : "Pull down to go back",
         readyLabel: reading.advanceOnScroll ? "Release for the previous post" : "Release to go back",
@@ -1030,11 +1278,16 @@
       <button class="zoomclose" onclick={closePicture} aria-label="Close picture">✕</button>
     </div>
   {/if}
+  <!-- On the content's edge, not the pane's: the bar occupies the pane's, on
+       whichever side it is set to. Downwards fills along the bottom of the
+       words, upwards along their top. -->
   <div
     class="pull"
     class:visible={pull !== 0}
     class:up={pull < 0}
     style:--p={progressOf(pull, threshold)}
+    style:top={pull < 0 ? (barAtBottom ? "0px" : `${barHeight}px`) : "auto"}
+    style:bottom={pull < 0 ? "auto" : barAtBottom ? `${barHeight}px` : "0px"}
     aria-hidden="true"
   ></div>
 </section>
@@ -1101,6 +1354,8 @@
     right: 0;
     bottom: 0;
     left: 0;
+    /* Over the article it reports on, and over the post it uncovers. */
+    z-index: 3;
     height: 3px;
     transform: scaleX(var(--p, 0));
     transform-origin: left center;
@@ -1140,7 +1395,88 @@
     }
   }
 
+  /* The floating way out, drawn in the corner the unfolded feed's own control
+     pins to: one disc, on the content rather than in a bar, so it stays put
+     wherever the article is scrolled to. */
+  .float-back {
+    position: absolute;
+    /* The thumb's corner, and the one the unfolded feed's collapse disc uses:
+       10px off the right edge, 30px above the bottom, both plus the home
+       indicator's inset. It was top-left, which is the one corner a hand holding
+       a phone cannot reach while reading. */
+    right: 10px;
+    bottom: calc(30px + var(--safe-bottom, 0px));
+    z-index: 30;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--edge-soft);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    color: var(--text-dim);
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.25);
+    cursor: pointer;
+  }
+
+  /* The bar is a full-width row and it is at the bottom by default: the disc,
+     in the corner it now shares with the bar's right-hand controls, would be
+     drawn on top of them. Lifted clear by the bar's measured height — which
+     carries the home indicator's inset, and so differs per phone — plus the same
+     10px of breath the list's disc keeps from the counts. */
+  .reader.bar-bottom .float-back {
+    bottom: calc(var(--bar-h, 40px) + 10px);
+  }
+
+  .float-back:hover {
+    color: var(--text);
+  }
+
+  .float-back svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* The bar's own controls start after the disc, so nothing hides behind it. */
+  .toolbar.floating {
+    padding-left: 48px;
+  }
+
+  /* Under the article, the bar turns its edge round and takes the home
+     indicator's inset with it: the words above it are the pane's, so the border
+     that separates them moves to the top of the bar. */
+  .toolbar.bottom {
+    order: 2;
+    height: auto;
+    min-height: 40px;
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--edge-soft);
+    border-bottom: 0;
+  }
+
+  /* The placement picture is drawn, not typed, so it carries the bar's own
+     weight rather than the font's. */
+  .toolbar .side svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.3;
+    stroke-linecap: round;
+  }
+
   .toolbar {
+    /* Above the article, which lifts away at the end of a pull: the bar is the
+       one thing in the pane that must not slide. */
+    position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -1148,6 +1484,16 @@
     padding: 0 10px;
     border-bottom: 1px solid var(--edge-soft);
     background: var(--surface);
+    /* Eleven controls in a column that can be 240px wide: the bar scrolls
+       sideways before it drops a control off the end, and the scrollbar never
+       draws because the bar's own height is the control's height. */
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .toolbar::-webkit-scrollbar {
+    display: none;
   }
 
   .spacer {
@@ -1214,17 +1560,83 @@
   article {
     --gutter: clamp(16px, 5vw, 48px);
     flex: 1;
+    /* A layer of its own, above the next post it uncovers: without an opaque
+       background the reveal would show through the words, and without a
+       z-index the layer would sit under the pull line it belongs to. */
+    position: relative;
+    z-index: 1;
+    background: var(--bg);
     overflow-y: auto;
     /* Nothing in an article is wider than an article: a table, a code block or a
        video that cannot fit is a thing to shrink, and the sideways scroll that
        came with them was a second axis on a screen that has one. */
     overflow-x: clip;
-    /* The article is panned by the app's drag module like the lists: the browser
-       would take the pointer on the first move and then stop dead on release. */
-    touch-action: none;
+    /* The article scrolls the way the platform scrolls it: `scrollTop` written
+       on every pointermove is a main-thread scroll, and an article is the
+       longest thing in the app. A finger gets the compositor's pan and its
+       momentum; the mouse still gets the app's drag and throw, because
+       `lib/drag-scroll.ts` claims only a container whose `touch-action` is
+       `none`. */
+    touch-action: pan-y;
     padding-block: 22px 64px;
     max-width: none;
     width: 100%;
+  }
+
+  /* The post the pull is about to open, drawn under the one on screen. Words
+     only: the article is fetched when it opens, so a picture that is not there
+     yet would slide away with the finger and then change under it. Bottom
+     aligned, because the strip it is revealed in grows up from the pane's own
+     bottom edge as the open post lifts out of the way. */
+  .next {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 3px;
+    padding: 0 18px calc(10px + var(--safe-bottom, 0px));
+    background: var(--bg-alt);
+    opacity: calc(0.4 + 0.6 * var(--peek, 0));
+    pointer-events: none;
+  }
+
+  .next-label {
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .next-feed {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .next-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+    font-size: 17px;
+    font-weight: 650;
+    line-height: 1.25;
+    color: var(--text);
+  }
+
+  /* Only while the reveal is running. A permanent will-change on the article
+     would keep a pane-sized layer alive for the whole session. */
+  article.lifted {
+    will-change: transform;
+  }
+
+  /* With the bar under the article, the strip the reveal uncovers starts above
+     the bar, not at the pane's edge: the next post's words pad past it or they
+     are drawn behind it. */
+  .reader.bar-bottom .next {
+    padding-bottom: calc(10px + var(--safe-bottom, 0px) + var(--bar-h, 40px));
   }
 
   /* Headline, byline and prose keep a readable measure in the middle. */

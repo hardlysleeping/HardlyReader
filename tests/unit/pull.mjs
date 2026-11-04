@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { ARM_PX, MAX_PULL, resist, isArmed } from "../../src/lib/pull.ts";
+import { ARM_PX, MAX_PULL, resist, isArmed, sliderMetrics } from "../../src/lib/pull.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const read = (path) => readFileSync(join(root, path), "utf8");
@@ -57,6 +57,34 @@ check("...and the whole account when none is open", /else void reader\.refresh\(
 const readerStore = read("src/state/reader.svelte.ts");
 check("the open feed survives the reader", /expandedFeedId = \$state<string \| null>/.test(readerStore));
 check("the sidebar reads it instead of owning it", /const expandedFeed = \$derived\(reader\.expandedFeedId\)/.test(sidebar));
+
+// --- the feedback: a slider that rises from the bottom edge
+check("nothing pulled, nothing risen", sliderMetrics(0).rise === 0 && sliderMetrics(0).fill === 0);
+check("the first pixel of the drag moves it", sliderMetrics(2).rise > 0 && sliderMetrics(2).rise < 0.1);
+check("a full pull is a full capsule", sliderMetrics(MAX_PULL).rise === 1);
+check("the capsule finishes filling exactly at the arm point",
+  sliderMetrics(ARM_PX).fill === 1 && sliderMetrics(ARM_PX - 1).fill < 1);
+check("it cannot overfill beyond that", sliderMetrics(MAX_PULL).fill === 1);
+check("the fill and the arm agree, which is what the words say",
+  [1, 20, 40, 63, 64, 80, 88].every((px) => sliderMetrics(px).armed === isArmed(px)));
+check("nonsense rises nothing", sliderMetrics(NaN).rise === 0 && sliderMetrics(-20).rise === 0);
+check("it never exceeds the cap", sliderMetrics(1000).rise === 1 && sliderMetrics(Infinity).rise === 1);
+
+const appCss = read("src/app.css");
+check("the feedback is anchored to the bottom edge",
+  /\.pull-slider \{[\s\S]{0,400}?bottom: max\(0px, env\(safe-area-inset-bottom\)\);/.test(appCss));
+check("and no longer anchored to the top of the window", !/\.pull-slider \{[^}]*\btop:/.test(appCss));
+check("it rises out of that edge rather than fading in",
+  /transform: translate\(-50%, calc\(\(1 - var\(--rise, 0\)\) \* \(100% \+ 10px\) - 10px\)\);/.test(appCss),
+  "the capsule rests clear of the edge instead of being clipped by it");
+check("the accent fills it as the pull arms",
+  /\.pull-slider \.fill \{[\s\S]{0,160}?transform: scaleX\(var\(--fill, 0\)\);/.test(appCss));
+check("it only transitions on the way back, so it tracks the finger",
+  /\.pull-slider\.leaving \{[\s\S]{0,80}?transition: transform 200ms ease-out;/.test(appCss) &&
+    !/^\.pull-slider \{[^}]*transition:/m.test(appCss));
+check("reduced motion has no retraction to animate, and it still leaves",
+  /@media \(prefers-reduced-motion: reduce\) \{[\s\S]{0,120}?\.pull-slider\.leaving \{[\s\S]{0,40}?transition: none;/.test(appCss) &&
+    /retreat = setTimeout\([\s\S]{0,60}?slider\.remove\(\);/.test(read("src/lib/pull.ts")));
 
 // --- the gesture library keeps its promises
 const pull = read("src/lib/pull.ts");

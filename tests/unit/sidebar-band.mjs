@@ -268,8 +268,12 @@ const source = readFileSync(join(ROOT, "src/components/SidebarBand.svelte"), "ut
   );
 
   check(
-    "the pin is rendered once, in the open row",
-    (source.match(/\{@render pinControl\(\)\}/g) ?? []).length === 1,
+    "the pin is drawn twice — the open row and the locked strip — from one snippet",
+    // Owner, 2026-11-02: "when the lock is active pinned shouldn't be locked away
+    // it should be out above the collapsed lock section". Two call sites, one
+    // definition: a second button would be a second thing to keep in step.
+    (source.match(/\{@render pinControl\(\)\}/g) ?? []).length === 2 &&
+      (source.match(/class="ctl pin/g) ?? []).length === 1,
   );
   check(
     "...and a phone folds the band when the lock lands",
@@ -429,11 +433,42 @@ get pinsOnDevice() { return globalThis.__band.pinsOnDevice ?? false; },
     check("locked: the row is drawn", /class="band[ "]/.test(body));
     check("locked: ...compacted", body.includes("compact"));
     check("locked: the lock is the way back in", body.includes('aria-label="Unlock"'));
-    // The pin used to stay beside the lock. It filters the list the lock just
-    // covered, so a press on it changes something nobody can check the result of.
-    check("locked: the pin is gone", !body.includes('class="ctl pin'));
-    check("locked: ...and its count is not drawn", !body.includes('aria-label="Pinned: 2"'));
-    check("locked: the row is one control", (body.match(/class="ctl /g) ?? []).length === 1);
+    // The pin stays, on its own strip above the lock row: a pin is what is shown,
+    // not what is in it, and the owner asked for it to stay reachable while locked.
+    check("locked: the pin is still there", body.includes('class="ctl pin'));
+    check(
+      "locked: ...on a strip of its own, above the lock",
+      body.includes("compact pinstrip") && body.indexOf('class="ctl pin') < body.indexOf('class="ctl lock'),
+    );
+    check(
+      "locked: ...named by the count alone, with no word of its own",
+      body.includes('aria-label="Pinned: 2"') && !/class="ctl pin[\s\S]{0,200}?class="lbl"/.test(body),
+    );
+    {
+      // The lock's own row, taken out of the body: the pin's strip carries an extra
+      // class, so `band compact">` with no more class names is the lock's row alone.
+      // Svelte appends its own scoping class, so the row is `band compact <hash>`.
+      const rows = [...body.matchAll(/<div class="band compact([^"]*)">([\s\S]*?)<\/div>/g)];
+      const lockRow = rows.find((row) => !row[1].includes("pinstrip"))?.[2] ?? "";
+      check(
+        "locked: the lock row is the lock and nothing else",
+        (lockRow.match(/class="ctl /g) ?? []).length === 1 && lockRow.includes('aria-label="Unlock"'),
+        lockRow.replace(/\s+/g, " ").slice(0, 120),
+      );
+    }
+    {
+      // A phone folds the band the moment the lock lands, so the pin's strip has to
+      // be outside the reveal or it disappears exactly when the owner wants it.
+      const folded = draw({ locked: true, collapsed: true });
+      check(
+        "folded and locked: the pin is still drawn, above the fold",
+        folded.includes("compact pinstrip") && folded.includes('class="ctl pin'),
+      );
+      check(
+        "folded and locked: ...and no rows are drawn under it",
+        !folded.includes('class="band compact">') || !/class="band compact">[^<]*<button/.test(folded),
+      );
+    }
     check("locked: no eye", !body.includes('class="ctl hidden'));
     check("locked: no count of hidden things", !body.includes("1009"));
     check("locked: no ENFORCED badge", !body.toLowerCase().includes("enforced"));
@@ -457,7 +492,13 @@ get pinsOnDevice() { return globalThis.__band.pinsOnDevice ?? false; },
 
   {
     const body = draw({ collapsed: true, locked: true });
-    check("collapsed and locked: no band row", !/class="band[ "]/.test(body));
+    // The one thing a fold may not take away while the band is locked: the pin,
+    // because a phone folds the band the instant the lock lands (owner, 2026-11-02).
+    check(
+      "collapsed and locked: the pin's strip is all that is left",
+      (body.match(/class="band[ "]/g) ?? []).length === 1 && body.includes("compact pinstrip"),
+    );
+    check("collapsed and locked: ...and it carries no word about hidden things", !/class="lbl"/.test(body));
     check("collapsed and locked: no hidden count", !body.includes("1009"));
     check("collapsed and locked: no badge", !body.toLowerCase().includes("enforced"));
   }

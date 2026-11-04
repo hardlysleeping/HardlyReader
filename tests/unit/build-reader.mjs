@@ -73,7 +73,8 @@ export function buildReaderModule() {
     .replaceAll('"../api/transport"', JSON.stringify(absolute("src/api/transport.ts")))
     .replaceAll('"../api/backend"', JSON.stringify(absolute("src/api/backend.ts")))
     .replaceAll('"../api/greader-backend"', JSON.stringify(absolute("src/api/greader-backend.ts")))
-    .replaceAll('"../api/profile"', JSON.stringify(absolute("src/api/profile.ts")))
+    .replaceAll('"../api/session"', JSON.stringify(absolute("src/api/session.ts")))
+.replaceAll('"../api/profile"', JSON.stringify(absolute("src/api/profile.ts")))
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
     .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
     .replaceAll('"../lib/capabilities"', JSON.stringify(absolute("src/lib/capabilities.ts")))
@@ -105,5 +106,10 @@ export function buildReaderModule() {
     .replaceAll('"../lib/api-snapshot"', JSON.stringify(absolute("src/lib/api-snapshot.ts")))
     .replaceAll('"../lib/stream-loads"', JSON.stringify(absolute("src/lib/stream-loads.ts")))
     .replaceAll('"../lib/stream-perf"', JSON.stringify(absolute("src/lib/stream-perf.ts")))
-    .replaceAll('"../lib/stream-scroll"', JSON.stringify(absolute("src/lib/stream-scroll.ts")));
+    .replaceAll('"../lib/stream-scroll"', JSON.stringify(absolute("src/lib/stream-scroll.ts")))
+    .replaceAll('"../lib/offline-copy"', JSON.stringify(absolute("src/lib/offline-copy.ts")))
+    .replaceAll('"../lib/marks"', JSON.stringify(absolute("src/lib/marks.ts")))
+    .replaceAll('"../api/aggregate"', JSON.stringify(absolute("src/api/aggregate.ts")))
+    .replaceAll('"../lib/feed-groups"', JSON.stringify(absolute("src/lib/feed-groups.ts")))
+    .replaceAll('"../api/registry"', JSON.stringify(absolute("src/api/registry.ts")));
 }

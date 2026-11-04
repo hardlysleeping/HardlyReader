@@ -12,7 +12,7 @@ are authoritative                is authoritative
         │                                 │
         │  free                           │  optional paid cloud provider
         ▼                                 ▼
-no billing, ever                 HardlyReader Sync (iCloud / Drive / Dropbox / OneDrive)
+no billing, ever                 HardlySyncing (iCloud / Drive / Dropbox / OneDrive)
 ```
 
 **A profile has exactly one authority.** Two writers for the same hidden category, pin or
@@ -50,7 +50,7 @@ and preferences.
 Worked example — The Old Reader, paid:
 
 ```
-The Old Reader                    HardlyReader Sync
+The Old Reader                    HardlySyncing
 ├── feeds                         ├── hidden categories
 ├── folders                       ├── pinned categories
 ├── read / unread                 ├── custom ordering

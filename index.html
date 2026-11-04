@@ -11,7 +11,13 @@
          width (`visualViewport` resizes on every zoom step, which on Android
          arrives as a storm of resize events). `user-scalable=no` and
          `maximum-scale=1` are what the WebView honours; the `touch-action` rule
-         in `app.css` stops the double-tap fallback. -->
+         in `app.css` stops the double-tap fallback, and the one zoom a page can
+         take without a gesture — a focused field under 16px — is refused there
+         too. Safari ignores these two keys since iOS 10; there the field size is
+         what holds, which is why every field is 16px or more on iOS.
+         An earlier accessibility pass dropped them to allow pinch; the reader
+         was then left zoomed in by the passcode box with no way back, so they
+         are back and the field is the right size instead. -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"

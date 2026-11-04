@@ -13,7 +13,7 @@
  * which CSS silently drops.
  */
 
-export type ThemeMode = "dark" | "light" | "system";
+export type ThemeMode = "dark" | "light" | "system" | "oled";
 
 export interface Theme {
   /** `system` follows the OS; the other two pin it. */
@@ -107,18 +107,34 @@ export const DEFAULT_THEME: Theme = {
 };
 
 /** The page each mode uses when the theme has not picked one. */
-export const PAGE_COLOURS: Record<"dark" | "light", string> = {
+export const PAGE_COLOURS: Record<Exclude<ThemeMode, "system">, string> = {
   dark: "#0c0c0e",
   light: "#fdfdfd",
+  // The one page a phone panel cannot dim: nothing is drawn, so nothing glows.
+  oled: "#000000",
 };
+
+/**
+ * Whether a mode draws light ink on a dark page.
+ *
+ * `oled` is a dark mode with a blacker page, not a fourth palette, and every
+ * place that asks "is this dark?" — the day/night button, the page colour under
+ * a swatch — has to answer yes for it or it flips to a mode it is not in.
+ */
+export function isDarkChoice(mode: ThemeMode, prefersDark = false): boolean {
+  if (mode === "dark" || mode === "oled") return true;
+  if (mode === "light") return false;
+  return prefersDark;
+}
 
 export const THEME_KEY = "hardlyreader.theme.v1";
 
-export const THEME_MODES: ThemeMode[] = ["system", "dark", "light"];
+export const THEME_MODES: ThemeMode[] = ["system", "dark", "light", "oled"];
 export const THEME_MODE_LABELS: Record<ThemeMode, string> = {
   system: "Auto",
   dark: "Dark",
   light: "Light",
+  oled: "OLED Black",
 };
 
 /** `#rgb` or `#rrggbb`, the two forms `input type="color"` can produce. */

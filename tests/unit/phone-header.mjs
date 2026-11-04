@@ -130,15 +130,33 @@ check(
   !/\.where \{[^}]*transition/.test(header) && !/\.where \{[^}]*animation/.test(header),
 );
 
-// 36px of visible bar, plus the status bar's own height — which `app.css` pays
+// 40px of visible bar, plus the status bar's own height — which `app.css` pays
 // as padding, so the surface behind the clock is still the header's. It was 42,
 // which is a desktop toolbar's height; on a phone that reads as a gap between
-// the clock and the app rather than as a bar.
+// the clock and the app rather than as a bar. It went 36 -> 40 because a 30px
+// control in a 36px bar leaves 3px either side, and on glass the owner saw the
+// plus, the gear and Sync touching the hairline under them.
+// The bar's top edge has to land *below* the island, not under it. The inset is
+// paid minus `--status-lift`, declared once on the root: at 24 of a 62pt inset
+// the bar's top row was the clock's last row; at 18 of a 59pt inset its controls
+// started inside the housing and the owner reported the back button and the 1/2/3
+// control cut off by the notch. A lift may only spend the air that is under the
+// island — 2 leaves ~9pt of clear band above the controls on a 59pt inset.
 check(
-  "the visible height is 36px",
-  // Measured from where the padding puts it: the bar rides 12px higher than the
-  // raw inset, and its height has to agree or `overflow: hidden` clips it.
-  /height: calc\(max\(0px, calc\(var\(--safe-top\) - 12px\)\) \+ 36px\)/.test(header),
+  "the bar clears the island by a few points, not by a band",
+  /--status-lift: 2px;/.test(app) && (app.match(/--status-lift:/g) ?? []).length === 1,
+);
+
+check(
+  "the visible height leaves 5px of air under a 30px control",
+  // Measured from where the padding puts it: the bar rides `--status-lift`
+  // higher than the raw inset, and its height has to agree or `overflow: hidden`
+  // clips it.
+  /height: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 40px\)/.test(header),
+);
+check(
+  "...and that is the air, not a taller glyph: the controls are still 30px",
+  /\.more \{[\s\S]{0,400}?height: 30px;/.test(header) && /\.sync \{[\s\S]{0,400}?height: 30px;/.test(header),
 );
 
 /* ---------------------------------------------------------------- *
@@ -178,7 +196,30 @@ check("the bar carries the arrangement switch", /\{#if controls\}\s*\{@render co
 check("...passed in by the view, not imported", /controls\?: Snippet/.test(header) && /<PhoneHeader[\s\S]{0,300}?controls=\{layoutSwitch\}/.test(main));
 check("and the Aa panel opens from it", /<ReadingControls bind:this=\{readingControls\}/.test(header));
 check("...closing the sheet on its way open", /onopen=\{\(\) => \(settingsOpen = false\)\}/.test(header));
-check("the Aa panel clears the bar it opens under", /top: calc\(46px \+ var\(--safe-top, 0px\)\)/.test(read("src/components/ReadingControls.svelte")));
+check(
+  "the Aa panel clears the bar it opens under",
+  /--rc-panel-top: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 44px\)/.test(app) &&
+    /top: var\(--rc-panel-top, 46px\)/.test(read("src/components/ReadingControls.svelte")),
+);
+// The panel is fixed and mounted inside the bar, and a phone's bar is
+// `overflow: hidden` with a `backdrop-filter` material — which makes the bar the
+// containing block for its fixed children, so the panel was positioned against
+// the bar and clipped to its 74px: it measured in the right place, painted
+// nothing, and every point inside its rect hit the list underneath. It is moved
+// into `body` on mount instead.
+check(
+  "...and it is moved out of the bar, because the bar clips what is fixed inside it",
+  /use:portal/.test(read("src/components/ReadingControls.svelte")) &&
+    /document\.body\.appendChild\(node\)/.test(read("src/components/ReadingControls.svelte")) &&
+    /overflow: hidden/.test(header),
+);
+// One component, two bars: 40px on a phone and 42px in a window, so the panel's
+// place cannot be one number. 46 is the window's 42 + 4 of breath; a phone
+// overrides it on the root, where a portaled panel still inherits it.
+check(
+  "...and the window's bar keeps its own 4px breath under 42px",
+  /height: 42px;\s*flex: 0 0 42px;/.test(desktopHeader) && !/--rc-panel-top/.test(desktopHeader),
+);
 check(
   "...the same switch the sidebar draws beside the search field",
   /import ThemeToggle from "\.\/ThemeToggle\.svelte"/.test(read("src/components/Sidebar.svelte")) &&
@@ -233,7 +274,7 @@ check(
 );
 check(
   "the header takes its own top and sides",
-  /html\[data-device="phone"\] \.phone-header \{\s*\/\*[\s\S]{0,220}?\*\/\s*padding-top: max\(0px, calc\(var\(--safe-top\) - 12px\)\);\s*padding-left: max\(10px, var\(--safe-left\)\);\s*padding-right: max\(10px, var\(--safe-right\)\);/.test(
+  /html\[data-device="phone"\] \.phone-header \{\s*\/\*[\s\S]{0,400}?\*\/\s*padding-top: max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\);\s*padding-left: max\(10px, var\(--safe-left\)\);\s*padding-right: max\(10px, var\(--safe-right\)\);/.test(
     app,
   ),
 );
@@ -245,10 +286,51 @@ check(
 );
 check("and the stack carries that class", /class="layer stack-scroller"/.test(stack));
 check(
-  "landscape insets only the outermost columns",
-  /@media \(orientation: landscape\) \{\s*html\[data-device="phone"\] \.panes > \.slot\.feeds \{\s*padding-left: var\(--safe-left\);\s*\}\s*html\[data-device="phone"\] \.panes > \.slot\.article \{\s*padding-right: var\(--safe-right\);\s*\}/.test(
+  "landscape insets the outermost columns",
+  /@media \(orientation: landscape\) \{\s*\/\*[\s\S]{0,300}?\*\/\s*html\[data-device="phone"\] \.panes > \.slot\.feeds \{\s*padding-left: var\(--safe-left\);\s*\}/.test(
     app,
   ),
+);
+check(
+  "...and the right rim follows whichever column reaches it",
+  // One edge, several owners: the article in three panes, the posts when the
+  // article has been given away or the frame is two columns, the feeds in one
+  // column. Naming only the article left the posts running under the housing in
+  // two panes and the tree doing the same in one.
+  /html\[data-device="phone"\] \.panes > \.slot\.article,\s*html\[data-device="phone"\] \.panes\.one > \.slot\.feeds,\s*html\[data-device="phone"\] \.panes\.two > \.slot\.posts,\s*html\[data-device="phone"\] \.panes\.articleless > \.slot\.posts \{\s*padding-right: var\(--safe-right\);\s*\}/.test(
+    app,
+  ),
+);
+check(
+  "...and a column that is the whole frame pays both",
+  /html\[data-device="phone"\] \.panes\.one > \.slot\.article,\s*html\[data-device="phone"\] \.panes\.solo > \.slot\.article \{\s*padding-left: var\(--safe-left\);\s*padding-right: var\(--safe-right\);\s*\}/.test(
+    app,
+  ),
+);
+check(
+  "...and the view names the solo frame the rule keys on",
+  /class:solo=\{articleSolo\}/.test(read("src/views/Main.svelte")),
+);
+check(
+  "the sheet and the picture's band pay the same side insets",
+  // Both are the frame's width, so on its side both reach the notch.
+  /padding-left: var\(--safe-left, 0px\);\s*padding-right: var\(--safe-right, 0px\);/.test(read("src/components/Sheet.svelte")) &&
+    /padding-left: max\(14px, var\(--safe-left, 0px\)\);\s*padding-right: max\(14px, var\(--safe-right, 0px\)\);/.test(
+      read("src/components/ImageViewer.svelte"),
+    ),
+);
+check(
+  "the status bar is hidden on its side, by a file the release proves is linked",
+  // A WKWebView cannot ask for this, and Tauri's iOS project is a build product,
+  // so it is one Swift file plus the Info.plist key that makes the global call
+  // honoured - and a marker string the workflow greps out of the binary.
+  // Objective-C, not Swift: the hook is `+load`, and Swift refuses to compile
+  // that selector ("method 'load()' defines Objective-C class method 'load',
+  // which is not permitted by Swift"). The first CI run of this fix failed on it.
+  /\+ \(void\)load/.test(read("src-tauri/ios/StatusBar.m")) &&
+    /UIInterfaceOrientationIsLandscape/.test(read("src-tauri/ios/StatusBar.m")) &&
+    /hardlyreader-status-bar-1/.test(read(".github/workflows/ios-unsigned.yml")) &&
+    /UIViewControllerBasedStatusBarAppearance/.test(read(".github/workflows/ios-unsigned.yml")),
 );
 check(
   "and the bottom of every pane, not of the container it is measured from",
@@ -274,7 +356,7 @@ check("no phone rule is unscoped", !/^\.phone-header \{/m.test(app) && !/^\.stac
 check(
   "landscape reserves nothing above the bar",
   /@media \(orientation: landscape\) \{\s*html\[data-device="phone"\] \.phone-header \{\s*padding-top: 0;/.test(app) &&
-    /@media \(orientation: landscape\) \{\s*\.phone-header \{\s*height: 36px;/.test(header),
+    /@media \(orientation: landscape\) \{\s*\.phone-header \{\s*height: 40px;/.test(header),
 );
 check(
   "and the idle loading line takes no room on a phone",

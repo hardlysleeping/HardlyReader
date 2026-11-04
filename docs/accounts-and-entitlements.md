@@ -3,11 +3,19 @@
 Owner decision, 2026-10-27. Two separate questions, and they must stay separate:
 
 1. **Who is this reader?** — an identity, so one purchase unlocks a second device.
-2. **Do they own HardlyReader Sync right now?** — an entitlement, which only a server may set.
+2. **Do they own HardlySyncing right now?** — an entitlement, which only a server may set.
 
 Neither question has anything to do with where the library lives. Feeds, articles, read state and
 stars stay in SQLite, in FreshRSS, or in the reader's own cloud folder. This document's server
 answers one sentence: *who is this, and do they currently own Sync.*
+
+**The entitlement is per account, not per app.** `entitlements` is keyed by `user_id` and carries one
+boolean, so a purchase made from any app that reads this project unlocks in every one of them —
+HardlyReader today, HardlyTracking when it grows a client for it. That is why there is no column
+naming a product or an app: a second column would be a way for a paying reader to be locked out of
+the second app, and two rows kept in step by hand. The one per-app thing is where a purchase *comes
+back to*: checkout takes the origin of the app that asked, and the service accepts it only when it is
+one it serves (`APP_URL` plus `APP_ORIGINS`). One Stripe product, two prices, one webhook, one row.
 
 ## Why an account at all
 

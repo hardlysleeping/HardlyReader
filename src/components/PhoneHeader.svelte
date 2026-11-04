@@ -49,7 +49,7 @@
    * one step out lives here — one strip, one step, one place to look.
    */
   import type { Snippet } from "svelte";
-  import { syncDescription, syncReadout } from "../lib/sync-progress";
+  import { accountFailureReadout, syncDescription, syncReadout, writesReadout } from "../lib/sync-progress";
   import { layout } from "../state/layout.svelte";
   import { chrome } from "../state/chrome.svelte";
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
@@ -193,6 +193,10 @@
 
   const refreshing = $derived(reader.sync.active);
   const readout = $derived(syncReadout(reader.sync));
+  /** Unsent marks, in the sync readout's slot: one place on a phone bar, not two. */
+  const waiting = $derived(writesReadout(reader.writes, reader.sync.active));
+  /** Accounts a fan-out sync could not reach: one of them failing is not the sync failing. */
+  const unreachable = $derived(accountFailureReadout(reader.accountErrors, reader.sync.active));
   const description = $derived(syncDescription(reader.sync));
 
   /**
@@ -329,7 +333,19 @@
     </svg>
   </button>
 
-  {#if refreshing}
+  {#if waiting}
+    <!-- Unsent marks, in the sync readout's slot on this bar. Silent when the queue
+         is empty: the phone bar has room for what is happening, not for a status. -->
+    <span class="queued" title={waiting.title}>
+      <span class="readout">{waiting.text}</span>
+    </span>
+  {:else if unreachable}
+    <!-- An account that did not answer, in the same slot: the sync happened for the
+         others, so the button cannot say it failed. Names and reasons are the title. -->
+    <span class="queued failed" title={unreachable.title}>
+      <span class="readout">{unreachable.text}</span>
+    </span>
+  {:else if refreshing}
     <!-- The count and the percentage, for as long as the sync lasts, in the same
          words the desktop bar uses. It sits beside the button rather than over
          the title: the number is read while the list is read. -->
@@ -384,9 +400,11 @@
 />
 
 <style>
-  /* 36px of visible bar. The status bar's own height is padding, paid by
-     `app.css` from `--safe-top`, so the bar keeps the height it has on the
-     desktop and the surface behind the clock is still the header's.
+  /* 40px of visible bar: 36px was three pixels of air above and below a 30px
+     control, which on a glass bar read as the glyphs touching the hairline
+     under them. Five each side is the least that reads as a margin. The status
+     bar's own height is padding, paid by `app.css` from `--safe-top`, so the
+     surface behind the clock is still the header's.
 
      The fill and the hairline are not set here. On a phone this bar is a piece
      of the navigation material — translucent, blurred, one hairline — and that
@@ -400,19 +418,19 @@
     align-items: center;
     gap: 6px;
     flex: 0 0 auto;
-    /* The same 36px of content, measured from where the padding puts it: the
-       bar sits 12px higher than the raw inset (see `app.css`), and its height
-       has to agree or `overflow: hidden` clips the controls. */
-    height: calc(max(0px, calc(var(--safe-top) - 12px)) + 36px);
+    /* The same 40px of content, measured from where the padding puts it: the
+       bar sits `--status-lift` higher than the raw inset (see `app.css`), and
+       its height has to agree or `overflow: hidden` clips the controls. */
+    height: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 40px);
     background: var(--surface);
     overflow: hidden;
   }
 
   /* On its side the bar is the top of the screen: no status-bar strip above it,
-     36px of controls, and the rest of the height is the panes. */
+     the same 40px of controls, and the rest of the height is the panes. */
   @media (orientation: landscape) {
     .phone-header {
-      height: 36px;
+      height: 40px;
     }
   }
 
@@ -476,7 +494,7 @@
     min-width: 0;
     overflow: hidden;
     color: var(--text-dim);
-    font-size: 12.5px;
+    font-size: 15px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -535,7 +553,7 @@
   }
 
   /* The passed-in arrangement switch is a desktop control: 26px buttons in a
-      bordered group. On a 36px bar it keeps its size and loses the border, so the
+      bordered group. On a 40px bar it keeps its size and loses the border, so the
      bar reads as one row of glyphs rather than a row with a widget in it. */
   .phone-header :global(.switch) {
     height: 26px;
@@ -606,6 +624,24 @@
     align-items: center;
     min-width: 0;
     margin-left: 2px;
+  }
+
+  .queued {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    min-width: 0;
+    margin-left: 2px;
+  }
+
+  /* An account that did not answer: the same quiet slot, in the warning ink the app
+     already uses for something that went wrong and can be put right. */
+  .queued.failed {
+    color: var(--warn, #d08770);
+  }
+
+  .queued .readout {
+    color: var(--muted);
   }
 
   .readout {

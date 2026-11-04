@@ -292,6 +292,14 @@ export interface RowDragHandlers {
   onHold?: (id: string, point: { x: number; y: number }) => void;
   /** A drag ended or was cancelled. */
   onEnd?: () => void;
+  /**
+   * How long a finger has to hold before the row is lifted, in milliseconds.
+   *
+   * The hold and the long press are one gesture here — whichever fires first is
+   * what the press meant — so the delay is the reader's setting, read at the
+   * moment of the press rather than at construction.
+   */
+  holdMs?: () => number;
 }
 
 /** Kept under its old name: the shape did not change, only the payload's names. */
@@ -398,21 +406,38 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
     pending = null;
     if (at === null || !dragging) return;
     let y = at.y;
+    let edge = false;
     if (scroller !== null) {
       const rect = scroller.getBoundingClientRect();
+      const was = scroller.scrollTop;
       if (y < rect.top + EDGE) {
-        scroller.scrollTop -= EDGE_STEP;
+        scroller.scrollTop = was - EDGE_STEP;
         y = Math.max(y, rect.top + EDGE);
       } else if (y > rect.bottom - EDGE) {
-        scroller.scrollTop += EDGE_STEP;
+        scroller.scrollTop = was + EDGE_STEP;
         y = Math.min(y, rect.bottom - EDGE);
       }
+      // `edge` is "the list actually moved", not "the finger is in the band":
+      // at either end of the tree the scroll is spent, and a loop that asked
+      // for another frame anyway would run for as long as the drag did.
+      edge = scroller.scrollTop !== was;
     }
     const next = dropTargetAt(at.x, y, options);
     const changed =
       next?.target !== target?.target || (next?.before ?? null) !== (target?.before ?? null);
     target = next;
     if (changed) handlers.onHover(next);
+    // Held in the edge, the list has to keep moving under a finger that is not
+    // moving. Frames were only ever asked for by a pointer event, so a thumb
+    // parked at the bottom of the tree stopped scrolling and the drag looked
+    // stuck exactly where it is usually held longest — and the row it was aimed
+    // at was only ever re-tested when the finger twitched. The same point is
+    // asked again on the next frame, which is also what keeps the highlight on
+    // the row passing under it.
+    if (edge) {
+      pending = at;
+      frame = requestAnimationFrame(flush);
+    }
   }
 
   function onMove(event: PointerEvent) {
@@ -448,6 +473,22 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
     if (frame === 0) frame = requestAnimationFrame(flush);
   }
 
+  /**
+   * A carried row is the finger's only reader.
+   *
+   * The tree pans natively now (`touch-action: pan-y` in `Sidebar.svelte`), which
+   * is what makes it scroll smoothly — but a finger that has lifted a row must
+   * not also drag the list under it, or the ghost and the row it is aimed at move
+   * apart. The hold happens before any movement, so the browser has not started
+   * a scroll yet, and a non-passive `touchmove` that refuses the first movement
+   * keeps it that way for the rest of the carry. Outside a carry this listener
+   * says nothing, so ordinary scrolling is the browser's.
+   */
+  function onTouchMove(event: TouchEvent) {
+    if (!held && !dragging) return;
+    if (event.cancelable) event.preventDefault();
+  }
+
   function finish(dropped: boolean) {
     clearHold();
     held = false;
@@ -456,6 +497,7 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
     const destination = target;
     const id = moving;
     window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("touchmove", onTouchMove);
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onCancel);
     window.removeEventListener("keydown", onKeyDown);
@@ -555,9 +597,10 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
         // The hold is the lift, so the menu's own timer stands down: the two are
         // one press, and whichever fires first is what the press means.
         handlers.onStart?.();
-      }, TOUCH_HOLD);
+      }, handlers.holdMs?.() ?? TOUCH_HOLD);
     }
     window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);
     window.addEventListener("keydown", onKeyDown);

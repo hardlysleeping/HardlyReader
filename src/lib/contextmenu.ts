@@ -191,9 +191,13 @@ export type MenuAction =
   | { type: "hidden"; hidden: boolean }
   | { type: "pin"; pinned: boolean }
   | { type: "full-text"; mode: FullTextMode }
+  | { type: "refresh" }
   | { type: "remove-feed" }
   | { type: "confirm-remove" }
-  | { type: "cancel-remove" };
+  | { type: "cancel-remove" }
+  // Not a write: the chooser it opens is UI, and the choice lands through the
+  // icons store when one is made.
+  | { type: "icon" };
 
 export interface MenuItemModel {
   action: MenuAction;
@@ -213,6 +217,18 @@ export interface MenuModel {
   label: string;
   /** Why the items cannot be used, when they cannot. */
   note: string | null;
+  /**
+   * Refresh this row: read it from the server again, now.
+   *
+   * First, and never disabled, because it is the only item here that is not a
+   * write and the only one that can be asked for at any moment. What it can
+   * promise is the server's answer, not the server's crawl: a GReader endpoint
+   * has no "fetch this feed now" call, so on an account the row asks for that
+   * stream's newest page and the counts beside it, and a feed's new posts appear
+   * when the server has crawled them — which it does on its own. A library on
+   * this device does have a fetch, and that one really does go and get the feed.
+   */
+  refresh: MenuItemModel;
   /** Hide/Show. Null for a feed row. */
   toggle: MenuItemModel | null;
   /**
@@ -223,6 +239,12 @@ export interface MenuModel {
    * device. It is a pin in every case, so it is called one in every case.
    */
   pin: MenuItemModel | null;
+  /**
+   * The category's picture. A category row only: a feed's mark is the feed's own
+   * favicon and there is nothing to choose, and giving a feed an arbitrary glyph
+   * would be a second thing called "icon" in the same menu.
+   */
+  icon: MenuItemModel | null;
   /** Remove, for a feed row. Replaced by `confirm` once it is chosen. */
   remove: MenuItemModel | null;
   /** The second half of a removal: confirm or back out. Empty otherwise. */
@@ -283,6 +305,13 @@ export function categoryMenu(
     kind: "category",
     label,
     note: notes.length === 0 ? null : notes.join(" "),
+    refresh: {
+      action: { type: "refresh" },
+      label: "Refresh",
+      checked: false,
+      disabled: false,
+      hint: "Reads this category's feeds and counts from the server again. New posts arrive once the server has crawled them.",
+    },
     // One entry, whichever storage it lands in. There is one mark on a
     // category, and it is a pin. Where it is kept is the half the reader cannot
     // see, so the hint says it — in the same words the band's pin uses.
@@ -303,6 +332,16 @@ export function categoryMenu(
       label: hidden ? "Show" : "Hide",
       checked: false,
       disabled: !usable,
+    },
+    // Always offered and never disabled: the picture is this device's (and the
+    // account's) taste, so neither the extension being absent nor a category
+    // with no server id has anything to say about it.
+    icon: {
+      action: { type: "icon" },
+      label: "Icon…",
+      checked: false,
+      disabled: false,
+      hint: "A picture for this category, on this device and in your sync",
     },
     remove: null,
     confirm: [],
@@ -344,10 +383,19 @@ export function feedMenu(
     kind: "feed",
     label: title,
     note: confirming ? "This removes the feed and its unread items from the server." : null,
+    refresh: {
+      action: { type: "refresh" },
+      label: "Refresh",
+      checked: false,
+      disabled: false,
+      hint: "Reads this feed from the server again. New posts arrive once the server has crawled it.",
+    },
     toggle: null,
     pin: confirming
       ? null
       : { action: { type: "pin", pinned: !pinned }, label: pinned ? words.remove : words.add, glyph: "📌", checked: false, disabled: false },
+    // A feed's mark is its own favicon; there is nothing here to choose.
+    icon: null,
     fullText: confirming
       ? []
       : FULL_TEXT_MODES.map((asked) => ({

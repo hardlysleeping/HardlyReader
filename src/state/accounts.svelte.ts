@@ -28,6 +28,7 @@ import {
   sessionFor,
   type AccountRow,
 } from "../lib/accounts";
+import { forgetQueue } from "../api/profile";
 import { accountSlug } from "../lib/account-key";
 
 /** How a switch proves a saved session still works. */
@@ -135,6 +136,9 @@ export class AccountsState {
       if (next !== undefined) await this.switchTo(next.slug);
     }
     forgetAccount(slug);
+    // The account's queued marks go with it: once the session is gone nothing knows
+    // that slug, so the rows would sit in IndexedDB forever.
+    forgetQueue(slug);
     this.refresh();
   }
 

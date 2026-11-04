@@ -48,3 +48,7 @@ flatpak build-bundle "$REPO/flatpak/repo" "$OUT" "$APP_ID" \
   --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
 
 echo "wrote $OUT"
+
+# And into the two folders they are run from, under names that do not carry a
+# version: this is always the current build. See scripts/publish-local.sh.
+bash "$REPO/scripts/publish-local.sh"

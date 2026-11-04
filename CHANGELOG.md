@@ -6,6 +6,263 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **OLED Black**, a fourth appearance beside Auto, Dark and Light: page and
+  panels at true black, with the borders carrying the structure. The day/night
+  button treats it as dark, and the picker row wraps rather than squeezing four
+  labels into the panel's width.
+- **A picture wallpaper now shows.** The picture was a layer behind the app and
+  the page was painting its own colour over it, so none was ever visible; with
+  one set, `body` and `#app` step out of the way. On a phone it also survives the
+  trip into storage: a photo a webview will not decode as a bitmap falls back to
+  the element's decoder, and the stored image is capped to fit iOS's
+  whole-origin budget instead of pushing the theme past it and being dropped.
+- **The posts column turns its own pages.** Scrolling near the end asks for the
+  next page, in every list view, with Load more still there. It needs downward
+  input and real movement, and never retries a page that failed.
+
+### Changed
+
+- **The feeds list scrolls the phone's own way.** It was the last surface the
+  app moved by hand, one write per finger movement, which is what felt choppy.
+  It now pans natively like the post list, and holding a feed to move it still
+  takes the finger first, so reordering works on a list the browser scrolls.
+- **Pane 1 is cut from the same glass as the sheet that opens over it** — the
+  tint, the grain, the sheen and the 26px blur — instead of an opaque slab.
+- **The phone's top bar is 40px, not 36px.** The plus, the gear and Sync were
+  three pixels from the hairline under them and read as touching it.
+
+## [0.6.26] — 2026-11-02
+
+### Added
+
+- **Buzz.** A bolt at the top of the sidebar finds the stories several of your
+  feeds are telling at once: one engine, ranked coverage-first, over the last 48
+  hours. Topics are a name plus the words a reader gives them — the articles pane
+  becomes the topic's stories, and the topic rows stay collapsed with their feeds'
+  icons until asked.
+- **A category can wear a picture**, guessed from its name when it has none, and
+  a wrong guess gets a way to be corrected: the category menu's *Icon…* opens the
+  picker anchored at the press, with the automatic guess as one of the choices.
+- **A phone can swipe to the next article.** Past the end of an article the swipe
+  fills the same line the wheel fills, with the same resistance and the same
+  "scroll effort" setting, and releasing at a full line loads the next article.
+
+### Changed
+
+- **An unfolded feed stays put.** On a phone, opening a feed now scrolls its row
+  to the top of the tree and pins it there: the feed's name and the four views
+  under it stay against the top while its posts scroll beneath, instead of
+  carrying the view options away with them. Measured on the built stylesheet with
+  the tree's real classes — at scrollTop 200 the row sits at 0 and the views bar
+  at the row's own height.
+- **A feed opens at its first post.** Tapping a second feed closed the first,
+  which removed its posts from above and left the scroll at the end of the feed
+  you had just asked for; the row is now pinned (and the scroll set to it) after
+  the new posts arrive.
+
+
+- **Feed indent moved into the Aa panel.** It was a phone's Settings → Feeds
+  row, two doors from the list it moves; it is now the first row of the Aa
+  panel, above Text size, on the slider the sidebar already mounts. Same store,
+  same write, one slider in three frames rather than a second setting.
+- **"Pictures" is "Thumbnails" in that panel**, and so is everything inside it —
+  the group, the position, the size and both stepper labels. "Pictures above
+  text" now reads as thumbnails too.
+- **A grid tile keeps its picture whole.** Star and read were a floating pill in
+  the tile's top-right corner, drawn over the one part of a square tile the eye
+  goes to first. They are now the last line of the tile, under the words, in
+  normal flow; a thumb gets a 34px target.
+- **A phone's title bar names where you are in 15px, not 12.5px.** The title is
+  the one thing in that bar that changes meaning as you move, and at 12.5 it read
+  like a caption on the back arrow.
+
+## [0.6.25] — 2026-10-31
+
+### Fixed
+
+- **The first post in a list no longer starts under the header's rule.** The
+  column was flush at the top (only the foot of the list kept any air), so the
+  first row's accent hairline and turn were drawn against the line above it and
+  read as clipped, with the row's own dark edge sitting where the header ends.
+  The list now keeps the same 12px above the first row that it already kept
+  below the last. Rows, Tree, Grid and the one-line view are all inset by it;
+  Cards is untouched — a card is the pane, and it never touches the top.
+
+## [0.6.24] — 2026-10-31
+
+### Fixed
+
+- **A starred post keeps its gold once it has been read.** Starring an article
+  from the FreshRSS web UI and starring it in the app looked like different
+  things, because the gold edge on a row was drawn only for an *unread* post: a
+  post read in the morning and starred in the afternoon had no gold at all, and
+  the only mark left was the star button, dimmed with the rest of the row to 48%
+  where its gold reads as mustard. Where the star was made never mattered —
+  `isStarred()` has always read the item's own state, so a star set in the server
+  UI arrives like any other. The edge now belongs to starred **or** unread rows,
+  the wash stays the unread language (so a row can say "new", "starred", or
+  both), and a starred read row dims to 0.62 instead of 0.48 so the star's colour
+  stays the star's colour. Measured in the built stylesheet through Chromium:
+  before, a starred read row reported `edge=0px, opacity=0.48`; after,
+  `edge=2px #f2bf3c, opacity=0.62`, while a plain read row still reports
+  `edge=0px, opacity=0.48`. New suite `tests/unit/starred-rows.mjs` (11 checks)
+  guards it, and the five stylesheet contracts that named the old
+  `:not(.read)` selector were rewritten to the new one rather than deleted.
+
+## [0.6.23] — 2026-10-31
+
+### Changed
+
+- **A phone's reading options are a sheet, not a popover in the corner.** The Aa
+  panel used to open as a 252px card in the top corner, over the article you were
+  reading, with no handle and no gesture back. On a phone it now rises from the
+  bottom edge: the grabber owns the drag, letting go past a third of its height
+  or flicking it closes, and pulling up gives 28px of elastic and stops because
+  there is nothing above it. The arithmetic is `src/lib/sheet.ts`, which reuses
+  pull-to-refresh's resist curve so the give at the top is the same gesture
+  language. Windows keep the popover exactly as it was. Measured with real touch
+  events at 390×844: a 390×426 sheet flush to the bottom, a 60px drag follows
+  1:1 and springs back, 220px closes, 80px up stops at −28px, a 90px flick
+  closes; desktop at 1440×900 still draws the 252×405 popover at the top right.
+- **The phone's top bar clears the status bar by six pixels instead of touching
+  it.** The bar rode above the raw inset by a hard 24, so on a 62pt inset its top
+  edge landed on the clock's last row and the status bar clipped its hairline.
+  The number is now `--status-lift` on the root, declared once, and the header's
+  padding, its height and the Aa panel's anchor all read it — 18, not 24, because
+  six pixels of air is the margin a phone needs and no more. Measured in portrait
+  at a forced 62pt inset: padding-top 44px where it was 38, height 80 where it was
+  74; at inset 0 and in landscape nothing moves.
+
+## [0.6.22] — 2026-10-30
+
+### Changed
+
+- **The app stops behaving like a page in a browser.** A long press used to
+  offer Copy / Look Up / Share over any label, a tap flashed a grey rectangle,
+  and a cover or an article picture could be dragged out of the window — three
+  things a native iOS app does not do. The chrome is now unselectable and
+  callout-free, with a transparent tap highlight and no image drag. Selection
+  comes back exactly where it is the point: the article body (quoting what you
+  are reading is the app working), a code block, a text field, and anything
+  marked `.selectable`. Zoom needed nothing — `touch-action: pan-x pan-y` already
+  refuses pinch, and on WebKit refusing pinch also refuses the double-tap zoom —
+  which is why this adds no tap-pair canceller: the reader's own double tap, on
+  a picture, is a feature and stays.
+
+## [0.6.21] — 2026-10-30
+
+### Changed
+
+- **The phone's bars read as glass rather than as a tinted strip.** The material
+  gained the four things it was missing: the tint is lighter (62% surface, so the
+  blur does more of the work), the blur samples harder and lifts slightly
+  (`blur(26px) saturate(190%) brightness(1.04)`), the slab catches a sheen along
+  its top with a lit hairline inside its edge, and a 3.5% grain tile stops the
+  blur from banding over photographs on an OLED panel. The full-bleed bar's lit
+  lip faces the content, since its top edge is the screen's. One grouped rule
+  paints all three surfaces — bar, ••• pill, settings sheet — so they cannot
+  drift apart, and both fallbacks (no `backdrop-filter`, reduced transparency)
+  still go solid. This is still an imitation: the real material is a
+  `UIVisualEffectView` a webview cannot ask for.
+
+## [0.6.20] — 2026-10-30
+
+### Changed
+
+- **The paid service is called HardlySyncing.** It was written as "HardlyReader
+  Sync", which read as a feature of this app; it is one subscription that carries
+  a reader's own state between their devices, and it is meant to be the same
+  subscription in the other apps. Nothing behind it changed — the same product,
+  the same two prices, the same `entitlements` row.
+- **A purchase made in a browser comes back to the app that started it.** The app
+  names its own origin at Checkout and the service accepts it only when it is one
+  it serves; before this, every purchase returned to the service's own page.
+
+## [0.6.19] — 2026-10-30
+
+### Fixed
+
+- **A phone could not open its reading options.** The Aa panel is fixed and was
+  mounted inside the bar; that bar is `overflow: hidden` and carries the
+  navigation material, and a `backdrop-filter` makes an element the containing
+  block for its fixed descendants — so the panel was positioned against the bar
+  and clipped to the bar's own height. It was there, 252×405 in the right place,
+  and painted nothing: text size, leading, alignment and thumbnails were
+  unreachable on iOS. The panel now lives in `body`, as the settings sheet
+  already did. Measured at 440×956 with a 62/34 inset: panel at y=78 under a
+  74px bar, hit-testable at four depths inside it.
+- **The bar's controls sat under a band of nothing.** They cleared a 62px status
+  bar by 12px, so half the inset was empty; they clear it by 24 now, and the Aa
+  panel opens 4px under the bar instead of 30.
+- **A window's Aa panel overlapped its own bar by 2px**, because the phone's
+  number was the only number. The panel's place is a variable now: 46px for a
+  42px window bar, and a phone's 36px plus the part of the inset it sits under.
+
+## [Unreleased]
+
+## [0.6.18] — 2026-10-29
+
+Four things that were quietly wrong, and the work behind them.
+
+The lock folded the band by writing the reader's own preference, so one lock left
+the band shut for every launch after it. The fold is the lock's now — remembered,
+not stored — and unlocking gives back the fold you had.
+
+The launch crawl fetched new posts and then repainted from a stream cache a few
+seconds old, which is why a fresh load could look like it had grabbed nothing.
+It forces the stream it repaints, the way a manual refresh already did.
+
+A pin says where its mark lives. With the categories extension answering it is
+the extension's; without it the mark is kept on this device, and the band and the
+row menu both say so instead of only naming what is missing. A passcode kept on
+this device says that too.
+
+Pictures got a policy rather than a hope: a scheme rule for what may be cached
+(deliberately not same-origin, so a self-hosted server still caches), admission
+that prunes to the ceiling before a write instead of after, a size rule that
+never upscales and never re-encodes a rounding error, and thumbnails warmed
+before full pictures in reading order.
+
+## [0.6.17] — 2026-10-29
+
+Landscape stops paying for a status bar it does not have. The bar is 36px at the
+top of the screen in both orientations, the panes start at its edge, and the
+left/right insets are still paid because the notch is on a side there.
+
+The counts at the bottom of the feeds column wrap instead of clipping. They were
+`nowrap` inside a centred flex line, and a centred line that overflows is clipped
+at its *start* — so "Hidden 1" lost its margin while "Pinned 2" kept its 10px.
+Each line is centred on its own now, and the row reads symmetric at 390px and at
+the 150px a two-pane phone gives it.
+
+The idle loading line no longer takes 3px between the bar and the first row.
+
+## [0.6.16] — 2026-10-29
+
+A phone pass: the bar sits 12px higher than the status-bar inset, the counts are
+centred and 8px off the glass, and the day/night switch moved beside the search
+field, which shrank to 30px and shares its row.
+
+Adding a feed is a sheet over the top of the column now — where the `+` was
+pressed — instead of a footer under the keyboard, and it takes three lines so a
+list of feeds reads as a list. The `+` itself brings the feeds pane to the front
+and puts the caret in the field.
+
+An uncollapsed feed in pane one has a floating chevron that collapses it and
+returns the tree to that feed's row.
+
+Reading: a narrow list gives its width to the words (the 64px thumbnail and the
+air around the action buttons go first, at any list under 260px), and the post
+list declares one scroll axis so a vertical flick cannot drift sideways. The
+article keeps the same rule. On a phone the feeds column is capped at 38% of the
+width, so the list always has the larger half; the stacked seam between posts and
+article goes wherever you leave it, 5% to 95%.
+
+The list header is a strip (61px, from 117) and the idle loading line no longer
+paints a 3px band under the bar.
+
 ## [0.6.11] — 2026-10-29
 
 ### Added

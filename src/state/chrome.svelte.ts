@@ -31,14 +31,21 @@ import {
   readBandCollapsed,
   readIndentOpen,
   readPinPad,
+  readGestures,
+  readOfflineCopy,
+  readMultiAccount,
   readRefreshOnReturn,
   writeAutoSync,
   writeAutoSyncHours,
   writeBandCollapsed,
+  writeGestures,
+  writeOfflineCopy,
+  writeMultiAccount,
   writeIndentOpen,
   writePinPad,
   writeRefreshOnReturn,
 } from "../lib/chrome-prefs";
+import { GESTURE_DEFAULTS, type GesturePrefs } from "../lib/gestures";
 
 class ChromeState {
   bandCollapsed = $state(false);
@@ -88,6 +95,27 @@ class ChromeState {
    */
   refreshOnReturn = $state<RefreshOnReturn>(REFRESH_ON_RETURN_DEFAULT);
 
+  /**
+   * The gestures this device answers to.
+   *
+   * Read by the handlers themselves, not by the panel that offers them: a switch
+   * in Settings is worth nothing unless the listener it names stops existing, so
+   * each gesture asks this record before it arms.
+   */
+  gestures = $state<GesturePrefs>({ ...GESTURE_DEFAULTS });
+
+  /** Whether the last few posts of every feed are kept on this device. */
+  offlineCopy = $state(true);
+
+  /** Combined reading list/starred on this device; preserve the approved default. */
+  multiAccount = $state(true);
+
+  setMultiAccount(on: boolean): void {
+    if (this.multiAccount === on) return;
+    this.multiAccount = on;
+    writeMultiAccount(browserStorage(), on);
+  }
+
   load(): void {
     const account = this.account();
     this.bandCollapsed = readBandCollapsed(browserStorage(), account);
@@ -99,6 +127,9 @@ class ChromeState {
     this.autoSync = readAutoSync(browserStorage(), account);
     this.autoSyncHours = readAutoSyncHours(browserStorage(), account);
     this.refreshOnReturn = readRefreshOnReturn(browserStorage(), account);
+    this.gestures = readGestures(browserStorage(), account);
+    this.offlineCopy = readOfflineCopy(browserStorage(), account);
+    this.multiAccount = readMultiAccount(browserStorage());
   }
 
   /** The account this chrome belongs to, or null before sign-in. */
@@ -161,11 +192,25 @@ class ChromeState {
     writeAutoSyncHours(browserStorage(), hours, this.account());
   }
 
+  /** One gesture's answer, written back whole: they share one record. */
+  setGesture<K extends keyof GesturePrefs>(key: K, value: GesturePrefs[K]): void {
+    if (this.gestures[key] === value) return;
+    const next = { ...this.gestures, [key]: value };
+    this.gestures = next;
+    writeGestures(browserStorage(), next, this.account());
+  }
+
   setRefreshOnReturn(value: RefreshOnReturn): void {
     const next = parseRefreshOnReturn(value);
     if (sameRefreshOnReturn(this.refreshOnReturn, next)) return;
     this.refreshOnReturn = next;
     writeRefreshOnReturn(browserStorage(), next, this.account());
+  }
+
+  setOfflineCopy(on: boolean): void {
+    if (this.offlineCopy === on) return;
+    this.offlineCopy = on;
+    writeOfflineCopy(browserStorage(), on, this.account());
   }
 
   toggleBand(): void {

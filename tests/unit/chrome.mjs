@@ -7,6 +7,9 @@ import ts from "typescript";
 
 import {
   CHROME_KEY,
+  MULTI_ACCOUNT_KEY,
+  readMultiAccount,
+  writeMultiAccount,
   readAutoSync,
   readAutoSyncHours,
   readBandCollapsed,
@@ -227,6 +230,32 @@ check("one is not true here either", readPinPad(old) === false);
   check("a reload drops the held fold", chrome.bandCollapsed === false);
   chrome.restoreBand();
   check("so nothing restores over the fold it read", chrome.bandCollapsed === false);
+
+  check("combined view defaults on", chrome.multiAccount === true);
+  chrome.setMultiAccount(false);
+  check("switch changes chrome immediately", chrome.multiAccount === false);
+  check("choice uses its own device key", store.get(MULTI_ACCOUNT_KEY) === "false");
+  chrome.load();
+  check("choice survives reload", chrome.multiAccount === false);
+  store.set("hardlyreader.session", JSON.stringify({ serverUrl: "https://other.example", email: "other" }));
+  chrome.load();
+  check("switching accounts does not reset device choice", chrome.multiAccount === false);
+  chrome.setMultiAccount(true);
+  check("on is persisted", readMultiAccount(globalThis.localStorage) === true);
+}
+
+{
+  const storage = memoryStorage();
+  check("missing storage preserves approved on default", readMultiAccount(undefined));
+  for (const raw of [null, "garbage", "null", "0", "true"]) {
+    if (raw !== null) storage.setItem(MULTI_ACCOUNT_KEY, raw);
+    check(`only explicit false turns combined off (${raw})`, readMultiAccount(storage));
+  }
+  writeMultiAccount(storage, false);
+  check("false round trips", !readMultiAccount(storage));
+  const blocked = { getItem() { throw Error("blocked"); }, setItem() { throw Error("blocked"); } };
+  check("blocked reads default on", readMultiAccount(blocked));
+  writeMultiAccount(blocked, false);
 }
 
 console.log(`${checks - failures}/${checks} checks passed`);

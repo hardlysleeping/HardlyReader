@@ -1,7 +1,7 @@
 /**
  * What a Stripe subscription means for `cloud_sync`, in one function.
  *
- * This file is the whole policy of HardlyReader Sync as a purchase, and it has
+ * This file is the whole policy of HardlySyncing as a purchase, and it has
  * no imports on purpose: the webhook is allowed to be wrong about plumbing, but
  * it must not be allowed to be wrong about *money*. Every status Stripe can
  * report is answered here, by name, so a status nobody thought about lands on

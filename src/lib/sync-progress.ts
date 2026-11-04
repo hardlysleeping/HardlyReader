@@ -189,3 +189,60 @@ export function createSyncTracker(): SyncTracker {
     },
   };
 }
+
+/**
+ * The words beside the sync control when there are unsent marks.
+ *
+ * The same slot the sync readout uses, because it answers the same question — what
+ * is happening to what I did — and a second place on screen for it would be a second
+ * thing to look at. `null` means say nothing: no queue, or a sync already drawing
+ * that slot with its own numbers.
+ *
+ * The words are about the queue, never about the network: `last` is what the last
+ * attempt reported, so "not reaching the server" is only said when an attempt
+ * genuinely did not reach it. `navigator.onLine` is not consulted — a browser that
+ * believes it has a network is not a server that answered.
+ */
+export function writesReadout(
+  writes: { pending: number; last: string | null },
+  syncing: boolean,
+): { text: string; title: string } | null {
+  if (syncing || writes.pending <= 0) return null;
+  const count = writes.pending === 1 ? "1 mark waiting" : `${writes.pending} marks waiting`;
+  switch (writes.last) {
+    case "unreached":
+      return { text: `${writes.pending} waiting`, title: `${count}. The server could not be reached; they go when it can.` };
+    case "unauthorised":
+      return { text: `${writes.pending} waiting`, title: `${count}. The server refused the sign-in, so they cannot be sent until it is signed in again.` };
+    case "refused":
+      return { text: `${writes.pending} waiting`, title: `${count}. The server refused some of them.` };
+    default:
+      return { text: `${writes.pending} waiting`, title: `${count}. They are sent as soon as the connection allows.` };
+  }
+}
+
+/**
+ * The accounts a fan-out sync could not reach, in the sync bar's own slot.
+ *
+ * A sync button shared by several accounts cannot report one of them as "the sync
+ * failed": the others did happen, and their rows are on screen. So the bar says how
+ * many did not answer — one named account is worth naming, more than one is a count —
+ * and the reason for each is in the tooltip, where the reader went looking when the
+ * row was empty.
+ *
+ * Nothing is drawn while a sync is running: the progress readout owns that space.
+ */
+export function accountFailureReadout(
+  errors: readonly { label: string; message: string }[],
+  syncing = false,
+): { text: string; title: string } | null {
+  if (syncing || errors.length === 0) return null;
+  const title = errors.map((error) => `${error.label} — ${error.message}`).join("\n");
+  if (errors.length === 1) {
+    return { text: errors[0].label, title: `${errors[0].label} could not be reached.\n${title}` };
+  }
+  return {
+    text: `${errors.length} accounts`,
+    title: `${errors.length} accounts could not be reached.\n${title}`,
+  };
+}

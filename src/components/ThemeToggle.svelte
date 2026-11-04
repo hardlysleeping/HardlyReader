@@ -7,6 +7,7 @@
    * under a slightly missed click is a whole-screen change you then have to
    * undo. Deliberate mode choice (including "System") stays in the panel.
    */
+  import { isDarkChoice } from "../lib/theme";
   import { theme } from "../state/theme.svelte";
 
   /**
@@ -16,11 +17,13 @@
    */
   let { size = 20 }: { size?: number } = $props();
 
+  /* Every dark page counts here, OLED Black included: from it the button must
+     offer the light, not "dark" again. */
   const isDark = $derived(
-    theme.current.mode === "dark" ||
-      (theme.current.mode === "system" &&
-        typeof matchMedia !== "undefined" &&
-        matchMedia("(prefers-color-scheme: dark)").matches),
+    isDarkChoice(
+      theme.current.mode,
+      typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches,
+    ),
   );
 
   function swap(): void {

@@ -33,11 +33,17 @@ console.log(`PASS  ${label}`);
 }
 
 const source = read("../../src/lib/drag-scroll.ts");
-const app = read("../../src/main.ts");
+const app = read("../../src/App.svelte");
+const entry = read("../../src/main.ts");
 const css = read("../../src/app.css");
 const flingSource = read("../../src/lib/fling.ts");
 
-check("the app installs it at startup", /import \{ installDragScroll \} from "\.\/lib\/drag-scroll"/.test(app) && /installDragScroll\(\);/.test(app));
+check(
+  "the app installs it while the gesture is on",
+  /import \{ installDragScroll \} from "\.\/lib\/drag-scroll"/.test(app) &&
+    /if \(!chrome\.gestures\.dragScroll\) return;\s*return installDragScroll\(\);/.test(app),
+);
+check("and takes the listener away when it is off", !/installDragScroll\(\);/.test(entry));
 check("it listens once, on the window", (source.match(/window\.addEventListener\("pointerdown"/g) ?? []).length === 1);
 check("and removes what it added", /removeEventListener\("pointerdown"/.test(source) && /removeEventListener\("pointermove"/.test(source));
 
@@ -171,7 +177,23 @@ check(
 );
 check(
   "and a hand that overtakes the throw does not inherit its speed",
-  /if \(!panning\) \{[\s\S]{0,300}stopFling\(\)/.test(source),
+  /panning = true;[\s\S]{0,300}?stopFling\(\)/.test(source),
+);
+// A row that has been picked up belongs to `lib/feed-drag`: the hold lifts it and
+// the ghost follows the finger. Both hands used to be live on that one finger, so
+// the tree scrolled under the row being carried — the drag felt like it was
+// fighting the list, and the drop landed where the finger was rather than where
+// the list had moved to.
+check(
+  "a carried row is the drag's gesture, not the pan's",
+  /const ROW_DRAG_CLASS = "feed-dragging"/.test(source) &&
+    /if \(document\.documentElement\.classList\.contains\(ROW_DRAG_CLASS\)\) \{\s*releaseGesture\(\);\s*return;/.test(
+      source,
+    ),
+);
+check(
+  "...given up outright, so the release cannot throw either",
+  /function releaseGesture\(\): void \{\s*pointer = null;\s*container = null;\s*panning = false;/.test(source),
 );
 check("the wheel catches it too", /function onWheel\(\): void \{\s*stopFling\(\)/.test(source));
 check("the throw is cancelled when the module is removed", /return \(\) => \{\s*stopFling\(\);/.test(source));
@@ -194,15 +216,31 @@ const list = read("../../src/components/ArticleList.svelte");
 check("the star, read and source toggles own the pointer for the mouse", /class="acts" data-no-drag-scroll/.test(list));
 check("and the rule that gives it to them is the one the module reads", /\[data-no-drag-scroll\]/.test(source));
 
-// Taking the pan from the browser is a per-surface decision: the three readers
-// hand it over so a flick throws, and everything else (menus, panels, dialogs)
-// keeps the browser's own panning.
+// Taking the pan from the browser is a per-surface decision, and every surface a
+// reader *scrolls* now leaves it to the platform: a `scrollTop` written per
+// pointermove is a main-thread scroll with none of WebKit's momentum, and the
+// tree was the last one panned by hand — which is why it was the last one that
+// felt choppy. Carrying a row is the exception and it holds the finger itself
+// (a non-passive `touchmove` in `lib/feed-drag.ts`), so the row drag keeps
+// working on a list the browser pans. Menus, panels and dialogs are unaffected
+// either way.
 const sidebar = read("../../src/components/Sidebar.svelte");
 const reader = read("../../src/components/ReaderPane.svelte");
-check("the post list hands the pointer over", /\.items \{[^}]*touch-action: none;/.test(list));
-check("so does the feed tree", /\.scroll \{[^}]*touch-action: none;/.test(sidebar));
-check("and the article", /article \{[^}]*touch-action: none;/.test(reader));
+const feedDrag = read("../../src/lib/feed-drag.ts");
+check("the post list leaves the finger to the browser", /\.items \{[^}]*touch-action: pan-y;/.test(list));
+check("the feed tree scrolls natively too", /\.scroll \{[^}]*touch-action: pan-y;/.test(sidebar));
+check(
+  "and a carried row refuses the browser's pan while it is carried",
+  /addEventListener\("touchmove", onTouchMove, \{ passive: false \}\)/.test(feedDrag) &&
+    /if \(!held && !dragging\) return;/.test(feedDrag) &&
+    /event\.cancelable\) event\.preventDefault\(\)/.test(feedDrag),
+);
+check("and the article leaves it to the browser", /article \{[^}]*touch-action: pan-y;/.test(reader));
 check("the app's page-level panning is untouched", /touch-action: pan-x pan-y;/.test(css));
+check(
+  "a finger is only claimed where CSS says the app owns it",
+  /if \(finger && getComputedStyle\(container\)\.touchAction !== "none"\) return;/.test(source),
+);
 
 // The throw's numbers, so the feel cannot drift away from what was measured.
 check("the throw's constants live in the model", /export const FLING = \{/.test(flingSource));

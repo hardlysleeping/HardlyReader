@@ -86,7 +86,7 @@ workflows:
           fi
           [ -d "$SOURCES" ] || { echo "no Swift source directory in gen/apple"; exit 1; }
           echo "swift sources: $SOURCES"
-          cp -v src-tauri/ios/*.swift "$SOURCES/"
+          cp -v src-tauri/ios/*.swift src-tauri/ios/*.m "$SOURCES/"
           cd src-tauri/gen/apple
           set -- *.xcodeproj
           PROJ="$1"
@@ -94,12 +94,32 @@ workflows:
           echo "project: $PROJ"
           XCODEGEN=$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)
           "$XCODEGEN" generate --spec project.yml
-          grep -q 'ShareSheet.swift in Sources' "$PROJ/project.pbxproj" || {
-            echo "ShareSheet.swift is not in the app target's compile sources"
-            grep -n 'ShareSheet' "$PROJ/project.pbxproj" || true
-            exit 1
-          }
-          echo "the share bridge is in the app target"
+          for native in ShareSheet.swift StatusBar.m; do
+            grep -q "$native in Sources" "$PROJ/project.pbxproj" || {
+              echo "$native is not in the app target's compile sources"
+              grep -n "${native%%.*}" "$PROJ/project.pbxproj" || true
+              exit 1
+            }
+          done
+          echo "the native files are in the app target"
+      - name: Let the app hide the status bar
+        script: |
+          set -euo pipefail
+          # StatusBar.m hides the bar in landscape through the global
+          # `UIApplication.setStatusBarHidden`, which iOS only honours when the
+          # view controllers do not own the appearance — so the generated
+          # Info.plist has to say so. The plist is a build product (`tauri ios
+          # init` regenerates it), which is why this is a step here and not a
+          # file in the repo.
+          PLIST=$(find src-tauri/gen/apple -name 'Info.plist' -not -path '*/build/*' -print -quit)
+          [ -n "$PLIST" ] || { echo "no Info.plist in gen/apple"; exit 1; }
+          echo "plist: $PLIST"
+          if /usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "$PLIST" >/dev/null 2>&1; then
+            /usr/libexec/PlistBuddy -c 'Set :UIViewControllerBasedStatusBarAppearance false' "$PLIST"
+          else
+            /usr/libexec/PlistBuddy -c 'Add :UIViewControllerBasedStatusBarAppearance bool false' "$PLIST"
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "$PLIST"
       - name: Build unsigned .app
         script: |
           set -euo pipefail
@@ -139,11 +159,11 @@ workflows:
           # exit on its first match, close the pipe, and turn a match into a
           # SIGPIPE failure under pipefail.
           strings -a "$BIN" > "$CM_BUILD_DIR/build/binary-strings.txt"
-          for symbol in hardlyreader-share-sheet-1 share_sheet; do
+          for symbol in hardlyreader-share-sheet-1 share_sheet hardlyreader-status-bar-1; do
             if grep -q -- "$symbol" "$CM_BUILD_DIR/build/binary-strings.txt"; then
               echo "found in the binary: $symbol"
             else
-              echo "MISSING from the binary: $symbol — the share bridge was not linked"
+              echo "MISSING from the binary: $symbol — that native half was not linked"
               exit 1
             fi
           done

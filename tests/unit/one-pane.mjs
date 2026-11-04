@@ -222,7 +222,7 @@ check(
   /const stackDrawn = \$derived\(layout\.stacked && mode === 3\)/.test(
     main,
   ) &&
-    /<ReaderPane onClose=\{closeArticle\} onLock=\{mode === 1 \? lockFromArticle : undefined\} \/>/.test(main) &&
+    /<ReaderPane[\s\S]{0,160}?onClose=\{closeArticle\}[\s\S]{0,160}?onLock=\{mode === 1 \? lockFromArticle : undefined\}/.test(main) &&
     /function closeArticle\(\): void \{\s*if \(mode === 1\) stepBack\(\);/.test(main),
 );
 check(
@@ -347,7 +347,7 @@ check(
 check(
   "and the same rows string drives both surfaces",
   (main.match(/style:grid-template-rows=/g) ?? []).length === 1 &&
-    /style:grid-template-rows=\{layout\.rows\(stackDrawn \|\| articlePair\)\}/.test(main) &&
+    /style:grid-template-rows=\{articlePair \? layout\.pairRows : layout\.rows\(stackDrawn\)\}/.test(main) &&
     /rows\(drawnStack: boolean\): string \{[\s\S]{0,140}return stackTemplate\(this\.stacked \? this\.stackShare : STACK_SHARE\.fallback\);/.test(
       layout,
     ),

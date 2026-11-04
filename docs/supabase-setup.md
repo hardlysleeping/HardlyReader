@@ -73,7 +73,7 @@ is the right default; the app refreshes on launch and resume.
 
 ## 6. Payments — the part after auth works
 
-1. Stripe → **Products** → one product `HardlyReader Sync`, two prices:
+1. Stripe → **Products** → one product `HardlySyncing`, two prices:
    `$1.00 / month` and `$10.00 / year`, both recurring.
 2. Record the two price IDs (`price_…`); the app never hardcodes them — the checkout endpoint reads
    them from the server.
@@ -107,7 +107,7 @@ Nobody signs in until they ask for sync:
 
 ```
 Settings → Device sync           (free, no account, says what syncing is for)
-   [Start HardlyReader Sync]
+   [Start HardlySyncing]
         ↓
 sign in  (Google / Apple / email — the moment an account exists at all)
         ↓

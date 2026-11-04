@@ -33,6 +33,10 @@ import {
   paneSlots,
   stackFloor,
   stackTemplate,
+  PAIR_LIST_SHRINK,
+  pairShare,
+  pairShareBack,
+  pairTemplate,
 } from "../../src/lib/panes.ts";
 
 let checks = 0;
@@ -209,7 +213,7 @@ check(
 );
 check(
   "and the view draws them from the same flag as the columns",
-  /style:grid-template-rows=\{layout\.rows\(stackDrawn \|\| articlePair\)\}/.test(main),
+  /style:grid-template-rows=\{articlePair \? layout\.pairRows : layout\.rows\(stackDrawn\)\}/.test(main),
 );
 check(
   "one getter, so nothing can build a second rows string",
@@ -271,7 +275,11 @@ check(
     layout,
   ),
 );
-check("double-click goes back to half", /resetShare\(\): void \{[\s\S]{0,120}STACK_SHARE\.fallback/.test(layout));
+check(
+  "double-click goes back to half",
+  /resetShare\(share: number = STACK_SHARE\.fallback\): void \{[\s\S]{0,60}this\.dragShare\(share\)/.test(layout) &&
+    /layout\.resetShare\(pair \? layout\.shareFromDrawn\(0\.5, pair\) : undefined\)/.test(gutter),
+);
 check("arrow keys nudge the split", /nudgeShare\(delta: number\): void \{/.test(layout));
 
 // ---------------------------------------------------------------------------
@@ -316,7 +324,7 @@ check(
 );
 check(
   "the grid carries four row tracks whether or not anything is split",
-  /style:grid-template-rows=\{layout\.rows\(stackDrawn \|\| articlePair\)\}/.test(main) &&
+  /style:grid-template-rows=\{articlePair \? layout\.pairRows : layout\.rows\(stackDrawn\)\}/.test(main) &&
     /grid-template-columns: minmax\(0, 1fr\) 0 0 0 0;/.test(main),
 );
 
@@ -464,6 +472,65 @@ check(
   "and side-by-side three panes keep theirs",
   paneSlots({ mode: 3, level: "feeds", stacked: false, collapsed: false, tuck: null, swapped: false })
     .sidebar === true,
+);
+
+/* ---------------------------------------------------------------------------
+ * The phone's pair: the list is drawn a fifth narrower than the share says
+ * ------------------------------------------------------------------------- */
+
+// The owner's ask: opening a post in two panes on a phone splits the frame —
+// list over article — and at the share he had set, the list took half of a
+// phone. The pair draws the list at 80% of its own half and leaves the rest to
+// the article readable. The *setting* is untouched, and a seam drag converts
+// back, or the handle would fall away from the finger a fifth per frame.
+check("a fifth is the number, in the model", PAIR_LIST_SHRINK === 0.8, String(PAIR_LIST_SHRINK));
+check(
+  "half becomes two fifths",
+  Math.abs(pairShare(0.5, false) - 0.4) < 1e-9,
+  String(pairShare(0.5, false)),
+);
+check(
+  "a share the reader set is honoured, narrowed",
+  Math.abs(pairShare(0.6, false) - 0.48) < 1e-9,
+  String(pairShare(0.6, false)),
+);
+check(
+  "swapped, the article is on top and the list below keeps the shrink",
+  Math.abs(pairShare(0.5, true) - 0.6) < 1e-9,
+  String(pairShare(0.5, true)),
+);
+check(
+  "a drag converts back to the setting it implies",
+  Math.abs(pairShareBack(0.4, false) - 0.5) < 1e-9,
+  String(pairShareBack(0.4, false)),
+);
+check(
+  "round trip: setting -> drawn -> setting",
+  [0.3, 0.5, 0.7].every((share) => Math.abs(pairShareBack(pairShare(share, false), false) - share) < 1e-9),
+);
+check(
+  "and the same swapped",
+  [0.3, 0.5, 0.7].every((share) => Math.abs(pairShareBack(pairShare(share, true), true) - share) < 1e-9),
+);
+check(
+  "the pair's rows are the template at the drawn share",
+  pairTemplate(0.5, false) === stackTemplate(0.4),
+  pairTemplate(0.5, false),
+);
+check(
+  "nothing is drawn off the top of the range",
+  pairShare(0.05, false) > 0 && pairShare(0.99, false) < 1,
+  `${pairShare(0.05, false)} ${pairShare(0.99, false)}`,
+);
+check(
+  "the layout draws the pair with that getter",
+  /style:grid-template-rows=\{articlePair \? layout\.pairRows : layout\.rows\(stackDrawn\)\}/.test(main),
+);
+check(
+  "and hands the seam the same answer",
+  /<PaneGutter axis="y" pair=\{articlePair\} \/>/.test(main) &&
+    /startShare = layout\.shareDrawn\(pair\)/.test(gutter) &&
+    /layout\.dragShare\(layout\.shareFromDrawn\(moved, pair\), free\)/.test(gutter),
 );
 
 console.log(`${checks - failures}/${checks} checks passed`);

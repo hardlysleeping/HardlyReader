@@ -333,6 +333,57 @@ export function stackTemplate(share: number): string {
 export const FLAT_ROWS = `${track(0)} 100% ${track(0)} ${track(0)}`;
 
 /**
+ * How much of its own share the post list keeps in a phone's pair.
+ *
+ * A phone's pair is the whole screen, which makes the seam a preference rather
+ * than a fit: at half, the reader gets a post list of porridge and an article of
+ * porridge. The list is the half you scan and leave, so it is drawn a fifth
+ * narrower than the share says — 0.5 becomes 0.4 — and the article gets the rest.
+ * The share itself is untouched: this is how it is *drawn*, so the setting still
+ * says what the reader set, and the seam drag converts back through
+ * `pairShareBack` so the handle stays under the finger.
+ */
+export const PAIR_LIST_SHRINK = 0.8;
+
+/** Which side of the phone's pair the post list is on: the top unless swapped. */
+const listOnTop = (swapped: boolean): boolean => !swapped;
+
+/**
+ * The share the pair is drawn at, given the share the reader set.
+ *
+ * The shrink is applied to the *list's* half whichever side it is on, so a
+ * swapped pair (article on top) narrows the bottom row rather than shrinking the
+ * article, which is the opposite of what was asked for.
+ */
+export function pairShare(share: number, swapped: boolean): number {
+  const whole = Number.isFinite(share) ? Math.min(Math.max(share, 0), 1) : STACK_SHARE.fallback;
+  const list = listOnTop(swapped) ? whole : 1 - whole;
+  const narrowed = list * PAIR_LIST_SHRINK;
+  const top = listOnTop(swapped) ? narrowed : 1 - narrowed;
+  return Math.min(Math.max(top, STACK_SHARE_FREE.min), STACK_SHARE_FREE.max);
+}
+
+/**
+ * The setting a seam dragged to `drawn` implies: the inverse of `pairShare`.
+ *
+ * A drag is read off the seam the reader sees, so the number it produces is a
+ * drawn share; storing that straight would make the next draw shrink it again
+ * and the handle would fall away from the finger a fifth at a time.
+ */
+export function pairShareBack(drawn: number, swapped: boolean): number {
+  const whole = Number.isFinite(drawn) ? Math.min(Math.max(drawn, 0), 1) : STACK_SHARE.fallback;
+  const list = listOnTop(swapped) ? whole : 1 - whole;
+  const asked = list / PAIR_LIST_SHRINK;
+  const top = listOnTop(swapped) ? asked : 1 - asked;
+  return Math.min(Math.max(top, STACK_SHARE_FREE.min), STACK_SHARE_FREE.max);
+}
+
+/** The pair's rows: `stackTemplate` at the share the pair is drawn at. */
+export function pairTemplate(share: number, swapped: boolean): string {
+  return stackTemplate(pairShare(share, swapped));
+}
+
+/**
  * Below these a pane stops being usable: labels truncate, titles wrap to four
  * lines.
  *

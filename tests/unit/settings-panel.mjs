@@ -73,7 +73,9 @@ const built = new Map();
 function sourceOf(fromFile, specifier) {
   if (!specifier.startsWith(".")) return null;
   const base = resolve(dirname(fromFile), specifier);
-  for (const candidate of [base, `${base}.ts`, `${base}.js`, `${base}.svelte`]) {
+  // `index.ts` last: Bun/TS let a directory be a module, Node does not, so a
+  // component importing `../lib/icons` must resolve to the file inside it.
+  for (const candidate of [base, `${base}.ts`, `${base}.js`, `${base}.svelte`, `${base}/index.ts`, `${base}/index.js`]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   }
   return null;
@@ -201,6 +203,12 @@ try {
   // which is what lets its rewritten imports point at their generated copies.
   buildRunes("src/state/reader.svelte.ts");
 
+  // The Category icons section: the store's shape lives in `lib/icons` (which
+  // also holds the set), and the panel draws glyphs through `<Glyph>`.
+  buildRunes("src/state/icons.svelte.ts");
+  buildRunes("src/lib/icons/index.ts");
+  buildRunes("src/lib/category-icon.ts");
+
   // The Account section mounts `CloudAccountPanel`, which asks the account store,
   // which composes Checkout and the entitlement reader. Built bottom-up like
   // everything else here: billing imports `entitlements.svelte.ts`, so that one is
@@ -219,6 +227,10 @@ try {
   await buildComponent("src/components/CloudAccountPanel.svelte");
   await buildComponent("src/components/DeviceSyncPanel.svelte");
   await buildComponent("src/components/ExtensionsPanel.svelte");
+  await buildComponent("src/components/GesturesPanel.svelte");
+  await buildComponent("src/components/Glyph.svelte");
+  await buildComponent("src/components/IconGrid.svelte");
+  await buildComponent("src/components/IconsPanel.svelte");
   await buildComponent("src/components/IndentControl.svelte");
   await buildComponent("src/components/PostListPanel.svelte");
   await buildComponent("src/components/ReadingPanel.svelte");
@@ -276,8 +288,10 @@ try {
     // its own (Accounts holds the pairing block, Account the address change), and
     // the question here is how many *sections* there are.
     const sections = (markup) => (markup.match(/<details[^>]*class="sec/g) ?? []).length;
-    check("there are seven sections", sections(body) === 7, String(sections(body)));
-    check("every one is a disclosure with a summary", count(body, 'class="sum') === 7, String(count(body, 'class="sum')));
+    // Nine now: Category icons joined the desktop set, then Gestures (thirteen
+    // ids, four of them phone-only or filtered out here).
+    check("there are nine sections", sections(body) === 9, String(sections(body)));
+    check("every one is a disclosure with a summary", count(body, 'class="sum') === 9, String(count(body, 'class="sum')));
     check("every section is named", SECTIONS.every((label) => new RegExp(`<span class="label[^"]*">${label}</span>`).test(body)));
     check("and says what is in it", SECTIONS.every((label) => hasClass(section(body, label), "note")));
     // Native `<details>` is the mechanism: the content is inside the disclosure,
@@ -318,7 +332,7 @@ try {
     check("Account is the HardlyReader account, not the roster", (() => {
       const part = prose(section(body, "Account"));
       return (
-        part.includes("An account is only for HardlyReader Sync") &&
+        part.includes("An account is only for HardlySyncing") &&
         part.includes("Continue with Google") &&
         part.includes("Continue with Apple")
       );
@@ -427,7 +441,7 @@ try {
     const freeWords = free.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
     check("the free half says what syncing is for", freeWords.includes("Sync across your devices"), freeWords.slice(0, 160));
     check("...offers both prices", freeWords.includes("$0.99 / month") && freeWords.includes("$9.99 / year"));
-    check("...and both ways in", freeWords.includes("Start HardlyReader Sync") && freeWords.includes("Restore Purchase"));
+    check("...and both ways in", freeWords.includes("Start HardlySyncing") && freeWords.includes("Restore Purchase"));
     check("...and no provider, because none is bought yet", !freeWords.includes("Provider"));
 
     // Entitled half: the four providers, the folder and the run — same section,
@@ -435,14 +449,14 @@ try {
     entitlement.cloudSync = true;
     const paid = section(draw(), "Device sync");
     const paidWords = paid.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
-    check("the entitled half says the subscription is live", paidWords.includes("HardlyReader Sync") && paidWords.includes("active"));
+    check("the entitled half says the subscription is live", paidWords.includes("HardlySyncing") && paidWords.includes("active"));
     check(
       "it offers the four providers, once each",
       ["iCloud Drive", "Google Drive", "Dropbox", "OneDrive"].every((label) => count(paid, `aria-label="${label}"`) === 1),
       paidWords.slice(0, 200),
     );
     check("it has a folder row and a run", paidWords.includes("Folder") && paid.includes('aria-label="Sync now"'));
-    check("and it does not ask for money again", !paidWords.includes("Start HardlyReader Sync"));
+    check("and it does not ask for money again", !paidWords.includes("Start HardlySyncing"));
 
     reader.profile = null;
     reader.subscriptions = [];
@@ -468,7 +482,7 @@ try {
     // every row in them is one the app already had — the same slider, the same
     // `reading` writes.
     const sectionsOn = (body) => (body.match(/<details[^>]*class="sec/g) ?? []).length;
-    check("a phone is offered both sections its chrome gives up", sectionsOn(phone) === 9, String(sectionsOn(phone)));
+    check("a phone is offered both sections its chrome gives up", sectionsOn(phone) === 11, String(sectionsOn(phone)));
 
     const feeds = section(phone, "Feeds");
     check(

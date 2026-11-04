@@ -243,16 +243,23 @@
    * has to work it out — and because the heading says "Lock", the colours under
    * it do not have to say it again.
    */
-  /** The colour the page is right now: the theme's, or whichever mode is showing. */
+  /**
+   * The colour the page is right now: the theme's, or whichever mode is showing.
+   *
+   * The swatch under it is a lie otherwise — on OLED the page is black, and a
+   * swatch reading the dark mode's charcoal is the one place the difference
+   * would be invisible.
+   */
   function pageColour(): string {
     if (theme.current.bg !== null) return theme.current.bg;
     const mode = theme.current.mode;
-    const dark =
-      mode === "dark" ||
-      (mode === "system" &&
+    if (mode === "system") {
+      const dark =
         typeof window !== "undefined" &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches);
-    return dark ? PAGE_COLOURS.dark : PAGE_COLOURS.light;
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
+      return dark ? PAGE_COLOURS.dark : PAGE_COLOURS.light;
+    }
+    return PAGE_COLOURS[mode];
   }
 
   /**
@@ -337,7 +344,7 @@
 {#snippet coloursBody()}
       <div class="row">
         <span class="key">Appearance</span>
-        <div class="seg" role="group" aria-label="Appearance">
+        <div class="seg wrap" role="group" aria-label="Appearance">
           {#each THEME_MODES as mode (mode)}
             <button
               class="segbtn"
@@ -975,6 +982,32 @@
       <p class="hint">
         Back in the window after this long, it fetches once. Never turns off only this check:
         opening the app still syncs, and the interval above still runs when it is on.
+      </p>
+      <!-- Keeping a page of every feed on the device. On by default and beside
+           the fetching settings because that is what it costs: one small request
+           per feed, twice a day at most, and nothing at all for a feed already
+           kept. It is what a launch with no network draws instead of an error. -->
+      <div class="row">
+        <span class="key">Keep feeds for offline</span>
+        <div class="seg" role="group" aria-label="Keep feeds for offline">
+          <button
+            class="segbtn"
+            class:on={!chrome.offlineCopy}
+            aria-pressed={!chrome.offlineCopy}
+            title="Offline shows only what you already opened"
+            onclick={() => chrome.setOfflineCopy(false)}>Off</button>
+          <button
+            class="segbtn"
+            class:on={chrome.offlineCopy}
+            aria-pressed={chrome.offlineCopy}
+            title="After a sync, keep the last few posts of every feed"
+            onclick={() => chrome.setOfflineCopy(true)}>On</button>
+        </div>
+      </div>
+      <p class="hint">
+        After a sync, keeps the last 8 posts of each feed on this device, so a launch with no
+        network still opens them. At most 20 feeds per sync, and a feed kept in the last 12
+        hours is not fetched again.
       </p>
       <!-- What the adapter is, in one line, from the state the app already
            holds: no request of its own, nothing to press, and no second place

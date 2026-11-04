@@ -19,14 +19,113 @@
  * `profile.session` and gets `null` for a local library, rather than a value it
  * would have to test the truthiness of on every call.
  */
+import type { ReaderBackend } from "./backend";
 import { GReaderBackend } from "./greader-backend";
 import { transport } from "./transport";
-import type { ReaderBackend } from "./backend";
 import type { Session } from "./freshrss";
 import { LocalBackend } from "./local/local-backend";
 import { LocalStore } from "./local/store";
 import { openLocalDatabase, type LocalDatabaseOptions } from "./local/open";
 import { accountSlug, type AccountIdentity } from "../lib/account-key";
+import { IdbJournalBank, WriteJournal } from "./offline/journal";
+import { OfflineBackend } from "./offline/backend";
+
+/**
+ * The one place a server account's backend is built.
+ *
+ * There used to be two: this file built one when a session became a profile, and
+ * `reader.svelte.ts` built one for a session that had none. Both produced the same
+ * `GReaderBackend`, which made the duplicate look harmless — and it was, until
+ * something had to be *wrapped around every server backend*. Offline writing is
+ * exactly that: a mark made with no network is kept in front of the request, so the
+ * wrapper has to be on every server backend, or the queue quietly misses whichever
+ * path the reader happened to take.
+ *
+ * So: a server backend is built here, and only here. A caller that wants to decorate
+ * one — a journal, a proxy, a recorder in a suite — wraps what this returns instead of
+ * writing `new GReaderBackend` somewhere of its own.
+ *
+ * A library on this device is not built here and does not want to be: opening one is
+ * asynchronous (a database has to open), and `openLocalProfile` owns that.
+ */
+export interface ServerBackendOptions {
+  /**
+   * A wrapper around the built backend: the whole point of the seam.
+   *
+   * Called with the built backend — the queued one, not the plain one, so a wrapper
+   * sees what the reader sees — and expected to return something that still behaves
+   * like a backend. Nothing here inspects the result, so a suite can hand in a
+   * recorder and see exactly what the app asked for.
+   */
+  wrap?: (backend: ReaderBackend) => ReaderBackend;
+  /**
+   * The queue this account's marks go into. Built from the account when absent.
+   *
+   * Shells it in so a caller can share one queue across two backends for the same
+   * account, which is what keeps a mark made through one visible to the other.
+   */
+  journal?: WriteJournal;
+  /**
+   * Whether read and star marks are queued at all. **On** everywhere in the app.
+   *
+   * Off is for a probe that wants the server's own answer to a write: `flush` is
+   * then absent, which is the interface's way of saying nothing is ever queued.
+   */
+  queue?: boolean;
+}
+
+/**
+ * One queue per account, for as long as the app is running.
+ *
+ * Two backends are built for a signed-in account — the profile's and the reader's
+ * fallback — and they must share a queue: a mark recorded through one has to be
+ * visible to the other, or the same post could be sent twice and the overlay could
+ * paint the older answer. The slug is the only thing that identifies an account
+ * here, so it is the key.
+ */
+const journals = new Map<string, WriteJournal>();
+
+function journalFor(identity: AccountIdentity): WriteJournal {
+  const slug = accountSlug(identity);
+  let journal = journals.get(slug);
+  if (journal === undefined) {
+    journal = new WriteJournal(new IdbJournalBank(), slug);
+    journals.set(slug, journal);
+  }
+  return journal;
+}
+
+/**
+ * Drops one account's queued marks, when the account leaves this device.
+ *
+ * Without this, a sign-out leaves `hardlyreader-writes` holding that account's
+ * decisions forever: nothing else in the app knows the slug once the session is
+ * gone, so the rows are unreachable and un-clearable. It is not a security matter
+ * (the marks say "read", not what was read) — it is a leak of disk that only grows.
+ */
+export function forgetQueue(slug: string): void {
+  const journal = journals.get(slug);
+  if (journal === undefined) return;
+  journals.delete(slug);
+  void journal.clear().catch(() => {
+    /* an un-cleared queue is untidy, never wrong */
+  });
+}
+
+/** The backend a signed-in server account is read through. */
+export function serverBackend(
+  session: Session,
+  options: ServerBackendOptions = {},
+): ReaderBackend {
+  const plain: ReaderBackend = new GReaderBackend(transport, session);
+  const built =
+    options.queue === false
+      ? plain
+      : new OfflineBackend(plain, {
+          journal: options.journal ?? journalFor({ serverUrl: session.serverUrl, email: session.email }),
+        });
+  return options.wrap === undefined ? built : options.wrap(built);
+}
 
 /**
  * The device-side identity a local library scopes its stored state by.
@@ -50,6 +149,16 @@ export interface LocalProfile {
   readonly label: string;
   readonly backend: ReaderBackend;
   readonly session: null;
+  /**
+   * Whether a merged view reads this account.
+   *
+   * Absent means yes: every profile built before this field existed is one the
+   * reader signed in on purpose, and a field defaulting to `false` would silently
+   * empty the app for anyone upgrading. Only an explicit `false` takes an account
+   * out of `AccountRegistry.enabled()` — it is still signed in, still in Pane 1,
+   * still answerable by slug; it is simply not part of "all accounts".
+   */
+  readonly enabled?: boolean;
 }
 
 /** A library served by FreshRSS, Miniflux, Tiny Tiny RSS or The Old Reader. */
@@ -60,6 +169,8 @@ export interface SyncProfile {
   readonly label: string;
   readonly backend: ReaderBackend;
   readonly session: Session;
+  /** See `LocalProfile.enabled`: absent means part of a merged view. */
+  readonly enabled?: boolean;
 }
 
 export type ReaderProfile = LocalProfile | SyncProfile;
@@ -97,7 +208,7 @@ export function syncProfile(session: Session, backend?: ReaderBackend): SyncProf
     kind: "greader",
     slug: accountSlug(session),
     label: session.email,
-    backend: backend ?? new GReaderBackend(transport, session),
+    backend: backend ?? serverBackend(session),
     session,
   };
 }

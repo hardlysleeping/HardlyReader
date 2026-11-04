@@ -22,12 +22,14 @@ import ts from "typescript";
 
 import {
   SYNC_IDLE,
+  accountFailureReadout,
   SYNC_STEPS,
   SYNC_TOTAL,
   createSyncTracker,
   percentOf,
   syncDescription,
   syncReadout,
+  writesReadout,
 } from "../../src/lib/sync-progress.ts";
 
 let passed = 0;
@@ -255,6 +257,7 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"../api/transport"', absolute("src/api/transport.ts")],
   ['"../api/backend"', absolute("src/api/backend.ts")],
   ['"../api/greader-backend"', absolute("src/api/greader-backend.ts")],
+  ['"../api/session"', absolute("src/api/session.ts")],
   ['"../api/profile"', absolute("src/api/profile.ts")],
   ['"../lib/reading-order"', absolute("src/lib/reading-order.ts")],
   ['"../lib/feed-order"', absolute("src/lib/feed-order.ts")],
@@ -266,6 +269,11 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"./theme.svelte"', themeModule],
   ['"./floods.svelte"', floodsModule],
   ['"../lib/stream-cycle"', absolute("src/lib/stream-cycle.ts")],
+  ['"../lib/offline-copy"', absolute("src/lib/offline-copy.ts")],
+  ['"../lib/marks"', absolute("src/lib/marks.ts")],
+  ['"../api/registry"', absolute("src/api/registry.ts")],
+  ['"../api/aggregate"', absolute("src/api/aggregate.ts")],
+  ['"../lib/feed-groups"', absolute("src/lib/feed-groups.ts")],
   ['"../lib/dwell"', absolute("src/lib/dwell.ts")],
   ['"../lib/contextmenu"', absolute("src/lib/contextmenu.ts")],
   ['"../lib/sync-progress"', absolute("src/lib/sync-progress.ts")],
@@ -477,6 +485,102 @@ const counts = (waiting) => waiting.filter((request) => stepOf(request.url) !== 
   checkOk("the header shows the running step", /reader\.sync\.step/.test(header));
   checkOk("...inside the readout beside the count", /\{readout\}/.test(header));
   checkOk("the readout is described in full for a screen reader", /aria-valuetext=\{description\}/.test(header));
+}
+
+
+/* ---- the queue's readout, beside the sync one ---------------------------------- */
+
+check("nothing queued says nothing", () => {
+  assert.equal(writesReadout({ pending: 0, last: null }, false), null);
+});
+
+check("a running sync owns the slot", () => {
+  assert.equal(writesReadout({ pending: 3, last: "unreached" }, true), null);
+});
+
+check("one mark is one mark", () => {
+  const read = writesReadout({ pending: 1, last: "unreached" }, false);
+  assert.equal(read.text, "1 waiting");
+  assert.match(read.title, /^1 mark waiting/);
+});
+
+check("several marks are a count", () => {
+  const read = writesReadout({ pending: 7, last: null }, false);
+  assert.equal(read.text, "7 waiting");
+  assert.match(read.title, /^7 marks waiting/);
+});
+
+check("an unreached server is said in those words, and only then", () => {
+  assert.match(writesReadout({ pending: 2, last: "unreached" }, false).title, /could not be reached/);
+  assert.doesNotMatch(writesReadout({ pending: 2, last: null }, false).title, /could not be reached/);
+  assert.doesNotMatch(writesReadout({ pending: 2, last: "landed" }, false).title, /could not be reached/);
+});
+
+check("a refused sign-in says the marks cannot go until it is fixed", () => {
+  assert.match(writesReadout({ pending: 2, last: "unauthorised" }, false).title, /signed in again/);
+});
+
+check("nothing ever claims to know about the network", () => {
+  for (const last of [null, "landed", "waiting", "unreached", "unauthorised", "refused"]) {
+    const read = writesReadout({ pending: 4, last }, false);
+    assert.doesNotMatch(read.title, /offline|no network|you are disconnected/i, `last=${last}`);
+  }
+});
+
+/* ---- and both bars draw it, in the one slot ----------------------------------- */
+
+{
+  const header = readFileSync(new URL("../../src/components/Header.svelte", import.meta.url), "utf8");
+  checkOk("the desktop bar draws the queue beside sync", /const waiting = \$derived\(writesReadout\(reader\.writes/.test(header));
+  checkOk("in the sync readout's slot, not beside it", /\{#if waiting\}[^]*\{:else if refreshing\}/.test(header));
+  const phone = readFileSync(new URL("../../src/components/PhoneHeader.svelte", import.meta.url), "utf8");
+  checkOk("the phone bar draws it the same way", /\{#if waiting\}[^]*\{:else if refreshing\}/.test(phone));
+  checkOk(
+    "and it is words, not a control",
+    /class="queued" title=\{waiting\.title\}/.test(header) &&
+      /class="queued" title=\{waiting\.title\}/.test(phone) &&
+      !/onclick=\{[^}]*waiting/i.test(header) &&
+      !/onclick=\{[^}]*waiting/i.test(phone),
+  );
+}
+
+/* ---- an account that did not answer ------------------------------------------- */
+
+{
+  const none = accountFailureReadout([], false);
+  checkOk("nothing is drawn when every account answered", none === null);
+
+  const one = accountFailureReadout([{ label: "work@example.com", message: "503 from the server" }]);
+  checkOk("one account is named, not counted", one !== null && one.text === "work@example.com");
+  checkOk("and its reason is in the title", one.title.includes("503 from the server"));
+
+  const two = accountFailureReadout([
+    { label: "work@example.com", message: "503" },
+    { label: "home@example.com", message: "offline" },
+  ]);
+  checkOk("two are a count, because two names is not a readout", two.text === "2 accounts");
+  checkOk("with both reasons in the title", two.title.includes("work@example.com") && two.title.includes("home@example.com"));
+  checkOk("and both failures said out loud", /2 accounts could not be reached/.test(two.title));
+
+  checkOk(
+    "nothing is drawn while a sync is running — the progress owns that slot",
+    accountFailureReadout([{ label: "a", message: "b" }], true) === null,
+  );
+
+  const header = readFileSync(new URL("../../src/components/Header.svelte", import.meta.url), "utf8");
+  const phone = readFileSync(new URL("../../src/components/PhoneHeader.svelte", import.meta.url), "utf8");
+  checkOk("both bars draw it", /accountFailureReadout\(reader\.accountErrors/.test(header) && /accountFailureReadout\(reader\.accountErrors/.test(phone));
+  checkOk(
+    "in the sync readout's own slot, after the queue",
+    /\{#if waiting\}[^]*\{:else if unreachable\}[^]*\{:else if refreshing\}/.test(header) &&
+      /\{#if waiting\}[^]*\{:else if unreachable\}[^]*\{:else if refreshing\}/.test(phone),
+  );
+  checkOk(
+    "as words with the reasons in a title, not as a control",
+    /class="queued failed" title=\{unreachable\.title\}/.test(header) &&
+      /class="queued failed" title=\{unreachable\.title\}/.test(phone) &&
+      !/onclick=\{[^}]*unreachable/i.test(header),
+  );
 }
 
 console.log(`${passed} checks passed${failures === 0 ? "" : `, ${failures} failure(s)`}`);

@@ -135,6 +135,64 @@ export interface ReaderBackend {
     wake?: "launch" | "resume" | "background" | "manual";
     signal?: AbortSignal;
   }): Promise<unknown>;
+
+  /**
+   * Sends whatever this backend queued while it could not reach its server, and
+   * answers how many decisions now live there.
+   *
+   * **Absent means nothing is ever queued.** A library on this device writes to
+   * itself, so a mark is on disk the moment it is made; only a backend whose
+   * writes have somewhere to travel has anything to send later. The caller must
+   * not invent a queue to stand in — there is nothing to send.
+   *
+   * `force` skips whatever backoff a failed attempt left behind. Coming back
+   * online is exactly that event: the reason for waiting has changed.
+   */
+  flush?(force?: boolean): Promise<number>;
+
+  /**
+   * The marks this account has made that its server has not been told about.
+   *
+   * Absent for the same reason `flush` is: a library on this device has written
+   * every mark to its own store, so there is nothing outstanding to draw.
+   *
+   * The reader asks for this when it paints a page **that did not come from the
+   * server** — the page restored from disk at launch, and the one still on screen
+   * when a read fails. A page the backend returned has the marks applied already
+   * (`OfflineBackend.overlay`), but a restored page is older than the queue, and
+   * painting it unmarked would draw a post as unread that the reader marked read
+   * on a train, with the queue still holding that decision.
+   */
+  pendingMarks?(): Promise<QueuedMarks>;
+
+  /**
+   * What the queue holds, and how the last attempt to send it ended.
+   *
+   * The readout beside the sync control draws from this and nothing else: a count
+   * that is measured, and an outcome that was reported, never `navigator.onLine`
+   * — the browser saying a network exists is not the server saying it answered.
+   *
+   * Absent for a backend with no queue, which is why a local library says nothing.
+   */
+  writeStatus?(): Promise<WriteStatus>;
+}
+
+/**
+ * The queue, as one thing to draw.
+ *
+ * `last` is `null` until an attempt has been made in this session: "nothing has
+ * gone wrong yet" and "nothing has been tried" are different states, and a readout
+ * that showed the first while the second was true would be guessing.
+ */
+export interface WriteStatus {
+  pending: number;
+  last: "landed" | "waiting" | "unreached" | "unauthorised" | "refused" | null;
+}
+
+/** The outstanding decisions, one map per register. */
+export interface QueuedMarks {
+  read: Map<string, boolean>;
+  starred: Map<string, boolean>;
 }
 
 /** The items a stream page carries, for callers that only want those. */

@@ -331,6 +331,25 @@
       <path d="M6 9l6 6 6-6" />
     </svg>
   </button>
+  {#if locked}
+    <!-- The pin, on its own strip between the caret and everything the curtain
+         covers.
+         It was folded away with the rest for a while, on the argument that a
+         control changing the list the lock just covered is a control whose result
+         nobody can check — and the owner's answer is that a pin is *what* is
+         shown, not what is in it: choosing "Starred only" or "without pins" is
+         reading the list that is left, and needing the passcode first is the lock
+         doing something nobody asked it to. On a phone the lock also folds the
+         band (`collapseBandForLock`), which is why this sits *outside* the reveal
+         rather than in the compact row: folded, the band is a caret, and the pin
+         stays under the thumb.
+         The curtain still applies to what it says: while locked `bandFacts` gives
+         the pin no word and names it by the count alone, so the strip cannot be
+         read as a statement about what is hidden. -->
+    <div class="band compact pinstrip">
+      {@render pinControl()}
+    </div>
+  {/if}
   {#if facts.row}
     <div
       class="reveal"
@@ -341,15 +360,10 @@
     >
     {#if locked}
       <!-- Locked: the band compacts to low-key glyphs on a quieter face. The
-           eye is not among them — a bare eye still says a filter exists — and
-           no word is drawn. Only the lock stays, because it is the way back in
-           and the one thing a locked band is for.
-
-           The pin used to stay beside it as "what to show, not what is in it".
-           That reads well on paper and badly on a phone: the pin filters the
-           list, the list is what the lock just covered, and a control that
-           changes a hidden thing while the band is locked is a control nobody
-           can check the result of. It is one fold away with everything else. -->
+           eye is not among them — a bare eye still says a filter exists — and no
+           word is drawn. The pin is not here either: it keeps its own strip above
+           this row (see the caret's own comment), because a phone folds the whole
+           band the moment the lock lands. What is left is the way back in. -->
       <div class="band compact">
         <span class="seat" aria-hidden="true"></span>
         <button
@@ -766,7 +780,7 @@
      overlay landing on it. */
   .ctl:hover:not(:disabled) {
     background: color-mix(in srgb, var(--tone) 20%, transparent);
-    color: color-mix(in srgb, var(--tone) 64%, #fff);
+    color: var(--tone);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 52%, transparent);
   }
 
@@ -775,7 +789,7 @@
   .ctl:active:not(:disabled) {
     transform: scale(0.97);
     background: color-mix(in srgb, var(--tone) 30%, transparent);
-    color: color-mix(in srgb, var(--tone) 42%, #fff);
+    color: var(--tone);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 74%, transparent);
   }
 
@@ -791,8 +805,26 @@
     padding: 2px 3px;
   }
 
-  .band.compact .ctl.pin {
-    justify-self: end;
+  /* The pin's own strip above the locked row: one control, on the quiet face the
+     locked band wears. It used to keep the right edge of a two-column row — a
+     22px glyph in a 200px band, which read as something left behind rather than
+     the one control the strip has. Alone, it takes the strip's whole width and
+     centres its glyph: the seat is the width of the band, so the strip reads as
+     one wide button instead of a stray mark at its end. */
+  .band.compact.pinstrip {
+    grid-template-columns: minmax(0, 1fr);
+    margin-bottom: 2px;
+  }
+
+  .band.compact.pinstrip .ctl.pin {
+    justify-self: stretch;
+    min-width: 0;
+    min-height: 30px;
+  }
+
+  .band.compact.pinstrip .ctl.pin svg {
+    width: 16px;
+    height: 16px;
   }
 
   /* A thumb is not a cursor: on touch the same seats keep enough body to be
@@ -801,6 +833,10 @@
     .ctl,
     .band.compact .ctl {
       min-height: 34px;
+    }
+
+    .band.compact.pinstrip .ctl.pin {
+      min-height: 38px;
     }
   }
 
@@ -884,6 +920,20 @@
     outline-offset: 1px;
   }
 
+  /* 12px is the size that fits the band's surface, and it is also the size that
+     makes iOS zoom the whole app in the moment the box takes focus — the page
+     comes back unzoomed only if something else zooms it out, which nothing here
+     does. So a thumb device gets 16, the size iOS refuses to zoom for, and a
+     pointer keeps the 12 that fits beside 11px buttons. The floor for every
+     other field in the app is in `app.css`. This rule sits after the size it
+     overrides on purpose: same specificity, so the later one wins. */
+  @media (pointer: coarse) {
+    .passcode input {
+      font-size: 16px;
+      letter-spacing: 0.14em;
+    }
+  }
+
   .passcode .go {
     flex: 0 0 auto;
     padding: 5px 9px;
@@ -950,5 +1000,21 @@
 
   .passcode .notice {
     color: var(--danger, #e06c75);
+  }
+  /* The seat's tint is an 11–20% wash, so the tone at full strength reads
+     3.1:1 there in the light theme. Dark faces keep the tone; light faces take
+     it darkened, which is the same hue at a contrast a 9px word can carry. */
+  :global([data-theme="light"]) .lbl,
+  :global(:root:not([data-theme])) .lbl {
+    color: color-mix(in srgb, var(--tone) 64%, #04121c);
+  }
+  :global([data-theme="dark"]) .lbl,
+  :global([data-theme="oled"]) .lbl {
+    color: var(--tone);
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme])) .lbl {
+      color: var(--tone);
+    }
   }
 </style>

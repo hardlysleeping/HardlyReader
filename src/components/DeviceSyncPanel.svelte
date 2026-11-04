@@ -259,7 +259,7 @@
   /** Why nothing was bought: the store's reason, or that there is no store here. */
   function refusal(): string {
     if (entitlement.reason !== null && entitlement.reason !== "") return entitlement.reason;
-    return "HardlyReader Sync is not on sale in this build — it is bought in the App Store build.";
+    return "HardlySyncing is not on sale in this build — it is bought in the App Store build.";
   }
 
   // What is for sale, once. A build with no shop answers instantly and says so;
@@ -318,7 +318,7 @@
 {:else if entitlement.cloudSync}
   <!-- Entitled: the four services, one folder each, and the run. -->
   <div class="active">
-    <span class="name">HardlyReader Sync</span>
+    <span class="name">HardlySyncing</span>
     <span class="tick" aria-label="active">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" /></svg>
       active
@@ -467,7 +467,7 @@
 
   <div class="actions">
     <button class="do strong" disabled={busy} onclick={() => void start()}>
-      {busy ? "Working…" : "Start HardlyReader Sync"}
+      {busy ? "Working…" : "Start HardlySyncing"}
     </button>
     <button class="do" disabled={busy} onclick={() => void restore()}>Restore Purchase</button>
   </div>

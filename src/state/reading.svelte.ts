@@ -76,8 +76,24 @@ export function isMarkReadMode(value: unknown): value is MarkReadMode {
   return value === "manual" || value === "auto";
 }
 
+/** Where the article's own bar sits: over the words, or under the thumb. */
+export type ArticleBarSide = "top" | "bottom";
+
+/** Both answers, and nothing else: a corrupt value falls back to the bottom. */
+export function isArticleBarSide(value: unknown): value is ArticleBarSide {
+  return value === "top" || value === "bottom";
+}
+
 class ReadingState {
   advanceOnScroll = $state(true);
+
+  /**
+   * The article's bar — text size, star, read, the arrows — starts at the
+   * bottom of the article, where a thumb is. It holds eleven controls on a
+   * phone, and at the top of the pane they sit in the furthest corner a hand
+   * can reach. Flipping it back to the top is one press, on the bar itself.
+   */
+  articleBar = $state<ArticleBarSide>("bottom");
 
   /**
    * Which posts the list shows, everywhere.
@@ -183,6 +199,16 @@ class ReadingState {
   scrollEffort = $state(EFFORT_DEFAULT);
 
   /**
+   * Whether the next post comes into view at the end of a pull.
+   *
+   * Off, which is the behaviour the owner kept: letting go simply loads the next
+   * post with no fanfare. On, the last stretch of the pull slides the open post
+   * away and shows the next one's feed and headline behind it, so the switch is
+   * decided by what is coming rather than by a line filling.
+   */
+  apexPeek = $state(false);
+
+  /**
    * Text size in the article, as a multiple of the tuned size.
    *
    * Global and device-local: one setting for every feed, category and post.
@@ -260,6 +286,7 @@ class ReadingState {
    */
   private defaults(): void {
     this.advanceOnScroll = true;
+    this.articleBar = "bottom";
     this.articleFilter = "all";
     this.listView = LIST_VIEW_DEFAULT;
     this.readInPane = false;
@@ -272,6 +299,7 @@ class ReadingState {
     this.autoMarkRead = false;
     this.autoMarkSeconds = DWELL_SECONDS_DEFAULT;
     this.scrollEffort = EFFORT_DEFAULT;
+    this.apexPeek = false;
     this.textScale = TEXT_SCALE.initial;
     this.rowScale = ROW_SCALE.initial;
     this.leading = LEADING_INITIAL;
@@ -307,6 +335,7 @@ class ReadingState {
   snapshot(): Record<string, unknown> {
     return {
       advanceOnScroll: this.advanceOnScroll,
+      articleBar: this.articleBar,
       articleFilter: this.articleFilter,
       listView: this.listView,
       readInPane: this.readInPane,
@@ -321,6 +350,7 @@ class ReadingState {
       markReadMode: this.autoMarkRead ? "auto" : "manual",
       autoMarkSeconds: this.autoMarkSeconds,
       scrollEffort: this.scrollEffort,
+      apexPeek: this.apexPeek,
       textScale: this.textScale,
       rowScale: this.rowScale,
       leading: this.leading,
@@ -351,6 +381,7 @@ class ReadingState {
   /** Validates and applies one saved blob. Shared by the local read and a pull. */
   private applySaved(saved: Record<string, unknown>): void {
     if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
+    if (isArticleBarSide(saved.articleBar)) this.articleBar = saved.articleBar;
     if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
     if (isListView(saved.listView)) this.listView = saved.listView;
     if (typeof saved.readInPane === "boolean") this.readInPane = saved.readInPane;
@@ -375,6 +406,7 @@ class ReadingState {
     if (isMarkReadMode(saved.markReadMode)) this.autoMarkRead = saved.markReadMode === "auto";
     if (saved.autoMarkSeconds !== undefined) this.autoMarkSeconds = clampDwellSeconds(saved.autoMarkSeconds);
     if (saved.scrollEffort !== undefined) this.scrollEffort = clampEffort(saved.scrollEffort);
+    if (typeof saved.apexPeek === "boolean") this.apexPeek = saved.apexPeek;
     this.textScale = clampScale(saved.textScale, TEXT_SCALE);
     this.rowScale = clampScale(saved.rowScale, ROW_SCALE);
     if (isLeading(saved.leading)) this.leading = saved.leading;
@@ -393,6 +425,12 @@ class ReadingState {
 
   toggleAdvance(): void {
     this.advanceOnScroll = !this.advanceOnScroll;
+    this.save();
+  }
+
+  /** The bar's own flip: bottom (the default) or top. */
+  toggleArticleBar(): void {
+    this.articleBar = this.articleBar === "bottom" ? "top" : "bottom";
     this.save();
   }
 
@@ -422,6 +460,22 @@ class ReadingState {
     const next = clampEffort(effort);
     if (this.scrollEffort === next) return;
     this.scrollEffort = next;
+    this.save();
+  }
+
+  /**
+   * The phone's stepper: one press is a tenth of the tuned distance, about 27px
+   * of thumb. A tenth rather than a pixel so the same number the desktop row
+   * shows moves in step with the distance the phone row shows.
+   */
+  stepScrollEffort(steps: number): void {
+    const bumped = Math.round((this.scrollEffort + steps * 0.1) * 10) / 10;
+    this.setScrollEffort(bumped);
+  }
+
+  setApexPeek(on: boolean): void {
+    if (this.apexPeek === on) return;
+    this.apexPeek = on;
     this.save();
   }
 

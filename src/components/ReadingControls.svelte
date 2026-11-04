@@ -10,8 +10,10 @@
    * file is the frame the bar uses — the trigger and the fixed popover under it.
    */
   import { ROW_SCALE, TEXT_SCALE, atScaleLimit, scalePercent } from "../lib/reading-layout";
+  import { layout } from "../state/layout.svelte";
   import { reading } from "../state/reading.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
+  import Sheet from "./Sheet.svelte";
 
   /**
    * What the two bar buttons resize: the article's text, or — when no article is
@@ -35,6 +37,17 @@
   }
 
   let open = $state(false);
+
+  /**
+   * A phone gets the sheet, everything else keeps the popover.
+   *
+   * The popover is right for a window: it opens beside the button that asked
+   * for it and leaves the article alone. On a phone it opened in the top
+   * corner, over the text you were reading, with no handle and no gesture back
+   * — so the same rows now come up from the bottom edge, under the thumb, and
+   * are pushed back down the way they arrived.
+   */
+  const onPhone = $derived(layout.device === "phone");
 
   /** Opened from the compact menu, where the Aa has no room to sit. */
   export function openPanel() {
@@ -68,12 +81,37 @@
   let moreEl = $state<HTMLElement | null>(null);
 
   /**
+   * The panel is a popover over the window, but it is mounted inside the bar
+   * that opens it — and on a phone that bar is `overflow: hidden` and carries
+   * the navigation material, whose `backdrop-filter` makes it the containing
+   * block for `position: fixed` children. A fixed panel inside it was therefore
+   * positioned against the bar and clipped to the bar's own 74px: it measured
+   * 252×405 in the right place, painted nothing, and every point inside its
+   * rectangle hit the list underneath, so a phone could not open its reading
+   * options at all. Moving the node into `body` on mount is the smallest fix
+   * that gives the panel the window as its parent: the styles travel with it
+   * (Svelte scoping is a class), the click-outside test is `contains` on the
+   * node, and the only thing it read from an ancestor — where it opens — is
+   * `--rc-panel-top`, which a phone now declares on the root.
+   */
+  function portal(node: HTMLElement): { destroy: () => void } {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        node.remove();
+      },
+    };
+  }
+
+  /**
    * A press anywhere else in the app closes it, the same as the settings panel:
    * a popover that stays open over whatever was just pressed is a popover that
    * took the press. The Aa button itself is exempt, so it still toggles.
    */
   $effect(() => {
-    if (!open) return;
+    // The sheet is modal and owns its own dismissal: a press inside it must not
+    // read as a press outside the old popover and close it under the finger.
+    if (!open || onPhone) return;
     const onDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (target === null) return;
@@ -93,7 +131,7 @@
     class="step small"
     onclick={() => step(-1)}
     disabled={stepSmaller}
-    aria-label={`Smaller ${stepWhat}`}
+    aria-label={`A− smaller ${stepWhat}`}
     title={`Smaller ${stepWhat} (${stepPercentReadout})`}
   >
     <span aria-hidden="true">A<span class="sign">−</span></span>
@@ -102,7 +140,7 @@
     class="step big"
     onclick={() => step(1)}
     disabled={stepBigger}
-    aria-label={`Bigger ${stepWhat}`}
+    aria-label={`A+ bigger ${stepWhat}`}
     title={`Bigger ${stepWhat} (${stepPercentReadout})`}
   >
     <span aria-hidden="true">A<span class="sign">+</span></span>
@@ -123,9 +161,15 @@
 </div>
 
 {#if open}
-  <div class="panel" role="dialog" aria-label="Reading options" bind:this={panelEl}>
-    <ReadingPanel ondone={close} />
-  </div>
+  {#if onPhone}
+    <Sheet label="Reading options" onclose={close}>
+      <ReadingPanel ondone={close} />
+    </Sheet>
+  {:else}
+    <div class="panel" role="dialog" aria-label="Reading options" bind:this={panelEl} use:portal>
+      <ReadingPanel ondone={close} />
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -194,11 +238,15 @@
      because the header clips its own overflow. */
   .panel {
     position: fixed;
-    /* Below the bar that opened it. 46 is a window's bar (42) plus a breath; the
-       status bar's own inset is added on top, because a phone's bar starts below
-       it and a panel at 46 would open over the bar's own controls. `--safe-top`
-       is 0 in a window, so the number there is unchanged. */
-    top: calc(46px + var(--safe-top, 0px));
+    /* Below the bar that opened it. The bar is not the same height in the two
+       headers that mount this component — a window's is 42px, a phone's is 40px
+       under the part of the status bar it does not spend — so the host declares
+       where the panel belongs and this is only the window's answer: 42 + 4 of
+       breath. A phone sets `--rc-panel-top` to its own 40 + 4 + the inset it
+       sits under (`--safe-top - --status-lift`, the same numbers `app.css` gives the
+       header). One number here opened the panel 2px *inside* the window's bar
+       and 30px below the phone's, which is why it is a variable now. */
+    top: var(--rc-panel-top, 46px);
     right: 12px;
     z-index: 61;
     width: 252px;

@@ -9,6 +9,7 @@
     anchorForRect,
     armsLongPress,
     isMenuKey,
+    realTimers,
   } from "../lib/contextmenu";
   import { parseFeedUrls } from "../lib/add-feeds";
   import { DEMO } from "../lib/demo";
@@ -26,6 +27,7 @@
   import { createFeedDrag, LIST_CATEGORIES } from "../lib/feed-drag";
   import { reading } from "../state/reading.svelte";
   import { reader, type CategoryGroup, type ReaderState } from "../state/reader.svelte";
+  import AccountBand from "./AccountBand.svelte";
   import { MARKER_PATH, pinWords } from "../lib/theme";
   import { statusFacts } from "../lib/band";
   import { groupHits, searchFeeds } from "../lib/search";
@@ -34,6 +36,10 @@
   import { people } from "../state/people.svelte";
   import { theme } from "../state/theme.svelte";
   import { chrome } from "../state/chrome.svelte";
+  import { buzz } from "../state/buzz.svelte";
+  import { icons } from "../state/icons.svelte";
+  import Glyph from "./Glyph.svelte";
+  import { topics } from "../state/topics.svelte";
   import { tick } from "svelte";
   import { layout } from "../state/layout.svelte";
   import { mobileNav, slidesInPortrait } from "../state/mobile-nav.svelte";
@@ -180,6 +186,13 @@
    */
   $effect(() => {
     people.indexAuthors(reader.items);
+  });
+
+  // Icons are a drawing, not a fetch: the choices live on this device (and in
+  // the account's copy), and the guesses are a pure function of the label, so
+  // one guarded read at mount is the whole of the loading.
+  $effect(() => {
+    icons.load();
   });
 
   /** The author rows what is typed narrows the index to. */
@@ -404,6 +417,70 @@
     await focused.openStream(streamId, title);
   }
 
+  /**
+   * The ⚡: open the section, or shut it.
+   *
+   * It does not change the stream underneath, so on a phone it also has to put
+   * the stories in front of you — pressing a row that changes nothing on screen
+   * is a press that did nothing.
+   */
+  function toggleBuzz(): void {
+    if (buzz.active) {
+      buzz.close();
+      return;
+    }
+    void buzz.open();
+    if (layout.device === "phone" && inlinePosts) mobileNav.show(2);
+  }
+
+  /** A topic row: narrow Pane 2 to it, or back to everything. */
+  function pickTopic(topicId: string): void {
+    void buzz.selectTopic(buzz.topicId === topicId ? null : topicId);
+    // On a phone the narrowed list is pane 2, so the row has to put you in
+    // front of it: unlike a feed tap — which at least changes the posts under
+    // the sidebar — a topic that only moved an outline would look like nothing
+    // happened. Not conditioned on `inlinePosts`: that flag is the one-pane
+    // walk's, and the stack hands the sidebar `false` while still being a phone.
+    if (layout.device === "phone") mobileNav.show(2);
+  }
+
+  // A topic is the reader's, so the section has to be able to make and unmake
+  // one. Both live behind a press of their own: adding opens a form, removing
+  // asks twice, and neither happens while reaching for a row.
+  let newTopic = $state(false);
+  let topicName = $state("");
+  let topicWords = $state("");
+  let removeAsked = $state<string | null>(null);
+
+  function addTopic(): void {
+    const made = topics.add(topicName, topicWords);
+    if (made === null) return;
+    topicName = "";
+    topicWords = "";
+    newTopic = false;
+    buzz.invalidate();
+  }
+
+  function askRemove(topicId: string): void {
+    removeAsked = removeAsked === topicId ? null : topicId;
+  }
+
+  /** Two presses, or a press somewhere else: a topic is not lost to a graze. */
+  function reallyRemove(topicId: string): void {
+    topics.remove(topicId);
+    removeAsked = null;
+    if (buzz.topicId === topicId) void buzz.selectTopic(null);
+    buzz.invalidate();
+  }
+
+  /** A feed's picture has no alt of its own; its title does the work. */
+  function initials(title: string): string {
+    const words = title.replace(/[^\p{L}\p{N} ]+/gu, " ").trim().split(/\s+/);
+    const first = words[0]?.[0] ?? "?";
+    const second = words.length > 1 ? (words[1][0] ?? "") : (words[0]?.[1] ?? "");
+    return (first + second).toUpperCase();
+  }
+
   function openCategory(category: CategoryGroup) {
     if (swallowClick) {
       swallowClick = false;
@@ -432,10 +509,14 @@
     if (doubled) {
       // Unfolded first, because a folded category has no feeds to show and the
       // posts it opens are its feeds'. Then the posts, whichever layout this is:
-      // one panel has to be *shown* them, since its sidebar does not move.
+      // one panel draws them under the heading, because its sidebar does not
+      // move and a posts column it does not have would paint them nowhere.
       if (folded) toggle(category.id);
+      if (inlinePosts) {
+        void anchorCategory(category);
+        return;
+      }
       openCategory(category);
-      if (inlinePosts) mobileNav.show(2);
       return;
     }
     if (!inlinePosts) {
@@ -450,7 +531,13 @@
     }
     if (openStreamId !== category.id) {
       if (folded) toggle(category.id);
-      openCategory(category);
+      void anchorCategory(category);
+      return;
+    }
+    // Its posts are already the unfolded list: this tap closes them, the way a
+    // second tap on a feed's row does.
+    if (expandedFeed === category.id) {
+      void collapseInline();
       return;
     }
     toggle(category.id);
@@ -480,6 +567,66 @@
     }
     reader.setExpandedFeed(feed.id);
     await reader.openStream(feed.id, feed.title);
+    await tick();
+    pinFeed(feed.id);
+  }
+
+  /**
+   * Put the feed's own row at the top of the tree, and tell the stylesheet how
+   * tall it is.
+   *
+   * Two things follow from this. A feed opens at its first post instead of
+   * wherever the scroll happened to be — opening a second feed used to close the
+   * first, which shrank the rows above it by the height of those posts and left
+   * you at the *end* of the feed you had just asked for. And the row + the view
+   * options under it are sticky against this number, so the title and the four
+   * views stay put while the posts scroll beneath them.
+   */
+  /**
+   * The row that carries a stream's unfold, whichever kind of stream it is: a
+   * feed's posts sit under the feed's row, a category's under its heading, and
+   * both are rows in the same tree.
+   */
+  function unfoldedRow(id: string): HTMLElement | null {
+    if (feedTree === null) return null;
+    return feedTree.querySelector<HTMLElement>(
+      `[data-drop-feed="${id}"], [data-drop-cat-row="${id}"]`,
+    );
+  }
+
+  /**
+   * One panel, a category: its whole stream drawn under the heading, the way a
+   * feed's posts are drawn under the feed.
+   *
+   * The posts column does not exist here, so `openCategory` alone loads the
+   * stream and paints it nowhere. This asks the same question the feed row asks
+   * — which list is unfolded — and answers it with the category's id, so the
+   * one nested `ArticleList` serves both kinds of row and the reader keeps the
+   * same mark, the same views and the same scroll.
+   */
+  async function anchorCategory(category: CategoryGroup): Promise<void> {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    if (expandedFeed === category.id) {
+      await collapseInline();
+      return;
+    }
+    reader.setExpandedFeed(category.id);
+    await reader.openStream(category.id, category.label);
+    await tick();
+    pinFeed(category.id);
+  }
+
+  function pinFeed(id: string): void {
+    if (feedTree === null) return;
+    const row = unfoldedRow(id);
+    if (row === null) return;
+    feedRowHeight = row.offsetHeight;
+    const offset =
+      row.getBoundingClientRect().top - feedTree.getBoundingClientRect().top + feedTree.scrollTop;
+    feedTree.scrollTo({ top: Math.max(0, offset) });
   }
 
   /**
@@ -493,7 +640,7 @@
     reader.setExpandedFeed(null);
     await tick();
     if (id === null || feedTree === null) return;
-    const row = feedTree.querySelector<HTMLElement>(`[data-drop-feed="${id}"]`);
+    const row = unfoldedRow(id);
     if (row === null) return;
     const offset =
       row.getBoundingClientRect().top - feedTree.getBoundingClientRect().top + feedTree.scrollTop;
@@ -563,10 +710,16 @@
     if (!armsLongPress(event.pointerType)) return;
     swallowClick = false;
     press?.cancel();
-    press = new LongPressTracker((point) => {
-      swallowClick = true;
-      openMenu(point);
-    });
+    press = new LongPressTracker(
+      (point) => {
+        swallowClick = true;
+        openMenu(point);
+      },
+      realTimers,
+      // The reader's own delay: the same number the drag's hold uses, read at the
+      // moment of the press so a change in Settings applies to the next press.
+      chrome.gestures.longPressMs,
+    );
     press.start({
       pointerType: event.pointerType,
       clientX: event.clientX,
@@ -613,6 +766,7 @@
     // A finger that held the row and let go without moving it: the menu, asked
     // for with a hold. `swallowClick` keeps the click that follows from opening
     // the feed as well.
+    holdMs: () => chrome.gestures.longPressMs,
     onHold: (id, point) => {
       const feed = reader.subscriptions.find((entry) => entry.id === id);
       if (feed === undefined) return;
@@ -629,6 +783,7 @@
       // Order only: nothing about membership, hidden state or pins moves, and
       // nothing is sent — this is a local arrangement, like the feeds'.
       onDrop: ({ moving, before }) => reader.arrangeCategory(moving, before),
+      holdMs: () => chrome.gestures.longPressMs,
       onHold: (id, point) => {
         const category = reader.categories.find((group) => group.id === id);
         if (category === undefined) return;
@@ -725,6 +880,14 @@
    */
   let feedBox = $state<HTMLTextAreaElement | null>(null);
   let feedTree = $state<HTMLElement | null>(null);
+
+  /**
+   * The height of an unfolded feed's own row, in pixels, handed to the
+   * stylesheet as `--feed-row-h`: the account bands size their rows to match a
+   * feed row, so a band and the tree under it read as one column. One number for
+   * every row, because every feed row is the same height.
+   */
+  let feedRowHeight = $state(0);
   let starredRow = $state<HTMLButtonElement | null>(null);
   const feedLines = $derived(parseFeedUrls(feedUrl).length);
 
@@ -1020,6 +1183,7 @@
   <div
     class="scroll"
     bind:this={feedTree}
+    style:--feed-row-h={`${feedRowHeight}px`}
     use:pullDown={{
       label: "Pull down to check for new posts",
       readyLabel: "Release to check for new posts",
@@ -1171,6 +1335,162 @@
       <p class="find-note">No post text indexed yet — feed names still match.</p>
     {/if}
   {:else}
+  <!-- More than one account: each gets a band with its own name on it, and the tree
+       under it is that account's. With one account there is nothing to tell apart,
+       so no band is drawn and the sidebar looks exactly as it always has. -->
+  {#if reader.hasAccountGroups}
+    <div class="acct-bands">
+      {#each reader.bandedAccounts as account (account.slug)}
+        <AccountBand {account} />
+      {/each}
+    </div>
+  {/if}
+
+  {#if reader.isAccountGroupOpen(reader.profile?.slug ?? "")}
+  <!-- Buzz sits above Reading list because it is the wider view: the stories
+       several feeds are carrying, before you pick a feed. Pressing it opens the
+       section; pressing it again shuts it, and nothing else on the row moves. -->
+  <div class="section buzz-section">
+    <button
+      class="row strong buzz-toggle"
+      class:active={buzz.active}
+      aria-expanded={buzz.active}
+      title="Stories more than one feed is carrying"
+      onclick={toggleBuzz}
+    >
+      <span class="bolt" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M13.5 2 4 13.6h6.1L8.6 22 20 10.2h-6.4z" /></svg>
+      </span>
+      <span class="label">Buzz</span>
+      {#if buzz.active && buzz.count > 0}
+        <span class="count">{buzz.count}</span>
+      {/if}
+    </button>
+
+    {#if buzz.active}
+      <!-- Collapsed by default: the section opens as names, not a wall of
+           feeds. The chevron is the only thing that unfolds a row, so reaching
+           for the name never opens two things at once. -->
+      {#each topics.list as topic (topic.id)}
+        {@const unfolded = buzz.expanded.has(topic.id)}
+        <div class="buzz-topic" class:on={buzz.topicId === topic.id}>
+          <div class="group">
+            <button
+              class="buzz-fold"
+              class:up={unfolded}
+              aria-expanded={unfolded}
+              aria-label={unfolded ? `Hide the feeds in ${topic.name}` : `Show the feeds in ${topic.name}`}
+              onclick={() => buzz.toggleFeeds(topic.id)}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" /></svg>
+            </button>
+            <button
+              class="row buzz-name"
+              class:active={buzz.topicId === topic.id}
+              title={topic.keywords.length === 0 ? "Every feed, converged" : topic.keywords.join(", ")}
+              onclick={() => pickTopic(topic.id)}
+            >
+              <span class="label">{topic.name}</span>
+              {#if !unfolded}
+                {@const carrying = buzz.feedsFor(topic.id)}
+                {#if carrying.length > 0}
+                  <span class="buzz-icons" aria-hidden="true">
+                    {#each carrying.slice(0, 4) as feed (feed.id)}
+                      <span class="buzz-icon" title={feed.title}>
+                        {#if feed.icon}
+                          <img src={feed.icon} alt="" loading="lazy" decoding="async" />
+                        {:else}
+                          {initials(feed.title)}
+                        {/if}
+                      </span>
+                    {/each}
+                    {#if carrying.length > 4}
+                      <span class="buzz-more">+{carrying.length - 4}</span>
+                    {/if}
+                  </span>
+                {/if}
+              {/if}
+              <span class="count">{buzz.countFor(topic.id)}</span>
+            </button>
+          </div>
+
+          {#if unfolded}
+            {#each buzz.feedsFor(topic.id) as feed (feed.id)}
+              <!-- A feed here is a feed: pressing it leaves Buzz and shows that
+                   feed's posts, exactly as its own row would. -->
+              <button
+                class="row buzz-feed"
+                onclick={() => {
+                  buzz.close();
+                  void open(feed.id, feed.title);
+                }}
+              >
+                <span class="label">{feed.title}</span>
+                <span class="count">{feed.items}</span>
+              </button>
+            {:else}
+              <p class="buzz-note">No feed is carrying this one yet.</p>
+            {/each}
+            <button
+              class="buzz-remove"
+              class:asked={removeAsked === topic.id}
+              onclick={() => (removeAsked === topic.id ? reallyRemove(topic.id) : askRemove(topic.id))}
+            >
+              {removeAsked === topic.id ? "Remove it — tap again" : `Remove ${topic.name}`}
+            </button>
+          {/if}
+        </div>
+      {/each}
+
+      {#if topics.list.length === 0}
+        <p class="buzz-note">No topics yet.</p>
+      {/if}
+
+      {#if newTopic}
+        <!-- Words are optional and comma-separated: a topic with none is the
+             whole window, which is what Breaking News is. -->
+        <div class="buzz-new">
+          <!-- svelte-ignore a11y_autofocus -->
+          <input
+            class="buzz-input"
+            placeholder="Topic name"
+            autofocus
+            bind:value={topicName}
+            onkeydown={(event) => {
+              if (event.key === "Enter") addTopic();
+              if (event.key === "Escape") newTopic = false;
+            }}
+          />
+          <input
+            class="buzz-input"
+            placeholder="Words, comma separated (optional)"
+            bind:value={topicWords}
+            onkeydown={(event) => {
+              if (event.key === "Enter") addTopic();
+              if (event.key === "Escape") newTopic = false;
+            }}
+          />
+          <div class="buzz-actions">
+            <button class="buzz-do" onclick={addTopic} disabled={topicName.trim() === ""}>Add</button>
+            <button
+              class="buzz-do quiet"
+              onclick={() => {
+                newTopic = false;
+                topicName = "";
+                topicWords = "";
+              }}>Cancel</button
+            >
+          </div>
+        </div>
+      {:else}
+        <button class="row buzz-add" onclick={() => (newTopic = true)}>
+          <span class="label">New topic</span>
+          <span class="plus" aria-hidden="true">+</span>
+        </button>
+      {/if}
+    {/if}
+  </div>
+
   <div class="section">
     <button
       class="row strong"
@@ -1197,6 +1517,7 @@
     {@const pinned = reader.isCategoryPinned(category.label)}
     {@const hiddenCat = reader.isCategoryHidden(category.label)}
     {@const folded = reader.isCategoryCollapsed(category.id)}
+    {@const glyph = icons.iconFor(category.label)}
     <div
       class="section"
       data-drag-block
@@ -1208,6 +1529,7 @@
         <button
           class="row group-title"
           class:active={openStreamId === category.id}
+          class:unfolded={inlinePosts && expandedFeed === category.id}
           class:pinned
           class:is-hidden={hiddenCat}
           class:drop-into={drop !== null && drop.target === category.label && drop.before === null}
@@ -1258,17 +1580,33 @@
               <path d={MARKER_PATH} />
             </svg>
           {/if}
+          {#if glyph !== null}
+            <!-- The category's own picture, at the row's ink: it sits before the
+                 name the way a folder's tab sits before its label. -->
+            <span class="cat-glyph" aria-hidden="true"><Glyph name={glyph} size={15} /></span>
+          {/if}
           <span class="label">{category.label}</span>
         </button>
         <button
           class="open"
-          onclick={() => openCategory(category)}
+          onclick={() => {
+            if (inlinePosts) void anchorCategory(category);
+            else openCategory(category);
+          }}
           title={`Open posts in ${category.label}`}
           aria-label={`Open posts in ${category.label}`}
         >
           <span class="count">{reader.countFor(category.id)}</span>
         </button>
       </div>
+
+      {#if inlinePosts && expandedFeed === category.id}
+        <!-- One panel, this category's whole stream: the same nested list a
+             feed unfolds, so the four views, the marks and the scroll are the
+             ones a feed has. It sits under the heading rather than replacing
+             the tree, because the feeds are still how the reader moves on. -->
+        <ArticleList nested />
+      {/if}
 
       {#if !folded}
         {#each category.feeds as feed, index (feed.id)}
@@ -1346,6 +1684,7 @@
       {/if}
     </div>
   {/each}
+  {/if}
   {/if}
 
   {#if startsHere}
@@ -1484,7 +1823,7 @@
     <button
       class="unfold-close"
       onclick={collapseInline}
-      aria-label="Collapse this feed"
+      aria-label="Show the feeds again"
       title="Back to the feeds"
     >
       <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -1628,9 +1967,15 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-bottom: 2px;
-    /* Panned by the app's drag module, so a flick throws here the way it does in
-       the post list. See `lib/drag-scroll.ts`. */
-    touch-action: none;
+    /* The browser's own pan, not the app's.
+       A `scrollTop` written from a pointermove is a main-thread scroll: layout
+       and repaint on the frame's own thread, with none of WebKit's momentum or
+       its 120Hz path. The post list and the article already pan natively; the
+       tree was the one surface still panned by hand, which is why it was the one
+       that felt choppy on a phone. Carrying a row is the exception, and it holds
+       the finger by refusing the browser's pan for as long as it carries
+       (`lib/feed-drag.ts`). */
+    touch-action: pan-y;
   }
 
   .section + .section {
@@ -1684,6 +2029,274 @@
 
   .row.strong .label {
     font-weight: 600;
+  }
+
+  /* Buzz: the ⚡ is drawn at the row's ink, not in the accent, because the
+     accent on this row means "the section is open", and a bolt that is always
+     yellow says the opposite of what the fill says. */
+  .bolt {
+    display: inline-flex;
+    flex: none;
+    width: 13px;
+    height: 13px;
+    margin-left: -1px;
+  }
+
+  .bolt svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linejoin: round;
+  }
+
+  .row.buzz-toggle[aria-expanded="true"] .bolt {
+    color: var(--accent);
+    fill: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  .row.buzz-toggle[aria-expanded="true"] .bolt svg {
+    fill: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  /* The chevron is its own target at the row's left edge, so the name is free
+     to mean "show me this topic" and nothing else. */
+  .buzz-topic .group {
+    align-items: stretch;
+  }
+
+  /* The category's glyph keeps the row's own tone: muted on a resting row, the
+     pin's colour when the row is pinned (it is the row's mark, not a second
+     claim), and dimmed with the rest of a hidden row. */
+  .cat-glyph {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    margin-right: 6px;
+    color: var(--muted);
+  }
+
+  .row.group-title:hover .cat-glyph,
+  .row.group-title.active .cat-glyph {
+    color: var(--text-dim);
+  }
+
+  .row.group-title.pinned .cat-glyph {
+    color: color-mix(in srgb, var(--tone-pinned, var(--accent)) 70%, var(--muted));
+  }
+
+  .row.group-title.is-hidden .cat-glyph {
+    opacity: 0.55;
+  }
+
+  .buzz-fold {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 22px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .buzz-fold:hover {
+    color: var(--text);
+  }
+
+  .buzz-fold svg {
+    width: 11px;
+    height: 11px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 120ms ease;
+  }
+
+  .buzz-fold.up svg {
+    transform: rotate(90deg);
+  }
+
+  .buzz-name {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    padding-left: 2px;
+    font-size: 12.5px;
+  }
+
+  .buzz-topic.on .buzz-name .label {
+    font-weight: 600;
+  }
+
+  /* A feed under a topic is a step in: smaller, quieter, and indented to the
+     same edge the topics' names sit on so the tree reads as one ladder. */
+  .buzz-feed {
+    padding: 5px 10px 5px 34px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .buzz-feed .label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .buzz-note {
+    margin: 0;
+    padding: 3px 10px 5px 34px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+
+  /* The feeds carrying a topic, as pictures before it is opened: four at most,
+     then a count, because a tenth icon is no longer a recognisable face. They
+     overlap by a third so five names read as one cluster rather than a queue. */
+  .buzz-icons {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    margin-left: auto;
+    padding-left: 6px;
+  }
+
+  .buzz-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    margin-left: -5px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: var(--surface-raised, var(--surface));
+    box-shadow: 0 0 0 1px var(--edge-soft);
+    color: var(--text-dim);
+    font-size: 7.5px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .buzz-icon:first-child {
+    margin-left: 0;
+  }
+
+  .buzz-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .buzz-more {
+    margin-left: 3px;
+    font-size: 10px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A topic's count still sits at the same right edge as every other count, so
+     the icons borrow the space the label did not need. */
+  .buzz-name .count {
+    flex: none;
+    margin-left: 6px;
+  }
+
+  .buzz-remove {
+    display: block;
+    margin: 2px 10px 6px 34px;
+    padding: 4px 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .buzz-remove:hover {
+    color: var(--text-dim);
+  }
+
+  .buzz-remove.asked {
+    color: var(--danger, #d06a6a);
+    font-weight: 600;
+  }
+
+  .buzz-add {
+    padding-left: 34px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .buzz-add .plus {
+    margin-left: auto;
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  .buzz-new {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 4px 10px 8px 34px;
+  }
+
+  .buzz-input {
+    width: 100%;
+    padding: 5px 7px;
+    border: 1px solid var(--edge-soft);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .buzz-input:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  /* A thumb device gets 16px: iOS scales the whole page in for a field under it
+     and never scales back out (`app.css` says the same for every other field).
+     12px is fine beside a cursor; it is a zoom on a phone. */
+  @media (pointer: coarse) {
+    .buzz-input {
+      font-size: 16px;
+    }
+  }
+
+  .buzz-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .buzz-do {
+    padding: 4px 9px;
+    border: 1px solid var(--edge-soft);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+
+  .buzz-do.quiet {
+    color: var(--muted);
+  }
+
+  .buzz-do:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   /* The row and the count sit side by side: the row is the fold, the count
@@ -1902,6 +2515,16 @@
      near the edge (8px + the extension's indent) and are told apart from their
      category by size, weight and colour rather than by a deep column. Category
      rows still take no indent: that is the hierarchy the indent expresses. */
+  /* An unfolded feed's row used to keep itself against the top of the tree while
+     its posts scrolled under it, and the post list's own bar parked one row down
+     (`--feed-row-h`) to sit beneath it. The owner read that as two bands: the
+     bar sat slightly below the top of the tree, rows passed above and below it,
+     and the strip never felt locked. It is one bar now — the post list's, which
+     pins at the top of the tree and carries the stream's own name (see
+     `ArticleList`, `.list.nested .list-header`) — so the row scrolls away with
+     the rest of the tree. The way back is the floating `unfold-close` disc,
+     which is where a thumb already reaches, and the name is on the bar. */
+
   .feed {
     /* The drop line is drawn against the row's own box, so the row has to be
        the containing block for it. */
@@ -1917,7 +2540,10 @@
     color: var(--text);
   }
 
-  .feed.unfolded {
+  .feed.unfolded,
+  /* A category whose posts are unfolded reads the same way, for the same
+     reason: the heading is what the posts are, so it carries the ink. */
+  .group-title.unfolded {
     color: var(--text);
     font-weight: 600;
   }
@@ -2089,7 +2715,17 @@
   }
 
   :global(html[data-device="phone"]) .find-input {
-    font-size: 13.5px;
+    /* 16 is the size iOS refuses to zoom the page for; 13.5 magnified the whole
+       app when the search box took focus and never scaled back. */
+    font-size: 16px;
+  }
+
+  /* The same floor for a thumb device that is not a phone — a tablet is coarse
+     too, and its `.find-input` would otherwise be the 12.5px a cursor gets. */
+  @media (pointer: coarse) {
+    .find-input {
+      font-size: 16px;
+    }
   }
 
   :global(html[data-device="phone"]) .glass {
@@ -2423,6 +3059,9 @@
      underneath. */
   :global(html[data-device="phone"]) .sidebar {
     position: relative;
+    /* The column's glass is the pane's (see `app.css`, ".slot.feeds"): a second
+       opaque fill here would sit on top of the material and hide it. */
+    background: none;
   }
 
   :global(html[data-device="phone"]) .add {
@@ -2478,6 +3117,17 @@
     line-height: 16px;
     resize: none;
     overflow-y: auto;
+  }
+
+  /* The add-a-feed box is the field the reader types a URL into, so it is the
+     one that magnifies the app on iOS at 12px. A thumb device gets 16 and a
+     line-height that keeps a pasted list readable. After the size it overrides,
+     on purpose: same specificity, so the later rule wins. */
+  @media (pointer: coarse) {
+    .url {
+      font-size: 16px;
+      line-height: 1.35;
+    }
   }
 
   .url.grow {

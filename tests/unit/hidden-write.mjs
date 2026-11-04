@@ -121,7 +121,8 @@ function buildReaderModule() {
     .replaceAll('"../api/transport"', JSON.stringify(absolute("src/api/transport.ts")))
     .replaceAll('"../api/backend"', JSON.stringify(absolute("src/api/backend.ts")))
     .replaceAll('"../api/greader-backend"', JSON.stringify(absolute("src/api/greader-backend.ts")))
-    .replaceAll('"../api/profile"', JSON.stringify(absolute("src/api/profile.ts")))
+    .replaceAll('"../api/session"', JSON.stringify(absolute("src/api/session.ts")))
+.replaceAll('"../api/profile"', JSON.stringify(absolute("src/api/profile.ts")))
     .replaceAll('"../lib/reading-order"', JSON.stringify(absolute("src/lib/reading-order.ts")))
     .replaceAll('"../lib/feed-order"', JSON.stringify(absolute("src/lib/feed-order.ts")))
     .replaceAll('"../lib/capabilities"', JSON.stringify(absolute("src/lib/capabilities.ts")))
@@ -155,7 +156,12 @@ function buildReaderModule() {
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
     .replaceAll('"../lib/opml"', JSON.stringify(absolute("src/lib/opml.ts")))
     .replaceAll('"../lib/extract-ledger"', JSON.stringify(absolute("src/lib/extract-ledger.ts")))
-    .replaceAll('"../lib/full-text"', JSON.stringify(absolute("src/lib/full-text.ts")));
+    .replaceAll('"../lib/full-text"', JSON.stringify(absolute("src/lib/full-text.ts")))
+    .replaceAll('"../lib/offline-copy"', JSON.stringify(absolute("src/lib/offline-copy.ts")))
+    .replaceAll('"../lib/marks"', JSON.stringify(absolute("src/lib/marks.ts")))
+    .replaceAll('"../api/aggregate"', JSON.stringify(absolute("src/api/aggregate.ts")))
+    .replaceAll('"../lib/feed-groups"', JSON.stringify(absolute("src/lib/feed-groups.ts")))
+    .replaceAll('"../api/registry"', JSON.stringify(absolute("src/api/registry.ts")));
 }
 
 const { ApiError, parseState } = await import(absolute("src/api/hardlyread.ts"));

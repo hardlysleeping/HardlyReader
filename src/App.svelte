@@ -8,6 +8,8 @@
   import { entitlement } from "./state/entitlements.svelte";
   import { identity } from "./api/identity";
   import { layout } from "./state/layout.svelte";
+  import { chrome } from "./state/chrome.svelte";
+  import { installDragScroll } from "./lib/drag-scroll";
   import { reader } from "./state/reader.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
@@ -132,7 +134,7 @@
   let stopWatchingEntitlement: (() => void) | null = null;
 
   /**
-   * Tells the reader whether HardlyReader Sync is paid for.
+   * Tells the reader whether HardlySyncing is paid for.
    *
    * The reader holds the ladder (`featureAuthority`) and must not know what a
    * receipt is, so the shell joins the two stores: the entitlement in, one
@@ -144,6 +146,20 @@
    */
   $effect(() => {
     reader.paid = entitlement.cloudSync;
+  });
+
+  /**
+   * Drag the lists and the article with the mouse, like a finger on a phone.
+   *
+   * Installed here rather than once in `main.ts` because it is a gesture with an
+   * off switch: the effect re-runs when the answer changes, and turning the
+   * gesture off returns its teardown, so the listener is gone rather than
+   * deafened. It finds the scroll container under the pointer itself, so no pane
+   * has to opt in.
+   */
+  $effect(() => {
+    if (!chrome.gestures.dragScroll) return;
+    return installDragScroll();
   });
 
   /**
@@ -288,7 +304,9 @@
   });
 </script>
 
-<main class="shell">
+<main class="shell" id="content" tabindex="-1">
+  <!-- First in the tab order: the reader's own chrome repeats on every screen. -->
+  <a class="skip-link" href="#content">Skip to content</a>
   {#if checking}
     <!-- A splash that says nothing reads as a blank window, and a cold start
          here can take seconds before the first request lands. -->
@@ -353,6 +371,26 @@
     border: 1px solid var(--border-soft);
     font-size: 0.85em;
     pointer-events: none;
+  }
+
+  .skip-link {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 100;
+    transform: translate(-50%, -120%);
+    padding: 10px 16px;
+    border-radius: 0 0 10px 10px;
+    background: var(--text);
+    color: var(--bg);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .skip-link:focus-visible {
+    transform: translate(-50%, 0);
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   .shell {

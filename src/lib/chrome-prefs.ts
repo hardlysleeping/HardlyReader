@@ -16,12 +16,37 @@
 import { readAccountValue, writeAccountValue, type AccountIdentity } from "./account-key";
 import { AUTO_SYNC_DEFAULT_HOURS, parseAutoSyncHours, type AutoSyncHours } from "./auto-sync";
 import {
+  GESTURE_DEFAULTS,
+  parseGestures,
+  type GesturePrefs,
+} from "./gestures";
+import {
   REFRESH_ON_RETURN_DEFAULT,
   parseRefreshOnReturn,
   type RefreshOnReturn,
 } from "./refresh-on-return";
 
 export const CHROME_KEY = "hardlyreader.chrome.v1";
+
+// This choice spans accounts on this device; never put it in an account's prefs
+// blob (switching accounts must not silently turn the combined column back on).
+export const MULTI_ACCOUNT_KEY = "hardlyreader.chrome.multiAccount";
+
+export function readMultiAccount(storage: StorageLike | undefined): boolean {
+  try {
+    return storage?.getItem(MULTI_ACCOUNT_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+export function writeMultiAccount(storage: StorageLike | undefined, on: boolean): void {
+  try {
+    storage?.setItem(MULTI_ACCOUNT_KEY, JSON.stringify(on));
+  } catch {
+    // Blocked storage still permits the choice for this session.
+  }
+}
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 
@@ -58,6 +83,17 @@ export interface ChromePrefs {
    * `never` silences the return check alone, and opening the app still syncs.
    */
   refreshOnReturn: RefreshOnReturn;
+  /** The gestures this device answers to; see `lib/gestures.ts`. */
+  gestures: GesturePrefs;
+  /**
+   * Whether the last few posts of every feed are kept on this device.
+   *
+   * On unless it was turned off: it is what makes a launch with no network show
+   * something rather than an error, and it costs one small request per feed at
+   * most twice a day (`lib/offline-copy.ts`). The row that turns it off says what
+   * it costs, which is why the default is allowed to be on.
+   */
+  offlineCopy: boolean;
 }
 
 const DEFAULT_PREFS: ChromePrefs = {
@@ -67,6 +103,8 @@ const DEFAULT_PREFS: ChromePrefs = {
   autoSync: false,
   autoSyncHours: AUTO_SYNC_DEFAULT_HOURS,
   refreshOnReturn: REFRESH_ON_RETURN_DEFAULT,
+  gestures: { ...GESTURE_DEFAULTS },
+  offlineCopy: true,
 };
 
 /**
@@ -87,6 +125,8 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
       autoSync?: unknown;
       autoSyncHours?: unknown;
       refreshOnReturn?: unknown;
+      gestures?: unknown;
+      offlineCopy?: unknown;
     };
     return {
       bandCollapsed: saved.bandCollapsed === true,
@@ -95,6 +135,10 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
       autoSync: saved.autoSync === true,
       autoSyncHours: parseAutoSyncHours(saved.autoSyncHours),
       refreshOnReturn: parseRefreshOnReturn(saved.refreshOnReturn),
+      gestures: parseGestures(saved.gestures),
+      // Written by a build that had the row; absent elsewhere, and then the default
+      // stands rather than reading as "turned off".
+      offlineCopy: saved.offlineCopy !== false,
     };
   } catch {
     // Corrupt JSON, or storage throwing: both quiet defaults are safe.
@@ -214,6 +258,38 @@ export function writeRefreshOnReturn(
   account: AccountIdentity | null = null,
 ): void {
   patchPrefs(storage, account, { refreshOnReturn: parseRefreshOnReturn(value) });
+}
+
+/** Kept on this device unless it was turned off. */
+export function readOfflineCopy(
+  storage: StorageLike | undefined,
+  account: AccountIdentity | null = null,
+): boolean {
+  return readPrefs(storage, account).offlineCopy;
+}
+
+export function writeOfflineCopy(
+  storage: StorageLike | undefined,
+  on: boolean,
+  account: AccountIdentity | null = null,
+): void {
+  patchPrefs(storage, account, { offlineCopy: on });
+}
+
+/** The gestures this device answers to, whole — one record, one write. */
+export function readGestures(
+  storage: StorageLike | undefined,
+  account: AccountIdentity | null = null,
+): GesturePrefs {
+  return readPrefs(storage, account).gestures;
+}
+
+export function writeGestures(
+  storage: StorageLike | undefined,
+  value: GesturePrefs,
+  account: AccountIdentity | null = null,
+): void {
+  patchPrefs(storage, account, { gestures: parseGestures(value) });
 }
 
 /** localStorage in a browser, undefined anywhere it does not exist. */

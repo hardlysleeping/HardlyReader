@@ -156,6 +156,17 @@
 >
   <p class="title">{model.label}</p>
 
+  <!-- First: the only item here that is not a write, and the one a reader asks
+       for most often. It never goes away, not even on the removal question —
+       reading the feed again is safe whatever the menu is asking. -->
+  <button
+    class="item"
+    role="menuitem"
+    title={model.refresh.hint ?? ""}
+    disabled={busy}
+    onclick={() => onselect(model.refresh.action)}
+  >{model.refresh.label}</button>
+
   {#if model.toggle}
     {@const toggle = model.toggle}
     <button
@@ -177,6 +188,19 @@
     >
       <span class="pin-glyph" aria-hidden="true">{pin.glyph ?? "📌"}</span>
       <span class="option">{pin.label}</span>
+    </button>
+  {/if}
+
+  {#if model.icon}
+    {@const icon = model.icon}
+    <button
+      class="item"
+      role="menuitem"
+      title={icon.hint ?? ""}
+      disabled={icon.disabled || busy}
+      onclick={() => onselect(icon.action)}
+    >
+      <span class="option">{icon.label}</span>
     </button>
   {/if}
 

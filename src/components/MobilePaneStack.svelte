@@ -22,12 +22,16 @@
   import { onMount } from "svelte";
 
   import ArticleList from "./ArticleList.svelte";
+  import BuzzList from "./BuzzList.svelte";
+  import BuzzCoverage from "./BuzzCoverage.svelte";
+  import { buzz } from "../state/buzz.svelte";
   import ReaderPane from "./ReaderPane.svelte";
   import Sidebar from "./Sidebar.svelte";
   import { motionEase, motionMs } from "../lib/panes";
   import { isTauri } from "../lib/platform";
   import { layout } from "../state/layout.svelte";
   import { reader } from "../state/reader.svelte";
+  import { chrome } from "../state/chrome.svelte";
   import { EDGE, offsetFor, type MobileNavState, type MobilePane } from "../state/mobile-nav.svelte";
 
   let {
@@ -205,6 +209,12 @@
   let swipe: { x: number; y: number; at: number } | null = null;
 
   function ontouchstart(event: TouchEvent): void {
+    // Off in Settings means the gesture is not armed at all: nothing is recorded,
+    // so nothing can be claimed on the way out.
+    if (!chrome.gestures.paneSwipe) {
+      swipe = null;
+      return;
+    }
     if (event.touches.length !== 1) {
       swipe = null;
       return;
@@ -287,9 +297,17 @@
                row. -->
           <Sidebar inlinePosts={false} />
         {:else if pane === 2}
-          <ArticleList />
+          {#if buzz.active}
+            <BuzzList />
+          {:else}
+            <ArticleList />
+          {/if}
         {:else}
-          <ReaderPane {onClose} {onLock} />
+          {#if buzz.coverageOpen && reader.selectedId === null}
+            <BuzzCoverage />
+          {:else}
+            <ReaderPane {onClose} {onLock} />
+          {/if}
         {/if}
       </section>
     {/each}

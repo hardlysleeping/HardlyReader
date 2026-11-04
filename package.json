@@ -1,7 +1,7 @@
 {
   "name": "hardlyreader",
   "private": true,
-  "version": "0.6.18",
+  "version": "0.6.36",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {
@@ -27,6 +27,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tauri-apps/cli": "^2",
     "@types/node": "^26.6.5",
+    "lucide-static": "0.545.0",
     "svelte": "^5.56.3",
     "svelte-check": "^4.6.0",
     "typescript": "~6.0.3",

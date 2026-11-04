@@ -18,7 +18,7 @@ create table if not exists public.entitlements (
 );
 
 comment on table public.entitlements is
-  'One row per reader who has ever owned HardlyReader Sync. Written by the payment webhook only.';
+  'One row per reader who has ever owned HardlySyncing. Written by the payment webhook only.';
 
 alter table public.entitlements enable row level security;
 

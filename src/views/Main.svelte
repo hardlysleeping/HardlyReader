@@ -5,10 +5,16 @@
   import ArticleList from "../components/ArticleList.svelte";
   import FloodLayer from "../components/FloodLayer.svelte";
   import CategoryMenu from "../components/CategoryMenu.svelte";
+  import IconPickerPopover from "../components/IconPickerPopover.svelte";
+  import ImageViewer from "../components/ImageViewer.svelte";
+  import BuzzCoverage from "../components/BuzzCoverage.svelte";
+  import { iconPicker } from "../state/icon-picker.svelte";
   import Header from "../components/Header.svelte";
   import LayoutSwitch from "../components/LayoutSwitch.svelte";
   import LoadAura from "../components/LoadAura.svelte";
   import MobilePaneStack from "../components/MobilePaneStack.svelte";
+  import BuzzList from "../components/BuzzList.svelte";
+  import { buzz } from "../state/buzz.svelte";
   import PaneGutter from "../components/PaneGutter.svelte";
   import PhoneHeader from "../components/PhoneHeader.svelte";
   import ReaderPane from "../components/ReaderPane.svelte";
@@ -117,6 +123,34 @@
     prefs.observe();
   });
 
+  /**
+   * The offline copy follows the setting, and a switch turned on takes effect now.
+   *
+   * Written here rather than read inside the store for the same reason every other
+   * preference is: the reading store holds no opinion about a settings switch. A
+   * reader who turns it on should not have to wait for the next sync to find out
+   * whether it did anything, so a pass runs when it is switched on.
+   */
+  $effect(() => {
+    const on = chrome.offlineCopy;
+    reader.keepOfflineCopy = on && !DEMO;
+    if (!on || DEMO) return;
+    // Untracked: the pass reads the sidebar's subscriptions, and tracking that would
+    // re-run this effect every time the sidebar loaded and start a second pass behind
+    // the first. The switch is the only dependency this effect is allowed to have.
+    untrack(() => void reader.warmOfflineCopy());
+  });
+
+  // Only the device choice is tracked: a reload must not retrigger itself when
+  // it reads or replaces the stream, accounts or page.
+  $effect(() => {
+    const on = chrome.multiAccount;
+    const stores = new Set([reader, ...split.views.map((view) => view.reader)]);
+    untrack(() => {
+      for (const store of stores) void store.setMultiAccount(on);
+    });
+  });
+
   $effect(() => {
     const enabled = chrome.autoSync;
     const hours = chrome.autoSyncHours;
@@ -132,8 +166,8 @@
         // request to learn that a `demo://` URL is not a feed.
         enabled: () => !DEMO && chrome.autoSync,
         hours: () => hours,
-        sync: () => reader.refresh(),
-        busy: () => reader.sync.active,
+        sync: () => reader.refreshAll(),
+        busy: () => reader.sync.active || reader.refreshingEveryAccount,
         launch: refreshDueOnLaunch(reader.lastSyncAt),
       }),
     );
@@ -166,20 +200,48 @@
       // interval timer when the reader turned it on: that one fires at its own
       // `launch` check, and five requests twice is not more current than five
       // requests once. Exactly one of the two owns the launch sync.
-      if (!DEMO && !chrome.autoSync && !reader.sync.active && refreshDueOnLaunch(reader.lastSyncAt)) {
-        void reader.refresh();
+      if (
+        !DEMO &&
+        !chrome.autoSync &&
+        !reader.sync.active &&
+        !reader.refreshingEveryAccount &&
+        refreshDueOnLaunch(reader.lastSyncAt)
+      ) {
+        void reader.refreshAll("launch");
       }
       const onReturn = (): void => {
         if (DEMO) return;
         if (document.visibilityState !== "visible") return;
-        if (reader.sync.active) return;
+        if (reader.sync.active || reader.refreshingEveryAccount) return;
         if (!refreshDueOnReturn(chrome.refreshOnReturn, reader.lastSyncAt)) return;
-        void reader.refresh();
+        void reader.refreshAll("resume");
       };
       document.addEventListener("visibilitychange", onReturn);
       return () => document.removeEventListener("visibilitychange", onReturn);
     });
     return run;
+  });
+
+  /**
+   * The network is back: send the marks made while it was gone.
+   *
+   * Read and star marks are written on the device and sent when there is somewhere
+   * to send them (`api/offline`), and the queue's own retry has been backing off
+   * since the last attempt. `online` is the browser's statement that the reason for
+   * waiting is over, so it is asked to go now rather than at the end of the backoff.
+   * A queue with nothing in it costs nothing: the backend answers without a request.
+   *
+   * The listener lives for as long as the reader is launched, like the return one
+   * above, and is taken down with it.
+   */
+  $effect(() => {
+    const started = launched;
+    if (!started) return;
+    const onOnline = (): void => {
+      void reader.flushWrites(true);
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
   });
 
   /**
@@ -419,6 +481,12 @@
         return;
       case "stream":
         event.preventDefault();
+        // In Buzz, with a story open, the arrows walk the stories: that is the
+        // list in hand, and the same key that walks posts everywhere else.
+        if (buzz.active && buzz.story !== null && focused.selectedId === null) {
+          buzz.step(intent.delta);
+          return;
+        }
         // Up/Down belong to the pane you are in: with a post on screen they walk
         // the posts, and with the feed list in hand they walk the feeds, which is
         // what they have always done here. Same list, same order as the view on
@@ -1234,11 +1302,12 @@
     class:tucked={stackDrawn && layout.stackTuck !== null}
     class:folded={mode === 2 && folded}
     class:articleless={articleSpare}
+    class:solo={articleSolo}
     class:sliding={sliding || articleSlide}
     class:resizing
     bind:this={panes}
     style:grid-template-columns={columns}
-    style:grid-template-rows={layout.rows(stackDrawn || articlePair)}
+    style:grid-template-rows={articlePair ? layout.pairRows : layout.rows(stackDrawn)}
     style:--slide-ms={`${motionMs(layout.motion)}ms`}
     style:--slide-ease={motionEase(layout.motion)}
     style:--t1={`${trackList[0]}px`}
@@ -1289,7 +1358,11 @@
       style:transition-duration={dragging ? "0ms" : null}
       bind:this={postsSlot}
     >
-      <ArticleList onOpen={() => (pulled = false)} />
+      {#if buzz.active}
+        <BuzzList />
+      {:else}
+        <ArticleList onOpen={() => (pulled = false)} />
+      {/if}
     </div>
 
     <div class="slot seam-x gut-posts" class:away={!slots.seamPosts}>
@@ -1297,14 +1370,22 @@
     </div>
 
     <div class="slot article" class:away={!slots.article} bind:this={articleSlot}>
-      <ReaderPane onClose={closeArticle} onLock={mode === 1 ? lockFromArticle : undefined} />
+      {#if buzz.coverageOpen && reader.selectedId === null}
+        <BuzzCoverage />
+      {:else}
+        <ReaderPane
+          onClose={closeArticle}
+          onLock={mode === 1 ? lockFromArticle : undefined}
+          floatingBack={layout.device === "phone" && mode === 1}
+        />
+      {/if}
     </div>
 
     <!-- The seam between the posts and the article when they are stacked: the
          swap and tuck controls live on it, and it stays where the share is even
          while one of the two panes is away. -->
     <div class="slot seam-y gut-stack" class:away={!slots.seamStack}>
-      <PaneGutter axis="y" />
+      <PaneGutter axis="y" pair={articlePair} />
     </div>
 
     {#if drawer}
@@ -1348,13 +1429,29 @@
   </div>
   {/if}
 
+  <IconPickerPopover />
+
+  <!-- One viewer for every pane and every mode: a grid tile in a split opens the
+       same fullscreen picture a phone does, and there is only ever one of them. -->
+  <ImageViewer />
+
   {#if menu}
     <CategoryMenu
       x={menu.x}
       y={menu.y}
       model={menu.model}
       busy={reader.hiddenBusy || reader.favoritesBusy || reader.feedBusy}
-      onselect={(action) => void reader.applyMenuAction(action)}
+      onselect={(action) => {
+        // "Icon…" is the one item that opens something instead of writing: the
+        // chooser takes the menu's own anchor, so it appears where the press was
+        // and over the row it is about.
+        if (action.type === "icon") {
+          iconPicker.open(menu.model.label, { x: menu.x, y: menu.y });
+          reader.closeCategoryMenu();
+          return;
+        }
+        void reader.applyMenuAction(action);
+      }}
       onclose={() => reader.closeCategoryMenu()}
     />
   {/if}

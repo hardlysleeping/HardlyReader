@@ -4,7 +4,7 @@
  *   node --experimental-strip-types --import ./tests/unit/register-ts.mjs \
  *     tests/unit/entitlements.mjs
  *
- * HardlyReader Sync is one subscription that unlocks every provider:
+ * HardlySyncing is one subscription that unlocks every provider:
  * `hardlyreader.sync.monthly` and `hardlyreader.sync.yearly` grant the same
  * capability — `cloudSync` — and nothing is sold per provider. This suite holds
  * the capability to that, and to the second half of the promise, which is what
@@ -204,7 +204,7 @@ async function library() {
   check("and cloud sync stays off", entitlement.cloudSync === false);
   check(
     "with a reason naming the product it was not",
-    /someone\.else\.thing is not a HardlyReader Sync product/.test(String(entitlement.reason)),
+    /someone\.else\.thing is not a HardlySyncing product/.test(String(entitlement.reason)),
     String(entitlement.reason),
   );
   check("the store was actually asked", store.restores === 1);
