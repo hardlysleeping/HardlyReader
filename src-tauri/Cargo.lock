@@ -1683,7 +1683,7 @@ dependencies = [
 
 [[package]]
 name = "hardlyreader"
-version = "0.6.34"
+version = "0.6.35"
 dependencies = [
  "serde",
  "serde_json",
