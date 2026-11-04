@@ -216,16 +216,25 @@ const list = read("../../src/components/ArticleList.svelte");
 check("the star, read and source toggles own the pointer for the mouse", /class="acts" data-no-drag-scroll/.test(list));
 check("and the rule that gives it to them is the one the module reads", /\[data-no-drag-scroll\]/.test(source));
 
-// Taking the pan from the browser is a per-surface decision, and it is now the
-// other way round for the two surfaces a reader scrolls: the post list and the
-// article let the platform scroll them (a `scrollTop` written per pointermove is
-// a main-thread scroll, and the compositor drops frames on it on a phone), while
-// the feed tree keeps `none` because a carried row needs the finger to be the
-// app's. Menus, panels and dialogs keep the browser's own panning either way.
+// Taking the pan from the browser is a per-surface decision, and every surface a
+// reader *scrolls* now leaves it to the platform: a `scrollTop` written per
+// pointermove is a main-thread scroll with none of WebKit's momentum, and the
+// tree was the last one panned by hand — which is why it was the last one that
+// felt choppy. Carrying a row is the exception and it holds the finger itself
+// (a non-passive `touchmove` in `lib/feed-drag.ts`), so the row drag keeps
+// working on a list the browser pans. Menus, panels and dialogs are unaffected
+// either way.
 const sidebar = read("../../src/components/Sidebar.svelte");
 const reader = read("../../src/components/ReaderPane.svelte");
+const feedDrag = read("../../src/lib/feed-drag.ts");
 check("the post list leaves the finger to the browser", /\.items \{[^}]*touch-action: pan-y;/.test(list));
-check("the feed tree keeps the finger for the row drag", /\.scroll \{[^}]*touch-action: none;/.test(sidebar));
+check("the feed tree scrolls natively too", /\.scroll \{[^}]*touch-action: pan-y;/.test(sidebar));
+check(
+  "and a carried row refuses the browser's pan while it is carried",
+  /addEventListener\("touchmove", onTouchMove, \{ passive: false \}\)/.test(feedDrag) &&
+    /if \(!held && !dragging\) return;/.test(feedDrag) &&
+    /event\.cancelable\) event\.preventDefault\(\)/.test(feedDrag),
+);
 check("and the article leaves it to the browser", /article \{[^}]*touch-action: pan-y;/.test(reader));
 check("the app's page-level panning is untouched", /touch-action: pan-x pan-y;/.test(css));
 check(

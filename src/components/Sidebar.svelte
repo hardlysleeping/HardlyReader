@@ -1967,9 +1967,15 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-bottom: 2px;
-    /* Panned by the app's drag module, so a flick throws here the way it does in
-       the post list. See `lib/drag-scroll.ts`. */
-    touch-action: none;
+    /* The browser's own pan, not the app's.
+       A `scrollTop` written from a pointermove is a main-thread scroll: layout
+       and repaint on the frame's own thread, with none of WebKit's momentum or
+       its 120Hz path. The post list and the article already pan natively; the
+       tree was the one surface still panned by hand, which is why it was the one
+       that felt choppy on a phone. Carrying a row is the exception, and it holds
+       the finger by refusing the browser's pan for as long as it carries
+       (`lib/feed-drag.ts`). */
+    touch-action: pan-y;
   }
 
   .section + .section {

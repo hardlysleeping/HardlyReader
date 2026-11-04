@@ -473,6 +473,22 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
     if (frame === 0) frame = requestAnimationFrame(flush);
   }
 
+  /**
+   * A carried row is the finger's only reader.
+   *
+   * The tree pans natively now (`touch-action: pan-y` in `Sidebar.svelte`), which
+   * is what makes it scroll smoothly — but a finger that has lifted a row must
+   * not also drag the list under it, or the ghost and the row it is aimed at move
+   * apart. The hold happens before any movement, so the browser has not started
+   * a scroll yet, and a non-passive `touchmove` that refuses the first movement
+   * keeps it that way for the rest of the carry. Outside a carry this listener
+   * says nothing, so ordinary scrolling is the browser's.
+   */
+  function onTouchMove(event: TouchEvent) {
+    if (!held && !dragging) return;
+    if (event.cancelable) event.preventDefault();
+  }
+
   function finish(dropped: boolean) {
     clearHold();
     held = false;
@@ -481,6 +497,7 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
     const destination = target;
     const id = moving;
     window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("touchmove", onTouchMove);
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onCancel);
     window.removeEventListener("keydown", onKeyDown);
@@ -583,6 +600,7 @@ export function createFeedDrag(handlers: RowDragHandlers, options: RowDragOption
       }, handlers.holdMs?.() ?? TOUCH_HOLD);
     }
     window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);
     window.addEventListener("keydown", onKeyDown);
