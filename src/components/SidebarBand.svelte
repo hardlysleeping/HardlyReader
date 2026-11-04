@@ -598,11 +598,26 @@
     height: 12px;
   }
 
-  /* Folded on a phone it is the whole band, so it is a row: 20px of handle above
-     a 34px target would be a hairline you have to find. */
+  /* Folded on a phone it is the whole band, so it is a row: 16px of handle above
+     a 34px target would be a hairline you have to find. 20px was a row paying for
+     the words it no longer draws — folded there is one caret and nothing else. */
   :global(html[data-device="phone"]) .bandbox.collapsed .bar {
-    height: 20px;
+    height: 16px;
     opacity: 0.85;
+  }
+
+  /* Folded, it is the pane's width, edge to edge, and it sits closer to the
+     search row than the open band does. The rail's right padding exists to keep
+     the day/night switch off the glass while the controls are showing; folded
+     there is no switch beside it, so the same padding left an 11px stripe of
+     nothing at the end of a hairline — invisible on a flat colour, obvious
+     against a picture. */
+  :global(html[data-device="phone"]) .bandbox.collapsed {
+    /* Right, the rail's own 10px of padding is taken back: that padding exists
+       to keep the day/night switch off the glass, and folded there is no switch
+       beside the handle. A negative margin rather than a rule on the rail,
+       because the rail is another component's box and this one is ours. */
+    margin: 0 -10px 0 0;
   }
 
   /* On a phone the band shares a row with the day / night switch (the rail in
