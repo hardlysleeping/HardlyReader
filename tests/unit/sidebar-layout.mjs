@@ -149,16 +149,23 @@ function divSpan(text, className) {
     assert.match(markup, /\{#if inlinePosts && expandedFeed === feed\.id\}/);
   });
   check("a double tap in one pane anchors the category rather than the dead stack", () => {
-    const block = source.slice(source.indexOf("if (doubled) {"), source.indexOf("if (!inlinePosts) {"));
-    assert.match(block, /if \(inlinePosts\) \{\s*void anchorCategory\(category\);/);
-    assert.doesNotMatch(block, /mobileNav\.show\(2\)/);
+    const block = source.slice(source.indexOf("if (!doubled) {"));
+    assert.match(block.slice(0, 700), /if \(inlinePosts\) \{\s*void anchorCategory\(category\);/);
+    assert.doesNotMatch(block.slice(0, 700), /mobileNav\.show\(2\)/);
+  });
+  check("and one tap, in any layout, folds the row it lands on", () => {
+    // The ladder this replaces made the fold something you had to reach by
+    // selecting the category first; the owner wants the arrow on the first press.
+    assert.match(source, /if \(!doubled\) \{\s*pickedCategory = category\.id;\s*toggle\(category\.id\);\s*return;\s*\}/);
   });
   check("the count beside the heading opens it too, since the row itself folds", () => {
     assert.match(markup, /if \(inlinePosts\) void anchorCategory\(category\);/);
   });
-  check("tapping the heading again closes the posts, as a feed's row does", () => {
-    const block = source.slice(source.indexOf("if (openStreamId !== category.id)"));
-    assert.match(block.slice(0, 600), /if \(expandedFeed === category\.id\) \{\s*void collapseInline\(\);/);
+  check("the posts a category opened are closed by the next tap, in the list", () => {
+    // Still true where the posts are the screen: a feed's row and a category's
+    // row both close the unfolded list they opened.
+    assert.match(source, /function collapseInline\(/);
+    assert.match(source, /if \(expandedFeed === feed\.id\) \{/);
   });
   check("the way back finds a category's row, not only a feed's", () => {
     assert.match(source, /`\[data-drop-feed="\$\{id\}"\], \[data-drop-cat-row="\$\{id\}"\]`/);

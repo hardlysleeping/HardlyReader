@@ -90,11 +90,20 @@ function item(title, summary = "", extra = {}) {
   check("Breaking News carries no keywords", DEFAULT_TOPICS[0].keywords.length === 0);
   check("the seeded list is a working list", DEFAULT_TOPICS.every((one) => one.name.trim() !== ""));
   check(
-    "the seeded topics are the ten the plan names",
+    "the seeded topics are the eight the owner asked for",
+    // Money and Design are gone, Film covers television, AI is a word in Tech.
     DEFAULT_TOPICS.map((one) => one.name).join(",") ===
-      "Breaking News,Tech,AI,Science,Comics,Film,Music,Games,Money,Design",
+      "Breaking News,Tech,Science,Comics,Film/TV,Music,Games,Stock",
     DEFAULT_TOPICS.map((one) => one.name).join(","),
   );
+  const byName = new Map(DEFAULT_TOPICS.map((one) => [one.name, one]));
+  check("no AI section beside Tech", !byName.has("AI"));
+  check("and a model is still a tech story", matchesTopic(item("OpenAI ships a model"), byName.get("Tech")));
+  check("no Money section", !byName.has("Money") && !byName.has("Design"));
+  check("a stock story is the market's", matchesTopic(item("Nasdaq closes lower on earnings"), byName.get("Stock")));
+  check("but a product's price is not", !matchesTopic(item("The new phone has a price"), byName.get("Stock")));
+  check("television is in Film too", matchesTopic(item("A new series drops on Netflix"), byName.get("Film/TV")));
+  check("and a movie still is", matchesTopic(item("The trailer for the sequel"), byName.get("Film/TV")));
 }
 
 console.log(`${checks - failures}/${checks} checks passed`);

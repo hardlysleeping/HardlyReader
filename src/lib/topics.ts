@@ -23,26 +23,78 @@ export interface BuzzTopic {
 /**
  * Seeded on first run, then the list is the reader's.
  *
- * Ten topics, not a taxonomy: enough that one of them is usually right, few
+ * Eight topics, not a taxonomy: enough that one of them is usually right, few
  * enough that the section is scannable. Every list is wide rather than clever,
  * because a topic that matches nothing is indistinguishable from a broken
  * feature, while a topic that matches too much is one keyword away from right.
+ *
+ * The owner cut this down himself: `Money` and `Design` were never the story,
+ * `Film` had to cover television too, and `AI` is a word inside Tech rather than
+ * a section beside it. A topic is a keyword list, so the fix was words.
  */
 export const DEFAULT_TOPICS: BuzzTopic[] = [
   { id: "breaking-news", name: "Breaking News", keywords: [] },
   {
     id: "tech",
     name: "Tech",
-    keywords: ["tech", "technology", "apple", "google", "microsoft", "chip", "silicon", "software", "hardware", "android", "ios", "linux"],
+    // AI, folded in rather than proposed beside it: a story about a model is a
+    // tech story, and two sections matching the same headline made both look
+    // approximate.
+    keywords: [
+      "tech",
+      "technology",
+      "apple",
+      "google",
+      "microsoft",
+      "chip",
+      "silicon",
+      "software",
+      "hardware",
+      "android",
+      "ios",
+      "linux",
+      "ai",
+      "artificial intelligence",
+      "llm",
+      "openai",
+      "anthropic",
+      "gemini",
+      "neural",
+    ],
   },
-  { id: "ai", name: "AI", keywords: ["ai", "artificial intelligence", "llm", "model", "openai", "anthropic", "gemini", "neural"] },
   { id: "science", name: "Science", keywords: ["science", "study", "research", "physics", "space", "nasa", "climate", "biology"] },
   { id: "comics", name: "Comics", keywords: ["comic", "comics", "manga", "graphic novel", "marvel", "dc", "image comics", "webtoon"] },
-  { id: "film", name: "Film", keywords: ["film", "movie", "cinema", "trailer", "box office", "series", "season"] },
+  {
+    id: "film-tv",
+    name: "Film/TV",
+    keywords: [
+      "film",
+      "movie",
+      "movies",
+      "cinema",
+      "trailer",
+      "box office",
+      "tv",
+      "television",
+      "series",
+      "season",
+      "episode",
+      "streaming",
+      "netflix",
+      "hbo",
+      "sitcom",
+    ],
+  },
   { id: "music", name: "Music", keywords: ["music", "album", "song", "tour", "band", "single", "remix", "ep"] },
   { id: "games", name: "Games", keywords: ["game", "games", "gaming", "playstation", "xbox", "nintendo", "steam", "release date"] },
-  { id: "money", name: "Money", keywords: ["market", "stocks", "economy", "inflation", "price", "earnings", "funding", "ipo"] },
-  { id: "design", name: "Design", keywords: ["design", "typeface", "font", "ui", "ux", "brand", "logo", "illustration", "blender"] },
+  // The market, not "money": a story is about a stock, an index or an earnings
+  // call. `price` and `economy` pulled in every product launch and every budget
+  // line, which is why this list is the narrow one.
+  {
+    id: "stock",
+    name: "Stock",
+    keywords: ["stock", "stocks", "shares", "ticker", "wall street", "nasdaq", "dow", "s&p", "earnings", "ipo", "market"],
+  },
 ];
 
 /** One slug rule, so a topic's id can never disagree with its name. */
