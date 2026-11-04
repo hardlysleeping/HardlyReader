@@ -621,6 +621,19 @@
     pinFeed(category.id);
   }
 
+  $effect(() => {
+    // Read `expandedFeed` so the measurement repeats every time a different row
+    // is opened, and again when the tree's own text size changes.
+    const open = expandedFeed;
+    const tree = feedTree;
+    if (open === null || tree === null) {
+      pinnedRowHeight = 0;
+      return;
+    }
+    const row = tree.querySelector(".row.feed.unfolded, .row.group-title.unfolded");
+    pinnedRowHeight = row instanceof HTMLElement ? row.offsetHeight : 0;
+  });
+
   function pinFeed(id: string): void {
     if (feedTree === null) return;
     const row = unfoldedRow(id);
@@ -890,6 +903,18 @@
    * every row, because every feed row is the same height.
    */
   let feedRowHeight = $state(0);
+
+  /**
+   * The height of the row that is currently pinned, for the bar under it.
+   *
+   * The post list's own bar sticks directly beneath the row that opened it, and
+   * CSS cannot ask a sibling's height: `--feed-row-h` was the wrong number for
+   * this (it is only filled in when a feed is pinned, and reads 0 otherwise), so
+   * the height is measured from the row that is actually unfolded and published
+   * on the scroll box the nested list inherits. 34px is the fallback the
+   * stylesheet carries for the frame between the row appearing and this landing.
+   */
+  let pinnedRowHeight = $state(0);
   let starredRow = $state<HTMLButtonElement | null>(null);
   const feedLines = $derived(parseFeedUrls(feedUrl).length);
 
@@ -1186,6 +1211,7 @@
     class="scroll"
     bind:this={feedTree}
     style:--feed-row-h={`${feedRowHeight}px`}
+    style:--pinned-row-h={`${pinnedRowHeight}px`}
     use:pullDown={{
       label: "Pull down to check for new posts",
       readyLabel: "Release to check for new posts",
@@ -1527,7 +1553,7 @@
       data-cat-next={reader.categories[index + 1]?.id ?? null}
       data-drop-section={category.label}
     >
-      <div class="group" class:pinned>
+      <div class="group" class:pinned class:has-posts={inlinePosts && expandedFeed === category.id}>
         <button
           class="row group-title"
           class:active={openStreamId === category.id}
@@ -1606,15 +1632,20 @@
         >
           <span class="count">{reader.countFor(category.id)}</span>
         </button>
-      </div>
+        {#if inlinePosts && expandedFeed === category.id}
+          <!-- One panel, this category's whole stream: the same nested list a
+               feed unfolds, so the four views, the marks and the scroll are the
+               ones a feed has. It sits under the heading rather than replacing
+               the tree, because the feeds are still how the reader moves on.
 
-      {#if inlinePosts && expandedFeed === category.id}
-        <!-- One panel, this category's whole stream: the same nested list a
-             feed unfolds, so the four views, the marks and the scroll are the
-             ones a feed has. It sits under the heading rather than replacing
-             the tree, because the feeds are still how the reader moves on. -->
-        <ArticleList nested />
-      {/if}
+               **Inside the group, not after it.** A pinned row is constrained by
+               its parent's box: while the posts hung outside `.group`, that box
+               ended at the row's own 34px and `position: sticky` had nowhere to
+               travel — the heading scrolled away and left the post list's bar
+               pinned below an empty strip. -->
+          <ArticleList nested />
+        {/if}
+      </div>
 
       {#if !folded}
         {#each category.feeds as feed, index (feed.id)}
@@ -1622,6 +1653,10 @@
                than asking the provider again. -->
           {@const icon = iconFor(feed)}
           {@const mark = feedIconImage(icon, brokenIcons)}
+          <!-- The row and its posts are one block: a pinned row travels only as
+               far as its parent's box, so the parent has to be the row plus the
+               list under it, not the row alone. -->
+          <div class="feedblock">
           <button
             class="row feed"
             class:active={openStreamId === feed.id}
@@ -1688,6 +1723,7 @@
                  to be a column with its own scrollbar. -->
             <ArticleList nested />
           {/if}
+          </div>
         {/each}
       {/if}
     </div>
@@ -2315,6 +2351,25 @@
     align-items: stretch;
   }
 
+  /* A group that holds its own posts: the heading and the count stay on the
+     first line and the list takes the next one at full width. `wrap` is what
+     lets the list be a child of the same box as the row it belongs to — the box
+     a pinned row is allowed to travel in. */
+  .group.has-posts {
+    flex-wrap: wrap;
+  }
+
+  .group.has-posts > :global(.list.nested) {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  /* A feed row and the posts under it: one box, so the row can pin for exactly
+     as long as its own posts are on screen. */
+  .feedblock {
+    display: block;
+  }
+
   .group-title {
     flex: 1;
     min-width: 0;
@@ -2531,15 +2586,26 @@
      near the edge (8px + the extension's indent) and are told apart from their
      category by size, weight and colour rather than by a deep column. Category
      rows still take no indent: that is the hierarchy the indent expresses. */
-  /* An unfolded feed's row used to keep itself against the top of the tree while
-     its posts scrolled under it, and the post list's own bar parked one row down
-     (`--feed-row-h`) to sit beneath it. The owner read that as two bands: the
-     bar sat slightly below the top of the tree, rows passed above and below it,
-     and the strip never felt locked. It is one bar now — the post list's, which
-     pins at the top of the tree and carries the stream's own name (see
-     `ArticleList`, `.list.nested .list-header`) — so the row scrolls away with
-     the rest of the tree. The way back is the floating `unfold-close` disc,
-     which is where a thumb already reaches, and the name is on the bar. */
+  /* **The opened row pins, above its own posts.**
+     It used to pin and was taken out: at the time the post list's bar also
+     pinned, one row down (`--feed-row-h`), and the owner read the pair as two
+     bands with rows passing above and below. The bar stayed and the row went.
+     He has since said the opposite — he wants the row he opened to stay at the
+     top with the list's bar under it — so the row is back, and the bar's offset
+     now measures from the row rather than from the top of the tree. Two pinned
+     things, one above the other, in the order they were opened.
+     Only on a phone: in the three-pane window the posts are their own column and
+     nothing inside the tree scrolls under a row. */
+  :global(html[data-device="phone"]) .feed.unfolded,
+  :global(html[data-device="phone"]) .group-title.unfolded {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    /* Opaque, because the posts scroll under it: a row with no fill shows the
+       list through its own letters. */
+    background: var(--surface);
+    box-shadow: 0 1px 0 var(--edge-soft);
+  }
 
   .feed {
     /* The drop line is drawn against the row's own box, so the row has to be

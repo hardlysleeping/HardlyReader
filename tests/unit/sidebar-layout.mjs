@@ -116,7 +116,7 @@ function divSpan(text, className) {
     assert.doesNotMatch(source, /\.group-title\.pinned,\s*\.feed\.pinned \{/);
   });
   check("and the group says it is pinned when the category is", () => {
-    assert.match(markup, /<div class="group" class:pinned>/);
+    assert.match(markup, /<div class="group" class:pinned class:has-posts=\{inlinePosts && expandedFeed === category\.id\}>/);
   });
   check("the search row keeps its own outline, count and all", () => {
     // There the count is inside the titled row, so the row is the right box.
@@ -141,7 +141,7 @@ function divSpan(text, className) {
   check("the category's list is drawn under its heading, not somewhere else", () => {
     assert.match(
       markup,
-      /\{#if inlinePosts && expandedFeed === category\.id\}[\s\S]{0,400}<ArticleList nested \/>/,
+      /\{#if inlinePosts && expandedFeed === category\.id\}[\s\S]{0,900}<ArticleList nested \/>/,
     );
   });
   check("there is still one list, so a feed and a category cannot both be open", () => {
