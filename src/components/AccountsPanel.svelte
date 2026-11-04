@@ -183,4 +183,14 @@
     font-size: 12px;
     color: var(--text-dim);
   }
+
+  /* On a phone it is a menu off the top bar, not a popover anchored to a bar in
+     the middle of a window: it takes the width the screen has, so the account
+     row and its remove button are not competing for 296px at 440. */
+  :global(html[data-device="phone"]) .panel {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: calc(100dvh - 84px);
+  }
 </style>

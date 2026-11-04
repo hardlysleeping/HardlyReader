@@ -86,7 +86,17 @@ check(
  * ---------------------------------------------------------------- */
 
 const feedDepth = between(header, "{#if atRoot}", "{:else}");
-check("the feeds depth draws the wordmark", /class="wordmark">HardlyReader</.test(feedDepth));
+check(
+  "the feeds depth draws the name of what you are syncing with",
+  // Not the app's own name: that is the one thing on this screen a reader knows.
+  /class="wordmark as-button"[\s\S]{0,240}>\{serviceName\}</.test(feedDepth) &&
+    !/>HardlyReader</.test(feedDepth),
+);
+check(
+  "and pressing the name opens the accounts on this device",
+  /onclick=\{\(\) => accountsPanel\?\.openAccounts\(\)\}/.test(feedDepth) &&
+    /bind:this=\{accountsPanel\}/.test(feedDepth),
+);
 check("and no control to its left", !/class="step"/.test(feedDepth) && !/onclick=\{back\}/.test(feedDepth));
 
 const deeper = between(header, "{:else}", "</header>");
