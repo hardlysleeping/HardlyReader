@@ -22,6 +22,8 @@
    * a password.
    */
   import { accounts } from "../state/accounts.svelte";
+  import { reader } from "../state/reader.svelte";
+  import { chrome } from "../state/chrome.svelte";
   import { transport } from "../api/transport";
   import {
     approvePairing,
@@ -211,6 +213,26 @@
   </div>
 {/each}
 
+{#if reader.hasAccountGroups}
+  <div class="row">
+    <span class="ident">
+      <span class="name">Combine reading list and starred</span>
+    </span>
+    <button
+      class="action combined-toggle"
+      aria-label="Combine reading list and starred"
+      aria-pressed={chrome.multiAccount}
+      onclick={() => chrome.setMultiAccount(!chrome.multiAccount)}
+    >{chrome.multiAccount ? "On" : "Off"}</button>
+  </div>
+  <p class="note">
+    {chrome.multiAccount
+      ? "Posts are grouped by account."
+      : "Reading list and starred show only the account in use."}
+    All accounts stay signed in. This choice stays on this device.
+  </p>
+{/if}
+
 {#if accounts.rows.length === 0}
   <p class="empty">No account is signed in.</p>
 {/if}
@@ -308,6 +330,13 @@
 </p>
 
 <style>
+  @media (pointer: coarse) {
+    .combined-toggle {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
+
   .title {
     display: flex;
     align-items: baseline;

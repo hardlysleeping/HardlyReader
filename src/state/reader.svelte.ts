@@ -4083,8 +4083,27 @@ export class ReaderState {
    * elsewhere — `feed/12` is a different feed on every server — so merging those
    * would invent rows rather than combine them.
    */
+  multiAccount = $state(true);
+  private accountViewVersion = 0;
+
+  /** Display-only: accounts, marks and subscriptions are never changed. */
+  async setMultiAccount(on: boolean): Promise<void> {
+    if (this.multiAccount === on) return;
+    this.multiAccount = on;
+    this.accountViewVersion += 1;
+    if (this.activeStream !== READING_LIST && this.activeStream !== STATE_STARRED) return;
+    this.items = [];
+    this.selectedId = null;
+    this.continuation = undefined;
+    this.mergedSections = [];
+    this.mergedCursors = {};
+    this.liveScroll.list = 0;
+    this.listScrollRestore = 0;
+    await this.reloadStream({ force: true });
+  }
+
   mergesStream(stream: string): boolean {
-    if (this.mergedAccounts.length < 2) return false;
+    if (!this.multiAccount || this.mergedAccounts.length < 2) return false;
     return stream === READING_LIST || stream === STATE_STARRED;
   }
 
@@ -4095,9 +4114,7 @@ export class ReaderState {
    * keyed by one account's stream id, so a page holding three accounts' rows would
    * be painted later as one account's answer — the wrong rows under the right title,
    * with no way to tell. A merged page is therefore always asked for, and never
-   * remembered. It claims no continuation either: "the next page" of three
-   * interleaved reading lists is not one of them, so the column ends where the last
-   * account's first page ends rather than paging into one account's older rows.
+   * remembered. Paging uses each account's own cursor, never one continuation.
    */
   private async loadMergedStream(stream: string, load: StreamLoad): Promise<void> {
     this.loadingList = this.items.length === 0;
@@ -4124,6 +4141,7 @@ export class ReaderState {
       this.accountErrors = page.failures;
       this.reportSwitch();
     } catch (error) {
+      if (!this.loads.current(load) || this.activeStream !== stream) return;
       this.error = message(error);
       this.items = [];
       this.continuation = undefined;
@@ -4146,6 +4164,8 @@ export class ReaderState {
       await this.loadMergedStream(stream, load);
       return;
     }
+    this.mergedSections = [];
+    this.mergedCursors = {};
     // The newest load for this stream wins. The one it replaces is aborted
     // here, and would be dropped on arrival even if the abort lost the race.
     const load = this.loads.begin(stream);
@@ -4301,13 +4321,14 @@ export class ReaderState {
     if (!this.continuation) return;
     this.loadingMore = true;
     const requested = this.activeStream;
+    const version = this.accountViewVersion;
     try {
       const page = await this.source().stream(requested, {
         count: PAGE_SIZE,
         continuation: this.continuation,
       });
       // Ignore the page if the user switched streams while it was in flight.
-      if (this.activeStream === requested) {
+      if (this.activeStream === requested && this.accountViewVersion === version) {
         const seen = new Set(this.items.map((item) => item.id));
         this.items = [...this.items, ...page.items.filter((item) => !seen.has(item.id))];
         this.continuation = page.continuation;
@@ -4331,6 +4352,7 @@ export class ReaderState {
    */
   private async loadMergedMore(): Promise<void> {
     const requested = this.activeStream;
+    const version = this.accountViewVersion;
     if (Object.keys(this.mergedCursors).length === 0) return;
     this.loadingMore = true;
     try {
@@ -4338,7 +4360,7 @@ export class ReaderState {
         count: PAGE_SIZE,
         cursors: this.mergedCursors,
       });
-      if (this.activeStream !== requested) return;
+      if (this.activeStream !== requested || this.accountViewVersion !== version) return;
       const seen = new Set(this.mergedSections.flatMap((section) => section.items.map((item) => item.id)));
       const byslug = new Map(this.mergedSections.map((section) => [section.key, section]));
       for (const section of page.sections) {
@@ -4638,6 +4660,7 @@ export class ReaderState {
    * it.
    */
   seedFrom(other: ReaderState): void {
+    this.multiAccount = other.multiAccount;
     this.session = other.session;
     this.profile = other.profile;
     this.backend = other.backend;

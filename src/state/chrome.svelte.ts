@@ -33,12 +33,14 @@ import {
   readPinPad,
   readGestures,
   readOfflineCopy,
+  readMultiAccount,
   readRefreshOnReturn,
   writeAutoSync,
   writeAutoSyncHours,
   writeBandCollapsed,
   writeGestures,
   writeOfflineCopy,
+  writeMultiAccount,
   writeIndentOpen,
   writePinPad,
   writeRefreshOnReturn,
@@ -105,6 +107,15 @@ class ChromeState {
   /** Whether the last few posts of every feed are kept on this device. */
   offlineCopy = $state(true);
 
+  /** Combined reading list/starred on this device; preserve the approved default. */
+  multiAccount = $state(true);
+
+  setMultiAccount(on: boolean): void {
+    if (this.multiAccount === on) return;
+    this.multiAccount = on;
+    writeMultiAccount(browserStorage(), on);
+  }
+
   load(): void {
     const account = this.account();
     this.bandCollapsed = readBandCollapsed(browserStorage(), account);
@@ -118,6 +129,7 @@ class ChromeState {
     this.refreshOnReturn = readRefreshOnReturn(browserStorage(), account);
     this.gestures = readGestures(browserStorage(), account);
     this.offlineCopy = readOfflineCopy(browserStorage(), account);
+    this.multiAccount = readMultiAccount(browserStorage());
   }
 
   /** The account this chrome belongs to, or null before sign-in. */

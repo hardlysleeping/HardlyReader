@@ -347,5 +347,91 @@ check(
   equal("and no cursors", alone.mergedCursors, {});
 }
 
+// Device display choice: exercise real reads and forbid every mutation.
+{
+  const reads = [];
+  let writes = 0;
+  let delayed = null;
+  let slowCombined = null;
+  const make = (name) => syncProfile(session(`${name}@example.com`), {
+    ...syncable([], name),
+    async stream(id, opts) {
+      reads.push(`${name}:${id}:${opts?.continuation ?? "first"}`);
+      if (slowCombined) await slowCombined;
+      if (opts?.continuation && delayed) return delayed;
+      return { id, items: [{ id: `${name}-post`, title: name, published: 1 }], continuation: "next" };
+    },
+    async setRead() { writes++; },
+    async setStarred() { writes++; },
+    async subscribe() { writes++; },
+    async unsubscribe() { writes++; },
+  });
+  const first = make("toggle-first");
+  const second = make("toggle-second");
+  const reader = readerWith([first, second]);
+  await reader.start(first);
+  for (const stream of ["user/-/state/com.google/reading-list", "user/-/state/com.google/starred"]) {
+    await reader.openStream(stream, "Test");
+    equal("default keeps grouped combined posts", reader.mergedSections.length, 2);
+    const before = reads.length;
+    const off = reader.setMultiAccount(false);
+    equal("off removes headings synchronously", reader.mergedSections, []);
+    equal("off clears composite rows before reading", reader.items, []);
+    await off;
+    equal("off reads only focused backend", reads.slice(before), [`toggle-first:${stream}:first`]);
+    equal("off draws provider ids, not composite ids", reader.items.map((i) => i.id), ["toggle-first-post"]);
+    check("off preserves single-account paging", reader.hasMore && reader.continuation === "next");
+    equal("off keeps all signed-in accounts", reader.accountList.length, 2);
+    check("off keeps account navigation bands", reader.hasAccountGroups);
+    check("off keeps account enablement", reader.mergedAccounts.length === 2);
+    const pane = new ReaderState({ pane: true });
+    pane.seedFrom(reader);
+    check("split readers inherit off", !pane.multiAccount);
+    await reader.setMultiAccount(true);
+    equal("on reloads both account sections", reader.mergedSections.map((s) => s.key), [first.slug, second.slug]);
+    check("on restores composite identity", reader.items.every((i) => i.id.startsWith("hr:")));
+    const count = reads.length;
+    await reader.setMultiAccount(true);
+    equal("same choice does not reload", reads.length, count);
+  }
+  let release;
+  delayed = new Promise((resolve) => { release = resolve; });
+  const pending = reader.loadMore();
+  await reader.setMultiAccount(false);
+  release({ items: [{ id: "late", title: "late" }] });
+  await pending;
+  equal("late merged page cannot restore headings after off", reader.mergedSections, []);
+  equal("late merged page cannot pollute focused rows", reader.items.map((i) => i.id), ["toggle-first-post"]);
+  delayed = null;
+  let rejectCombined;
+  slowCombined = new Promise((_, reject) => { rejectCombined = reject; });
+  const oldCombined = reader.setMultiAccount(true);
+  slowCombined = null;
+  await reader.setMultiAccount(false);
+  rejectCombined(new Error("old combined request failed"));
+  await oldCombined;
+  equal("a stale failed combined request cannot blank focused posts", reader.items.map((i) => i.id), ["toggle-first-post"]);
+  check("a stale failed combined request cannot show a banner", reader.error === null);
+  let releaseSingle;
+  delayed = new Promise((resolve) => { releaseSingle = resolve; });
+  const oldSinglePage = reader.loadMore();
+  await reader.setMultiAccount(true);
+  releaseSingle({ items: [{ id: "single-late", title: "late" }] });
+  await oldSinglePage;
+  check("a stale single-account page cannot pollute combined rows", reader.items.every((i) => i.id.startsWith("hr:")));
+  delayed = null;
+  await reader.setMultiAccount(false);
+  const before = reads.length;
+  await reader.openStream("feed/one", "One feed");
+  const afterFeed = reads.length;
+  await reader.setMultiAccount(true);
+  equal("toggle leaves a feed's stream alone", reads.length, afterFeed);
+  check("feed was read exactly once", afterFeed === before + 1);
+  equal("no data mutations from the switch", writes, 0);
+  const single = readerWith([first, local]);
+  check("one server and empty local library has no control", !single.hasAccountGroups);
+  check("one server and empty local library never merges", !single.mergesStream("user/-/state/com.google/reading-list"));
+}
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

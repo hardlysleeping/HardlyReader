@@ -28,6 +28,26 @@ import {
 
 export const CHROME_KEY = "hardlyreader.chrome.v1";
 
+// This choice spans accounts on this device; never put it in an account's prefs
+// blob (switching accounts must not silently turn the combined column back on).
+export const MULTI_ACCOUNT_KEY = "hardlyreader.chrome.multiAccount";
+
+export function readMultiAccount(storage: StorageLike | undefined): boolean {
+  try {
+    return storage?.getItem(MULTI_ACCOUNT_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+export function writeMultiAccount(storage: StorageLike | undefined, on: boolean): void {
+  try {
+    storage?.setItem(MULTI_ACCOUNT_KEY, JSON.stringify(on));
+  } catch {
+    // Blocked storage still permits the choice for this session.
+  }
+}
+
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 
 export interface ChromePrefs {

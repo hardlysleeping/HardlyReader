@@ -141,6 +141,16 @@
     untrack(() => void reader.warmOfflineCopy());
   });
 
+  // Only the device choice is tracked: a reload must not retrigger itself when
+  // it reads or replaces the stream, accounts or page.
+  $effect(() => {
+    const on = chrome.multiAccount;
+    const stores = new Set([reader, ...split.views.map((view) => view.reader)]);
+    untrack(() => {
+      for (const store of stores) void store.setMultiAccount(on);
+    });
+  });
+
   $effect(() => {
     const enabled = chrome.autoSync;
     const hours = chrome.autoSyncHours;
