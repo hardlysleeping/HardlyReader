@@ -125,7 +125,7 @@ check("accent separators are on unless turned off", () => {
   assert.equal(parseTheme({ accentEdges: false }).accentEdges, false);
   assert.equal(parseTheme({ accentEdges: "no" }).accentEdges, true, "junk keeps the default");
 });
-check("exactly the nine colour variables, the two edges, the three action names and the five background ones are written", Object.keys(vars).length === 19, String(Object.keys(vars).length));
+check("exactly the nine colour variables, the two edges, the three action names and the six background ones are written", Object.keys(vars).length === 20, String(Object.keys(vars).length));
 check("no undefined values", () =>
   Object.entries(vars).every(([name, value]) =>
     typeof value === "string" &&
@@ -136,6 +136,7 @@ check("no undefined values", () =>
       name === "--bg-blur" ||
       name === "--bg-filter" ||
       name === "--bg-dim" ||
+      name === "--bg-bloom" ||
       name === "--glass" ||
       value.startsWith("#")),
   ));
@@ -327,6 +328,26 @@ check("a blur of zero writes no filter at all", () => {
   const block = css.slice(css.indexOf("body::before {"));
   assert.match(block.slice(0, 400), /filter: var\(--bg-filter, none\);/);
   assert.doesNotMatch(block, /filter: blur\(var\(--bg-blur/);
+});
+
+check("a bloom layer lifts the picture's bright parts only", () => {
+  // `screen` is the whole mechanism: over black it adds nothing, over white it
+  // adds everything, so only the highlights lift. A blurred copy at a low
+  // opacity, not a wash over the frame.
+  assert.equal(DEFAULT_THEME.bgBloom, 35);
+  assert.equal(themeVariables({ ...DEFAULT_THEME, bgBloom: 0 })["--bg-bloom"], "0.00");
+  assert.equal(themeVariables({ ...DEFAULT_THEME, bgBloom: 70 })["--bg-bloom"], "0.70");
+  const css = readFileSync(join(root, "src", "app.css"), "utf8");
+  const block = css.slice(css.indexOf(".bg-bloom {"), css.indexOf(":root:not([data-bg-picture]) .bg-bloom"));
+  assert.match(block, /mix-blend-mode: screen;/);
+  assert.match(block, /background: var\(--bg-image, none\) center \/ cover no-repeat;/);
+  assert.match(block, /filter: blur\(22px\)/);
+  assert.match(block, /opacity: var\(--bg-bloom, 0\);/);
+  // No picture, no layer: it is drawn only when there is something to bloom.
+  assert.match(css, /:root:not\(\[data-bg-picture\]\) \.bg-bloom \{\s*display: none;/);
+  // The element exists once, in the document rather than in a view.
+  const app = readFileSync(join(root, "src", "App.svelte"), "utf8");
+  assert.equal(app.split('class="bg-bloom"').length - 1, 1);
 });
 
 check("the stylesheet paints OLED's page and panels true black", () => {

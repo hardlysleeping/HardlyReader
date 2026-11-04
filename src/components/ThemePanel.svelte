@@ -10,6 +10,7 @@
    */
   import type { ThemeMode } from "../lib/theme";
   import {
+    MAX_BG_BLOOM,
     MAX_BG_BLUR,
     MAX_BG_DIM,
     PAGE_COLOURS,
@@ -507,6 +508,20 @@
                 title="Let the background through the panels"
                 onclick={() => theme.set("bgGlass", true)}>Glass</button>
             </div>
+          </div>
+          <div class="row slider bgslider">
+            <span class="key">Bloom</span>
+            <span class="num"><span class="affix">{theme.current.bgBloom}%</span></span>
+            <input
+              class="range wide"
+              type="range"
+              min="0"
+              max={MAX_BG_BLOOM}
+              step="5"
+              value={theme.current.bgBloom}
+              aria-label="Light bloom on the bright parts of the picture"
+              oninput={(event) => theme.set("bgBloom", Number(event.currentTarget.value))}
+            />
           </div>
           <div class="row bgrow">
             <span class="key">When locked</span>

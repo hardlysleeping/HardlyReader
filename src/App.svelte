@@ -318,6 +318,10 @@
   });
 </script>
 
+<!-- The bloom layer behind everything: it belongs to the document, not to any
+     screen, so it is drawn once here rather than in each view. -->
+<div class="bg-bloom" aria-hidden="true"></div>
+
 <main class="shell" id="content" tabindex="-1">
   <!-- First in the tab order: the reader's own chrome repeats on every screen. -->
   <a class="skip-link" href="#content">Skip to content</a>

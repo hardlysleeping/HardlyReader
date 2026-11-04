@@ -72,6 +72,15 @@ export interface Theme {
   /** A veil of the page colour over the picture, as a percentage. */
   bgDim: number;
   /**
+   * How much the picture's bright parts glow, as a percentage.
+   *
+   * One extra layer: the same picture, blurred, brightened, and blended with
+   * `screen` — which adds almost nothing over a dark area and a lot over a
+   * bright one, so what lifts is the highlights rather than the whole frame. It
+   * is static and fixed, so it costs one rasterisation, not one per frame.
+   */
+  bgBloom: number;
+  /**
    * Let the panels show the page through them.
    *
    * With a picture behind it, an opaque panel is a card laid on a photo; with
@@ -113,6 +122,7 @@ export const DEFAULT_THEME: Theme = {
   bgImage: null,
   bgBlur: 0,
   bgDim: 0,
+  bgBloom: 35,
   bgGlass: false,
   bgHideWhenLocked: false,
 };
@@ -160,6 +170,9 @@ function colour(value: unknown, fallback: string): string {
 export const MAX_BG_BLUR = 24;
 export const MAX_BG_DIM = 60;
 
+/** The ceiling for the bloom slider. Subtle is the brief: past this it is a haze. */
+export const MAX_BG_BLOOM = 100;
+
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -197,6 +210,7 @@ export function parseTheme(raw: unknown): Theme {
         : null,
     bgBlur: clamp(saved.bgBlur, 0, MAX_BG_BLUR, DEFAULT_THEME.bgBlur),
     bgDim: clamp(saved.bgDim, 0, MAX_BG_DIM, DEFAULT_THEME.bgDim),
+    bgBloom: clamp(saved.bgBloom, 0, MAX_BG_BLOOM, DEFAULT_THEME.bgBloom),
     bgGlass: typeof saved.bgGlass === "boolean" ? saved.bgGlass : DEFAULT_THEME.bgGlass,
     bgHideWhenLocked:
       typeof saved.bgHideWhenLocked === "boolean"
@@ -240,6 +254,8 @@ export function themeVariables(theme: Theme): Record<string, string> {
     // thing a blur slider must never do. `none` skips the layer entirely.
     "--bg-filter": theme.bgBlur > 0 ? `blur(${theme.bgBlur}px)` : "none",
     "--bg-dim": (theme.bgDim / 100).toFixed(2),
+    /** The bloom layer's opacity; 0 hides it outright (see `app.css`). */
+    "--bg-bloom": (theme.bgBloom / 100).toFixed(2),
     /** Panels are as solid as the theme wants them; 100% is the plain surface. */
     "--glass": theme.bgGlass ? "82%" : "100%",
     // Derived here rather than in CSS because it is a choice, not a shade:
