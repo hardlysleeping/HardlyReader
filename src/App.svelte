@@ -11,6 +11,7 @@
   import { chrome } from "./state/chrome.svelte";
   import { installDragScroll } from "./lib/drag-scroll";
   import { reader } from "./state/reader.svelte";
+  import { theme } from "./state/theme.svelte";
   import Login from "./views/Login.svelte";
   import Main from "./views/Main.svelte";
   import { applyDemoDefaults, DEMO, DEMO_NOTE, seedDemoLibrary } from "./lib/demo";
@@ -43,6 +44,19 @@
     const device = layout.device;
     if (typeof document === "undefined") return;
     document.documentElement.dataset.device = device;
+  });
+
+  /**
+   * The lock, told to the theme.
+   *
+   * A picture behind the app can say more than the list in front of it, so a
+   * theme can ask for the photograph to be swapped for its plain page while the
+   * lock is closed. The theme owns `:root` and the reader owns the lock; this is
+   * the one line where they meet, read inside the effect so the swap happens the
+   * moment the lock lands and is undone the moment it opens.
+   */
+  $effect(() => {
+    theme.setLocked(reader.hiddenLocked);
   });
 
   let checking = $state(true);

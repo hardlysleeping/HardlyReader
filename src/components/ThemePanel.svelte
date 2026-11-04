@@ -508,6 +508,23 @@
                 onclick={() => theme.set("bgGlass", true)}>Glass</button>
             </div>
           </div>
+          <div class="row bgrow">
+            <span class="key">When locked</span>
+            <div class="seg" role="group" aria-label="The background while locked">
+              <button
+                class="segbtn"
+                class:on={!theme.current.bgHideWhenLocked}
+                aria-pressed={!theme.current.bgHideWhenLocked}
+                title="The picture stays while the lock is on"
+                onclick={() => theme.set("bgHideWhenLocked", false)}>Keep</button>
+              <button
+                class="segbtn"
+                class:on={theme.current.bgHideWhenLocked}
+                aria-pressed={theme.current.bgHideWhenLocked}
+                title="Swap the picture for the page colour until the lock opens"
+                onclick={() => theme.set("bgHideWhenLocked", true)}>Hide</button>
+            </div>
+          </div>
         </div>
 {/snippet}
 

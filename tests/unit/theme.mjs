@@ -9,6 +9,7 @@
  * CSS: `undefined` there is silently dropped, which would leave a control with
  * no colour at all rather than a wrong one.
  */
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -34,7 +35,22 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 let checks = 0;
 let failures = 0;
 
+/**
+ * A check may be a value or a thunk. The thunk form was passed here and compared
+ * as a value, so every `check(name, () => { assert... })` in this file passed
+ * without ever running — the assertions were prose. Call it, and treat a throw
+ * as the failure it is.
+ */
 function check(name, ok, detail = "") {
+  if (typeof ok === "function") {
+    try {
+      ok();
+      ok = true;
+    } catch (error) {
+      ok = false;
+      detail = detail || (error instanceof Error ? error.message.split("\n")[0] : String(error));
+    }
+  }
   checks++;
   if (!ok) failures++;
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? `  (${detail})` : ""}`);
@@ -233,7 +249,7 @@ check("a background picture gets out from under the page's own fill", () => {
   // opaque `--bg` — so the picture could not be seen at all. `apply()` publishes
   // an attribute and the stylesheet thins the two fills under it.
   const apply = readFileSync(join(root, "src", "state", "theme.svelte.ts"), "utf8");
-  assert.match(apply, /if \(theme\.bgImage\) root\.dataset\.bgPicture = "on";/);
+  assert.match(apply, /if \(pictureShown\) root\.dataset\.bgPicture = "on";/);
   assert.match(apply, /else delete root\.dataset\.bgPicture;/);
   const css = readFileSync(join(root, "src", "app.css"), "utf8");
   const block = css.slice(css.indexOf(":root[data-bg-picture]"));
@@ -241,6 +257,61 @@ check("a background picture gets out from under the page's own fill", () => {
   assert.match(block.slice(0, 200), /:root\[data-bg-picture\] #app \{/);
   // `html` keeps its fill: that is what a webview shows in its own bounce.
   assert.doesNotMatch(block.slice(0, 200), /:root\[data-bg-picture\] html/);
+});
+
+// ---------------------------------------------------------------------------
+// The lock can take the photograph away
+// ---------------------------------------------------------------------------
+
+check("the picture can be swapped for the page colour while locked", () => {
+  assert.equal(DEFAULT_THEME.bgHideWhenLocked, false, "the swap is opt-in");
+  const on = parseTheme({ bgHideWhenLocked: true });
+  assert.equal(on.bgHideWhenLocked, true);
+  const junk = parseTheme({ bgHideWhenLocked: "yes please" });
+  assert.equal(junk.bgHideWhenLocked, false, "only a boolean is a choice");
+});
+
+check("...and asking for it does not travel with the colours", () => {
+  // The picture itself is this machine's, so the switch about the picture is
+  // too: an account's colours must not decide what a phone shows behind them.
+  const state = readFileSync(join(root, "src", "state", "theme.svelte.ts"), "utf8");
+  const snapshot = state.slice(state.indexOf("snapshot()"), state.indexOf("adopt("));
+  assert.doesNotMatch(snapshot, /bgHideWhenLocked/);
+});
+
+check("locked, the picture is not drawn and the page keeps its colour", () => {
+  const state = readFileSync(join(root, "src", "state", "theme.svelte.ts"), "utf8");
+  assert.match(state, /const pictureShown = theme\.bgImage !== null && !\(theme\.bgHideWhenLocked && locked\);/);
+  // `--bg-image` is put back by `themeVariables` before this, so the swap has to
+  // be written after it rather than folded into the variables.
+  assert.match(state, /root\.style\.setProperty\("--bg-image", "none"\)/);
+  assert.ok(
+    state.indexOf('"--bg-image", "none"') > state.indexOf("for (const [name, value] of Object.entries(themeVariables(theme)))"),
+    "the swap must land after the variables",
+  );
+  // Nothing about the page colour moves: the lock swaps a photograph for a plain
+  // surface, it does not change the look.
+  assert.doesNotMatch(state, /locked[^\n]*--bg(?!-image)/);
+});
+
+check("the reader's lock reaches the theme through one effect", () => {
+  const app = readFileSync(join(root, "src", "App.svelte"), "utf8");
+  assert.match(app, /\$effect\(\(\) => \{\s*theme\.setLocked\(reader\.hiddenLocked\);\s*\}\);/);
+  const state = readFileSync(join(root, "src", "state", "theme.svelte.ts"), "utf8");
+  assert.match(state, /setLocked\(locked: boolean\): void \{/);
+  // A theme with no picture, or the switch off, is not re-applied on every lock.
+  assert.match(state, /if \(this\.current\.bgImage === null \|\| !this\.current\.bgHideWhenLocked\) return;/);
+});
+
+check("the panel offers the swap under the background it belongs to", () => {
+  const panel = readFileSync(join(root, "src", "components", "ThemePanel.svelte"), "utf8");
+  assert.match(panel, /<span class="key">When locked<\/span>/);
+  assert.match(panel, /theme\.set\("bgHideWhenLocked", true\)/);
+  assert.match(panel, /theme\.set\("bgHideWhenLocked", false\)/);
+  // It sits with the picture's other controls, not in a section of its own.
+  const at = panel.indexOf('class="key">When locked');
+  const block = panel.slice(panel.indexOf("swgroup bgsection"), panel.indexOf("{/snippet}"));
+  assert.ok(at > 0 && panel.indexOf('class="key">When locked') < panel.indexOf('class="sglabel">Background')  + block.length);
 });
 
 check("the stylesheet paints OLED's page and panels true black", () => {

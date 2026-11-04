@@ -80,6 +80,16 @@ export interface Theme {
    * before it is a look.
    */
   bgGlass: boolean;
+  /**
+   * Drop the picture while the reader is locked.
+   *
+   * A photograph is the one part of the page that says something about the
+   * person holding the phone — a room, a face, a place. The lock already covers
+   * what is *in* the list; this covers what is *behind* it, swapping the picture
+   * for the page's own colour until the lock opens again. Off by default: hiding
+   * something nobody asked to hide is its own surprise.
+   */
+  bgHideWhenLocked: boolean;
 }
 
 export const DEFAULT_THEME: Theme = {
@@ -104,6 +114,7 @@ export const DEFAULT_THEME: Theme = {
   bgBlur: 0,
   bgDim: 0,
   bgGlass: false,
+  bgHideWhenLocked: false,
 };
 
 /** The page each mode uses when the theme has not picked one. */
@@ -187,6 +198,10 @@ export function parseTheme(raw: unknown): Theme {
     bgBlur: clamp(saved.bgBlur, 0, MAX_BG_BLUR, DEFAULT_THEME.bgBlur),
     bgDim: clamp(saved.bgDim, 0, MAX_BG_DIM, DEFAULT_THEME.bgDim),
     bgGlass: typeof saved.bgGlass === "boolean" ? saved.bgGlass : DEFAULT_THEME.bgGlass,
+    bgHideWhenLocked:
+      typeof saved.bgHideWhenLocked === "boolean"
+        ? saved.bgHideWhenLocked
+        : DEFAULT_THEME.bgHideWhenLocked,
   };
 }
 
