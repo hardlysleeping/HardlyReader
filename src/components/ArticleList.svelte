@@ -29,6 +29,7 @@
     type ListView,
   } from "../lib/list-view";
   import { near } from "../lib/near-view";
+  import { scrollPagination } from "../lib/scroll-pagination";
   import { canFitWindow, fitWindowTo, screenSize } from "../lib/window-fit";
   import { openExternal } from "../lib/open-external";
   import { isExternalHttp } from "../lib/sanitize";
@@ -868,6 +869,22 @@
     heldId = next;
   }
 
+  /** Listen beside snapping, never replace or cancel its scroll/input handlers. */
+  function nextPageOnScroll(el: HTMLElement) {
+    return scrollPagination(el, {
+      port: scrollPort() ?? el,
+      state: () => ({
+        context: JSON.stringify([store.profile?.slug, store.activeStream, store.multiAccount, view]),
+        count: store.items.length,
+        hasMore: store.hasMore,
+        loading: store.loadingList || store.loadingMore,
+        blocked: resumeAt !== null || fitting || panFrom !== null || dragging !== null ||
+          document.documentElement.classList.contains("feed-dragging"),
+      }),
+      load: () => store.loadMore(),
+    });
+  }
+
   function onCardsScroll(): void {
     if (itemsEl !== null) store.rememberScroll("list", itemsEl.scrollTop);
     if (view !== "cards" || snapFrame) return;
@@ -1592,6 +1609,7 @@
     class:flush-thumb={view === "regular" && reading.flushThumb}
     style={`--row-turn: ${rowTurn}px; --turn-tl: ${corners.tl}; --turn-tr: ${corners.tr}; --turn-br: ${corners.br}; --turn-bl: ${corners.bl}; --grid-template: ${gridTemplate(reading.gridColumns)}; --card-window: ${(CARD_WINDOW.auto * reading.thumbScale).toFixed(3)}`}
     use:cardWheel
+    use:nextPageOnScroll
     use:cardResize
     use:pullDown={{
       label: pullWords.label,
