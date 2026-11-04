@@ -153,6 +153,13 @@ function divSpan(text, className) {
     assert.match(block.slice(0, 700), /if \(inlinePosts\) \{\s*void anchorCategory\(category\);/);
     assert.doesNotMatch(block.slice(0, 700), /mobileNav\.show\(2\)/);
   });
+  check("the fold's area is exempt from the double tap", () => {
+    // It reports the press, and the handler refuses to open from it.
+    assert.match(source, /onclick=\{\(event\) => clickCategory\(category, folded, event\)\}/);
+    const fold = source.slice(source.indexOf("if (onFold) {"));
+    assert.match(fold.slice(0, 220), /toggle\(category\.id\);\s*return;/);
+    assert.doesNotMatch(fold.slice(0, 220), /openCategory|anchorCategory/);
+  });
   check("and one tap, in any layout, folds the row it lands on", () => {
     // The ladder this replaces made the fold something you had to reach by
     // selecting the category first; the owner wants the arrow on the first press.

@@ -137,9 +137,20 @@ check(
   /if \(!doubled\) \{\s*pickedCategory = category\.id;\s*toggle\(category\.id\);\s*return;\s*\}/.test(sidebar),
 );
 check("and the count beside the name is what opens the posts", /openCategory\(category\)/.test(sidebar));
+// The arrow's area never opens anything, and never counts as half a double tap:
+// a thumb working the fold fast must not be read as a gesture aimed at the name.
+check(
+  "the fold's area only ever folds",
+  /const onFold =\s*event\?\.target instanceof Element && event\.target\.closest\("\.fold-hit"\) !== null;/.test(sidebar) &&
+    /if \(onFold\) \{\s*lastCategoryTap = \{ id: "", at: 0 \};\s*pickedCategory = category\.id;\s*toggle\(category\.id\);\s*return;\s*\}/.test(sidebar),
+);
+check(
+  "and the row passes the press through, or that area cannot be told apart",
+  /onclick=\{\(event\) => clickCategory\(category, folded, event\)\}/.test(sidebar),
+);
 check(
   "and the click is the one the row calls",
-  /onclick=\{\(\) => clickCategory\(category, folded\)\}/.test(sidebar) &&
+  /onclick=\{\(event\) => clickCategory\(category, folded, event\)\}/.test(sidebar) &&
     !/onclick=\{\(\) => \{[\s\S]{0,120}toggle\(category\.id\);/.test(sidebar),
 );
 // One panel and three panels now agree: a press folds, a double tap opens. The

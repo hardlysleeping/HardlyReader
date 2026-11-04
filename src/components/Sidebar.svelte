@@ -490,20 +490,38 @@
   }
 
   /**
-   * The category's own name, which does two things at once.
+   * A press on a category's row, in two halves.
    *
-   * A category is a feed: FreshRSS labels are streams, so the name opens every
-   * post in every feed under it — and it still folds and unfolds the group, which
-   * is what the name did before there was anything else to do with it.
+   * **The whole row folds.** One press anywhere on it — name, arrow, pin, the
+   * category's picture — unfolds or folds the group, first time, in every
+   * layout, with nothing selected first. That is the behaviour a reader's thumb
+   * expects of a list they fold to make room.
    *
-   * One panel is the exception, because the list is the screen: the first tap
-   * only selects the category (unfolded, so its feeds are in front of you), and
-   * the second tap on the same, already-selected category is the one that opens
-   * its posts. Below that a tap folds and unfolds as it always did.
+   * **The name also opens.** A category is a feed: FreshRSS labels are streams,
+   * so a double tap on the name opens every post in every feed under it, while
+   * the single tap still folds. The count beside the name opens it in one press
+   * for anyone who would rather not double tap.
+   *
+   * **Left of the name, it only ever folds** — see `onFold` below, which also
+   * keeps that area out of the double-tap window entirely.
    */
-  function clickCategory(category: CategoryGroup, folded: boolean) {
+  function clickCategory(category: CategoryGroup, folded: boolean, event?: MouseEvent) {
     if (categoryDrag.justDropped()) return;
+    // **The fold's own area only ever folds.** Everything left of the name — the
+    // caret, the pin, the category's picture — is one target that toggles and
+    // does nothing else, and it is not the first half of a double tap either:
+    // otherwise a thumb working the arrow fast lands on the name's gesture and
+    // the category's posts open unasked. The name keeps both, because a name is
+    // what a reader aims at when they *do* mean "show me these".
+    const onFold =
+      event?.target instanceof Element && event.target.closest(".fold-hit") !== null;
     const now = Date.now();
+    if (onFold) {
+      lastCategoryTap = { id: "", at: 0 };
+      pickedCategory = category.id;
+      toggle(category.id);
+      return;
+    }
     const doubled = lastCategoryTap.id === category.id && now - lastCategoryTap.at < DOUBLE_TAP_MS;
     lastCategoryTap = doubled ? { id: "", at: 0 } : { id: category.id, at: now };
     // **A tap folds or unfolds, first time, on the whole row.** Nothing has to be
@@ -1531,7 +1549,7 @@
           data-drop-head={category.label}
           data-drop-head-prev={reader.categories[index - 1]?.label ?? ""}
           data-drop-head-first={category.feeds[0]?.id ?? ""}
-          onclick={() => clickCategory(category, folded)}
+          onclick={(event) => clickCategory(category, folded, event)}
           aria-expanded={!folded}
           aria-label={folded ? `Expand ${category.label}` : `Collapse ${category.label}`}
           onpointerenter={() => reader.prefetchStream(category.id)}
