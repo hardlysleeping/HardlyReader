@@ -27,6 +27,13 @@ function check(name, ok, detail = "") {
 }
 
 check("the long edge is a screen size, not a photo size", MAX_BG_EDGE === 1800 && MAX_BG_CHARS > 0);
+check(
+  "the stored picture fits a phone's whole-origin quota with room to spare",
+  // iOS caps localStorage at 5MB per origin and a JS string is UTF-16, so the
+  // ceiling is chars × 2. A theme that overflowed lost its picture on save.
+  MAX_BG_CHARS * 2 < 5_000_000 / 2,
+  `${MAX_BG_CHARS} chars = ${(MAX_BG_CHARS * 2) / 1e6}MB`,
+);
 
 check("a photograph is scaled to the long edge", () => {
   const out = fit(4000, 3000);
@@ -55,7 +62,12 @@ check("the aspect ratio survives rounding", () => {
 
 const helper = readFileSync(join(root, "src/lib/background-image.ts"), "utf8");
 check("it stores a data URL, never a path", /data:image\//.test(helper) === false && /toDataURL\("image\/jpeg"/.test(helper));
-check("it re-encodes rather than refusing a large picture", /MAX_BG_CHARS/.test(helper) && /0\.6/.test(helper));
+check(
+  "it re-encodes rather than refusing a large picture",
+  // Three passes, cheapest last: a picture that still does not fit is dropped
+  // rather than stored half-way and read back as a broken wallpaper.
+  /MAX_BG_CHARS/.test(helper) && /\[0\.82, 0\.6, 0\.45\]/.test(helper),
+);
 check("it releases the decoded bitmap", /bitmap\.close\(\)/.test(helper));
 
 const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
