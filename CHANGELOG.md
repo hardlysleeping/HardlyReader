@@ -6,6 +6,29 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **OLED Black**, a fourth appearance beside Auto, Dark and Light: page and
+  panels at true black, with the borders carrying the structure. The day/night
+  button treats it as dark, and the picker row wraps rather than squeezing four
+  labels into the panel's width.
+- **A picture wallpaper now shows.** The picture was a layer behind the app and
+  the page was painting its own colour over it, so none was ever visible; with
+  one set, `body` and `#app` step out of the way. On a phone it also survives the
+  trip into storage: a photo a webview will not decode as a bitmap falls back to
+  the element's decoder, and the stored image is capped to fit iOS's
+  whole-origin budget instead of pushing the theme past it and being dropped.
+- **The posts column turns its own pages.** Scrolling near the end asks for the
+  next page, in every list view, with Load more still there. It needs downward
+  input and real movement, and never retries a page that failed.
+
+### Changed
+
+- **Pane 1 is cut from the same glass as the sheet that opens over it** — the
+  tint, the grain, the sheen and the 26px blur — instead of an opaque slab.
+- **The phone's top bar is 40px, not 36px.** The plus, the gear and Sync were
+  three pixels from the hairline under them and read as touching it.
+
 ## [0.6.26] — 2026-11-02
 
 ### Added
