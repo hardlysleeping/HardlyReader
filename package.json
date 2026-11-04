@@ -1,7 +1,7 @@
 {
   "name": "hardlyreader",
   "private": true,
-  "version": "0.6.35",
+  "version": "0.6.36",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {

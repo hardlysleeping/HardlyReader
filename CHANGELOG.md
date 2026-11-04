@@ -24,6 +24,10 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ### Changed
 
+- **The feeds list scrolls the phone's own way.** It was the last surface the
+  app moved by hand, one write per finger movement, which is what felt choppy.
+  It now pans natively like the post list, and holding a feed to move it still
+  takes the finger first, so reordering works on a list the browser scrolls.
 - **Pane 1 is cut from the same glass as the sheet that opens over it** — the
   tint, the grain, the sheen and the 26px blur — instead of an opaque slab.
 - **The phone's top bar is 40px, not 36px.** The plus, the gear and Sync were
