@@ -185,7 +185,8 @@ body::before {
   inset: calc(-1 * max(var(--bg-blur, 0px), 0px) - 16px);
   z-index: -2;
   background: var(--bg-image, none) center / cover no-repeat;
-  filter: blur(var(--bg-blur, 0px));
+  /* `none` while the slider is at 0, not `blur(0px)`: see `--bg-filter`. */
+  filter: var(--bg-filter, none);
 }
 
 body::after {

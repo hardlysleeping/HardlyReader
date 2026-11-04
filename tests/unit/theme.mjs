@@ -125,7 +125,7 @@ check("accent separators are on unless turned off", () => {
   assert.equal(parseTheme({ accentEdges: false }).accentEdges, false);
   assert.equal(parseTheme({ accentEdges: "no" }).accentEdges, true, "junk keeps the default");
 });
-check("exactly the nine colour variables, the two edges, the three action names and the four background ones are written", Object.keys(vars).length === 18, String(Object.keys(vars).length));
+check("exactly the nine colour variables, the two edges, the three action names and the five background ones are written", Object.keys(vars).length === 19, String(Object.keys(vars).length));
 check("no undefined values", () =>
   Object.entries(vars).every(([name, value]) =>
     typeof value === "string" &&
@@ -134,6 +134,7 @@ check("no undefined values", () =>
       name.startsWith("--act") ||
       name === "--bg-image" ||
       name === "--bg-blur" ||
+      name === "--bg-filter" ||
       name === "--bg-dim" ||
       name === "--glass" ||
       value.startsWith("#")),
@@ -312,6 +313,20 @@ check("the panel offers the swap under the background it belongs to", () => {
   const at = panel.indexOf('class="key">When locked');
   const block = panel.slice(panel.indexOf("swgroup bgsection"), panel.indexOf("{/snippet}"));
   assert.ok(at > 0 && panel.indexOf('class="key">When locked') < panel.indexOf('class="sglabel">Background')  + block.length);
+});
+
+check("a blur of zero writes no filter at all", () => {
+  // `blur(0px)` still makes the picture its own composited layer, and on iOS a
+  // full-screen fixed layer is rasterised coarse and scaled: the wallpaper came
+  // out soft with the slider at 0. `none` is the absence, not a small blur.
+  const sharp = themeVariables({ ...DEFAULT_THEME, bgImage: "data:image/jpeg;base64,AA", bgBlur: 0 });
+  assert.equal(sharp["--bg-filter"], "none");
+  const soft = themeVariables({ ...DEFAULT_THEME, bgImage: "data:image/jpeg;base64,AA", bgBlur: 14 });
+  assert.equal(soft["--bg-filter"], "blur(14px)");
+  const css = readFileSync(join(root, "src", "app.css"), "utf8");
+  const block = css.slice(css.indexOf("body::before {"));
+  assert.match(block.slice(0, 400), /filter: var\(--bg-filter, none\);/);
+  assert.doesNotMatch(block, /filter: blur\(var\(--bg-blur/);
 });
 
 check("the stylesheet paints OLED's page and panels true black", () => {

@@ -233,6 +233,12 @@ export function themeVariables(theme: Theme): Record<string, string> {
     ...(theme.bg ? { "--bg": theme.bg } : {}),
     "--bg-image": theme.bgImage ? `url("${theme.bgImage}")` : "none",
     "--bg-blur": `${theme.bgBlur}px`,
+    // **No filter at all when the blur is zero**, rather than `blur(0px)`.
+    // A filtered element is its own composited layer, and on iOS a full-screen
+    // fixed one is rasterised once at a coarser size than the screen and then
+    // scaled — the picture reads as blurry at 0 in the slider, which is the one
+    // thing a blur slider must never do. `none` skips the layer entirely.
+    "--bg-filter": theme.bgBlur > 0 ? `blur(${theme.bgBlur}px)` : "none",
     "--bg-dim": (theme.bgDim / 100).toFixed(2),
     /** Panels are as solid as the theme wants them; 100% is the plain surface. */
     "--glass": theme.bgGlass ? "82%" : "100%",
