@@ -113,6 +113,27 @@
   color-scheme: dark;
 }
 
+/* OLED: the dark palette with nothing lit that does not have to be, for a panel
+   where a black pixel draws no power. Both the page and the surfaces go to
+   #000; the borders are lifted a step so the panes stay distinguishable without
+   a fill to read them against. */
+:root[data-theme="oled"] {
+  /* Every surface is the page: charcoal panels on a black page is a dark theme
+     with a black margin, not an OLED one. Structure is carried by the borders
+     and by hover, which are the two things that were already doing the work. */
+  --bg: #000000;
+  --surface-solid: #000000;
+  --bg-alt: #000000;
+  --border: #34343e;
+  --border-soft: #1d1d24;
+  --hover: color-mix(in srgb, var(--accent) 14%, var(--bg));
+  --text: #f4f4f7;
+  --text-dim: #d2d2da;
+  --muted: #9b9ba6;
+  --star: #f2bf3c;
+  color-scheme: dark;
+}
+
 /* Explicit light: the same palette as the base, spelled out so it also wins on
    a machine whose OS is dark. */
 :root[data-theme="light"] {
@@ -580,7 +601,7 @@ html[data-device="phone"] .phone-header {
    A phone on its side spends its height on the thing being read — 430pt, of
    which 36 is the bar and the rest is content. The status-bar strip above it is
    dead space in that orientation: the clock and the indicators are drawn over
-   the bar's own glass, which is why the bar keeps its 36px and starts at zero.
+   the bar's own glass, which is why the bar keeps its 40px and starts at zero.
    The left and right insets are still paid, because the notch is on a side there
    and a control under it is a control that cannot be pressed. */
 @media (orientation: landscape) {
@@ -648,7 +669,7 @@ html[data-device="phone"] {
   --glass-lit: inset 0 1px 0 rgb(255 255 255 / 0.12), inset 0 -1px 0 rgb(0 0 0 / 0.16);
   --glass-shadow: 0 10px 22px -18px rgb(0 0 0 / 0.6);
   --glass-grain: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
-  /* Where the Aa panel opens: the bar's 36px, the part of the status bar it
+  /* Where the Aa panel opens: the bar's 40px, the part of the status bar it
      sits under (`--safe-top - --status-lift`, the same numbers this file gives
      the header), and 4px of breath. On the root rather than on the bar because the panel is
      moved out of the header into `body` — the header is `overflow: hidden` with
@@ -656,7 +677,7 @@ html[data-device="phone"] {
      inside it was clipped to the bar and painted nothing (see
      `ReadingControls.svelte`). A window's bar is 42px and keeps the component's
      own 46px default. */
-  --rc-panel-top: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 40px);
+  --rc-panel-top: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 44px);
 }
 
 /* Light glass is lit from the same side, but a white sheen on a light surface is
@@ -881,13 +902,13 @@ html[data-device="phone"] .tap44 {
 
 /* The phone bar's own controls need no class of their own: the bar has exactly
    three, and naming them here keeps the markup of a component that is already
-   phone-only free of a rule about phones. Their boxes stop at the bar's 36px so
+   phone-only free of a rule about phones. Their boxes stop at the bar's 40px so
    none of them hangs over the seam into the panes, where nothing is a control. */
 html[data-device="phone"] .phone-header :is(.step, .more, .sync) {
   position: relative;
   touch-action: manipulation;
   --tap44-w: 44px;
-  --tap44-h: 36px;
+  --tap44-h: 40px;
 }
 
 /* The stack's own bar is gone: the phone's bar is the one strip, and its three

@@ -239,10 +239,10 @@
   .panel {
     position: fixed;
     /* Below the bar that opened it. The bar is not the same height in the two
-       headers that mount this component — a window's is 42px, a phone's is 36px
+       headers that mount this component — a window's is 42px, a phone's is 40px
        under the part of the status bar it does not spend — so the host declares
        where the panel belongs and this is only the window's answer: 42 + 4 of
-       breath. A phone sets `--rc-panel-top` to its own 36 + 4 + the inset it
+       breath. A phone sets `--rc-panel-top` to its own 40 + 4 + the inset it
        sits under (`--safe-top - --status-lift`, the same numbers `app.css` gives the
        header). One number here opened the panel 2px *inside* the window's bar
        and 30px below the phone's, which is why it is a variable now. */

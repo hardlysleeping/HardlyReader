@@ -130,10 +130,12 @@ check(
   !/\.where \{[^}]*transition/.test(header) && !/\.where \{[^}]*animation/.test(header),
 );
 
-// 36px of visible bar, plus the status bar's own height — which `app.css` pays
+// 40px of visible bar, plus the status bar's own height — which `app.css` pays
 // as padding, so the surface behind the clock is still the header's. It was 42,
 // which is a desktop toolbar's height; on a phone that reads as a gap between
-// the clock and the app rather than as a bar.
+// the clock and the app rather than as a bar. It went 36 -> 40 because a 30px
+// control in a 36px bar leaves 3px either side, and on glass the owner saw the
+// plus, the gear and Sync touching the hairline under them.
 // The bar's top edge has to land *below* the island, not under it. The inset is
 // paid minus `--status-lift`, declared once on the root: at 24 of a 62pt inset
 // the bar's top row was the clock's last row; at 18 of a 59pt inset its controls
@@ -146,11 +148,15 @@ check(
 );
 
 check(
-  "the visible height is 36px",
+  "the visible height leaves 5px of air under a 30px control",
   // Measured from where the padding puts it: the bar rides `--status-lift`
   // higher than the raw inset, and its height has to agree or `overflow: hidden`
   // clips it.
-  /height: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 36px\)/.test(header),
+  /height: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 40px\)/.test(header),
+);
+check(
+  "...and that is the air, not a taller glyph: the controls are still 30px",
+  /\.more \{[\s\S]{0,400}?height: 30px;/.test(header) && /\.sync \{[\s\S]{0,400}?height: 30px;/.test(header),
 );
 
 /* ---------------------------------------------------------------- *
@@ -192,7 +198,7 @@ check("and the Aa panel opens from it", /<ReadingControls bind:this=\{readingCon
 check("...closing the sheet on its way open", /onopen=\{\(\) => \(settingsOpen = false\)\}/.test(header));
 check(
   "the Aa panel clears the bar it opens under",
-  /--rc-panel-top: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 40px\)/.test(app) &&
+  /--rc-panel-top: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 44px\)/.test(app) &&
     /top: var\(--rc-panel-top, 46px\)/.test(read("src/components/ReadingControls.svelte")),
 );
 // The panel is fixed and mounted inside the bar, and a phone's bar is
@@ -207,7 +213,7 @@ check(
     /document\.body\.appendChild\(node\)/.test(read("src/components/ReadingControls.svelte")) &&
     /overflow: hidden/.test(header),
 );
-// One component, two bars: 36px on a phone and 42px in a window, so the panel's
+// One component, two bars: 40px on a phone and 42px in a window, so the panel's
 // place cannot be one number. 46 is the window's 42 + 4 of breath; a phone
 // overrides it on the root, where a portaled panel still inherits it.
 check(
@@ -350,7 +356,7 @@ check("no phone rule is unscoped", !/^\.phone-header \{/m.test(app) && !/^\.stac
 check(
   "landscape reserves nothing above the bar",
   /@media \(orientation: landscape\) \{\s*html\[data-device="phone"\] \.phone-header \{\s*padding-top: 0;/.test(app) &&
-    /@media \(orientation: landscape\) \{\s*\.phone-header \{\s*height: 36px;/.test(header),
+    /@media \(orientation: landscape\) \{\s*\.phone-header \{\s*height: 40px;/.test(header),
 );
 check(
   "and the idle loading line takes no room on a phone",

@@ -20,6 +20,9 @@ import {
   MAX_BG_DIM,
   PAGE_COLOURS,
   THEME_KEY,
+  THEME_MODES,
+  THEME_MODE_LABELS,
+  isDarkChoice,
   isHexColor,
   parseTheme,
   pinWords,
@@ -198,6 +201,44 @@ check("the page colour is optional, and cleared means follow the mode", () => {
   assert.equal(parseTheme({ bg: 42 }).bg, null);
   assert.equal(PAGE_COLOURS.dark, "#0c0c0e");
   assert.equal(PAGE_COLOURS.light, "#fdfdfd");
+  // The point of the fourth mode: the page is nothing at all.
+  assert.equal(PAGE_COLOURS.oled, "#000000");
+});
+
+check("appearance offers exactly four modes, and OLED Black is the fourth", () => {
+  // Order is the picker's: Auto first, the explicit choices after it.
+  assert.deepEqual(THEME_MODES, ["system", "dark", "light", "oled"]);
+  assert.equal(THEME_MODE_LABELS.oled, "OLED Black");
+  assert.equal(THEME_MODE_LABELS.system, "Auto");
+});
+
+check("a stored OLED theme survives a reload", () => {
+  assert.equal(parseTheme({ mode: "oled" }).mode, "oled");
+  // ...and it is a choice, not an alias that quietly becomes dark.
+  assert.notEqual(parseTheme({ mode: "oled" }).mode, "dark");
+});
+
+check("OLED counts as dark wherever the app asks", () => {
+  // The day/night button would otherwise offer "dark" from inside a dark page.
+  assert.equal(isDarkChoice("oled"), true);
+  assert.equal(isDarkChoice("dark"), true);
+  assert.equal(isDarkChoice("light"), false);
+  // Auto is the OS's answer, and only the OS's.
+  assert.equal(isDarkChoice("system", true), true);
+  assert.equal(isDarkChoice("system", false), false);
+});
+
+check("the stylesheet paints OLED's page and panels true black", () => {
+  const css = readFileSync(join(root, "src", "app.css"), "utf8");
+  const at = css.indexOf(':root[data-theme="oled"]');
+  assert.ok(at > 0, "no OLED block in app.css");
+  const block = css.slice(at, css.indexOf("}", at));
+  assert.match(block, /--bg: #000000;/);
+  // A charcoal panel on a black page is dark mode with a black margin: the
+  // surfaces have to go too, and the borders carry the structure instead.
+  assert.match(block, /--surface-solid: #000000;/);
+  assert.match(block, /--bg-alt: #000000;/);
+  assert.match(block, /color-scheme: dark;/);
 });
 
 check("a background picture is a data URL or nothing", () => {

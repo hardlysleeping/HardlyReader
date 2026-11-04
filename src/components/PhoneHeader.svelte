@@ -400,9 +400,11 @@
 />
 
 <style>
-  /* 36px of visible bar. The status bar's own height is padding, paid by
-     `app.css` from `--safe-top`, so the bar keeps the height it has on the
-     desktop and the surface behind the clock is still the header's.
+  /* 40px of visible bar: 36px was three pixels of air above and below a 30px
+     control, which on a glass bar read as the glyphs touching the hairline
+     under them. Five each side is the least that reads as a margin. The status
+     bar's own height is padding, paid by `app.css` from `--safe-top`, so the
+     surface behind the clock is still the header's.
 
      The fill and the hairline are not set here. On a phone this bar is a piece
      of the navigation material — translucent, blurred, one hairline — and that
@@ -416,19 +418,19 @@
     align-items: center;
     gap: 6px;
     flex: 0 0 auto;
-    /* The same 36px of content, measured from where the padding puts it: the
+    /* The same 40px of content, measured from where the padding puts it: the
        bar sits `--status-lift` higher than the raw inset (see `app.css`), and
        its height has to agree or `overflow: hidden` clips the controls. */
-    height: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 36px);
+    height: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 40px);
     background: var(--surface);
     overflow: hidden;
   }
 
   /* On its side the bar is the top of the screen: no status-bar strip above it,
-     36px of controls, and the rest of the height is the panes. */
+     the same 40px of controls, and the rest of the height is the panes. */
   @media (orientation: landscape) {
     .phone-header {
-      height: 36px;
+      height: 40px;
     }
   }
 
@@ -551,7 +553,7 @@
   }
 
   /* The passed-in arrangement switch is a desktop control: 26px buttons in a
-      bordered group. On a 36px bar it keeps its size and loses the border, so the
+      bordered group. On a 40px bar it keeps its size and loses the border, so the
      bar reads as one row of glyphs rather than a row with a widget in it. */
   .phone-header :global(.switch) {
     height: 26px;

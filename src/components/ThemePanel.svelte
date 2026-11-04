@@ -243,16 +243,23 @@
    * has to work it out — and because the heading says "Lock", the colours under
    * it do not have to say it again.
    */
-  /** The colour the page is right now: the theme's, or whichever mode is showing. */
+  /**
+   * The colour the page is right now: the theme's, or whichever mode is showing.
+   *
+   * The swatch under it is a lie otherwise — on OLED the page is black, and a
+   * swatch reading the dark mode's charcoal is the one place the difference
+   * would be invisible.
+   */
   function pageColour(): string {
     if (theme.current.bg !== null) return theme.current.bg;
     const mode = theme.current.mode;
-    const dark =
-      mode === "dark" ||
-      (mode === "system" &&
+    if (mode === "system") {
+      const dark =
         typeof window !== "undefined" &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches);
-    return dark ? PAGE_COLOURS.dark : PAGE_COLOURS.light;
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
+      return dark ? PAGE_COLOURS.dark : PAGE_COLOURS.light;
+    }
+    return PAGE_COLOURS[mode];
   }
 
   /**
@@ -337,7 +344,7 @@
 {#snippet coloursBody()}
       <div class="row">
         <span class="key">Appearance</span>
-        <div class="seg" role="group" aria-label="Appearance">
+        <div class="seg wrap" role="group" aria-label="Appearance">
           {#each THEME_MODES as mode (mode)}
             <button
               class="segbtn"

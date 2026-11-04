@@ -1008,7 +1008,8 @@
   :global(:root:not([data-theme])) .lbl {
     color: color-mix(in srgb, var(--tone) 64%, #04121c);
   }
-  :global([data-theme="dark"]) .lbl {
+  :global([data-theme="dark"]) .lbl,
+  :global([data-theme="oled"]) .lbl {
     color: var(--tone);
   }
   @media (prefers-color-scheme: dark) {
