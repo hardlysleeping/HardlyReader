@@ -3053,6 +3053,9 @@
      underneath. */
   :global(html[data-device="phone"]) .sidebar {
     position: relative;
+    /* The column's glass is the pane's (see `app.css`, ".slot.feeds"): a second
+       opaque fill here would sit on top of the material and hide it. */
+    background: none;
   }
 
   :global(html[data-device="phone"]) .add {

@@ -121,6 +121,12 @@ export function apply(theme: Theme): void {
   // page colour of its own must delete the override, or the last colour it had
   // before the mode changed would be the one it keeps.
   if (theme.bg === null) root.style.removeProperty("--bg");
+  // A picture behind the app is only a picture if the page stops painting over
+  // it: `html, body, #app` are opaque `--bg`, and a negative-z pseudo-element is
+  // under every in-flow background there is. The attribute is what lets
+  // `app.css` thin those two fills, and it goes away with the picture.
+  if (theme.bgImage) root.dataset.bgPicture = "on";
+  else delete root.dataset.bgPicture;
   if (theme.mode === "system") root.removeAttribute("data-theme");
   else root.dataset.theme = theme.mode;
 }

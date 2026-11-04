@@ -228,6 +228,21 @@ check("OLED counts as dark wherever the app asks", () => {
   assert.equal(isDarkChoice("system", false), false);
 });
 
+check("a background picture gets out from under the page's own fill", () => {
+  // The picture is a negative-z pseudo-element, and `html, body, #app` were all
+  // opaque `--bg` — so the picture could not be seen at all. `apply()` publishes
+  // an attribute and the stylesheet thins the two fills under it.
+  const apply = readFileSync(join(root, "src", "state", "theme.svelte.ts"), "utf8");
+  assert.match(apply, /if \(theme\.bgImage\) root\.dataset\.bgPicture = "on";/);
+  assert.match(apply, /else delete root\.dataset\.bgPicture;/);
+  const css = readFileSync(join(root, "src", "app.css"), "utf8");
+  const block = css.slice(css.indexOf(":root[data-bg-picture]"));
+  assert.match(block.slice(0, 200), /:root\[data-bg-picture\] body,/);
+  assert.match(block.slice(0, 200), /:root\[data-bg-picture\] #app \{/);
+  // `html` keeps its fill: that is what a webview shows in its own bounce.
+  assert.doesNotMatch(block.slice(0, 200), /:root\[data-bg-picture\] html/);
+});
+
 check("the stylesheet paints OLED's page and panels true black", () => {
   const css = readFileSync(join(root, "src", "app.css"), "utf8");
   const at = css.indexOf(':root[data-theme="oled"]');

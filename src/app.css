@@ -195,6 +195,16 @@ body::after {
   opacity: var(--bg-dim, 0);
 }
 
+/* With a picture, the page stops painting its own colour over it.
+   `html` keeps the fill — it is what a webview shows in its own bounce — and
+   `body`/`#app` go transparent, which is the only way the picture layer (a
+   negative-z pseudo-element under both) can be seen at all. The veil above it
+   is still `--bg-dim`, so contrast remains the theme's decision. */
+:root[data-bg-picture] body,
+:root[data-bg-picture] #app {
+  background: transparent;
+}
+
 html,
 body {
   margin: 0;
@@ -702,7 +712,8 @@ html[data-device="phone"][data-theme="light"] {
    it is full-bleed, and the line is where it meets the content it floats over. */
 html[data-device="phone"] .phone-header,
 html[data-device="phone"] .phone-header .more,
-html[data-device="phone"] .sheet[role="dialog"] {
+html[data-device="phone"] .sheet[role="dialog"],
+html[data-device="phone"] .panes > .slot.feeds {
   background-color: var(--glass-fill);
   background-image: var(--glass-grain), var(--glass-sheen);
   box-shadow: var(--glass-lit), var(--glass-shadow);
@@ -825,7 +836,16 @@ html[data-device="phone"] .panes > .slot.article {
    `clientWidth`, which padding does not touch. */
 html[data-device="phone"] .panes > .slot.feeds {
   padding-bottom: 0;
-  background: var(--surface);
+  /* The column is the same material as the sheet that opens over it — the tint,
+     the grain and the light come from the grouped rule above, and the 26px
+     blur behind it is here — so the pane the reader lives in is the one the
+     dialogs are cut from rather than an opaque slab the glass only appears in
+     front of. Its shadow is a lip on the inner edge, not the slab's drop
+     shadow: this surface is the screen's height and has nothing below it to
+     cast onto. */
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: inset 1px 0 0 rgb(255 255 255 / 0.04);
 }
 
 @media (orientation: landscape) {

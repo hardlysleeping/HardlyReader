@@ -201,9 +201,12 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
     'html[data-device="phone"] .phone-header',
     'html[data-device="phone"] .phone-header .more',
     'html[data-device="phone"] .sheet[role="dialog"]',
+    // The feeds column joined them on the owner's word (2026-11-03): the pane he
+    // reads in was the one opaque slab in an otherwise glass app.
+    'html[data-device="phone"] .panes > .slot.feeds',
   ];
   check(
-    "exactly three surfaces carry it: the bar, the ••• pill, the sheet",
+    "four surfaces carry it: the bar, the ••• pill, the sheet, the feeds column",
     selectors.length === expected.length && expected.every((selector) => selectors.includes(selector)),
     selectors.join(" · "),
   );
@@ -222,6 +225,8 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
   );
 
   // Nothing that is content: a row, a card, a feed, an article, a category.
+  // `.slot.feeds` is the feeds *column* — the material itself, not a row on it —
+  // so the word `pane`/`feeds` in that one selector is not the failure this guards.
   const content = /\b(row|card|feed|article|category|item|post|text|body|crumbs|pane|layer)\b/;
   check(
     "no content surface is translucent",
