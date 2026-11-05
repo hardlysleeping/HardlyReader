@@ -81,6 +81,28 @@ check("cards show two lines of the post", showsPreview("cards"));
 check("the one-line list shows no preview", !showsPreview("list"));
 check("tiles show no preview", !showsPreview("grid"));
 
+// A column of rows that grows and shrinks with each post's word count reads as
+// ragged: the title and the preview hold two lines' worth of space whether or
+// not their text fills it, and the byline keeps the row's floor.
+const rows = read("src/components/ArticleList.svelte");
+check(
+  "a regular row reserves its two title lines",
+  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.open\) \.title \{[\s\S]{0,120}?min-height: 2\.7em/.test(rows),
+);
+check(
+  "...and its two preview lines",
+  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.open\) \.preview \{[\s\S]{0,120}?min-height: 2\.8em/.test(rows),
+);
+check(
+  "...and draws the preview even when the post has no summary to put in it",
+  /\{#if view === "regular"\}\s*<span class="preview">\{blurb\}<\/span>/.test(rows),
+);
+check(
+  "...with the byline on the row's floor, so the air sits between the lines",
+  /\.items:not\(\.compact\):not\(\.cards\):not\(\.grid\) \.row:not\(\.open\) \.body \{[\s\S]{0,80}?justify-content: space-between/.test(rows),
+);
+check("an opened post is exempt: its article is inside the row", /:not\(\.open\) \.title/.test(rows) && !/\.row \.title \{[\s\S]{0,80}?min-height/.test(rows));
+
 check("regular rows put the picture beside the text", picturePlacement("regular") === "side");
 check("cards put it above the headline", picturePlacement("cards") === "top");
 check("tiles put it above the headline", picturePlacement("grid") === "top");
