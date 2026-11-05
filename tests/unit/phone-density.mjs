@@ -58,36 +58,22 @@ function between(source, start, end) {
 }
 
 /* ---------------------------------------------------------------------------
- * 1. The indent row: one slider, two homes, and the phone's home is the sheet.
+ * 1. The indent: one slider, one home — `Settings → Feeds`.
  * ------------------------------------------------------------------------- */
 
 check("the sidebar owns the row gate", /const phoneSidebar = \$derived\(layout\.device === "phone"\)/.test(sidebar));
-// A window draws it only while it is open: hiding the indent used to leave the
-// "Indent 12" label behind, which is a row saying nothing about anything.
+// The row used to sit under the band on a window and be foldable: a look-setting
+// that can be folded into nothing is a setting with no way back, so it has one
+// home on every device now.
 check(
-  "a phone does not draw the indent row, a window draws it while it is open",
-  /\{#if !phoneSidebar && chrome\.indentOpen\}[\s\S]{0,900}class="indent open"/.test(sidebar),
+  "the sidebar draws no indent row at all",
+  !/<IndentControl/.test(sidebar) && !/class="indent/.test(sidebar),
 );
 check(
-  "...and its own label is the close",
-  /class="indent-label"[\s\S]{0,300}?chrome\.setIndentOpen\(false\)/.test(sidebar),
-);
-// The way back is the slider itself, not a second switch: the panel defines no
-// control of its own (see `settings-panel.mjs`), and someone moving the indent is
-// someone who wants to see it.
-check(
-  "moving the indent in the sheet brings its row back",
-  /chrome\.setIndentOpen\(true\)/.test(read("src/components/IndentControl.svelte")),
-);
-check(
-  "...and the row mounts the shared slider rather than an input of its own",
-  /<IndentControl \/>/.test(sidebar) && !/class="indent"[\s\S]{0,900}<input/.test(sidebar),
-);
-check(
-  "the sheet's Feeds section mounts that exact component",
+  "the sheet's Feeds section mounts it, and it is the only mount",
   /<IndentControl id="settings-indent" \/>/.test(panel) &&
     /import IndentControl from "\.\/IndentControl\.svelte"/.test(panel) &&
-    /import IndentControl from "\.\/IndentControl\.svelte"/.test(sidebar),
+    (panel.match(/<IndentControl/g) ?? []).length === 1,
 );
 check(
   "so the slider exists once, not once per surface",
@@ -228,7 +214,7 @@ check(
 );
 check(
   "and the desktop's own controls are unmoved",
-  /class="indent-label"/.test(sidebar) && /<RowCurve \/>/.test(list) && /class="sizer"/.test(list),
+  /<SidebarBand \/>/.test(sidebar) && /<RowCurve \/>/.test(list) && /class="sizer"/.test(list),
 );
 
 console.log(`${checks - failures}/${checks} checks passed`);

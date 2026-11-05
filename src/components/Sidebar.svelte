@@ -1,6 +1,5 @@
 <script lang="ts">
   import ArticleList from "./ArticleList.svelte";
-  import IndentControl from "./IndentControl.svelte";
   import SidebarBand from "./SidebarBand.svelte";
   import ThemeToggle from "./ThemeToggle.svelte";
   import { READING_LIST, STATE_STARRED, type Subscription } from "../api/freshrss";
@@ -83,16 +82,11 @@
   /**
    * A phone's sidebar, which carries one row fewer than a window's.
    *
-   * The `Indent` row — the label, its number and the slider under them — is a
-   * look-setting, not content, and it was permanent: two lines at the top of the
-   * one column a phone has. It lives in `Settings → Feeds` instead, where the
-   * same `IndentControl` sits on a row of its own, and the day / night switch
-   * moves beside the band rather than owning a row of its own.
-   *
-   * Nothing is dropped: the indent is the same slider and the same reader write
-   * on both surfaces, and the switch is the same `ThemeToggle`. Every other
-   * device keeps the row exactly where it was, which is why this is one gate and
-   * not a second layout.
+   * The `Indent` row — the label, its number and the slider under them — used to
+   * sit under this band on a window and in `Settings → Feeds` on a phone. It is
+   * the sheet's row on every device now: one home for a look-setting, and no
+   * strip that could be folded away with no way back. The `IndentControl` is the
+   * same slider and the same reader write it always was.
    */
   const phoneSidebar = $derived(layout.device === "phone");
 
@@ -1174,34 +1168,6 @@
         {search.indexedCount()} feeds searchable by text
       {/if}
     </p>
-  {/if}
-
-  <!-- Feed indent: the extension's own setting, not a lookalike. Disabled
-       rather than hidden when the extension is absent, so the reason is
-       visible instead of the control silently doing nothing.
-
-       A phone does not draw this row at all: `IndentControl` is in
-       `Settings → Feeds` there, and it is the same slider — same store, same
-       write — so the tree starts that many pixels higher instead of the row
-       costing them. -->
-  {#if !phoneSidebar && chrome.indentOpen}
-    <!-- The row is the slider's home, not a heading for it: hiding the indent
-         used to leave "Indent 12" behind, which is a row saying nothing about
-         anything. Hiding it now puts the whole strip away and hands its 30-odd
-         pixels to the tree; the same slider is still in `Settings → Feeds`,
-         where the switch that brings this row back sits beside it. -->
-    <div class="indent open">
-      <button
-        class="indent-label"
-        title="Hide the indent row"
-        onclick={() => chrome.setIndentOpen(false)}
-      >
-        Indent
-        <span class="px">{reader.sidebarIndent.px}</span>
-      </button>
-      <IndentControl />
-      <span class="right"><ThemeToggle /></span>
-    </div>
   {/if}
 
   <!-- Everything that can grow scrolls here and nowhere else: the search field,
@@ -2885,76 +2851,6 @@
     flex: 0 0 auto;
     font-size: 10px;
     color: var(--muted);
-  }
-
-  .indent {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 1px 12px 6px 16px;
-    font-size: 11px;
-    color: var(--muted);
-  }
-
-  /* The label is the control: one click shows or hides the slider, and the
-     number is always readable while it is hidden. */
-  .indent-label {
-    display: inline-flex;
-    align-items: center;
-    flex: 0 0 auto;
-    gap: 5px;
-    padding: 1px 3px;
-    border: 0;
-    border-radius: 5px;
-    background: none;
-    color: inherit;
-    font: inherit;
-    letter-spacing: 0.02em;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .indent-label:hover {
-    background: var(--hover);
-    color: var(--text);
-  }
-
-  .indent-label:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
-  }
-
-  .indent .px {
-    min-width: 1.2rem;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    color: var(--text-dim);
-  }
-
-  .caret {
-    width: 10px;
-    height: 10px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    transition: transform 120ms ease;
-  }
-
-  .indent.open .caret {
-    transform: rotate(180deg);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .caret {
-      transition: none;
-    }
-  }
-
-  .right {
-    margin-left: auto;
-    display: inline-flex;
   }
 
   /* The rail: the band, and on a phone the day / night switch beside it.

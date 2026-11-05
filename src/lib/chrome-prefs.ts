@@ -53,7 +53,6 @@ type StorageLike = Pick<Storage, "getItem" | "setItem">;
 export interface ChromePrefs {
   bandCollapsed: boolean;
   /** Whether the feed-indent slider is showing. Collapsed is the quiet default. */
-  indentOpen: boolean;
   /**
    * Whether the passcode is entered on a tappable number pad instead of typed.
    *
@@ -98,7 +97,6 @@ export interface ChromePrefs {
 
 const DEFAULT_PREFS: ChromePrefs = {
   bandCollapsed: false,
-  indentOpen: false,
   pinPad: false,
   autoSync: false,
   autoSyncHours: AUTO_SYNC_DEFAULT_HOURS,
@@ -120,7 +118,6 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
     if (raw === null) return { ...DEFAULT_PREFS };
     const saved = JSON.parse(raw) as {
       bandCollapsed?: unknown;
-      indentOpen?: unknown;
       pinPad?: unknown;
       autoSync?: unknown;
       autoSyncHours?: unknown;
@@ -130,7 +127,6 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
     };
     return {
       bandCollapsed: saved.bandCollapsed === true,
-      indentOpen: saved.indentOpen === true,
       pinPad: saved.pinPad === true,
       autoSync: saved.autoSync === true,
       autoSyncHours: parseAutoSyncHours(saved.autoSyncHours),
@@ -168,19 +164,6 @@ export function readBandCollapsed(
   return readPrefs(storage, account).bandCollapsed;
 }
 
-/**
- * The indent slider starts collapsed.
- *
- * It is a number you set once and a 12px-tall slider you then look at forever;
- * collapsed shows the value as text and costs one click to open.
- */
-export function readIndentOpen(
-  storage: StorageLike | undefined,
-  account: AccountIdentity | null = null,
-): boolean {
-  return readPrefs(storage, account).indentOpen;
-}
-
 /** Off unless it was turned on: the pad is an opt-in, not a new default. */
 export function readPinPad(
   storage: StorageLike | undefined,
@@ -195,14 +178,6 @@ export function writeBandCollapsed(
   account: AccountIdentity | null = null,
 ): void {
   patchPrefs(storage, account, { bandCollapsed: collapsed });
-}
-
-export function writeIndentOpen(
-  storage: StorageLike | undefined,
-  open: boolean,
-  account: AccountIdentity | null = null,
-): void {
-  patchPrefs(storage, account, { indentOpen: open });
 }
 
 export function writePinPad(

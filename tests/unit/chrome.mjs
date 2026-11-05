@@ -13,13 +13,11 @@ import {
   readAutoSync,
   readAutoSyncHours,
   readBandCollapsed,
-  readIndentOpen,
-  readPinPad,
+    readPinPad,
   writeAutoSync,
   writeAutoSyncHours,
   writeBandCollapsed,
-  writeIndentOpen,
-  writePinPad,
+    writePinPad,
 } from "../../src/lib/chrome-prefs.ts";
 
 let failures = 0;
@@ -58,23 +56,16 @@ check("a relaunch stays collapsed", readBandCollapsed(storage) === true);
 writeBandCollapsed(storage, false);
 check("expanding is persisted", readBandCollapsed(storage) === false);
 
-// The indent slider is a second flag in the same key: writing one must not
-// drop the other.
+// The key holds flags that each write must carry along, and an indent flag an
+// older build wrote is simply not read any more: the sidebar has no such row.
 const shared = memoryStorage();
-check("the indent slider starts collapsed", readIndentOpen(shared) === false);
 writeBandCollapsed(shared, true);
-writeIndentOpen(shared, true);
-check("opening the slider keeps the band collapsed", readBandCollapsed(shared) === true);
-check("the slider reads back as open", readIndentOpen(shared) === true);
 check("still one key", shared.store.size === 1, [...shared.store.keys()].join(","));
 writeBandCollapsed(shared, false);
-check("expanding the band keeps the slider open", readIndentOpen(shared) === true);
-writeIndentOpen(shared, false);
-check("closing the slider keeps the band expanded", readBandCollapsed(shared) === false);
-check("a half-written key defaults both flags quiet", (() => {
+check("an older blob's indent flag is not read as the band's", (() => {
   const half = memoryStorage();
   half.store.set(CHROME_KEY, JSON.stringify({ indentOpen: true }));
-  return readIndentOpen(half) === true && readBandCollapsed(half) === false;
+  return readBandCollapsed(half) === false;
 })());
 
 storage.store.set(CHROME_KEY, "{not json");
@@ -112,9 +103,8 @@ check("turning the keypad on is persisted", readPinPad(pad) === true);
 check("it writes the flag, not its own key", JSON.parse(pad.store.get(CHROME_KEY))?.pinPad === true);
 check("one key holds every chrome flag", pad.store.size === 1, [...pad.store.keys()].join(","));
 
-// The three flags share one key: each write must carry the others along.
+// The remaining flags share one key: each write must carry the others along.
 writeBandCollapsed(pad, true);
-writeIndentOpen(pad, true);
 check("the keypad survives the other writes", readPinPad(pad) === true);
 check("and the band flag survives the keypad write", readBandCollapsed(pad) === true);
 writePinPad(pad, false);
@@ -123,7 +113,7 @@ check("turning it off left the band flag alone", readBandCollapsed(pad) === true
 
 // A prefs blob written before the keypad existed must not invent it.
 const old = memoryStorage();
-old.store.set(CHROME_KEY, JSON.stringify({ bandCollapsed: true, indentOpen: false }));
+old.store.set(CHROME_KEY, JSON.stringify({ bandCollapsed: true }));
 check("an older prefs blob means typed entry", readPinPad(old) === false);
 old.store.set(CHROME_KEY, JSON.stringify({ pinPad: "yes" }));
 check("a non-boolean keypad flag is off", readPinPad(old) === false);

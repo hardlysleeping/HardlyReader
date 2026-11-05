@@ -29,7 +29,6 @@ import {
   readAutoSync,
   readAutoSyncHours,
   readBandCollapsed,
-  readIndentOpen,
   readPinPad,
   readGestures,
   readOfflineCopy,
@@ -41,7 +40,6 @@ import {
   writeGestures,
   writeOfflineCopy,
   writeMultiAccount,
-  writeIndentOpen,
   writePinPad,
   writeRefreshOnReturn,
 } from "../lib/chrome-prefs";
@@ -63,8 +61,6 @@ class ChromeState {
    * Whether the feed-indent slider is showing. Collapsed by default: the value
    * is worth seeing, the 12px slider track is not.
    */
-  indentOpen = $state(false);
-
   /**
    * Whether the passcode is entered on a tappable number pad.
    *
@@ -122,7 +118,6 @@ class ChromeState {
     // A held-aside fold belongs to the account that was reading: the one now
     // loading has its own stored fold, and a stale restore must not write over it.
     this.bandStored = null;
-    this.indentOpen = readIndentOpen(browserStorage(), account);
     this.pinPad = readPinPad(browserStorage(), account);
     this.autoSync = readAutoSync(browserStorage(), account);
     this.autoSyncHours = readAutoSyncHours(browserStorage(), account);
@@ -137,20 +132,6 @@ class ChromeState {
     return storedAccount(browserStorage());
   }
 
-  /** Opens or closes the feed-indent slider; the choice persists per account. */
-  toggleIndentOpen(): void {
-    this.indentOpen = !this.indentOpen;
-    writeIndentOpen(browserStorage(), this.indentOpen, this.account());
-  }
-
-  /**
-   * Puts the indent row away, or brings it back.
-   *
-   * A separate setter because the row is now drawn only while it is open: the
-   * sidebar can only close it (its own label is the close), so the switch in
-   * `Settings → Feeds` is the one that can open it again, and a toggle that
-   * wrote `!this.indentOpen` would depend on which surface pressed it.
-   */
   /**
    * A press that asks for the add-feed form, counted rather than flagged.
    *
@@ -162,12 +143,6 @@ class ChromeState {
 
   askAddFeed(): void {
     this.addFeedAsk += 1;
-  }
-
-  setIndentOpen(open: boolean): void {
-    if (this.indentOpen === open) return;
-    this.indentOpen = open;
-    writeIndentOpen(browserStorage(), this.indentOpen, this.account());
   }
 
   setPinPad(on: boolean): void {
