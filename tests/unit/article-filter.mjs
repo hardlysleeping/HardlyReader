@@ -136,20 +136,34 @@ check(
     /<circle cx="8" cy="8" r="5\.4" \/><\/svg>/.test(list),
 );
 check("the star pair is one filled glyph and one hollow", /class="filled"/.test(list));
+// The hollow star sits on the left and the filled one on the right: "not
+// starred" reads as the absence of the mark, so it comes first.
+{
+  const starPair = list.slice(list.indexOf('aria-label="Favourites or not favourited"'));
+  const pair = starPair.slice(0, starPair.indexOf("</div>"));
+  const hollow = pair.indexOf('<path d="M8 1.9l1.9 3.9');
+  const filled = pair.indexOf('class="filled"');
+  check(
+    "the hollow star is on the left and the filled star on the right",
+    hollow > -1 && filled > -1 && hollow < filled,
+    `hollow@${hollow} filled@${filled}`,
+  );
+}
 // The row's own mark uses the same circle, ticked only once the post is read.
 check(
   "a row's mark is a hollow circle until the post is read",
   /\{#if isRead\(item\)\}<path\s+d="M5\.2 8\.2l2 2 3\.6-3\.9"/.test(list),
 );
 check("no All button is left beside them", !/All<\/button>/.test(list) && !/ARTICLE_FILTERS/.test(list));
-// A pair that is off is struck through, corner to corner — dimming alone did
-// not say "showing everything", and the slash is per pair so two off axes read
-// as two struck-out groups rather than one long line.
+// A pair that is off filters nothing, and it says so by going dimmer — never
+// by a slash drawn across it (it read as a defect, not as a state).
 check(
-  "an off pair carries a diagonal slash",
+  "an off pair is dimmed and not struck through",
   /class:off=\{reading\.readFilter === "off"\}/.test(list) &&
     /class:off=\{reading\.starFilter === "off"\}/.test(list) &&
-    /\.filterpair\.off::after \{[\s\S]{0,400}?linear-gradient\(\s*\n\s*to top right,/.test(list),
+    /\.filterpair\.off \.filter \{[\s\S]{0,80}?opacity: 0\.32;/.test(list) &&
+    !/\.filterpair\.off::after/.test(list) &&
+    !/linear-gradient\(\s*\n\s*to top right/.test(list),
 );
 check(
   "an inert switch is dimmed",

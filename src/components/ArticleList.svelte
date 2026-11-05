@@ -1643,8 +1643,8 @@
            everything, so nothing repeats what "no button pressed" already says.
            The glyphs are the ones the rows already use, so the two controls
            speak the same language: a circle is unread, a circle with a tick is
-           read, a filled star is starred, a hollow star is not — and a button
-           that is not pressed is dimmed. -->
+           read, a hollow star on the left and a filled star on the right for
+           starred, and a button that is not pressed is dimmed. -->
       <div class="filters" role="group" aria-label="Show posts">
         <div class="filterpair" class:off={reading.readFilter === "off"} role="group" aria-label="Unread or read">
           <button
@@ -1673,6 +1673,18 @@
         <div class="filterpair" class:off={reading.starFilter === "off"} role="group" aria-label="Favourites or not favourited">
           <button
             class="filter"
+            class:on={reading.starFilter === "unstarred"}
+            aria-pressed={reading.starFilter === "unstarred"}
+            aria-label={`Show ${STAR_FILTER_LABELS.unstarred.toLowerCase()} posts only`}
+            title={STAR_FILTER_TITLES.unstarred}
+            onclick={() => reading.setStarFilter(reading.starFilter === "unstarred" ? "off" : "unstarred")}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true"
+              ><path d="M8 1.9l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.7 4.2 13.7l.7-4.3-3.1-3 4.3-.6z" /></svg
+            >
+          </button>
+          <button
+            class="filter"
             class:on={reading.starFilter === "starred"}
             aria-pressed={reading.starFilter === "starred"}
             aria-label={`Show ${STAR_FILTER_LABELS.starred} only`}
@@ -1684,18 +1696,6 @@
                 d="M8 1.9l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.7 4.2 13.7l.7-4.3-3.1-3 4.3-.6z"
                 class="filled"
               /></svg
-            >
-          </button>
-          <button
-            class="filter"
-            class:on={reading.starFilter === "unstarred"}
-            aria-pressed={reading.starFilter === "unstarred"}
-            aria-label={`Show ${STAR_FILTER_LABELS.unstarred.toLowerCase()} posts only`}
-            title={STAR_FILTER_TITLES.unstarred}
-            onclick={() => reading.setStarFilter(reading.starFilter === "unstarred" ? "off" : "unstarred")}
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true"
-              ><path d="M8 1.9l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.7 4.2 13.7l.7-4.3-3.1-3 4.3-.6z" /></svg
             >
           </button>
         </div>
@@ -2241,22 +2241,10 @@
     flex: 0 0 auto;
   }
 
-  /* An inert pair is struck through, corner to corner: dimming alone was not
-     enough to say "this filter is off, you are seeing everything" — the slash
-     is the same language as a crossed-out eye, and it never covers a button
-     that is doing something. */
-  .filterpair.off::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(
-      to top right,
-      transparent calc(50% - 0.9px),
-      color-mix(in srgb, var(--text-dim) 80%, transparent) calc(50% - 0.9px),
-      color-mix(in srgb, var(--text-dim) 80%, transparent) calc(50% + 0.9px),
-      transparent calc(50% + 0.9px)
-    );
+  /* A pair that is off filters nothing, and a deeper dim is what says so: no
+     slash, no second shape — the buttons only go quieter than an unchosen one. */
+  .filterpair.off .filter {
+    opacity: 0.32;
   }
 
   /* Cut-out pills, matching the band: outline until chosen, filled when on.
