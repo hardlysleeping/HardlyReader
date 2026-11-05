@@ -44,9 +44,9 @@ check("zero is a real indent, not an absence", resolveIndent(server(0, false), 0
 
 const reader = read("src/state/reader.svelte.ts");
 const sidebar = read("src/components/Sidebar.svelte");
-// The slider itself is one component now, mounted by the sidebar's row on a
-// window and by `Settings → Feeds` on a phone: the release handler and the
-// sentence about where the number lives moved with the input.
+// The slider itself is one component, mounted by `Settings → Feeds` alone: the
+// release handler and the sentence about where the number lives moved with the
+// input, and the sidebar draws no row of its own (see `phone-density.mjs`).
 const indent = read("src/components/IndentControl.svelte");
 
 check("the reader asks the rule instead of repeating it", /resolveIndent\(/.test(reader));
@@ -68,13 +68,9 @@ check("only one write is in flight", /if \(session === null \|\| this\.indentWri
 check("a server that cannot write is remembered, not rediscovered", /indentLocal: this\.indentLocalOnly/.test(reader) && /this\.indentLocalOnly = raw\?\.indentLocal === true/.test(reader));
 check(
   "releasing the slider writes at once instead of waiting out the debounce",
-  /onchange=\{\(event\) => \{[\s\S]{0,160}?reader\.setSidebarIndentPx\(Number\(event\.currentTarget\.value\), true\)/.test(
+  /onchange=\{\(event\) => reader\.setSidebarIndentPx\(Number\(event\.currentTarget\.value\), true\)\}/.test(
     indent,
   ),
-);
-check(
-  "...and brings the sidebar's indent row back, if it was put away",
-  /chrome\.setIndentOpen\(true\)/.test(indent),
 );
 check("the release also stores this device's copy", /if \(flush\) this\.savePrefs\(\);/.test(reader));
 

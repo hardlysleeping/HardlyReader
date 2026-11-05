@@ -2,27 +2,19 @@
   /**
    * The feed-name indent, as the slider itself.
    *
-   * One control, mounted on whichever surface the device has for it: the
-   * sidebar's `Indent` row on a window, and `Settings → Feeds` on a phone, where
-   * the sidebar gives that row back so the feed tree starts a row higher. Both
-   * mount this file, so there is one slider rather than two that can disagree,
-   * and the number, the reason under the pointer and the write all stay the
-   * reader's.
+   * Mounted in `Settings → Feeds` and nowhere else. It used to have a second
+   * home in the sidebar on a window, under a label that could put the row away;
+   * that row is gone — a look-setting that can be folded into nothing is a
+   * setting you cannot find again — so there is exactly one slider, one write
+   * and one place it lives.
    *
-   * The label, the number and the fold belong to the row around it — a settings
-   * section has nothing to fold — so this component is the input and nothing
-   * else.
-   *
-   * It is also the way back to that row. The row is drawn only while it is open,
-   * so its own label can put it away and nothing in the sidebar can bring it
-   * back; using the slider here does, because someone moving the indent is
-   * someone who wants to see it. No second switch, and the panel stays a frame.
+   * The label and the number belong to the row around it, so this component is
+   * the input and nothing else.
    */
-  import { chrome } from "../state/chrome.svelte";
   import { reader } from "../state/reader.svelte";
 
   let {
-    /** The id the sidebar's label points its `aria-controls` at. */
+    /** The id the row's label points its `aria-controls` at, when it has one. */
     id = "feed-indent-row",
   }: { id?: string } = $props();
 </script>
@@ -40,10 +32,7 @@
       ? "Feed name indent, kept on this device — Sidebar Feed Indent is not storing it on the server"
       : "Feed name indent, shared with the Sidebar Feed Indent extension")}
   oninput={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value))}
-  onchange={(event) => {
-    reader.setSidebarIndentPx(Number(event.currentTarget.value), true);
-    chrome.setIndentOpen(true);
-  }}
+  onchange={(event) => reader.setSidebarIndentPx(Number(event.currentTarget.value), true)}
 />
 
 <style>
