@@ -1,4 +1,5 @@
 # HardlyReader
+Demo: https://hardlysleeping.github.io/HardlyReader/
 
 A feed reader that runs without a server, and reads your own one when you have it:
 three panes that fold to one, a keyboard that never needs the mouse, and no reflow
