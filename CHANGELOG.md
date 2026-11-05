@@ -4,6 +4,18 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.38] — 2026-11-05
+
+### Fixed
+
+- **Swapping three panes down to two fills the frame again.** Pressing **2** asks the
+  window to shrink by the article's width, and the panes were drawn at the width they
+  had asked for even after the window said no — a maximised window, a window manager
+  that ignores the request, or the moment before the frame moves. A two-pane layout
+  then sat against the left edge of a wider window, with an empty band on the right
+  and a divider that measured from a width the window never had. The frame now
+  redraws the moment the press gives up on that width.
+
 ## [0.6.37] — 2026-11-04
 
 ### Added

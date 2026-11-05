@@ -37,19 +37,31 @@ panes with Cards reads a comic page at its own size, one card per row.
   <img src="docs/screenshots/two-panes-cards.png" width="430" alt="Two panes with Cards: one comic page per card">
 </p>
 
+## On FreshRSS: the four extensions to install
+
+The sidebar state this app draws — hidden categories, pins and their order, the indent on feed
+names — belongs to three small [FreshRSS](https://freshrss.org) extensions, and a fourth bridges
+them to the app. Install all four on the server and every device reads the same state:
+
+- **[Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories)** — put a
+  category away without unsubscribing: no sidebar row, no posts in the main stream, one click to
+  bring it back, and an optional lock over the hidden ones.
+- **[Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories)** — mark
+  the categories you actually read, then filter the sidebar and the stream down to them or to
+  everything except them. Pinned categories sort to the top. (The repo name is the old one; the
+  folder and the class stay `FavoriteCategories`.)
+- **[Sidebar Feed Indent](https://github.com/hardlysleeping/xExtension-SidebarIndent)** — a small,
+  collapsible indent for feed names, with its slider under the sidebar.
+- **[Hardly Read](https://github.com/hardlysleeping/xExtension-HardlyRead)** — the bridge: a JSON
+  API beside the GReader one, so this app reads and writes the three extensions' state instead of
+  keeping a second copy of it. It owns no state of its own except the order you drag categories
+  into, and it is what makes any of the above show up on a phone or a second machine.
+
+The app runs without them: the same controls are kept on the device, per install. **Settings →
+Extensions** says which of the four your server is actually running, and links the missing one.
+
 ## Install
-## Extensions (If you are using this with FreshRSS)
 
-| Extension | What it adds |
-|---|---|
-| [Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories) | Which categories are pinned, and their order |
-| [Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories) | Which categories are hidden, the eye state, and the passcode lock — shared between devices |
-| [Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead) | One request returning all of the above, plus the sidebar indent |
-
-The app runs without them: pins and hidden categories are kept on the device, so
-the sidebar behaves the same way, and the one control that genuinely needs an
-extension says so instead of breaking. The extensions themselves are separate
-repos and stay optional on the server.
 ### Docker (browser, and phone over the LAN)
 
 ```sh
@@ -234,6 +246,7 @@ authorities, and `docs/authority.md` spells out which feature lives where.
 |---|---|
 | [Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories) | Which categories are pinned, and their order |
 | [Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories) | Which categories are hidden, the eye state, and the passcode lock — shared between devices |
+| [Sidebar Feed Indent](https://github.com/hardlysleeping/xExtension-SidebarIndent) | The indent on feed names |
 | [Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead) | One request returning all of the above, plus the sidebar indent |
 
 The app runs without them: pins and hidden categories are kept on the device, so

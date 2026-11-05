@@ -34,6 +34,7 @@
   import ThemePanel from "./ThemePanel.svelte";
   import { exportFeedsOpml, importFeedsFile } from "../lib/feeds-io";
   import { APP_VERSION } from "../lib/version";
+  import { openExternal } from "../lib/open-external";
   import { showsDeviceSync } from "../state/device-sync.svelte";
   import { showsSavedText } from "../state/bodies.svelte";
   import { layout } from "../state/layout.svelte";
@@ -393,6 +394,18 @@
                 <span class="key">Version</span>
                 <span class="value">{APP_VERSION}</span>
               </div>
+              <!-- The project, one press away: people ask where the source is, and
+                   the answer belongs on the screen that already says what this is. -->
+              <div class="row">
+                <span class="key">Project</span>
+                <button
+                  class="link"
+                  type="button"
+                  onclick={() => void openExternal("https://github.com/hardlysleeping/HardlyReader")}
+                >
+                  github.com/hardlysleeping/HardlyReader
+                </button>
+              </div>
               <p class="hint">
                 HardlyReader — a feed reader that runs on its own, or reads your
                 FreshRSS.
@@ -603,6 +616,25 @@
     color: var(--muted);
     font-size: 11px;
     line-height: 1.4;
+  }
+
+  /* A value that is also a way out of the app: no chrome of its own, the accent
+     for ink, and the underline on hover so it reads as a link rather than as a
+     number sitting at the row's end. */
+  .link {
+    max-width: 60%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    text-align: right;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+
+  .link:hover {
+    text-decoration: underline;
   }
 
   /* The indent the sidebar gave up, as a named row: the slider takes the width
