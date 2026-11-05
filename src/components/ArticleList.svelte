@@ -7,7 +7,14 @@
   import { cropVariant, imagesOf, panelsOf, thumbnailOf, type ThumbSource } from "../lib/thumb";
   import RowCurve from "./RowCurve.svelte";
   import InlineArticle from "./InlineArticle.svelte";
-  import { ARTICLE_FILTERS, ARTICLE_FILTER_LABELS, type ArticleFilter } from "../lib/article-filter";
+  import {
+    filterWords,
+    isFilterOff,
+    READ_FILTER_LABELS,
+    READ_FILTER_TITLES,
+    STAR_FILTER_LABELS,
+    STAR_FILTER_TITLES,
+  } from "../lib/article-filter";
   import {
     CARD_WINDOW,
     CARD_SIZE_LABELS,
@@ -30,7 +37,7 @@
   } from "../lib/list-view";
   import { near } from "../lib/near-view";
   import { scrollPagination } from "../lib/scroll-pagination";
-  import { canFitWindow, fitWindowTo, screenSize } from "../lib/window-fit";
+  import { canFitWindow, fitCardToWindow, fitWindowTo, screenSize } from "../lib/window-fit";
   import { openExternal } from "../lib/open-external";
   import { isExternalHttp } from "../lib/sanitize";
   import { tabbed, tabbedAccounts, type Tabbed } from "../lib/date-tabs";
@@ -365,11 +372,12 @@
   }
 
   /**
-   * The filter is global on purpose: it is how you are reading, so it follows
-   * you into every feed rather than being re-set on each one.
+   * The filters are global on purpose: they are how you are reading, so they
+   * follow you into every feed rather than being re-set on each one.
    */
-  function setFilter(filter: ArticleFilter) {
-    reading.setArticleFilter(filter);
+  function clearFilters() {
+    reading.setReadFilter("off");
+    reading.setStarFilter("off");
   }
 
   /** The shape of this column, global for the same reason as the filter. */
@@ -642,6 +650,13 @@
     let bestDistance = Infinity;
     for (const row of cardRows()) {
       const box = row.getBoundingClientRect();
+      // A card the middle of the pane falls inside is the card being read, and
+      // it answers first. Cards are not one size — a comic's card is as tall as
+      // its page — so "nearest centre" is a poor tie-break: standing at the
+      // bottom of a tall card, its own centre and the next card's are the same
+      // distance from the middle, and the step went backwards or forwards
+      // depending on which won a rounding. The covering test has one answer.
+      if (box.top <= middle && box.bottom >= middle) return row;
       const distance = Math.abs(box.top + box.height / 2 - middle);
       if (distance < bestDistance) {
         bestDistance = distance;
@@ -810,42 +825,29 @@
         card.offsetHeight - Math.round(img.getBoundingClientRect().height) +
         (header ? Math.round(header.getBoundingClientRect().height) : 0);
       const pane2 = el.clientWidth;
-      const natural = img.naturalWidth / img.naturalHeight;
-      const availW = Math.max(240, screen.width - pane1 - rest - 8);
-      const availH = Math.max(240, screen.height - chrome - 8);
       // How much of the pane the picture is drawn across. One picture is the
       // whole width; a post that carries several shows one panel at a time, and
-      // each is drawn narrower than the pane so the pages share one zoom. Sizing
-      // the window to a panel's own pixels without this asked for a window wider
-      // than the panel needed, and the strip did not change size at all.
+      // each is drawn narrower than the pane so the pages share one zoom.
       const share = Math.min(
         1,
         Math.max(0.1, img.getBoundingClientRect().width / Math.max(1, pane2)),
       );
-      // Width for a page whose height fills the screen, then the two caps: its own
-      // pixels, and the room the monitor has. Below the current pane it does not
-      // go — a fit that shrank the window would be a fit the reader did not ask
-      // for.
-      const room = Math.min(availH * natural, img.naturalWidth / share, availW);
-      const paneNext = Math.round(Math.min(room, availW));
-      const pictureH = Math.round((paneNext * share) / natural);
-      // The whole card: its picture, and the furniture under it — star, read,
-      // headline, byline — which `chrome` already counts. Plus the two slivers,
-      // so the neighbours are visible at the pane's edges and the card does not
-      // look like the only post there is. Never taller than the screen; never
-      // shorter than the shell's own floor, because asking for less gets clamped
-      // and a clamped window is not the window that was asked for.
-      const height = Math.min(
-        screen.height,
-        Math.max(FIT_FLOOR_H, chrome + pictureH + 2 * CARD_PEEK),
-      );
-      if (
-        Math.abs(paneNext - el.clientWidth) < 1 &&
-        Math.abs(height - window.innerHeight) < 1
-      ) {
-        return;
-      }
-      await fitWindowTo(pane1 + rest + paneNext, height);
+      // The window grows in height only, by what the card is short of, and never
+      // past the screen — the pane's width is left exactly as it is, because a
+      // wider pane draws the picture taller, not smaller. `fitCardToWindow` holds
+      // the arithmetic and `comic-fit.mjs` pins it.
+      const fit = fitCardToWindow({
+        paneWidth: pane2,
+        share,
+        natural: img.naturalWidth / img.naturalHeight,
+        chrome,
+        windowHeight: window.innerHeight,
+        screenHeight: screen.height,
+        peek: CARD_PEEK,
+        floor: FIT_FLOOR_H,
+      });
+      if (fit === null) return;
+      await fitWindowTo(pane1 + rest + fit.paneWidth, fit.height);
     } finally {
       // A resize moves the cards under the port, which is a scroll away from
       // asking for the same fit again. One fit per settling is enough.
@@ -1070,6 +1072,66 @@
     const place = box.top - port.top + el.scrollTop;
     el.scrollTop =
       box.height > el.clientHeight ? place : place - (el.clientHeight - box.height) / 2;
+    watchPlaced(card);
+  }
+
+  /**
+   * The card the column last put in place, and a watch on its box.
+   *
+   * A card's height is not known when the step is made: the picture mounts as
+   * the card comes near and the card grows from the height of its words to the
+   * height of its page. On a feed whose comics are not one size that growth is
+   * the difference between "fits the pane" and "taller than the pane", so the
+   * card the step landed on could end up half under the pane's edge with its
+   * top cut off. Watching the placed card and re-placing it once it has its
+   * real height makes the landing say the same thing whatever the picture did
+   * — centred when it fits, its top at the pane's edge when it does not.
+   */
+  let placedCard: HTMLElement | null = null;
+  let placedTop = 0;
+  let placedHeight = 0;
+  let placeWatch: ResizeObserver | null = null;
+  /**
+   * Set the moment the reader touches the column — a wheel delta, a finger, a
+   * drag. From then on the column is theirs until the next placement: a picture
+   * that finishes loading under their hand must not re-place the card they are
+   * already moving away from. Timestamps were not enough — a resize callback
+   * lands before the scroll it is racing has been applied, so "the column has
+   * not moved" was true at the instant it was about to.
+   */
+  let columnTouched = false;
+
+  function watchPlaced(card: HTMLElement): void {
+    placedCard = card;
+    columnTouched = false;
+    placedTop = scrollPort()?.scrollTop ?? 0;
+    placedHeight = card.getBoundingClientRect().height;
+    if (typeof ResizeObserver === "undefined") return;
+    placeWatch ??= new ResizeObserver(() => onPlacedResize());
+    // Re-observing delivers one immediate callback; `placedHeight` is what
+    // makes that callback a no-op instead of a placement that re-arms the
+    // watch — an observer that re-places on the callback its own `observe()`
+    // just produced holds the column at one card for ever.
+    placeWatch.disconnect();
+    placeWatch.observe(card);
+  }
+
+  /**
+   * The placed card changed height — its picture arrived, or a later one did.
+   *
+   * Only while the column is still where the step put it: a reader who has
+   * scrolled since owns the column, and re-placing a card under their hand is
+   * the fighting the rest of this file is careful to avoid.
+   */
+  function onPlacedResize(): void {
+    const card = placedCard;
+    const el = scrollPort();
+    if (card === null || el === null || view !== "cards" || columnTouched) return;
+    const height = card.getBoundingClientRect().height;
+    if (Math.abs(height - placedHeight) < 1) return;
+    if (Math.abs(el.scrollTop - placedTop) > 1) return;
+    centreCard(card);
+    syncSnap();
   }
 
   /**
@@ -1142,6 +1204,9 @@
     // A nested list has no port of its own: its drag is the sidebar's, which
     // pans the rows 1:1 and does not step a card on release.
     if (nested) return;
+    // Anything else is the reader taking the column: no re-placement until the
+    // next step.
+    columnTouched = true;
     if (view !== "cards" || event.pointerType !== "mouse") return;
     const el = itemsEl;
     if (!el) return;
@@ -1177,6 +1242,7 @@
   }
 
   function onListWheel(event: WheelEvent): void {
+    columnTouched = true;
     const el = scrollPort();
     if (view !== "cards" || !reading.advanceOnScroll || !el || event.deltaY === 0) {
       resetListPull();
@@ -1354,7 +1420,7 @@
       <span class="meta">
         {#if store.loadingList}
           Loading…
-        {:else if reading.articleFilter === "all" && store.authorFilter === null}
+        {:else if isFilterOff(reading.articleFilter) && store.authorFilter === null}
           {store.listItems.length} item{store.listItems.length === 1 ? "" : "s"}
         {:else}
           {store.listItems.length} of {store.items.length}
@@ -1571,18 +1637,68 @@
           </div>
         {/if}
       {/if}
+      <!-- Four buttons in two pairs, not four word pills with an "All" beside
+           them. Within a pair only one can be on — unread or read, starred or
+           not starred — and pressing the one already on is the way back to
+           everything, so nothing repeats what "no button pressed" already says.
+           The glyphs are the ones the rows already use, so the two controls
+           speak the same language: a circle is unread, a circle with a tick is
+           read, a filled star is starred, a hollow star is not — and a button
+           that is not pressed is dimmed. -->
       <div class="filters" role="group" aria-label="Show posts">
-        {#each ARTICLE_FILTERS as filter (filter)}
+        <div class="filterpair" class:off={reading.readFilter === "off"} role="group" aria-label="Unread or read">
           <button
             class="filter"
-            class:on={reading.articleFilter === filter}
-            aria-pressed={reading.articleFilter === filter}
-            title={`Show ${ARTICLE_FILTER_LABELS[filter].toLowerCase()} posts in every feed`}
-            onclick={() => setFilter(filter)}
+            class:on={reading.readFilter === "unread"}
+            aria-pressed={reading.readFilter === "unread"}
+            aria-label={`Show ${READ_FILTER_LABELS.unread} only`}
+            title={READ_FILTER_TITLES.unread}
+            onclick={() => reading.setReadFilter(reading.readFilter === "unread" ? "off" : "unread")}
           >
-            {ARTICLE_FILTER_LABELS[filter]}
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.4" /></svg>
           </button>
-        {/each}
+          <button
+            class="filter"
+            class:on={reading.readFilter === "read"}
+            aria-pressed={reading.readFilter === "read"}
+            aria-label={`Show ${READ_FILTER_LABELS.read} only`}
+            title={READ_FILTER_TITLES.read}
+            onclick={() => reading.setReadFilter(reading.readFilter === "read" ? "off" : "read")}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true"
+              ><circle cx="8" cy="8" r="5.4" /><path d="M5.2 8.2l2 2 3.6-3.9" /></svg
+            >
+          </button>
+        </div>
+        <div class="filterpair" class:off={reading.starFilter === "off"} role="group" aria-label="Favourites or not favourited">
+          <button
+            class="filter"
+            class:on={reading.starFilter === "starred"}
+            aria-pressed={reading.starFilter === "starred"}
+            aria-label={`Show ${STAR_FILTER_LABELS.starred} only`}
+            title={STAR_FILTER_TITLES.starred}
+            onclick={() => reading.setStarFilter(reading.starFilter === "starred" ? "off" : "starred")}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true"
+              ><path
+                d="M8 1.9l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.7 4.2 13.7l.7-4.3-3.1-3 4.3-.6z"
+                class="filled"
+              /></svg
+            >
+          </button>
+          <button
+            class="filter"
+            class:on={reading.starFilter === "unstarred"}
+            aria-pressed={reading.starFilter === "unstarred"}
+            aria-label={`Show ${STAR_FILTER_LABELS.unstarred.toLowerCase()} posts only`}
+            title={STAR_FILTER_TITLES.unstarred}
+            onclick={() => reading.setStarFilter(reading.starFilter === "unstarred" ? "off" : "unstarred")}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true"
+              ><path d="M8 1.9l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.7 4.2 13.7l.7-4.3-3.1-3 4.3-.6z" /></svg
+            >
+          </button>
+        </div>
       </div>
     </div>
   </header>
@@ -1819,8 +1935,14 @@
             title={isRead(item) ? "Mark unread" : "Mark read"}
             onclick={(event) => toggleRead(item, event)}
           >
+            <!-- Hollow until it is read: the tick inside the circle is the
+                 state, so an unread post says so with an empty circle rather
+                 than by being dimmer than the post beside it. Same glyph the
+                 posts bar's read filter uses. -->
             <svg viewBox="0 0 16 16" aria-hidden="true"
-              ><circle cx="8" cy="8" r="5.4" /><path d="M5.2 8.2l2 2 3.6-3.9" /></svg
+              ><circle cx="8" cy="8" r="5.4" />{#if isRead(item)}<path
+                  d="M5.2 8.2l2 2 3.6-3.9"
+                />{/if}</svg
             >
           </button>
           {#if source !== null}
@@ -1849,14 +1971,20 @@
       <p class="empty">
         {#if store.authorFilter !== null && store.items.length > 0}
           Nothing in this stream by {store.authorFilter}.
-        {:else if store.items.length > 0 && reading.articleFilter === "unread"}
+        {:else if
+          store.items.length > 0 &&
+          reading.readFilter === "unread" &&
+          reading.starFilter === "off"}
           <!-- A feed with nothing new is not an empty feed: say so, and offer the
                half of the filter that has the posts in it. Nothing here asks the
                server — the list is already loaded, so this is one press away. -->
           Nothing unread here.
-          <button class="inline" onclick={() => setFilter("read")}>Show what you have read</button>
+          <button class="inline" onclick={() => reading.setReadFilter("read")}
+            >Show what you have read</button
+          >
         {:else if store.items.length > 0}
-          Nothing matches “{ARTICLE_FILTER_LABELS[reading.articleFilter]}”.
+          Nothing matches “{filterWords(reading.articleFilter)}”.
+          <button class="inline" onclick={clearFilters}>Show every post</button>
         {:else}
           Nothing here.
         {/if}
@@ -2099,28 +2227,82 @@
 
   .filters {
     display: flex;
-    gap: 4px;
+    gap: 8px;
     flex: 0 0 auto;
   }
 
-  /* Cut-out pills, matching the band: outline until chosen, filled when on. */
+  /* A pair is one question with two answers: unread or read, starred or not.
+     Only one of them can be on, and a tighter gap inside the pair than between
+     the pairs is what says so. */
+  .filterpair {
+    position: relative;
+    display: flex;
+    gap: 2px;
+    flex: 0 0 auto;
+  }
+
+  /* An inert pair is struck through, corner to corner: dimming alone was not
+     enough to say "this filter is off, you are seeing everything" — the slash
+     is the same language as a crossed-out eye, and it never covers a button
+     that is doing something. */
+  .filterpair.off::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      to top right,
+      transparent calc(50% - 0.9px),
+      color-mix(in srgb, var(--text-dim) 80%, transparent) calc(50% - 0.9px),
+      color-mix(in srgb, var(--text-dim) 80%, transparent) calc(50% + 0.9px),
+      transparent calc(50% + 0.9px)
+    );
+  }
+
+  /* Cut-out pills, matching the band: outline until chosen, filled when on.
+     Icon only — the glyph is the state, so there is no word to keep in step
+     with it: a filled dot is unread, a ring is read, a filled star is starred,
+     a hollow star is not. Off is dimmed, because a switch that is off filters
+     nothing and must not read as a choice. */
   .filter {
-    padding: 3px 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 24px;
+    padding: 0;
     border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
     border-radius: 999px;
     background: transparent;
     color: var(--text-dim);
-    font: inherit;
-    font-size: 10px;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
     cursor: pointer;
-    transition: background-color 0.12s ease, color 0.12s ease, transform 0.08s ease;
+    opacity: 0.5;
+    transition:
+      background-color 0.12s ease,
+      color 0.12s ease,
+      opacity 0.12s ease,
+      transform 0.08s ease;
   }
 
-  .filter:hover {
+  .filter svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+  }
+
+  /* The filled half of a state: the dot for unread, the star for starred. */
+  .filter svg .filled {
+    fill: currentColor;
+  }
+
+  .filter:hover,
+  .filter:focus-visible {
     color: var(--text);
     background: color-mix(in srgb, var(--accent) 14%, transparent);
+    opacity: 1;
   }
 
   .filter:active {
@@ -2131,6 +2313,7 @@
     color: var(--text);
     background: color-mix(in srgb, var(--accent) 26%, transparent);
     border-color: var(--accent);
+    opacity: 1;
   }
 
   .skeleton {
@@ -3043,17 +3226,20 @@
     }
 
     .filter {
-      /* Wider than a mouse target, and narrower than this was: four pills (with
-         Read) measured 237px against a 217px header, so the 10px sides came in to
-         7px. The height is untouched, which is the half a thumb needs. */
-      padding: 6px 7px;
-      font-size: 10.5px;
+      /* Thumb-sized: the two switches are 30px squares, the same box as the
+         view icons beside them, and there is room for both now that four word
+         pills are gone. */
+      width: 30px;
+      height: 30px;
     }
 
-    /* Four pills on one row at 390 wide: the gaps come in with the sides, or the
-       last one runs off the header's edge. */
+    .filter svg {
+      width: 16px;
+      height: 16px;
+    }
+
     .filters {
-      gap: 3px;
+      gap: 6px;
     }
 
     /* The list's toggles are thumb targets on a phone, not pointer targets. */

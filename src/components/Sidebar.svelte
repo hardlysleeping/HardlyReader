@@ -1498,9 +1498,9 @@
       class="row strong"
       class:active={openStreamId === STATE_STARRED}
       bind:this={starredRow}
-      onclick={() => open(STATE_STARRED, "Starred")}
+      onclick={() => open(STATE_STARRED, "Favourites")}
     >
-      <span class="label">Starred</span>
+      <span class="label">Favourites</span>
       {#if reader.countIfKnown(STATE_STARRED) !== null}
         <span class="count">{reader.countFor(STATE_STARRED)}</span>
       {/if}

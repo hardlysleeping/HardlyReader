@@ -4393,7 +4393,7 @@ export class ReaderState {
   get streamList(): { id: string; title: string }[] {
     const streams = [
       { id: READING_LIST, title: "Reading list" },
-      { id: STATE_STARRED, title: "Starred" },
+      { id: STATE_STARRED, title: "Favourites" },
     ];
     for (const category of this.categories) {
       for (const feed of category.feeds) streams.push({ id: feed.id, title: feed.title });
@@ -4412,7 +4412,7 @@ export class ReaderState {
   get traversalStreams(): { id: string; title: string }[] {
     const streams = [
       { id: READING_LIST, title: "Reading list" },
-      { id: STATE_STARRED, title: "Starred" },
+      { id: STATE_STARRED, title: "Favourites" },
     ];
     for (const category of this.categories) {
       if (this.isCategoryCollapsed(category.id)) continue;
@@ -4539,7 +4539,7 @@ export class ReaderState {
    * still tried: guessing there would skip feeds the sidebar has not counted.
    */
   private isKnownEmpty(id: string): boolean {
-    if (reading.articleFilter !== "unread") return false;
+    if (reading.readFilter !== "unread") return false;
     return this.counts.get(id) === 0;
   }
 

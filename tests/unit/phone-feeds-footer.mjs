@@ -210,7 +210,7 @@ const app = read("src/app.css");
     "it starts folded, like every section but Accounts",
     // `extensions` sits between them because the section belongs with Accounts: both are about
     // the server this reader signed in to, and both are hidden from a library on the device.
-    /accounts: true,\s*extensions: false,\s*account: false,\s*feeds: false,/.test(panel),
+    /accounts: true,\s*extensions: false,\s*account: false,\s*messages: false,\s*feeds: false,/.test(panel),
   );
 
   const body = panel.slice(panel.indexOf('section.id === "feeds"'), panel.indexOf('section.id === "reading"'));

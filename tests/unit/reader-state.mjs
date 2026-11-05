@@ -330,7 +330,10 @@ try {
     subscription("feed/2", "Second", "Tech"),
     subscription("feed/3", "Third", "Tech"),
   ];
-  reading.setArticleFilter("all");
+  // Every post must be walkable here, so neither filter half narrows the list:
+  // the read switch off and the star switch off is "everything".
+  reading.setReadFilter("off");
+  reading.setStarFilter("off");
   reading.autoMarkRead = false;
 
   const order = r.traversalStreams.map((stream) => stream.id);
@@ -375,7 +378,7 @@ try {
   r.collapsedCategories = {};
 
   // The unread view is the one place the walk can end: nothing anywhere.
-  reading.setArticleFilter("unread");
+  reading.setReadFilter("unread");
   r.counts = new Map([
     [READING_LIST_ID, 0],
     ["feed/1", 0],
@@ -520,7 +523,9 @@ try {
     }
   }
 
-  reading.setArticleFilter("all");
+  // Nothing narrowed: both filter halves off, so every post is walkable.
+  reading.setReadFilter("off");
+  reading.setStarFilter("off");
 }
 
 // --- collapsed categories roundtrip ----------------------------------------
