@@ -38,7 +38,7 @@ panes with Cards reads a comic page at its own size, one card per row.
 </p>
 
 ## Install
-## Extensions (optional) If you are using this with FreshRSS.
+## Extensions (If you are using this with FreshRSS)
 
 | Extension | What it adds |
 |---|---|
