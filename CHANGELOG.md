@@ -6,6 +6,12 @@ All notable changes to HardlyReader are recorded here. The format follows
 
 ## [0.6.38] — 2026-11-05
 
+### Added
+
+- **Settings → About has a Project row**, opening
+  [github.com/hardlysleeping/HardlyReader](https://github.com/hardlysleeping/HardlyReader). The
+  screen that says what this app is should also say where to read about it.
+
 ### Fixed
 
 - **Swapping three panes down to two fills the frame again.** Pressing **2** asks the
