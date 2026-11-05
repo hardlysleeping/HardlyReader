@@ -64,7 +64,7 @@ import {
 } from "../lib/reading-layout";
 import { clampEffort, EFFORT_DEFAULT } from "../lib/scroll-advance";
 import { EXTRACT_DEFAULT } from "../lib/extract";
-import { readAccountValue, storedAccount, writeAccountValue } from "../lib/account-key";
+import { readSettings, writeSettings } from "../lib/settings-scope";
 
 /**
  * The base of the reading key; an account's copy is `base:<slug>`.
@@ -335,7 +335,9 @@ class ReadingState {
     this.defaults();
     if (typeof localStorage === "undefined") return;
     try {
-      const raw = readAccountValue(localStorage, STORAGE_KEY, storedAccount(localStorage));
+      // Settings follow the person (or this device), never the feed account:
+      // `lib/settings-scope` also carries a per-server copy across on upgrade.
+      const raw = readSettings(localStorage, STORAGE_KEY);
       if (raw === null) return;
       this.applySaved(JSON.parse(raw) as Record<string, unknown>);
     } catch {
@@ -703,12 +705,7 @@ class ReadingState {
   private save(): void {
     if (typeof localStorage === "undefined") return;
     try {
-      writeAccountValue(
-        localStorage,
-        STORAGE_KEY,
-        storedAccount(localStorage),
-        JSON.stringify(this.snapshot()),
-      );
+      writeSettings(localStorage, STORAGE_KEY, JSON.stringify(this.snapshot()));
     } catch {
       // Best effort: the setting still applies for this session.
     }

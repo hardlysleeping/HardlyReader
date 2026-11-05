@@ -28,6 +28,7 @@ import ts from "typescript";
 import { ACCOUNTS_KEY, SESSION_KEY, loadSession } from "../../src/api/session.ts";
 import { AuthError } from "../../src/api/freshrss.ts";
 import { accountSlug, scopedKey } from "../../src/lib/account-key.ts";
+import { DEVICE_IDENTITY } from "../../src/lib/settings-scope.ts";
 import {
   accountRows,
   activateAccount,
@@ -163,9 +164,11 @@ stubWindow();
 }
 
 // --- the layout, through the real store -------------------------------------
-// The store is a singleton loaded at import, which is exactly why a switch used
-// to keep the previous account's panes: `reload()` is what the reader calls when
-// it mounts for a session, and it has to find the new account's own copy.
+// Settings belong to the person, not to the feed account (owner, 2026-11-05:
+// *"all the settings that are kept should be hardlyreader account based not based
+// off whatever sync account they have connect"*). So a switch between two servers
+// keeps the panes — it re-reads the same scope — and only a device with no
+// HardlyReader account is scoped to the device itself.
 {
   const storage = memoryStore({ [SESSION_KEY]: JSON.stringify(sessionOf(ONE)) });
   globalThis.localStorage = storage;
@@ -173,39 +176,34 @@ stubWindow();
 
   layout.setMode(2);
   check(
-    "the first account's mode is stored under its own key",
-    storage.getItem(scopedKey(LAYOUT_KEY, ONE))?.includes('"mode":2') === true,
-    storage.getItem(scopedKey(LAYOUT_KEY, ONE)),
+    "the layout is stored under the device scope, not the feed account",
+    storage.getItem(scopedKey(LAYOUT_KEY, DEVICE_IDENTITY))?.includes('"mode":2') === true,
+    [...storage.store.keys()].join(", "),
   );
-  check("...and not under the bare key", storage.getItem(LAYOUT_KEY) === null);
+  check(
+    "...and the feed account's own key is never used",
+    storage.getItem(scopedKey(LAYOUT_KEY, ONE)) === null &&
+      storage.getItem(scopedKey(LAYOUT_KEY, TWO)) === null,
+  );
 
   rememberAccount(sessionOf(TWO));
   layout.reload();
-  check("switching re-reads the layout instead of keeping the old panes", layout.desired === 3, layout.desired);
+  check("switching keeps the panes a person chose", layout.desired === 2, layout.desired);
   layout.setMode(1);
   check(
-    "the second account's choice lands on its own key",
-    storage.getItem(scopedKey(LAYOUT_KEY, TWO))?.includes('"mode":1') === true,
-    storage.getItem(scopedKey(LAYOUT_KEY, TWO)),
+    "the change is written once, for the person",
+    storage.getItem(scopedKey(LAYOUT_KEY, DEVICE_IDENTITY))?.includes('"mode":1') === true,
   );
 
   activateAccount(accountSlug(ONE));
   layout.reload();
-  check("the first account comes back to its own mode", layout.desired === 2, layout.desired);
-
-  activateAccount(accountSlug(TWO));
-  layout.reload();
-  check("and the second account comes back to its own", layout.desired === 1, layout.desired);
-  check(
-    "the first account's blob was never written by the second",
-    storage.getItem(scopedKey(LAYOUT_KEY, ONE))?.includes('"mode":2') === true,
-    storage.getItem(scopedKey(LAYOUT_KEY, ONE)),
-  );
+  check("and the other server sees the same choice", layout.desired === 1, layout.desired);
 }
 
 // --- the reading choices, through the real module ---------------------------
-// `load()` is what a remount calls, and it has to start from the defaults: an
-// account that never saved a blob must not open at the previous account's shape.
+// `load()` is what a remount calls. Under the person rule it finds the same
+// choices on either server, and the device's own copy when there is no account —
+// a remount no longer resets the list shape to defaults.
 {
   const storage = memoryStore({ [SESSION_KEY]: JSON.stringify(sessionOf(ONE)) });
   globalThis.localStorage = storage;
@@ -214,28 +212,29 @@ stubWindow();
   reading.load();
   reading.setListView("cards");
   check(
-    "the first account's view is stored under its own key",
-    storage.getItem(scopedKey(READING_KEY, ONE))?.includes('"cards"') === true,
+    "the view is stored under the device scope",
+    storage.getItem(scopedKey(READING_KEY, DEVICE_IDENTITY))?.includes('"cards"') === true,
+    [...storage.store.keys()].join(", "),
+  );
+  check(
+    "...and not under the feed account",
+    storage.getItem(scopedKey(READING_KEY, ONE)) === null,
   );
 
   rememberAccount(sessionOf(TWO));
   reading.load();
-  check("switching drops the previous account's reading choices", reading.listView === "regular", reading.listView);
+  check("switching keeps the person's reading choices", reading.listView === "cards", reading.listView);
   reading.setListView("grid");
 
   activateAccount(accountSlug(ONE));
   reading.load();
-  check("the first account comes back to its own view", reading.listView === "cards", reading.listView);
-
-  activateAccount(accountSlug(TWO));
-  reading.load();
-  check("and the second account to its own", reading.listView === "grid", reading.listView);
+  check("and the first server reads the same choice", reading.listView === "grid", reading.listView);
 }
 
 // --- the chrome, through the real store -------------------------------------
-// The band's fold is the smallest of the three stores and shows the same rule:
-// the account in use is resolved at every read, so a remount lands on its own
-// chrome rather than on the one that was on screen a moment ago.
+// The band's fold is the smallest of the three stores. It is a setting, so it
+// follows the person/device scope too: switching servers no longer reopens the
+// bar, which is the rule the owner set on 2026-11-05.
 {
   const storage = memoryStore({ [SESSION_KEY]: JSON.stringify(sessionOf(ONE)) });
   globalThis.localStorage = storage;
@@ -243,20 +242,21 @@ stubWindow();
 
   chrome.load();
   chrome.setBandCollapsed(true);
-  check("the first account's band state is stored", storage.getItem(scopedKey("hardlyreader.chrome.v1", ONE)) !== null);
+  check("the band's fold is stored under the settings scope", storage.getItem(scopedKey("hardlyreader.chrome.v1", DEVICE_IDENTITY)) !== null);
 
   rememberAccount(sessionOf(TWO));
   chrome.load();
-  check("switching opens on the new account's own band state", chrome.bandCollapsed === false);
+  check("switching keeps the fold a person chose", chrome.bandCollapsed === true);
 
   activateAccount(accountSlug(ONE));
   chrome.load();
-  check("and the first account's comes back", chrome.bandCollapsed === true);
+  check("and it comes back on the first server", chrome.bandCollapsed === true);
 }
 
-// --- a pre-scoping key belongs to one account --------------------------------
-// The old global blob is adopted by the first account that reads it, and never by
-// the second one: inheriting a stranger's list shape is not an upgrade.
+// --- a pre-scoping key belongs to one scope ---------------------------------
+// The old global blob is adopted by the first scope that reads it and never by a
+// second person: inheriting a stranger's list shape is not an upgrade. The same
+// rule carries a per-server copy across on upgrade (see `lib/settings-scope`).
 {
   const storage = memoryStore({
     [SESSION_KEY]: JSON.stringify(sessionOf(ONE)),
@@ -266,18 +266,18 @@ stubWindow();
   const { reading } = await import(`${buildModule("src/state/reading.svelte.ts", "accounts-reading.mjs")}?launch=2`);
 
   reading.load();
-  check("the first account adopts a pre-scoping reading blob", reading.listView === "cards", reading.listView);
+  check("the device adopts a pre-scoping reading blob", reading.listView === "cards", reading.listView);
 
   rememberAccount(sessionOf(TWO));
   reading.load();
-  check("a second account starts from the defaults", reading.listView === "regular", reading.listView);
+  check("the other server sees the same blob, not defaults", reading.listView === "cards", reading.listView);
   reading.setListView("grid");
   check(
-    "its write lands on its own key",
-    storage.getItem(scopedKey(READING_KEY, TWO))?.includes('"grid"') === true,
+    "its write lands on the scope, not the old key",
+    storage.getItem(scopedKey(READING_KEY, DEVICE_IDENTITY))?.includes('"grid"') === true,
   );
   check(
-    "the old blob still says what the first account chose",
+    "the old blob is left as a downgrade finds it",
     storage.getItem(READING_KEY)?.includes('"cards"') === true,
     storage.getItem(READING_KEY),
   );
@@ -332,13 +332,13 @@ stubWindow();
   const { reading } = await import(`${buildModule("src/state/reading.svelte.ts", "accounts-reading.mjs")}?launch=3`);
   reading.load();
   reading.setListView("cards");
-  const keptKey = scopedKey(READING_KEY, TWO);
-  check("the account being removed has state on disk", storage.getItem(keptKey) !== null);
+  const keptKey = scopedKey(READING_KEY, DEVICE_IDENTITY);
+  check("the settings in use have state on disk", storage.getItem(keptKey) !== null);
 
   await store.remove(accountSlug(TWO));
   check("removing the account in use moves to the one left", store.active?.email === ONE.email, store.active?.email);
   check("...drops only its session", sessionFor(accountSlug(TWO)) === null && accountRows().length === 1);
-  check("...and leaves its layout and reading state on disk", storage.getItem(keptKey) !== null);
+  check("...and leaves the settings on disk", storage.getItem(keptKey) !== null);
   check(
     "signing out of everything forgets every session",
     (() => {

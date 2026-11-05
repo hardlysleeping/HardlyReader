@@ -171,8 +171,11 @@ export interface Identity {
   watch(): () => void;
 }
 
-/** Where a device's identity is written. One key, like the session's. */
-export const IDENTITY_KEY = "hardlyreader.identity.v1";
+/** Where a device's identity is written. One key, like the session's — defined in a
+ *  leaf module so the settings scope can read `userId` without loading this one. */
+import { IDENTITY_KEY } from "../lib/identity-key";
+
+export { IDENTITY_KEY };
 
 /** The part of `Storage` these helpers use, so a stub can stand in for it. */
 export type KeyStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;

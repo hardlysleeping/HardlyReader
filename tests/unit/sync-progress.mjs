@@ -242,6 +242,8 @@ const readingModule = buildRunes("src/state/reading.svelte.ts", "reading.svelte.
   ['"../lib/scroll-advance"', absolute("src/lib/scroll-advance.ts")],
   ['"../lib/reading-layout"', absolute("src/lib/reading-layout.ts")],
   ['"../lib/account-key"', absolute("src/lib/account-key.ts")],
+  ['"../lib/settings-scope"', absolute("src/lib/settings-scope.ts")],
+  ['"../lib/identity-key"', absolute("src/lib/identity-key.ts")],
   ['"../lib/add-feeds"', absolute("src/lib/add-feeds.ts")],
 ]);
 const themeModule = buildRunes("src/state/theme.svelte.ts", "theme.svelte.ts", [
@@ -291,6 +293,8 @@ const readerModule = buildRunes("src/state/reader.svelte.ts", "reader.svelte.ts"
   ['"../lib/stream-perf"', absolute("src/lib/stream-perf.ts")],
   ['"../lib/stream-scroll"', absolute("src/lib/stream-scroll.ts")],
   ['"../lib/account-key"', absolute("src/lib/account-key.ts")],
+  ['"../lib/settings-scope"', absolute("src/lib/settings-scope.ts")],
+  ['"../lib/identity-key"', absolute("src/lib/identity-key.ts")],
   ['"../lib/add-feeds"', absolute("src/lib/add-feeds.ts")],
   ['"../lib/opml"', absolute("src/lib/opml.ts")],
   ['"../lib/extract-ledger"', absolute("src/lib/extract-ledger.ts")],

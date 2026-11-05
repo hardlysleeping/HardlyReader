@@ -30,6 +30,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { compileModule } from "svelte/compiler";
 import ts from "typescript";
 
+import { settingsKey } from "../../src/lib/settings-scope.ts";
+
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 const STORAGE_KEY = "hardlyreader.layout.v1";
@@ -95,11 +97,15 @@ function buildLayoutModule() {
   return out;
 }
 
+// The layout is a setting, so it lives in the settings scope — this device's,
+// since no HardlyReader account is signed in here.
+const key = () => settingsKey(globalThis.localStorage, STORAGE_KEY);
+
 let starts = 0;
 async function start(out, saved) {
   starts += 1;
   stored.clear();
-  if (saved !== undefined) stored.set(STORAGE_KEY, JSON.stringify(saved));
+  if (saved !== undefined) stored.set(key(), JSON.stringify(saved));
   const { layout } = await import(`${pathToFileURL(out).href}?start=${starts}`);
   return layout;
 }
@@ -172,8 +178,8 @@ try {
     );
     check(
       "and the width of the other sizing mode is in the save",
-      JSON.parse(stored.get(STORAGE_KEY)).keepWindowWidth === 1200,
-      stored.get(STORAGE_KEY),
+      JSON.parse(stored.get(key())).keepWindowWidth === 1200,
+      stored.get(key()),
     );
 
     // --- switching it off asks for the frame Keep window last had ----------
@@ -262,7 +268,7 @@ try {
     layout.setAvailable(1440);
     layout.setKeepWidths(true);
     layout.setAvailable(layout.widthFor(2));
-    const saved = stored.get(STORAGE_KEY);
+    const saved = stored.get(key());
     check("the save carries the frame", JSON.parse(saved).keepWindowWidth === 1440, saved);
 
     // A relaunch: the same save, a window the OS sized (the stub's 1200).

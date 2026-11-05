@@ -57,6 +57,8 @@ function buildReadingModule() {
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
     .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
     .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
+    .replaceAll('"../lib/settings-scope"', JSON.stringify(absolute("src/lib/settings-scope.ts")))
+    .replaceAll('"../lib/identity-key"', JSON.stringify(absolute("src/lib/identity-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
     .replaceAll('"../lib/feed-move"', JSON.stringify(absolute("src/lib/feed-move.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
@@ -153,6 +155,8 @@ function buildReaderModule() {
     .replaceAll('"../lib/stream-perf"', JSON.stringify(absolute("src/lib/stream-perf.ts")))
     .replaceAll('"../lib/stream-scroll"', JSON.stringify(absolute("src/lib/stream-scroll.ts")))
     .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
+    .replaceAll('"../lib/settings-scope"', JSON.stringify(absolute("src/lib/settings-scope.ts")))
+    .replaceAll('"../lib/identity-key"', JSON.stringify(absolute("src/lib/identity-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
     .replaceAll('"../lib/opml"', JSON.stringify(absolute("src/lib/opml.ts")))
     .replaceAll('"../lib/extract-ledger"', JSON.stringify(absolute("src/lib/extract-ledger.ts")))

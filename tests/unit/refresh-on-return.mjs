@@ -32,6 +32,7 @@ import {
   writeAutoSync,
   writeRefreshOnReturn,
 } from "../../src/lib/chrome-prefs.ts";
+import { DEVICE_IDENTITY } from "../../src/lib/settings-scope.ts";
 import {
   LAUNCH_GRACE_MS,
   REFRESH_ON_RETURN_DEFAULT,
@@ -111,7 +112,9 @@ for (const [what, value] of garbage) {
   check("and writing it leaves the interval setting alone", readAutoSync(storage, ACCOUNT) === true && readAutoSyncHours(storage, ACCOUNT) === AUTO_SYNC_DEFAULT_HOURS);
 
   const keys = [...storage.store.keys()];
-  check("the preference is stored under this account's key", keys.includes(scopedKey(CHROME_KEY, ACCOUNT)), keys.join(", "));
+  // Chrome preferences are settings, so they live in the settings scope (the
+  // device's, with no HardlyReader account) rather than on a feed-account key.
+  check("the preference is stored under the settings key", keys.includes(scopedKey(CHROME_KEY, DEVICE_IDENTITY)), keys.join(", "));
   check(
     "with no address in the key",
     keys.every((key) => !key.includes("@") && !key.includes("reader.test")),
@@ -120,9 +123,11 @@ for (const [what, value] of garbage) {
 }
 
 // An install from before the setting existed: the blob is there, the field is not.
+// It is seeded on the *legacy* key a per-server build wrote, which the settings
+// scope adopts — the honest shape of that upgrade.
 {
   const storage = memoryStore();
-  storage.setItem(scopedKey(CHROME_KEY, ACCOUNT), JSON.stringify({ bandCollapsed: true, autoSync: true }));
+  storage.setItem(CHROME_KEY, JSON.stringify({ bandCollapsed: true, autoSync: true }));
   const fallback = readRefreshOnReturn(storage, ACCOUNT);
   check("an old install gets five minutes, not never", fallback.kind === "after" && fallback.minutes === 5);
   check("and keeps its other preferences", readAutoSync(storage, ACCOUNT) === true);

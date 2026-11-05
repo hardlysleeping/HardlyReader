@@ -5,15 +5,18 @@
  * collapse is pure state plus one storage key, and the interesting cases are a
  * first run, a relaunch, corrupt JSON and no storage at all.
  *
- * The key is per account. It used to be global, which was fine while this app
- * held one session and became wrong the moment a second login was possible: the
- * next account would inherit a folded band, a passcode pad and an auto-sync
- * schedule it never chose. The account is a hashed slug (`lib/account-key`), so no
- * address sits in a storage key, and the legacy global key is left where it is —
- * the first account adopts its contents once.
+ * None of these settings belong to a feed server: a folded band, a passcode pad,
+ * an auto-sync interval and a gesture switch are the person's, so the key is the
+ * settings scope (`lib/settings-scope`) — the HardlyReader account when one is
+ * signed in, this device when it is not. It used to be per feed account, which
+ * made connecting a second server hand you its copy of a bar you never folded.
+ * The functions still take an account for their callers' sake and ignore it: the
+ * scope is read from storage, because the identity is a stored record, not a
+ * session.
  */
 
-import { readAccountValue, writeAccountValue, type AccountIdentity } from "./account-key";
+import type { AccountIdentity } from "./account-key";
+import { readSettings, writeSettings } from "./settings-scope";
 import { AUTO_SYNC_DEFAULT_HOURS, parseAutoSyncHours, type AutoSyncHours } from "./auto-sync";
 import {
   GESTURE_DEFAULTS,
@@ -111,10 +114,10 @@ const DEFAULT_PREFS: ChromePrefs = {
  * `account` is null before sign-in, and then this reads the legacy global key
  * exactly as it always did.
  */
-function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | null): ChromePrefs {
+function readPrefs(storage: StorageLike | undefined): ChromePrefs {
   if (!storage) return { ...DEFAULT_PREFS };
   try {
-    const raw = readAccountValue(storage, CHROME_KEY, account);
+    const raw = readSettings(storage, CHROME_KEY);
     if (raw === null) return { ...DEFAULT_PREFS };
     const saved = JSON.parse(raw) as {
       bandCollapsed?: unknown;
@@ -143,15 +146,11 @@ function readPrefs(storage: StorageLike | undefined, account: AccountIdentity | 
 }
 
 /** Writes one flag without dropping the other: they share one key. */
-function patchPrefs(
-  storage: StorageLike | undefined,
-  account: AccountIdentity | null,
-  patch: Partial<ChromePrefs>,
-): void {
+function patchPrefs(storage: StorageLike | undefined, patch: Partial<ChromePrefs>): void {
   if (!storage) return;
   try {
-    const next = { ...readPrefs(storage, account), ...patch };
-    writeAccountValue(storage, CHROME_KEY, account, JSON.stringify(next));
+    const next = { ...readPrefs(storage), ...patch };
+    writeSettings(storage, CHROME_KEY, JSON.stringify(next));
   } catch {
     // Full or blocked storage: the state still applies for this session.
   }
@@ -159,112 +158,112 @@ function patchPrefs(
 
 export function readBandCollapsed(
   storage: StorageLike | undefined,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): boolean {
-  return readPrefs(storage, account).bandCollapsed;
+  return readPrefs(storage).bandCollapsed;
 }
 
 /** Off unless it was turned on: the pad is an opt-in, not a new default. */
 export function readPinPad(
   storage: StorageLike | undefined,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): boolean {
-  return readPrefs(storage, account).pinPad;
+  return readPrefs(storage).pinPad;
 }
 
 export function writeBandCollapsed(
   storage: StorageLike | undefined,
   collapsed: boolean,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): void {
-  patchPrefs(storage, account, { bandCollapsed: collapsed });
+  patchPrefs(storage, { bandCollapsed: collapsed });
 }
 
 export function writePinPad(
   storage: StorageLike | undefined,
   on: boolean,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): void {
-  patchPrefs(storage, account, { pinPad: on });
+  patchPrefs(storage, { pinPad: on });
 }
 
 /** Off unless it was turned on: nothing syncs behind the user's back. */
 export function readAutoSync(
   storage: StorageLike | undefined,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): boolean {
-  return readPrefs(storage, account).autoSync;
+  return readPrefs(storage).autoSync;
 }
 
 export function readAutoSyncHours(
   storage: StorageLike | undefined,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): AutoSyncHours {
-  return readPrefs(storage, account).autoSyncHours;
+  return readPrefs(storage).autoSyncHours;
 }
 
 export function writeAutoSync(
   storage: StorageLike | undefined,
   on: boolean,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): void {
-  patchPrefs(storage, account, { autoSync: on });
+  patchPrefs(storage, { autoSync: on });
 }
 
 export function writeAutoSyncHours(
   storage: StorageLike | undefined,
   hours: AutoSyncHours,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): void {
-  patchPrefs(storage, account, { autoSyncHours: parseAutoSyncHours(hours) });
+  patchPrefs(storage, { autoSyncHours: parseAutoSyncHours(hours) });
 }
 
 /** Five minutes unless it was changed: a return is worth a fetch, a glance is not. */
 export function readRefreshOnReturn(
   storage: StorageLike | undefined,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): RefreshOnReturn {
-  return readPrefs(storage, account).refreshOnReturn;
+  return readPrefs(storage).refreshOnReturn;
 }
 
 export function writeRefreshOnReturn(
   storage: StorageLike | undefined,
   value: RefreshOnReturn,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): void {
-  patchPrefs(storage, account, { refreshOnReturn: parseRefreshOnReturn(value) });
+  patchPrefs(storage, { refreshOnReturn: parseRefreshOnReturn(value) });
 }
 
 /** Kept on this device unless it was turned off. */
 export function readOfflineCopy(
   storage: StorageLike | undefined,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): boolean {
-  return readPrefs(storage, account).offlineCopy;
+  return readPrefs(storage).offlineCopy;
 }
 
 export function writeOfflineCopy(
   storage: StorageLike | undefined,
   on: boolean,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): void {
-  patchPrefs(storage, account, { offlineCopy: on });
+  patchPrefs(storage, { offlineCopy: on });
 }
 
 /** The gestures this device answers to, whole — one record, one write. */
 export function readGestures(
   storage: StorageLike | undefined,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): GesturePrefs {
-  return readPrefs(storage, account).gestures;
+  return readPrefs(storage).gestures;
 }
 
 export function writeGestures(
   storage: StorageLike | undefined,
   value: GesturePrefs,
-  account: AccountIdentity | null = null,
+  _account: AccountIdentity | null = null,
 ): void {
-  patchPrefs(storage, account, { gestures: parseGestures(value) });
+  patchPrefs(storage, { gestures: parseGestures(value) });
 }
 
 /** localStorage in a browser, undefined anywhere it does not exist. */
