@@ -565,7 +565,7 @@ class LayoutState {
    * window runs out, so a refused resize cannot leave the frame drawing a width
    * it never reached). `null` means "nothing in flight: the frame is what it is".
    */
-  private pressTarget: number | null = null;
+  private pressTarget = $state<number | null>(null);
 
   /**
    * Whether a press is still waiting for the window to reach the width it asked

@@ -453,6 +453,22 @@ try {
     const saved = JSON.parse(stored.get(STORAGE_KEY));
     check("a press is written", saved.mode === 2, `saved mode ${saved?.mode}`);
   }
+  // --- the hold is a value the frame can see --------------------------------
+  {
+    // A press asks for a width and the tracks are drawn at it until the window
+    // answers. Giving up on that width has to repaint the columns, or the frame
+    // keeps the pressed geometry: a two-pane frame drawn 444px short of the
+    // window, an empty band beside the lists, and a divider that measures from a
+    // width the window never had. That repaint exists because `drawn` reads
+    // `pressTarget` — a plain field would be read once and never again, which is
+    // what "swapping 3 → 2 leaves empty space" was. Not testable without a
+    // renderer, so the guard is the declaration itself.
+    const source = readFileSync(join(ROOT, "src/state/layout.svelte.ts"), "utf8");
+    check(
+      "the held press width is reactive, so giving up on it redraws the frame",
+      /private pressTarget = \$state<number \| null>\(null\)/.test(source),
+    );
+  }
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });
 }
