@@ -3,25 +3,40 @@
  *
  * Advancing on the first wheel tick past the bottom felt like an ambush — one
  * flick and you were in a different article. Instead the scroll accumulates
- * into a pull, and each pixel of wheel movement contributes less than the one
- * before, so the last stretch needs a deliberate push. The pull is drawn as a
- * filling line at the bottom of the pane, which is the feedback: you can feel
- * how close the switch is before it happens.
+ * into a pull, and the cost of the next pixel rises the further the pull has
+ * come: the first third of the bar is cheap, the last third needs a deliberate
+ * push. The pull is drawn as a filling line at the bottom of the pane, which is
+ * the feedback — you can feel how close the switch is before it happens.
  *
- * A finger gets the same curve, and the same line, from `swipePull`: it reports
- * where it is rather than how far it just moved, so the gesture is one closed
- * form of the same integral, worth `SWIPE_GAIN` wheel pixels per pixel of
- * thumb. What fills the line is one number either way, so the two cannot drift
- * apart in feel or in feedback.
+ * The shape is `progress = 1 - (1 - u)²`, where `u` is how much of the full
+ * travel has been spent, 0..1. It is the same curve for a wheel and for a
+ * finger, and it is exactly invertible, so neither has to be integrated a notch
+ * at a time: a finger reports where it is (`swipePull`) and gets the number the
+ * wheel would have after the same travel. That also means a fast swipe cannot
+ * skip the expensive end of the curve by arriving with one big delta.
+ *
+ * Why not the old `1 / (1 + 3.2 p)` per-pixel resistance: measured, it held
+ * every notch at 26–38px after the first two, so the last stretch cost the same
+ * as the middle — the bar crawled but the effort never changed. Here the same
+ * 100px notch is worth 71px of pull at the start and 12px at the end, and the
+ * last quarter of the bar takes 40% of the travel.
  */
 
 /**
- * Wheel travel a full pull is worth. With the resistance the real cost is
- * `THRESHOLD * (1 + RESISTANCE / 2)` — 728px here, about seven 100px wheel
- * notches at the bottom of an article. Deliberate enough that a stray flick
- * does not switch articles, short enough that it never feels stuck.
+ * Wheel travel a full pull is worth, as a multiple of the threshold. With the
+ * shipped threshold that is 728px — about seven 100px notches at the bottom of
+ * an article. Deliberate enough that a stray flick does not switch articles,
+ * short enough that it never feels stuck.
  */
+export const TRAVEL_RATIO = 2.6;
+
 export const PULL_THRESHOLD = 280;
+
+/**
+ * How the travel is shaped into progress. 1 would be linear; 2 means the last
+ * quarter of the bar costs 40% of the travel and the first quarter costs 13%.
+ */
+export const PULL_CURVE = 2;
 
 /**
  * How hard it is to leave a post, as a multiplier on the threshold.
@@ -65,13 +80,26 @@ export function thresholdFor(effort: number): number {
   return Math.round(PULL_THRESHOLD * clampEffort(effort));
 }
 
-/** How much heavier the pull gets by the end. 0 = linear, 2.5 = heavy. */
-export const RESISTANCE = 3.2;
+/** Travel, in wheel pixels, that fills a pull for a given threshold. */
+export function travelFor(threshold = PULL_THRESHOLD): number {
+  if (!(threshold > 0)) return 0;
+  return Math.round(threshold * TRAVEL_RATIO);
+}
 
-/** Convenience: how much of a wheel delta counts at current progress. */
-export function contribution(progress: number): number {
-  const clamped = Math.min(Math.max(progress, 0), 1);
-  return 1 / (1 + RESISTANCE * clamped);
+/** How much of the pull a share of the travel has built, 0..1. */
+export function curveAt(u: number): number {
+  if (!(u > 0)) return 0;
+  if (!Number.isFinite(u)) return 1;
+  const spent = Math.min(u, 1);
+  return 1 - Math.pow(1 - spent, PULL_CURVE);
+}
+
+/** The inverse of {@link curveAt}: the share of travel a progress needs. */
+export function travelAt(progress: number): number {
+  if (!(progress > 0)) return 0;
+  if (!Number.isFinite(progress)) return 1;
+  const filled = Math.min(progress, 1);
+  return 1 - Math.pow(1 - filled, 1 / PULL_CURVE);
 }
 
 /**
@@ -83,14 +111,19 @@ export function contribution(progress: number): number {
  * `PULL_THRESHOLD`; `shouldAdvance()` decides when it is enough.
  *
  * Reversing direction first eats the pull already made rather than starting a
- * fresh counter — otherwise a flick down and back up would switch articles.
+ * fresh counter — otherwise a flick down and back up would switch articles —
+ * and because the reversal runs on the same curve it also eats the expensive
+ * end last, so a pull nearly made is not swept away by one backwards flick.
  */
 export function accumulate(pull: number, deltaY: number, threshold = PULL_THRESHOLD): number {
   if (!(threshold > 0)) return 0;
   if (deltaY === 0) return pull;
-  const progress = progressOf(pull, threshold);
-  const next = pull + deltaY * contribution(progress);
-  return Math.max(-threshold, Math.min(next, threshold));
+  const total = travelFor(threshold);
+  if (!(total > 0)) return 0;
+  const sign = pull > 0 ? 1 : pull < 0 ? -1 : 0;
+  const spent = sign * travelAt(progressOf(pull, threshold));
+  const moved = Math.max(-1, Math.min(1, spent + deltaY / total));
+  return Math.sign(moved) * curveAt(Math.abs(moved)) * threshold;
 }
 
 /** How full the pull is, 0..1, regardless of direction. */
@@ -150,7 +183,7 @@ export const SWIPE_GAIN = 2.67;
  */
 export function swipeTravel(threshold = PULL_THRESHOLD, gain = SWIPE_GAIN): number {
   if (!(threshold > 0) || !(gain > 0)) return 0;
-  return Math.round(((RESISTANCE + 2) * threshold) / (2 * gain));
+  return Math.round(travelFor(threshold) / gain);
 }
 
 /** The drag distance, in pixels, that a chosen effort draws on a phone. */
@@ -170,6 +203,23 @@ export function effortForSwipePx(px: number, gain = SWIPE_GAIN): number {
 }
 
 /**
+ * The pull a finger's travel has built, on the wheel's own curve.
+ *
+ * Same closed form the wheel integrates to, so the two agree to the pixel:
+ * `curveAt(travel / travelFor(threshold))`. Keeping it closed rather than
+ * stepping means a fast swipe cannot skip the expensive part of the curve by
+ * arriving with one big delta.
+ */
+export function swipePull(travel: number, threshold = PULL_THRESHOLD, gain = SWIPE_GAIN): number {
+  if (!(threshold > 0) || !(gain > 0)) return 0;
+  if (!(travel > 0)) return 0;
+  if (!Number.isFinite(travel)) return threshold;
+  const full = swipeTravel(threshold, gain);
+  if (!(full > 0)) return 0;
+  return Math.min(threshold, curveAt(travel / full) * threshold);
+}
+
+/**
  * Where in the pull's last stretch the next post starts to come into view.
  *
  * Not at the apex: the apex is the half of the curve that costs the most, and a
@@ -178,45 +228,36 @@ export function effortForSwipePx(px: number, gain = SWIPE_GAIN): number {
  * last push has somewhere to go — and letting go before the line fills puts
  * both back on one curve.
  */
-export const PEEK_FROM = 0.85;
-
-/** How much more travel completes the reveal, as a fraction of the apex. */
-export const PEEK_SPAN = 0.3;
+export const PEEK_FROM = 0.8;
 
 /**
- * How far the next post has been revealed, 0..1, for a finger's travel.
+ * How much more progress completes the reveal.
  *
- * `off` is the setting: with "Reveal next" off this is always 0 and the pull is
- * the bar filling, exactly as it was. Kept here rather than in the component so
- * the curve can be tested without a finger.
+ * The reveal lands exactly on the apex, so the post that lifts away has been
+ * fully uncovered by the time letting go would switch — a reveal that only got
+ * half way would be a page that started to move and then stopped for no reason.
  */
-export function peekOf(
-  travel: number,
-  threshold = PULL_THRESHOLD,
-  on = true,
-  gain = SWIPE_GAIN,
-): number {
+export const PEEK_SPAN = 0.2;
+
+/**
+ * How far the next post has been revealed, 0..1, for the pull's progress.
+ *
+ * Progress, not travel, so a wheel and a finger reveal the same thing at the
+ * same point on the line — and a wheel that is pushing past the end gets the
+ * same slide-away a thumb does. `off` is the setting: with "Reveal next" off
+ * this is always 0 and the pull is the bar filling, exactly as it was. Kept
+ * here rather than in the component so the curve can be tested without a finger.
+ */
+export function peekOf(progress: number, on = true): number {
   if (!on) return 0;
-  const apex = swipeTravel(threshold, gain);
-  if (!(apex > 0) || !(travel > 0)) return 0;
-  const start = apex * PEEK_FROM;
-  const span = Math.max(1, apex * PEEK_SPAN);
-  return Math.min(1, Math.max(0, (travel - start) / span));
-}
-
-/**
- * The pull a finger's travel has built, on the wheel's own curve.
- *
- * `accumulate` integrates the resistance a notch at a time; a finger reports
- * where it is rather than how far it just moved, so this is the same curve in
- * closed form — `(1 + R p) dp = k dt`, solved for `p` — and the two agree to
- * the pixel. Keeping it closed rather than stepping means a fast swipe cannot
- * skip the expensive part of the curve by arriving with one big delta.
- */
-export function swipePull(travel: number, threshold = PULL_THRESHOLD, gain = SWIPE_GAIN): number {
-  if (!(threshold > 0) || !(gain > 0) || !(travel > 0)) return 0;
-  const progress = (-1 + Math.sqrt(1 + (2 * RESISTANCE * gain * travel) / threshold)) / RESISTANCE;
-  return Math.min(threshold, progress * threshold);
+  if (!(progress > PEEK_FROM)) return 0;
+  if (!Number.isFinite(progress)) return 1;
+  // Tested, not computed: `(1 - 0.8) / 0.2` is 0.9999999999999998 in binary
+  // floating point, and a reveal that stops a hair short of its own apex is a
+  // reveal that ends a pixel early on the one frame that matters.
+  if (progress >= PEEK_FROM + PEEK_SPAN) return 1;
+  const span = Math.max(PEEK_SPAN, 1e-6);
+  return Math.min(1, (Math.min(progress, 1) - PEEK_FROM) / span);
 }
 
 /**

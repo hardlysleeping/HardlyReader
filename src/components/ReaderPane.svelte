@@ -406,9 +406,6 @@
   /** How long a release takes to put a half-made pull back. */
   const SPRING_MS = 260;
 
-  /** Finger travel past the end, in the pixels the curve counts. */
-  let travelPx = $state(0);
-
   /**
    * How far the next post has been revealed at the apex, 0..1.
    *
@@ -452,7 +449,6 @@
     }
     pull = 0;
     peek = 0;
-    travelPx = 0;
     if (pullTimer !== null) {
       clearTimeout(pullTimer);
       pullTimer = null;
@@ -471,10 +467,7 @@
   function springBack(): void {
     const fromPull = pull;
     const fromPeek = peek;
-    if (fromPull === 0 && fromPeek === 0) {
-      travelPx = 0;
-      return;
-    }
+    if (fromPull === 0 && fromPeek === 0) return;
     if (springRaf !== 0) cancelAnimationFrame(springRaf);
     springRaf = 0;
     if (reduceMotion()) {
@@ -492,7 +485,6 @@
       } else {
         pull = 0;
         peek = 0;
-        travelPx = 0;
         springRaf = 0;
       }
     };
@@ -535,6 +527,13 @@
       return;
     }
     pull = accumulate(pull, event.deltaY, threshold);
+    // The same reveal a thumb gets, at the same place on the line: past 80% of
+    // the bar the open post lifts away and the next one shows behind it, so the
+    // last push has somewhere to go. A wheel had none of this before — it filled
+    // the line and then swapped the post under you. Forward only: the layer
+    // behind the page is the post *after* this one, so uncovering it while
+    // scrolling up would show the wrong post for the direction.
+    peek = pull > 0 ? peekOf(progressOf(pull, threshold), reading.apexPeek) : 0;
     if (pullTimer !== null) clearTimeout(pullTimer);
     pullTimer = setTimeout(() => {
       pullTimer = null;
@@ -579,7 +578,6 @@
     }
     pull = 0;
     peek = 0;
-    travelPx = 0;
     swipeId = event.touches[0].identifier;
     swipeStart = event.touches[0].clientY;
   }
@@ -596,12 +594,12 @@
       return;
     }
     const travel = swipeStart - touch.clientY;
-    travelPx = Math.max(0, travel);
     pull = travel > 0 ? swipePull(travel, threshold) : 0;
-    // Past 85% of the apex the post starts to move out of the way and the next
+    // Past 80% of the bar the page starts to move out of the way and the next
     // one shows behind it — only when "Reveal next" is on; off, this is 0 and
-    // the pull is the line filling, exactly as it was.
-    peek = peekOf(travelPx, threshold, reading.apexPeek);
+    // the pull is the line filling, exactly as it was. Progress, not travel, so
+    // a wheel pushing past the end reveals the same thing at the same place.
+    peek = pull > 0 ? peekOf(progressOf(pull, threshold), reading.apexPeek) : 0;
   }
 
   function onArticleTouchEnd(): void {
