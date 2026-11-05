@@ -4,6 +4,28 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.39] — 2026-11-05
+
+### Added
+
+- **Windows and macOS builds on the release page.** An `.exe` installer (and an
+  `.msi`) for 64-bit Windows, and one universal `.dmg` for Apple Silicon and
+  Intel Macs. Both are unsigned: Windows shows a SmartScreen prompt until you
+  allow it, and macOS needs Right-click → Open the first time. The macOS app is
+  ad-hoc signed, which is what lets an arm64 build start at all.
+
+### Changed
+
+- **The feed indent lives in `Settings → Feeds` and nowhere else.** The strip
+  under the sidebar's controls could put itself away with its own label and never
+  come back; the slider is the sheet's row on every device now, and the
+  preference that gated the strip is gone rather than left behind.
+- **A regular row is one height, whatever the post has to say.** The title and
+  the preview each hold two lines' worth of space whether or not their text fills
+  them, and the byline keeps the row's floor, so a column of rows reads as a
+  column instead of a ragged edge. The height follows **List size** — 84px at 80%,
+  103 at 100%, 142 at 140%. An opened post is exempt: its article is the row.
+
 ## [0.6.38] — 2026-11-05
 
 ### Added
