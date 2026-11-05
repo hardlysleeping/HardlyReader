@@ -139,28 +139,50 @@ the password and either side can revoke it.
 
 ## What it does
 
-- **Panes that fit the window.** One, two or three columns; the feeds pane folds
-  away without disturbing the other two, and dragged widths stay put.
-- **Four ways to list posts** — Regular, List, Cards, Grid — one row structure
-  behind all four, so every action works in every shape.
-- **Cards, for comics.** A page fills the pane's width at its own aspect ratio
-  and height: no cap, no crop, no letterbox. One wheel notch or flick moves one
-  post and centres it; multi-picture posts page sideways with dots underneath.
-  The fit button sizes the window to the whole card — buttons and all — with the
-  neighbouring cards showing above and below.
-- **The article pane fits a page whole** — by width, height and the file's own
-  pixels, whichever is smallest — with a multiplier from 50% to 200%.
-- **Keyboard first.** Next/previous post and feed, mark read, star, open in
-  browser, back; `?` lists them.
-- **Hidden, pinned and locked categories**, via optional extensions (below).
-  Hidden categories stay out of counts and screen readers; locked ones sit
-  behind a passcode.
-- **Search** across feed names, categories and — deeply — post text.
-- **Settings in three tabs**: colours (dark, light, automatic, every tone), layout
-  (panes, widths, row shape, corners), reading (measure, leading, alignment, type
-  scale, automatic read marking).
-- OPML import and export, feed icons with a drawn fallback, and a session and
-  reading position that survive a restart.
+The list is the point, so most of this is about arranging it and getting through it.
+
+- **A sidebar you arrange yourself.** Drag a feed into the order you want inside its
+  category, drag the categories into an order of your own, and drop a feed on another
+  category to actually move it there. The arrangement is kept per account: a restart
+  brings it back, a second machine gets it through the adapter's `positions` route (or
+  through Sync), and the server's own alphabetical order never overwrites it.
+- **Hidden, pinned and locked categories.** Hide a category without unsubscribing —
+  gone from the sidebar, from counts and from screen readers, back in one press. Pin
+  the ones you read and they sort to the top. Lock the hidden ones behind a passcode.
+  Kept on the device, or shared with your other devices through the extensions below.
+- **Panes that fit the window.** One, two or three columns; the feeds pane folds away
+  without disturbing the other two, and dragged widths stay put. **Split view** gives
+  you up to four panes, each on its own stream, when one list is not enough.
+- **Several servers at once.** A band per account in the feeds pane, a posts list that
+  can draw from all of them in one column, and every mark sent home to the account the
+  row came from.
+- **Four ways to list posts** — Regular, List, Cards, Grid — one row structure behind
+  all four, so every action works in every shape.
+- **Cards, for comics.** A page fills the pane's width at its own aspect ratio and
+  height: no cap, no crop, no letterbox. One wheel notch or flick moves one post and
+  centres it; multi-picture posts page sideways with dots underneath. The fit button
+  sizes the window to the whole card — buttons and all — with the neighbouring cards
+  showing above and below.
+- **The article pane fits a page whole** — by width, height and the file's own pixels,
+  whichever is smallest — with a multiplier from 50% to 200%.
+- **Keyboard first.** Next/previous post and feed, mark read, star, open in browser,
+  back; `?` lists them.
+- **Search** across feed names, categories, authors and — deeply — post text, with
+  **full text per feed**: Auto, what the feed sent, or the whole webpage fetched.
+- **Reading positions that survive.** The feed you were in, the post that was open and
+  the pixels you had scrolled into it are written as you go, so closing the app
+  reopens on the same line rather than at the top of the Reading list.
+- **Offline that keeps working.** Posts you have read are kept on disk, and marks you
+  make with no network are queued and sent when it comes back — the read state on the
+  page and the state you set cannot disagree in the meantime.
+- **Buzz** — the stories more than one feed is telling: posts clustered by what they
+  are about, one row per story that at least two of your feeds carry, ranked by how
+  many do, with a topic filter over the whole window.
+- **Appearance** that goes further than dark and light: four modes including OLED
+  black, your own wallpaper with blur, dim and bloom, glass panels, per-category
+  icons, adjustable row corners and measure.
+- OPML import and export, feed icons with a drawn fallback, and a library you can
+  archive to a file and open on another machine.
 
 ## Free, and what a subscription adds
 
