@@ -38,7 +38,18 @@ panes with Cards reads a comic page at its own size, one card per row.
 </p>
 
 ## Install
+## Extensions (optional) If you are using this with FreshRSS.
 
+| Extension | What it adds |
+|---|---|
+| [Pinned Categories](https://github.com/hardlysleeping/xExtension-FavoriteCategories) | Which categories are pinned, and their order |
+| [Hidden Categories](https://github.com/hardlysleeping/xExtension-HiddenCategories) | Which categories are hidden, the eye state, and the passcode lock — shared between devices |
+| [Hardly Read adapter](https://github.com/hardlysleeping/xExtension-HardlyRead) | One request returning all of the above, plus the sidebar indent |
+
+The app runs without them: pins and hidden categories are kept on the device, so
+the sidebar behaves the same way, and the one control that genuinely needs an
+extension says so instead of breaking. The extensions themselves are separate
+repos and stay optional on the server.
 ### Docker (browser, and phone over the LAN)
 
 ```sh
