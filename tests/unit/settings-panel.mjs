@@ -194,6 +194,8 @@ try {
     "src/state/device-sync.svelte.ts",
     "src/state/bodies.svelte.ts",
     "src/state/pictures.svelte.ts",
+    // The bell: the section reads the account (for "is there one") and the list.
+    "src/state/inbox.svelte.ts",
   ]) {
     buildRunes(state);
   }
@@ -232,6 +234,7 @@ try {
   await buildComponent("src/components/IconGrid.svelte");
   await buildComponent("src/components/IconsPanel.svelte");
   await buildComponent("src/components/IndentControl.svelte");
+  await buildComponent("src/components/MessagesPanel.svelte");
   await buildComponent("src/components/PostListPanel.svelte");
   await buildComponent("src/components/ReadingPanel.svelte");
   await buildComponent("src/components/ThemePanel.svelte");
@@ -255,7 +258,7 @@ try {
 
   /** The markup of one section, from its summary to the next section's. */
   function section(body, label) {
-    const at = body.search(new RegExp(`<span class="label[^"]*">${label}</span>`));
+    const at = body.search(new RegExp(`<span class="label[^"]*">${label}(?:<!--[^>]*-->)*</span>`));
     if (at < 0) return "";
     // The next *section*, not the next `<details>`: a section's own content may
     // hold a disclosure of its own (Accounts holds the pairing block), and
@@ -292,7 +295,7 @@ try {
     // ids, four of them phone-only or filtered out here).
     check("there are nine sections", sections(body) === 9, String(sections(body)));
     check("every one is a disclosure with a summary", count(body, 'class="sum') === 9, String(count(body, 'class="sum')));
-    check("every section is named", SECTIONS.every((label) => new RegExp(`<span class="label[^"]*">${label}</span>`).test(body)));
+    check("every section is named", SECTIONS.every((label) => new RegExp(`<span class="label[^"]*">${label}(?:<!--[^>]*-->)*</span>`).test(body)));
     check("and says what is in it", SECTIONS.every((label) => hasClass(section(body, label), "note")));
     // Native `<details>` is the mechanism: the content is inside the disclosure,
     // so "open" is the browser's own answer and a keyboard can give it.
@@ -306,7 +309,7 @@ try {
     check(
       "the first one is open, the rest are shut",
       (body.match(/<details[^>]*\sopen(?:=""|=''|\s|>)/g) ?? []).length === 1 &&
-        /<details[^>]*\sopen[^>]*>\s*<summary[^>]*>\s*<span class="label[^"]*">Accounts</.test(body),
+        /<details[^>]*\sopen[^>]*>\s*<summary[^>]*>\s*<span class="label[^"]*">Accounts(?:<!--[^>]*-->)*</.test(body),
     );
   }
 
@@ -427,13 +430,13 @@ try {
     ];
     check("a library with a feed is", (() => {
       const body = draw();
-      return /<span class="label[^"]*">Device sync<\/span>/.test(body) && /Your own folder, both devices/.test(body);
+      return /<span class="label[^"]*">Device sync(?:<!--[^>]*-->)*<\/span>/.test(body) && /Your own folder, both devices/.test(body);
     })());
 
     // ...and the word Sync means one thing: the interval row is Refreshing.
     const named = draw();
-    check("the interval row is called Refreshing", /<span class="label[^"]*">Refreshing<\/span>/.test(named));
-    check("and no section is called Sync", !/<span class="label[^"]*">Sync<\/span>/.test(named));
+    check("the interval row is called Refreshing", /<span class="label[^"]*">Refreshing(?:<!--[^>]*-->)*<\/span>/.test(named));
+    check("and no section is called Sync", !/<span class="label[^"]*">Sync(?:<!--[^>]*-->)*<\/span>/.test(named));
 
     // Free half: what it is and what it costs, inside its own section.
     entitlement.cloudSync = false;

@@ -27,6 +27,7 @@
   import ExtensionsPanel from "./ExtensionsPanel.svelte";
   import IconsPanel from "./IconsPanel.svelte";
   import IndentControl from "./IndentControl.svelte";
+  import MessagesPanel from "./MessagesPanel.svelte";
   import PostListPanel from "./PostListPanel.svelte";
   import GesturesPanel from "./GesturesPanel.svelte";
   import ReadingPanel from "./ReadingPanel.svelte";
@@ -37,6 +38,8 @@
   import { openExternal } from "../lib/open-external";
   import { showsDeviceSync } from "../state/device-sync.svelte";
   import { showsSavedText } from "../state/bodies.svelte";
+  import { cloudAccount } from "../state/cloud-account.svelte";
+  import { inbox } from "../state/inbox.svelte";
   import { layout } from "../state/layout.svelte";
   import { reader } from "../state/reader.svelte";
 
@@ -58,7 +61,7 @@
     onsignout?: () => void;
   } = $props();
 
-  type SectionId = "accounts" | "extensions" | "account" | "feeds" | "appearance" | "icons" | "reading" | "list" | "gestures" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
+  type SectionId = "accounts" | "extensions" | "account" | "messages" | "feeds" | "appearance" | "icons" | "reading" | "list" | "gestures" | "layout" | "bodies" | "refreshing" | "device-sync" | "about";
 
   /**
    * The sections, in the order someone looks for them: who I am, what is in the
@@ -90,6 +93,7 @@
     { id: "accounts", label: "Accounts", note: "This account, this server" },
     { id: "extensions", label: "Extensions", note: "Installed, working, or missing" },
     { id: "account", label: "Account", note: "HardlyReader account, devices" },
+    { id: "messages", label: "Messages", note: "Notes from HardlyReader" },
     { id: "feeds", label: "Feeds", note: "Indent, import and export", phone: true },
     { id: "appearance", label: "Appearance", note: "Colours, page, background" },
     { id: "icons", label: "Category icons", note: "A picture per category" },
@@ -119,6 +123,10 @@
           showsDeviceSync(reader.profile, reader.categories.length, reader.upgradePitch),
       )
       .filter((section) => section.id !== "bodies" || showsSavedText(reader.profile))
+      // Messages belong to an account, so a device with none draws no section:
+      // there is nothing addressed to it, and an empty bell would be a promise
+      // the app cannot keep. Signing in draws it without reopening the sheet.
+      .filter((section) => section.id !== "messages" || cloudAccount.userId !== null)
       // Extensions are a server's business: a library on this device has nothing to probe, so the
       // section is not drawn rather than drawn empty.
       .filter((section) => section.id !== "extensions" || reader.session !== null),
@@ -129,6 +137,7 @@
     accounts: true,
     extensions: false,
     account: false,
+    messages: false,
     feeds: false,
     appearance: false,
     icons: false,
@@ -146,6 +155,36 @@
   });
 
   let sheetEl = $state<HTMLElement | null>(null);
+
+  /**
+   * The bell's line, beside the section's name.
+   *
+   * The count is drawn here and not only as a dot, so the state of the inbox is
+   * readable without seeing a colour: "2 unread", "Nothing new", or that the
+   * check did not finish.
+   */
+  const inboxNote = $derived(
+    inbox.status === "failed"
+      ? "Could not check"
+      : inbox.unread > 0
+        ? `${inbox.unread} unread`
+        : inbox.status === "loading"
+          ? "Checking…"
+          : "Nothing new",
+  );
+
+  /**
+   * One request when the sheet opens, so the dot is true before it is pressed.
+   *
+   * Deliberately here and nowhere else: there is no launch fetch, no timer and
+   * no push. A reader who never opens Settings costs the server nothing, and the
+   * list itself asks again (through the same in-flight promise) when it is
+   * expanded, which is also what marks it read.
+   */
+  $effect(() => {
+    if (!open || cloudAccount.userId === null) return;
+    void inbox.load();
+  });
 
   /** Where focus was before the sheet took it, so closing puts it back. */
   let returnTo: HTMLElement | null = null;
@@ -291,8 +330,18 @@
           ontoggle={(event) => (opened[section.id] = event.currentTarget.open)}
         >
           <summary class="sum">
-            <span class="label">{section.label}</span>
-            <span class="note">{section.note}</span>
+            <span class="label">{section.label}{#if section.id === "messages"}<!--
+              The bell he asked for: a small glyph with a dot when something
+              arrived. The count is in the note below it, so the dot is never the
+              only way to know. -->
+              <span class="bell" aria-hidden="true">
+                <svg viewBox="0 0 16 16">
+                  <path d="M8 2.4a3.3 3.3 0 0 0-3.3 3.3v2.5L3.3 10.6h9.4L11.3 8.2V5.7A3.3 3.3 0 0 0 8 2.4Z" />
+                  <path d="M6.5 12.2a1.5 1.5 0 0 0 3 0" />
+                </svg>
+                {#if inbox.unread > 0}<i class="unread-dot"></i>{/if}
+              </span>{/if}</span>
+            <span class="note">{section.id === "messages" ? inboxNote : section.note}</span>
             <svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5 10.5 8 5 12.5" /></svg>
           </summary>
           <div class="content">
@@ -307,6 +356,12 @@
                    because `Accounts` above is the FreshRSS roster — two different
                    questions that only look alike. -->
               <CloudAccountPanel />
+            {:else if section.id === "messages"}
+              <!-- The bell's page: notes from the app's author, newest first.
+                   Opening it marks them read, so there is nothing to press and
+                   no badge to clear. It is drawn only for a signed-in account
+                   (see the filter above) — the list is addressed to one. -->
+              <MessagesPanel open={opened.messages} />
             {:else if section.id === "appearance"}
               <!-- The colours are the theme panel's rows, mounted — not a second
                    set written here. -->
@@ -558,9 +613,45 @@
 
   .label {
     grid-column: 1;
+    display: flex;
+    align-items: center;
+    gap: 7px;
     color: var(--text);
     font-size: 13px;
     font-weight: 600;
+  }
+
+  /* The bell sits on the section's own line: 12px, muted, with a dot rather than
+     a count of its own — the words in the note are what carry the number. */
+  .bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+  }
+
+  .bell svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .unread-dot {
+    position: absolute;
+    top: -1px;
+    right: -2px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--surface-solid);
   }
 
   .note {
