@@ -151,14 +151,28 @@ check(
   /aria-label=\{showingArticle \? "Show what the feed sent" : "Load the full article"\}/.test(pane),
 );
 
+// The read mark is the post list's own glyph, not a second alphabet for one
+// state: a hollow ring until the post is read, a tick inside it after. The
+// toolbar used to say it with the text glyphs ● and ◯, which is why the two
+// panes disagreed about what "read" looked like (owner's report).
 check(
-  "the star is still one button with two answers",
-  /aria-label=\{isStarred\(item\) \? "Remove star" : "Add star"\}/.test(pane),
+  "the read mark is one ring that gains a tick",
+  (() => {
+    const at = pane.indexOf('class="icon mark"');
+    const button = pane.slice(at, pane.indexOf("</button>", at));
+    return (
+      at > 0 &&
+      /<circle cx="8" cy="8" r="5\.4" \/>\{#if isRead\(item\)\}<path/.test(button) &&
+      /d="M5\.2 8\.2l2 2 3\.6-3\.9"/.test(button) &&
+      !/◯|●/.test(button)
+    );
+  })(),
 );
 
 check(
-  "the read mark is still two answers, not one",
-  /\{isRead\(item\) \? "◯" : "●"\}/.test(pane),
+  "the star is still one button with two answers, in the Favourites vocabulary",
+  /aria-label=\{isStarred\(item\) \? "Remove favourite" : "Add to favourites"\}/.test(pane) &&
+    !/Remove star|Add star|"Starred" : "Star"/.test(pane),
 );
 
 check(

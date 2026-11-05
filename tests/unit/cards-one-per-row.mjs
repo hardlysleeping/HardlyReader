@@ -268,6 +268,27 @@ check(
 // A window that ends exactly on the card's edges says the stream ends there. Room
 // for the neighbours says it does not — and the sheet fades them by the same
 // length, so a fitted card sits just past its own fade and stays crisp.
+// A card is mostly picture, so the list's 0.48 does not read as "read" there:
+// read cards dim to 0.32, the centred one to 0.6 (it is the one being read, so
+// it keeps more weight), and the pointer still brightens what it is over.
+check(
+  "a read card dims harder than a read row",
+  /\.cards \.row\.read \{\s*opacity: 0\.32;\s*\}/.test(list) &&
+    /\.cards \.row\.read\.held \{\s*opacity: 0\.6;\s*\}/.test(list) &&
+    /\.cards \.row\.read:hover,/.test(list) &&
+    // the list's own dimming is untouched: this is the cards' answer
+    /\.row\.read \{\s*opacity: 0\.48;\s*\}/.test(list),
+);
+
+// A starred card says so in the strip under its page: the mat is the star's gold
+// at 44% instead of the accent's 28%, plus a 3px band along the bottom edge. Two
+// sizes, because the band is what survives a page that fills the card's width.
+check(
+  "a starred card carries a brighter, thicker underglow",
+  /\.cards \.row\.starred \.lead \{[\s\S]{0,200}?background: color-mix\(in srgb, var\(--star\) 44%, var\(--bg\)\);/.test(list) &&
+    /box-shadow: inset 0 -3px 0 0 color-mix\(in srgb, var\(--star\) 72%, transparent\);/.test(list),
+);
+
 check(
   "and it leaves the sliver of the card above and below",
   (() => {

@@ -200,7 +200,9 @@ check("the panel scrolls only when the window cannot hold it", () => {
 check("the panel offers trim, link and the monotone switch", () => {
   const panel = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
   assert.match(panel, /key: "trim", label: "Trim"/);
-  assert.match(panel, /key: "star", label: "Star"/);
+  // The colour is still the star's gold; the reader's word for the state is
+  // Favourites, and the panel says what the action is called.
+  assert.match(panel, /key: "star", label: "Favourite"/);
   assert.match(panel, /key: "link", label: "Link"/);
   assert.match(panel, /theme\.set\("monotoneActions", true\)/);
   assert.match(panel, /theme\.set\("monotoneActions", false\)/);

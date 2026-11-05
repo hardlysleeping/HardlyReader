@@ -1916,8 +1916,8 @@
             class:tap44={layout.device === "phone"}
             class:on={isStarred(item)}
             aria-pressed={isStarred(item)}
-            aria-label={isStarred(item) ? "Remove star" : "Star this post"}
-            title={isStarred(item) ? "Remove star" : "Star this post"}
+            aria-label={isStarred(item) ? "Remove favourite" : "Add to favourites"}
+            title={isStarred(item) ? "Remove favourite" : "Add to favourites"}
             onclick={(event) => toggleStar(item, event)}
           >
             <svg viewBox="0 0 16 16" aria-hidden="true"
@@ -2886,11 +2886,32 @@
     opacity: 0.85;
   }
 
-  /* The centred card is the one being read: it keeps its weight even when the
-     post is already read, so a comic view of nothing but read posts is not a
-     view of nothing but dim cards. */
-  .cards .row.held {
-    opacity: 1;
+  /* Cards dim a read post harder than the list does. A card is mostly picture,
+     and a picture at 0.48 still looks like a picture — the owner read a card
+     view of already-read comics as "nothing here tells me what I have read".
+     The centred card is the one being read, so it keeps more of its weight than
+     its neighbours (0.6, not 0.32) while still saying it is read: a view of
+     nothing but read posts must not be a view of full-strength cards, and it
+     must not be a view of nothing either. */
+  .cards .row.read {
+    opacity: 0.32;
+  }
+
+  .cards .row.read.held {
+    opacity: 0.6;
+  }
+
+  /* A star in a dimmed card goes mustard at 0.32, which was its own report once —
+     the same exemption the list rows carry, at the cards' own weight. */
+  .cards .row.read.starred {
+    opacity: 0.55;
+  }
+
+  /* The pointer still brightens what it is over: the dimming is about state, not
+     about the card being unreachable. */
+  .cards .row.read:hover,
+  .cards .row.read.selected {
+    opacity: 0.85;
   }
 
   /* A starred post is marked in the star's own colour. The card's marks all read
@@ -3572,6 +3593,17 @@
        darker wash of the accent, so a comic sits in the card rather than
        floating on the pane's own background. */
     background: color-mix(in srgb, var(--accent) 28%, var(--bg));
+  }
+
+  /* A starred card says so in the strip under its page. The mat is the star's own
+     gold at nearly double the strength it gets from the row's accent, and a 3px
+     band of that gold runs along the card's bottom edge: at the plain weight a
+     card of read comics gave no way to pick the starred ones out, because the
+     picture is most of the card and the only gold was a 28% wash in bars that a
+     full-width page crops away. */
+  .cards .row.starred .lead {
+    background: color-mix(in srgb, var(--star) 44%, var(--bg));
+    box-shadow: inset 0 -3px 0 0 color-mix(in srgb, var(--star) 72%, transparent);
   }
 
   .cards .lead img {

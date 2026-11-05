@@ -329,7 +329,7 @@
       id: "marks",
       label: "Row marks",
       items: [
-        { key: "star", label: "Star" },
+        { key: "star", label: "Favourite" },
         { key: "link", label: "Link" },
       ],
     },
@@ -388,7 +388,7 @@
               class="segbtn"
               class:on={!theme.current.monotoneActions}
               aria-pressed={!theme.current.monotoneActions}
-              title="Star gold, read in the trim, link in its own blue"
+              title="Favourite gold, read in the trim, link in its own blue"
               onclick={() => theme.set("monotoneActions", false)}>Colour</button>
             <button
               class="segbtn"

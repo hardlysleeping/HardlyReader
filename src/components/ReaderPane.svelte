@@ -1079,12 +1079,14 @@
         class="icon star"
         class:on={isStarred(item)}
         aria-pressed={isStarred(item)}
-        aria-label={isStarred(item) ? "Remove star" : "Add star"}
+        aria-label={isStarred(item) ? "Remove favourite" : "Add to favourites"}
         onclick={() => store.toggleStar(item)}
-        title={isStarred(item) ? "Starred" : "Star"}
+        title={isStarred(item) ? "Favourite" : "Not a favourite"}
       >★</button>
       <button
-        class="icon"
+        class="icon mark"
+        class:on={isRead(item)}
+        aria-pressed={isRead(item)}
         aria-label={isRead(item) ? "Mark unread" : "Mark read"}
         title={isRead(item) ? "Mark unread" : "Mark read"}
         onclick={() => {
@@ -1095,7 +1097,17 @@
           store.markRead(item);
           onRead?.();
         }}
-      >{isRead(item) ? "◯" : "●"}</button>
+      >
+        <!-- The same mark the post list's rows use, because it is the same
+             question in both panes: a hollow circle means unread and a tick
+             inside it means read. The toolbar used to say it with two text
+             characters, which was a second alphabet for one state. -->
+        <svg viewBox="0 0 16 16" aria-hidden="true"
+          ><circle cx="8" cy="8" r="5.4" />{#if isRead(item)}<path
+              d="M5.2 8.2l2 2 3.6-3.9"
+            />{/if}</svg
+        >
+      </button>
       {#if link && canExtract(link)}
         <!-- Experimental: one article, fetched on demand. Sat next to "open
              original" because it is the same page, read in here instead. -->
@@ -1530,6 +1542,25 @@
 
   .star.on {
     color: var(--star);
+  }
+
+  /* The read mark, drawn as a ring that gains a tick once the post is read —
+     hollow and ticked the way the rows in the post list are, rather than as the
+     two text glyphs (● / ◯) this button used to carry. */
+  .mark svg {
+    /* 16px and a 1.45 stroke: at 15/1.35 the ring read thinner and fainter than
+       the ⇣ ⏱ ★ beside it, which are 13px text at full weight. */
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.45;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .mark.on {
+    color: var(--text);
   }
 
   /* The same padlock the band draws, so the curtain has one shape in the app. */
