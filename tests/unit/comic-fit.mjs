@@ -37,6 +37,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { fitCardToWindow } from "../../src/lib/window-fit.ts";
+
 const ROOT = new URL("../../", import.meta.url).pathname;
 const LIST = "src/components/ArticleList.svelte";
 
@@ -329,6 +331,47 @@ check(
   })(),
   "a 50cqh cap would leave >100px of mat either side of a 900px page",
 );
+
+/* ---------------------------------------------------------------- the fit ask
+   The button beside the cards asks the *window* for a fit. It used to ask for
+   the screen's whole height on every press — a window resized for a comic that
+   already fitted — and it widened the pane while it was at it, which draws a
+   card's picture taller, not smaller. The rule the owner set is minimal: the
+   pane keeps its width, the window only grows in height, and only by what the
+   card is short of.
+
+   Numbers: a Buni-sized page (780x1054, so 0.740 wide per unit tall) in a 500px
+   pane is 676px of picture; the card's own furniture is 160px and the two
+   slivers are 24px each, so the card wants 884px. */
+
+const PAGE = 780 / 1054;
+const ask = (over) =>
+  fitCardToWindow({
+    paneWidth: 500,
+    share: 1,
+    natural: PAGE,
+    chrome: 160,
+    windowHeight: 700,
+    screenHeight: 1080,
+    peek: 24,
+    floor: 480,
+    ...over,
+  });
+
+const grown = ask({});
+check("a card taller than the window grows the window, and only by what it is short of", grown?.height === 884, `asked for ${grown?.height}px, wanted 884px`);
+check("...and it does not grow to the screen's height", (grown?.height ?? 0) < 1080 - 100, `${grown?.height}px against a 1080px screen`);
+check("...and the pane keeps the width it had", grown?.paneWidth === 500, String(grown?.paneWidth));
+check("a card that already fits asks for nothing", ask({ windowHeight: 900 }) === null);
+check("a fit never shrinks the window", (ask({ windowHeight: 1200 }) ?? {}).height === undefined);
+check("...nor below the shell's own floor", (ask({ windowHeight: 300, floor: 480 })?.height ?? 0) >= 480);
+check("...nor past the screen", (ask({ paneWidth: 1200 })?.height ?? 0) <= 1080);
+check(
+  "a share of the pane sizes the picture by that share, not by the pane",
+  ask({ share: 0.5, windowHeight: 500 })?.height === Math.round(160 + (500 * 0.5) / PAGE + 48),
+  String(ask({ share: 0.5, windowHeight: 500 })?.height),
+);
+check("a picture with no shape asks for nothing", ask({ natural: 0 }) === null && ask({ natural: Number.NaN }) === null);
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -93,18 +93,22 @@ check(
     const btn = list.slice(list.indexOf('class="sizebtn fit"'), list.indexOf("</button>", list.indexOf('class="sizebtn fit"')));
     return (
       /\{#if canFitWindow\(\)\}[\s\S]{0,400}?<div class="sizer" role="group" aria-label="Cards">[\s\S]{0,200}?class="sizebtn fit"/.test(list) &&
-      /import \{ canFitWindow, fitWindowTo, screenSize \} from "\.\.\/lib\/window-fit";/.test(list) &&
+      /import \{ canFitWindow, fitCardToWindow, fitWindowTo, screenSize \} from "\.\.\/lib\/window-fit";/.test(list) &&
       /onclick=\{\(\) => void fitToComic\(\)\}/.test(btn) &&
       // a press, not a lit mode: nothing to leave switched on
       !/aria-pressed/.test(btn) &&
       !/class:on/.test(btn) &&
       /const pane1 = feeds \? Math\.round\(feeds\.getBoundingClientRect\(\)\.width\) : 0;/.test(fn) &&
-      // The room the page needs, capped by its own pixels and the monitor.
-      /const room = Math\.min\(availH \* natural, img\.naturalWidth \/ share, availW\);/.test(fn) &&
-      /const paneNext = Math\.round\(Math\.min\(room, availW\)\);/.test(fn) &&
+      // The ask is the minimal one: the pane's own width, the window's height,
+      // the screen as the ceiling — the arithmetic lives in `window-fit.ts`.
+      /fitCardToWindow\(\{[\s\S]{0,400}?paneWidth: pane2,[\s\S]{0,400}?windowHeight: window\.innerHeight,[\s\S]{0,200}?screenHeight: screen\.height,/.test(fn) &&
+      /if \(fit === null\) return;/.test(fn) &&
       /async function fitToComic\(\): Promise<void>/.test(fn) &&
-      /await fitWindowTo\(pane1 \+ rest \+ paneNext, height\);/.test(fn) &&
-      /if \(fitting \|\| view !== "cards"\) return;/.test(fn)
+      /await fitWindowTo\(pane1 \+ rest \+ fit\.paneWidth, fit\.height\);/.test(fn) &&
+      /if \(fitting \|\| view !== "cards"\) return;/.test(fn) &&
+      // Nothing widens the pane: a wider pane draws a card's picture taller,
+      // which is the opposite of fitting it.
+      !/paneNext/.test(fn) && !/availW|availH/.test(fn)
     );
   })(),
 );
@@ -160,10 +164,9 @@ check(
     const ask = list.slice(list.indexOf("async function fitToComic"), list.indexOf("function syncSnap"));
     return (
       /const share = Math\.min\(\s*1,\s*Math\.max\(0\.1, img\.getBoundingClientRect\(\)\.width \/ Math\.max\(1, pane2\)\),\s*\);/.test(ask) &&
-      /img\.naturalWidth \/ share/.test(ask) &&
-      /const pictureH = Math\.round\(\(paneNext \* share\) \/ natural\);/.test(ask) &&
-      // one picture is the whole width, so the single-page case is unchanged
-      !/const room = Math\.min\(availH \* natural, img\.naturalWidth, availW\)/.test(ask)
+      // the share is what the ask is built from, and the picture's own shape
+      // travels with it — a strip's panel must not be sized as the whole pane
+      /share,[\s\S]{0,120}?natural: img\.naturalWidth \/ img\.naturalHeight,/.test(ask)
     );
   })(),
 );
@@ -200,14 +203,12 @@ check(
     return (
       Number.isFinite(min) &&
       declared === min &&
-      /const height = Math\.min\(\s*screen\.height,\s*Math\.max\(FIT_FLOOR_H, chrome \+ pictureH \+ 2 \* CARD_PEEK\),\s*\);/.test(list) &&
-      // the height asked for is the page's, not whatever the window happens to
-      // be: a fit that kept the current height could not fit a short strip
-      (() => {
-        const at = list.indexOf("const height = Math.min(");
-        const line = list.slice(at, list.indexOf(";", at));
-        return !/innerHeight/.test(line) && !/\b240\b/.test(line);
-      })()
+      /floor: FIT_FLOOR_H,/.test(list) &&
+      // The floor and the ceiling are the lib's: it never asks below the shell's
+      // minimum, never past the screen, and never shorter than the window is now
+      // — a fit that shrank the window is a fit nobody asked for.
+      /const ceiling = Math\.max\(floor, screenHeight\);/.test(read("src/lib/window-fit.ts")) &&
+      /Math\.max\(windowHeight, Math\.min\(ceiling, Math\.max\(wanted, floor\)\)\)/.test(read("src/lib/window-fit.ts"))
     );
   })(),
 );
@@ -258,7 +259,8 @@ check(
     return (
       /const chrome =\s*card\.offsetHeight - Math\.round\(img\.getBoundingClientRect\(\)\.height\) \+\s*\(header \? Math\.round\(header\.getBoundingClientRect\(\)\.height\) : 0\)/.test(fn) &&
       // …and it is `chrome` the height is built from, not the picture alone
-      /chrome \+ pictureH/.test(fn)
+      /chrome,/.test(fn) &&
+      /chrome \+ pictureH \+ 2 \* peek/.test(read("src/lib/window-fit.ts"))
     );
   })(),
 );
@@ -274,7 +276,9 @@ check(
     return (
       declared === 24 &&
       faded === declared &&
-      /chrome \+ pictureH \+ 2 \* CARD_PEEK/.test(list)
+      // the same number is handed to the ask, so the sliver is not a second guess
+      /peek: CARD_PEEK,/.test(list) &&
+      /chrome \+ pictureH \+ 2 \* peek/.test(read("src/lib/window-fit.ts"))
     );
   })(),
   `fit ${/const CARD_PEEK = (\d+);/.exec(list)?.[1]}, sheet ${/\.cards \{[\s\S]{0,1600}?--card-peek: (\d+)px;/.exec(list)?.[1]}`,
