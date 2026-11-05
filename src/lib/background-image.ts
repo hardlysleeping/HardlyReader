@@ -11,8 +11,18 @@
  * numbers it works from are exported for the tests.
  */
 
-/** The long edge a background is kept at. Larger than any pane, smaller than a photo. */
-export const MAX_BG_EDGE = 1800;
+/**
+ * The long edge a background is kept at. Larger than any pane, smaller than a photo.
+ *
+ * It was 1800, which is 1.4x a 1320-wide phone screen and — the case that made
+ * this visible — 1.6x *under* a tall phone's 2868 device pixels. `cover` on a
+ * 440x956 face crops a landscape photograph to a narrow strip and stretches
+ * what is left: 1350 pixels of height across 2868 is a 2.1x upscale, which reads
+ * as blur with the slider at zero. 2600 costs about 640k characters for a busy
+ * 12MP photograph at 0.82 — inside the 900k ceiling, so the quality ladder only
+ * engages for the pictures that need it.
+ */
+export const MAX_BG_EDGE = 2600;
 
 /**
  * Above this many characters the data URL is re-encoded harder rather than refused.

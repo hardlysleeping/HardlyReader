@@ -38,7 +38,18 @@ export default defineConfig({
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      ignored: [
+        "**/src-tauri/**",
+        // A flatpak build unpacks a whole root filesystem inside the repo, and
+        // its cache holds symlink loops (`var/run/udev/watch/19`): the watcher
+        // follows them, the process climbs past two gigabytes and dies with
+        // "JavaScript heap out of memory" before the first request is served.
+        // Not our source, not worth watching.
+        "**/flatpak/**",
+        "**/.flatpak-builder/**",
+        "**/dist/**",
+        "**/dist-demo/**",
+      ],
     },
     // Development only, and only a convenience: FreshRSS answers the GReader API
     // with `Access-Control-Allow-Origin: *` and allows the Authorization header,

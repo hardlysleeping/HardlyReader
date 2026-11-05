@@ -72,6 +72,15 @@ export interface Theme {
   /** A veil of the page colour over the picture, as a percentage. */
   bgDim: number;
   /**
+   * How much the picture's bright parts glow, as a percentage.
+   *
+   * One extra layer: the same picture, blurred, brightened, and blended with
+   * `screen` — which adds almost nothing over a dark area and a lot over a
+   * bright one, so what lifts is the highlights rather than the whole frame. It
+   * is static and fixed, so it costs one rasterisation, not one per frame.
+   */
+  bgBloom: number;
+  /**
    * Let the panels show the page through them.
    *
    * With a picture behind it, an opaque panel is a card laid on a photo; with
@@ -80,6 +89,16 @@ export interface Theme {
    * before it is a look.
    */
   bgGlass: boolean;
+  /**
+   * Drop the picture while the reader is locked.
+   *
+   * A photograph is the one part of the page that says something about the
+   * person holding the phone — a room, a face, a place. The lock already covers
+   * what is *in* the list; this covers what is *behind* it, swapping the picture
+   * for the page's own colour until the lock opens again. Off by default: hiding
+   * something nobody asked to hide is its own surprise.
+   */
+  bgHideWhenLocked: boolean;
 }
 
 export const DEFAULT_THEME: Theme = {
@@ -103,7 +122,9 @@ export const DEFAULT_THEME: Theme = {
   bgImage: null,
   bgBlur: 0,
   bgDim: 0,
+  bgBloom: 35,
   bgGlass: false,
+  bgHideWhenLocked: false,
 };
 
 /** The page each mode uses when the theme has not picked one. */
@@ -149,6 +170,9 @@ function colour(value: unknown, fallback: string): string {
 export const MAX_BG_BLUR = 24;
 export const MAX_BG_DIM = 60;
 
+/** The ceiling for the bloom slider. Subtle is the brief: past this it is a haze. */
+export const MAX_BG_BLOOM = 100;
+
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -186,7 +210,12 @@ export function parseTheme(raw: unknown): Theme {
         : null,
     bgBlur: clamp(saved.bgBlur, 0, MAX_BG_BLUR, DEFAULT_THEME.bgBlur),
     bgDim: clamp(saved.bgDim, 0, MAX_BG_DIM, DEFAULT_THEME.bgDim),
+    bgBloom: clamp(saved.bgBloom, 0, MAX_BG_BLOOM, DEFAULT_THEME.bgBloom),
     bgGlass: typeof saved.bgGlass === "boolean" ? saved.bgGlass : DEFAULT_THEME.bgGlass,
+    bgHideWhenLocked:
+      typeof saved.bgHideWhenLocked === "boolean"
+        ? saved.bgHideWhenLocked
+        : DEFAULT_THEME.bgHideWhenLocked,
   };
 }
 
@@ -218,7 +247,15 @@ export function themeVariables(theme: Theme): Record<string, string> {
     ...(theme.bg ? { "--bg": theme.bg } : {}),
     "--bg-image": theme.bgImage ? `url("${theme.bgImage}")` : "none",
     "--bg-blur": `${theme.bgBlur}px`,
+    // **No filter at all when the blur is zero**, rather than `blur(0px)`.
+    // A filtered element is its own composited layer, and on iOS a full-screen
+    // fixed one is rasterised once at a coarser size than the screen and then
+    // scaled — the picture reads as blurry at 0 in the slider, which is the one
+    // thing a blur slider must never do. `none` skips the layer entirely.
+    "--bg-filter": theme.bgBlur > 0 ? `blur(${theme.bgBlur}px)` : "none",
     "--bg-dim": (theme.bgDim / 100).toFixed(2),
+    /** The bloom layer's opacity; 0 hides it outright (see `app.css`). */
+    "--bg-bloom": (theme.bgBloom / 100).toFixed(2),
     /** Panels are as solid as the theme wants them; 100% is the plain surface. */
     "--glass": theme.bgGlass ? "82%" : "100%",
     // Derived here rather than in CSS because it is a choice, not a shade:

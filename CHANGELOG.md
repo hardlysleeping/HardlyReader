@@ -4,6 +4,44 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.37] — 2026-11-04
+
+### Added
+
+- **The wallpaper can be hidden while the reader is locked.** Appearance →
+  Background → *When locked*: **Hide** swaps the picture for the page's own
+  colour until the lock opens, because a photograph says more about the person
+  holding the phone than the list in front of it does. Off by default, and it
+  stays on the device like the picture itself.
+- **Bloom.** The picture's bright parts glow a little, from one extra layer
+  blended with `screen` — nothing over black, most of its value over white, so
+  the highlights lift rather than the frame. A slider beside Blur and Dim, 0–100,
+  default 35.
+- **The phone's top names the service it syncs with** — FreshRSS, Miniflux, or
+  the server's host — instead of the app's own name, and pressing it opens the
+  accounts on this device: switch, add another, sign out.
+
+### Changed
+
+- **Buzz's topics are eight that name a story**: Money and Design are gone, Film
+  is Film/TV and covers television, and AI is a word inside Tech rather than a
+  section beside it. Stock replaces Money, with the market's own words.
+- **A category row folds on the first press**, in every layout, with nothing
+  selected first; the old select-then-open-then-fold ladder is gone. A double tap
+  on the name still opens the category's posts — and everything left of the name
+  only ever folds, even when tapped twice, so a thumb reaching for the arrow
+  cannot open a category by accident.
+- **The feed you opened stays at the top**, with the post list's bar directly
+  under it and the posts scrolling beneath: the row pins for exactly as long as
+  its own posts are on screen.
+- **Folded, the sidebar's control band is one hairline across the whole pane** —
+  16px, edge to edge, and closer to the search row — instead of a 20px strip
+  stopping 11px short of the glass.
+- **A wallpaper at blur 0 is drawn sharply.** `blur(0px)` still made the picture
+  its own composited layer, which a phone rasterises coarse and scales; the
+  filter is now absent at zero. The stored picture is also kept at 2600px rather
+  than 1800 — a tall phone's `cover` was stretching it 2.1×.
+
 ## [Unreleased]
 
 ### Added

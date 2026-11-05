@@ -10,6 +10,7 @@
    */
   import type { ThemeMode } from "../lib/theme";
   import {
+    MAX_BG_BLOOM,
     MAX_BG_BLUR,
     MAX_BG_DIM,
     PAGE_COLOURS,
@@ -506,6 +507,37 @@
                 aria-pressed={theme.current.bgGlass}
                 title="Let the background through the panels"
                 onclick={() => theme.set("bgGlass", true)}>Glass</button>
+            </div>
+          </div>
+          <div class="row slider bgslider">
+            <span class="key">Bloom</span>
+            <span class="num"><span class="affix">{theme.current.bgBloom}%</span></span>
+            <input
+              class="range wide"
+              type="range"
+              min="0"
+              max={MAX_BG_BLOOM}
+              step="5"
+              value={theme.current.bgBloom}
+              aria-label="Light bloom on the bright parts of the picture"
+              oninput={(event) => theme.set("bgBloom", Number(event.currentTarget.value))}
+            />
+          </div>
+          <div class="row bgrow">
+            <span class="key">When locked</span>
+            <div class="seg" role="group" aria-label="The background while locked">
+              <button
+                class="segbtn"
+                class:on={!theme.current.bgHideWhenLocked}
+                aria-pressed={!theme.current.bgHideWhenLocked}
+                title="The picture stays while the lock is on"
+                onclick={() => theme.set("bgHideWhenLocked", false)}>Keep</button>
+              <button
+                class="segbtn"
+                class:on={theme.current.bgHideWhenLocked}
+                aria-pressed={theme.current.bgHideWhenLocked}
+                title="Swap the picture for the page colour until the lock opens"
+                onclick={() => theme.set("bgHideWhenLocked", true)}>Hide</button>
             </div>
           </div>
         </div>

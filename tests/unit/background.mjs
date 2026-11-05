@@ -26,7 +26,19 @@ function check(name, ok, detail = "") {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? `  (${detail})` : ""}`);
 }
 
-check("the long edge is a screen size, not a photo size", MAX_BG_EDGE === 1800 && MAX_BG_CHARS > 0);
+check("the long edge is a screen size, not a photo size", MAX_BG_EDGE === 2600 && MAX_BG_CHARS > 0);
+check(
+  "and it is a tall phone's own pixels, or `cover` stretches them",
+  // 440x956 at 3x is 1320x2868 device pixels: a 1800px picture covers that by
+  // cropping a strip and scaling it 2.1x, which is the blur the slider cannot
+  // remove. Measured: 2600x1950 from a 12MP photo is ~640k characters at 0.82.
+  MAX_BG_EDGE >= 2400 && MAX_BG_EDGE * MAX_BG_EDGE * 0.25 < 12_000_000,
+);
+check(
+  "the ceiling still leaves room for the colours beside it",
+  // 900k characters is 1.8MB of UTF-16 against iOS's 5MB origin quota.
+  MAX_BG_CHARS * 2 < 5_000_000 / 2,
+);
 check(
   "the stored picture fits a phone's whole-origin quota with room to spare",
   // iOS caps localStorage at 5MB per origin and a JS string is UTF-16, so the

@@ -2187,17 +2187,20 @@
   }
 
   /* On a phone an unfolded feed's post list hangs inside the sidebar's own scroll
-     box, so its bar pins — at the TOP of that box, not one row down. It used to
-     park under the feed row (`--feed-row-h`) while the row itself stayed stuck,
-     which read as a band sitting slightly below the top with rows passing above
-     and below it. One bar, at the top, wearing the stream's name: the tree
-     scrolls up and under it. */
+     box, and its bar pins directly under the row that opened it: the row is the
+     band that says which feed you are in, and this is the band that says how it
+     is being shown. `--pinned-row-h` is the row's measured height, published on
+     the scroll box by `Sidebar`, so the two stack instead of covering each
+     other; the 34px fallback is one frame's worth. */
   :global(html[data-device="phone"]) .list.nested .list-header {
     position: sticky;
-    top: 0;
+    top: var(--pinned-row-h, 34px);
     z-index: 2;
     padding: 2px 0 4px;
     background: var(--surface);
+    /* The row above carries the hairline; a second one here would read as two
+       separate bands, which is the shape that was rejected once already. */
+    box-shadow: none;
   }
 
   .list.nested .items {

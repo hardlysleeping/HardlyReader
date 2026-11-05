@@ -56,6 +56,9 @@
   import { reader } from "../state/reader.svelte";
   import ReadingControls from "./ReadingControls.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
+  import AccountsPanel from "./AccountsPanel.svelte";
+  import { accounts } from "../state/accounts.svelte";
+  import { headerLabel } from "../lib/service-name";
   
   let {
     subtitle = "",
@@ -149,6 +152,25 @@
     // Nothing over the base: the article's step out is the posts.
     return "Posts";
   });
+
+  /**
+   * What the top of the screen names.
+   *
+   * The sync service, when this device is signed in to one — FreshRSS, Miniflux,
+   * or the host when the prefix is not one a product owns. A local library has
+   * no service to name, so it keeps the app's own name. The address is the
+   * tooltip: the bar has room for a word, not for a URL.
+   */
+  const serviceName = $derived(
+    headerLabel({
+      serverUrl: server,
+      apiPath: accounts.active?.apiPath ?? null,
+      local: server === "" || server === "On this device",
+    }),
+  );
+
+  /** The account panel behind the name; `bind:this` so the press can open it. */
+  let accountsPanel = $state<AccountsPanel | null>(null);
 
   /**
    * The pane you are in, named — not the one you came from.
@@ -253,8 +275,26 @@
     <span class="pulse" aria-hidden="true" onanimationend={() => (pulse = false)}></span>
   {/if}
   {#if atRoot}
-    <!-- The root: the app's own name, and no control to the left of it. -->
-    <span class="wordmark">HardlyReader</span>
+    <!-- The root: what you are syncing with, and no control to the left of it.
+
+         The name is a button, because the one thing worth reaching for from the
+         top of the screen is the other accounts: pressing it lists who is signed
+         in on this device, switches between them, and offers another. It is the
+         same panel the desktop bar opens — one list, two frames. -->
+    <button
+      type="button"
+      class="wordmark as-button"
+      title={server === "" || server === "On this device" ? "On this device" : server}
+      aria-haspopup="dialog"
+      onclick={() => accountsPanel?.openAccounts()}
+    >{serviceName}</button>
+    <AccountsPanel
+      bind:this={accountsPanel}
+      subtitle={subtitle}
+      {server}
+      {onaddaccount}
+      {onsignout}
+    />
   {:else}
     <button
       type="button"
@@ -446,6 +486,32 @@
     font-size: 13.5px;
     font-weight: 650;
     letter-spacing: -0.01em;
+  }
+
+  /* The name is a control now, not a caption: it opens the accounts. Drawn as
+     the type it was, with a press area around it rather than a border — a button
+     chrome in the middle of a title bar is a second thing competing with the
+     real controls. */
+  .wordmark.as-button {
+    display: inline-flex;
+    align-items: center;
+    height: 30px;
+    margin: 0 0 0 -6px;
+    padding: 0 8px 0 6px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .wordmark.as-button:active {
+    background: var(--fill);
   }
 
   /* One step out. The glyph and the word are one control, so the thing that

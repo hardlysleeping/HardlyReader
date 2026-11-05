@@ -19,6 +19,17 @@ import {
 class ThemeState {
   current = $state<Theme>({ ...DEFAULT_THEME });
 
+  /**
+   * Whether the reader is locked, as the document needs to know it.
+   *
+   * The theme does not own the lock and must not read the reader: this is the
+   * one fact `apply` needs to decide whether the picture is drawn, pushed in
+   * from the root effect that already watches `reader.hiddenLocked`. Kept
+   * outside `current` because it is not part of the theme — it is the state the
+   * theme is being drawn in, and it must never be saved.
+   */
+  locked = false;
+
   load(): void {
     if (typeof localStorage === "undefined") return;
     try {
@@ -34,7 +45,21 @@ class ThemeState {
   set<K extends keyof Theme>(key: K, value: Theme[K]): void {
     this.current = { ...this.current, [key]: value };
     this.save();
-    apply(this.current);
+    apply(this.current, this.locked);
+  }
+
+  /**
+   * The lock opened or closed.
+   *
+   * Only re-applies when it can change anything — a theme with `Hide when
+   * locked` off, or with no picture, has nothing to swap, and re-writing the
+   * document for it would be a write with no effect on every lock.
+   */
+  setLocked(locked: boolean): void {
+    if (locked === this.locked) return;
+    this.locked = locked;
+    if (this.current.bgImage === null || !this.current.bgHideWhenLocked) return;
+    apply(this.current, this.locked);
   }
 
   setMode(mode: ThemeMode): void {
@@ -44,7 +69,7 @@ class ThemeState {
   reset(): void {
     this.current = { ...DEFAULT_THEME };
     this.save();
-    apply(this.current);
+    apply(this.current, this.locked);
   }
 
   /**
@@ -84,7 +109,7 @@ class ThemeState {
   adopt(value: Record<string, unknown>): void {
     this.current = parseTheme({ ...this.current, ...value });
     this.save();
-    apply(this.current);
+    apply(this.current, this.locked);
   }
 
   private save(): void {
@@ -111,7 +136,7 @@ class ThemeState {
  * the stylesheet's media query decide, so "Auto" keeps following the OS live
  * instead of freezing whatever it was at load.
  */
-export function apply(theme: Theme): void {
+export function apply(theme: Theme, locked = false): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   for (const [name, value] of Object.entries(themeVariables(theme))) {
@@ -125,7 +150,15 @@ export function apply(theme: Theme): void {
   // it: `html, body, #app` are opaque `--bg`, and a negative-z pseudo-element is
   // under every in-flow background there is. The attribute is what lets
   // `app.css` thin those two fills, and it goes away with the picture.
-  if (theme.bgImage) root.dataset.bgPicture = "on";
+  //
+  // Locked, with `Hide when locked` on, is the same absence as having no picture
+  // at all: `--bg-image` goes to `none` *after* the variables above put it back,
+  // and the attribute that thins the page's fills goes with it. The page keeps
+  // whatever colour it had, so the lock swaps a photograph for a plain surface
+  // rather than for a different look.
+  const pictureShown = theme.bgImage !== null && !(theme.bgHideWhenLocked && locked);
+  if (theme.bgImage !== null && !pictureShown) root.style.setProperty("--bg-image", "none");
+  if (pictureShown) root.dataset.bgPicture = "on";
   else delete root.dataset.bgPicture;
   if (theme.mode === "system") root.removeAttribute("data-theme");
   else root.dataset.theme = theme.mode;

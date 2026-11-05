@@ -201,8 +201,16 @@ check(
   /\{#if !nested \|\| layout\.device === "phone"\}[\s\S]{0,80}<h1>\{store\.activeTitle\}<\/h1>/.test(list),
 );
 check(
-  "...and its bar pins to the top of the tree, with the posts scrolling under it",
-  /html\[data-device="phone"\]\) \.list\.nested \.list-header \{[\s\S]{0,120}?position: sticky;\s*top: 0;/.test(list),
+  "...and its bar pins under the row that opened it, with the posts scrolling beneath",
+  // The row pins at the top; the bar stacks directly under it, offset by the
+  // row's measured height (`--pinned-row-h`), so neither covers the other.
+  /html\[data-device="phone"\]\) \.list\.nested \.list-header \{[\s\S]{0,160}?position: sticky;\s*top: var\(--pinned-row-h/.test(
+    list,
+  ),
+);
+check(
+  "...because the row itself pins now, and the two are one column",
+  /html\[data-device="phone"\]\) \.feed\.unfolded,[\s\S]{0,120}?position: sticky;\s*top: 0;/.test(sidebar),
 );
 check(
   "the count, the feed's mark and the filters are not part of that",

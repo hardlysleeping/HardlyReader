@@ -185,7 +185,8 @@ body::before {
   inset: calc(-1 * max(var(--bg-blur, 0px), 0px) - 16px);
   z-index: -2;
   background: var(--bg-image, none) center / cover no-repeat;
-  filter: blur(var(--bg-blur, 0px));
+  /* `none` while the slider is at 0, not `blur(0px)`: see `--bg-filter`. */
+  filter: var(--bg-filter, none);
 }
 
 body::after {
@@ -193,6 +194,32 @@ body::after {
   z-index: -1;
   background: var(--bg);
   opacity: var(--bg-dim, 0);
+}
+
+/* Bloom: the same picture, blurred and lifted, laid over the sharp one and
+   blended with `screen`.
+
+   `screen` is what makes this *bloom* rather than a haze: over a dark pixel it
+   adds almost nothing, over a bright one it adds most of its own value, so the
+   highlights are the only thing that lifts. One layer, fixed, never animated —
+   one rasterisation when the theme changes, nothing per frame while scrolling.
+
+   It is an element rather than a third pseudo-element because `body` has two
+   and both are spoken for, and it only exists while there is a picture: with
+   none, there is nothing to bloom. */
+.bg-bloom {
+  position: fixed;
+  inset: calc(-1 * max(var(--bg-blur, 0px), 0px) - 16px);
+  z-index: -2;
+  pointer-events: none;
+  background: var(--bg-image, none) center / cover no-repeat;
+  filter: blur(22px) saturate(1.12) brightness(1.25);
+  mix-blend-mode: screen;
+  opacity: var(--bg-bloom, 0);
+}
+
+:root:not([data-bg-picture]) .bg-bloom {
+  display: none;
 }
 
 /* With a picture, the page stops painting its own colour over it.

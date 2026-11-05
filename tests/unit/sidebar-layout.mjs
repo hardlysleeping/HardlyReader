@@ -116,7 +116,7 @@ function divSpan(text, className) {
     assert.doesNotMatch(source, /\.group-title\.pinned,\s*\.feed\.pinned \{/);
   });
   check("and the group says it is pinned when the category is", () => {
-    assert.match(markup, /<div class="group" class:pinned>/);
+    assert.match(markup, /<div class="group" class:pinned class:has-posts=\{inlinePosts && expandedFeed === category\.id\}>/);
   });
   check("the search row keeps its own outline, count and all", () => {
     // There the count is inside the titled row, so the row is the right box.
@@ -141,7 +141,7 @@ function divSpan(text, className) {
   check("the category's list is drawn under its heading, not somewhere else", () => {
     assert.match(
       markup,
-      /\{#if inlinePosts && expandedFeed === category\.id\}[\s\S]{0,400}<ArticleList nested \/>/,
+      /\{#if inlinePosts && expandedFeed === category\.id\}[\s\S]{0,900}<ArticleList nested \/>/,
     );
   });
   check("there is still one list, so a feed and a category cannot both be open", () => {
@@ -152,6 +152,13 @@ function divSpan(text, className) {
     const block = source.slice(source.indexOf("if (!doubled) {"));
     assert.match(block.slice(0, 700), /if \(inlinePosts\) \{\s*void anchorCategory\(category\);/);
     assert.doesNotMatch(block.slice(0, 700), /mobileNav\.show\(2\)/);
+  });
+  check("the fold's area is exempt from the double tap", () => {
+    // It reports the press, and the handler refuses to open from it.
+    assert.match(source, /onclick=\{\(event\) => clickCategory\(category, folded, event\)\}/);
+    const fold = source.slice(source.indexOf("if (onFold) {"));
+    assert.match(fold.slice(0, 220), /toggle\(category\.id\);\s*return;/);
+    assert.doesNotMatch(fold.slice(0, 220), /openCategory|anchorCategory/);
   });
   check("and one tap, in any layout, folds the row it lands on", () => {
     // The ladder this replaces made the fold something you had to reach by
