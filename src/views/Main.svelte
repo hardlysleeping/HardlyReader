@@ -1185,7 +1185,7 @@
   {#if layout.device === "phone"}
     <PhoneHeader
       subtitle={account?.userName ?? profile.label}
-      server={profile.session?.serverUrl ?? "On this device"}
+      server={profile.session?.serverUrl ?? ""}
       {onsignout}
       {onaddaccount}
       controls={layoutSwitch}
@@ -1193,7 +1193,7 @@
   {:else}
     <Header
       subtitle={account?.userName ?? profile.label}
-      server={profile.session?.serverUrl ?? "On this device"}
+      server={profile.session?.serverUrl ?? ""}
       controls={layoutSwitch}
       {onsignout}
       {onaddaccount}
