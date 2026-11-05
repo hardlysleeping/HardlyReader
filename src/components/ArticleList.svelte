@@ -1721,7 +1721,13 @@
               {/if}
               <span class="title">{item.title || "(untitled)"}</span>
             </span>
-            {#if showsPreview(view) && blurb !== ""}
+            <!-- A regular row keeps the preview's two lines whether or not this
+                 post has a summary to put in them: a row that shrinks to one
+                 line makes a column of rows look ragged, and what varies between
+                 two posts is how much text there is, not how tall a row is. -->
+            {#if view === "regular"}
+              <span class="preview">{blurb}</span>
+            {:else if showsPreview(view) && blurb !== ""}
               <span class="preview">{blurb}</span>
             {/if}
             <span class="byline">
@@ -2353,6 +2359,31 @@
      the row wraps, and the page inside it takes the whole width. */
   .items:not(.compact):not(.cards):not(.grid) .row.open {
     flex-wrap: wrap;
+  }
+
+  /* One height for every row in this view. The title holds two lines' worth of
+     space and the preview two whether their text fills them or not, so the
+     column reads as a column: what changes from post to post is how much text
+     there is, never how tall the row it sits in is. An opened post is exempt —
+     its article is inside the row and the row is a page then. */
+  .items:not(.compact):not(.cards):not(.grid) .row:not(.open) .title {
+    min-height: 2.7em; /* two lines at this title's own line-height */
+  }
+
+  .items:not(.compact):not(.cards):not(.grid) .row:not(.open) .preview {
+    min-height: 2.8em; /* two lines at this preview's */
+  }
+
+  .items:not(.compact):not(.cards):not(.grid) .row:not(.open) .byline {
+    min-height: 1.4em;
+    line-height: 1.4;
+  }
+
+  /* The reserved lines go where the eye expects them: headline at the top, the
+     byline on the row's floor. A post with no summary then has air *between* its
+     two lines rather than a hole above a byline that never moved. */
+  .items:not(.compact):not(.cards):not(.grid) .row:not(.open) .body {
+    justify-content: space-between;
   }
 
   .items:not(.compact):not(.cards):not(.grid) .row {
