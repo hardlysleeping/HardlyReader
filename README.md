@@ -161,8 +161,9 @@ The list is the point, so most of this is about arranging it and getting through
 - **Cards, for comics.** A page fills the pane's width at its own aspect ratio and
   height: no cap, no crop, no letterbox. One wheel notch or flick moves one post and
   centres it; multi-picture posts page sideways with dots underneath. The fit button
-  sizes the window to the whole card — buttons and all — with the neighbouring cards
-  showing above and below.
+  grows the window in height only, by what the card is short of and no further: the
+  pane keeps its width, so the picture keeps the size it was drawn at, and the
+  neighbouring cards show above and below. A card that already fits is left alone.
 - **The article pane fits a page whole** — by width, height and the file's own pixels,
   whichever is smallest — with a multiplier from 50% to 200%.
 - **Keyboard first.** Next/previous post and feed, mark read, star, open in browser,
