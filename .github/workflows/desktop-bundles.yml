@@ -1,0 +1,120 @@
+# Windows and macOS bundles, published onto an existing release.
+#
+# The Linux, Android and iOS bundles are built here on his machine (or by
+# Codemagic, for the IPA); these two cannot be — a Windows installer needs a
+# Windows runner and a .dmg needs macOS — so they are built on GitHub's runners
+# and uploaded onto the same release tag. Nothing is published from this
+# workflow: it attaches to a release that already exists, and fails loudly if
+# that release is not there.
+#
+# Neither bundle is code-signed. The Windows installers show a SmartScreen
+# warning until the download is trusted, and macOS quarantines the app until it
+# is opened once with Right-click → Open (or `xattr -d com.apple.quarantine`).
+# Ad-hoc signing is on for macOS because an unsigned arm64 app is killed on
+# launch by the OS; an ad-hoc signature is enough for it to run.
+name: Desktop bundles (Windows, macOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach to, e.g. v0.6.39"
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      # The Rust build is the long half, so it gets its own cache.
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: pnpm install --frozen-lockfile
+      - name: Build the installers
+        run: pnpm tauri build --bundles nsis,msi
+      - name: Collect and name them
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python -c "import json;print(json.load(open('package.json'))['version'])")"
+          mkdir -p out
+          setup="$(find src-tauri/target/release/bundle/nsis -name '*-setup.exe' | head -1)"
+          msi="$(find src-tauri/target/release/bundle/msi -name '*.msi' | head -1)"
+          test -n "$setup" && test -n "$msi"
+          cp "$setup" "out/hardlyreader-${version}-windows-x64-setup.exe"
+          cp "$msi" "out/hardlyreader-${version}-windows-x64.msi"
+          ls -l out
+      - name: Attach to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # A dispatch input, so only someone with write access can set it; it
+          # goes through the environment rather than into the script text.
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber
+
+  macos:
+    name: macOS (universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: pnpm install --frozen-lockfile
+      # One bundle that runs on both kinds of Mac: the runner is arm64, and a
+      # single-architecture build would refuse to start on the other half.
+      - name: Build the .dmg
+        run: pnpm tauri build --target universal-apple-darwin --bundles dmg
+        env:
+          # Ad-hoc: no certificate here, and an unsigned arm64 app cannot launch.
+          APPLE_SIGNING_IDENTITY: "-"
+      - name: Collect and name it
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 -c "import json;print(json.load(open('package.json'))['version'])")"
+          mkdir -p out
+          dmg="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)"
+          test -n "$dmg"
+          cp "$dmg" "out/hardlyreader-${version}-macos-universal.dmg"
+          ls -l out
+      - name: Attach to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber
