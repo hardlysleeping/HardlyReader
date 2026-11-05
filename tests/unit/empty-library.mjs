@@ -81,7 +81,12 @@ function paddingY(body, where) {
 // ---------------------------------------------------------------------------
 
 const gate = sidebar.indexOf("{#if startsHere}");
-const gateEnd = sidebar.indexOf("{/if}", gate + 1);
+// The block runs to the footer's own gate, which is the next top-level condition
+// after it. Counting `{#if}`s was brittle: a nested condition inside the block
+// (the device-library line) must not cut the slice short, and the footer's gate
+// is a marker the tree already carries.
+const footerGate = sidebar.indexOf("{#if !startsHere");
+const gateEnd = footerGate > gate ? footerGate : sidebar.length;
 const block = gate > 0 ? sidebar.slice(gate, gateEnd) : "";
 
 {

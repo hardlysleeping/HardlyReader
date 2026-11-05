@@ -10,6 +10,7 @@
   import { layout } from "./state/layout.svelte";
   import { chrome } from "./state/chrome.svelte";
   import { installDragScroll } from "./lib/drag-scroll";
+  import { chooseDeviceLibrary, deviceLibraryChosen } from "./lib/device-library";
   import { reader } from "./state/reader.svelte";
   import { theme } from "./state/theme.svelte";
   import Login from "./views/Login.svelte";
@@ -72,6 +73,18 @@
    * a server probe costs in latency. Nothing about it talks to the network.
    */
   let local = $state<LocalProfile | null>(null);
+
+  /**
+   * A device with no account yet, and no library opened.
+   *
+   * The app used to open the empty library here, so the first screen of a new
+   * install was a reader with nothing in it and a connect card one panel away —
+   * a device library read as *the* way the app works. Signing in is the
+   * suggested way in, and a library on this device is a labelled choice on that
+   * screen (owner, 2026-11-05: *"should by default suggest you login to your
+   * sync account and be an option you pick to use local mode"*).
+   */
+  let firstRun = $state(false);
 
   /**
    * Whether the reader is being unveiled: the login screen stays drawn, over the
@@ -207,22 +220,41 @@
 
     const stored = accounts.active;
     if (stored === null) {
-      // No account on this device: that is not an error and not a reason to
-      // ask for a server URL. The reader opens on the empty local library, and
-      // connecting a service stays one optional step away.
+      // No account on this device: signing in is what this screen is for, and a
+      // library on this device is one press away on it — never a thing that
+      // happened to you before you chose it. The demo is the exception: Pages
+      // cannot fetch a publisher's RSS across origins, so the sample library is
+      // what a visitor opened the demo to see.
+      if (!DEMO) {
+        // A device that already keeps feeds here is a reader using this device
+        // only — or one who chose it and has not added a feed yet. That answer is
+        // remembered (`lib/device-library`), so it is not asked for every launch;
+        // a library with nothing in it and no answer yet gets the sign-in screen.
+        try {
+          const opened = await openLocalProfile();
+          const feeds = await opened.backend.subscriptions();
+          if (deviceLibraryChosen() || feeds.length > 0) {
+            local = opened;
+            checking = false;
+            return;
+          }
+        } catch (cause) {
+          startupNote = `The library on this device could not be opened: ${String(cause)}`;
+        }
+        firstRun = true;
+        checking = false;
+        return;
+      }
       try {
-        // The demo build arrives with a library (`VITE_DEMO=1`, src/lib/demo.ts): Pages cannot
-        // fetch a publisher's RSS across origins, so the sample feeds are what a visitor sees.
+        // The demo build arrives with a library (`VITE_DEMO=1`, src/lib/demo.ts).
         // Seeded BEFORE the profile is handed to the reader: the reader reads its subscriptions
         // once per profile, so a library filled afterwards would draw as empty until a reload.
         const opened = await openLocalProfile();
-        if (DEMO) {
-          const store = localStoreOf(opened);
-          // `BASE_URL` because the demo is served from `/<repo>/`: the baked feeds and their
-          // pictures are relative to the page, not to the origin.
-          if (store !== null) await seedDemoLibrary(store, undefined, import.meta.env.BASE_URL ?? "/");
-          demoDefaults = true;
-        }
+        const store = localStoreOf(opened);
+        // `BASE_URL` because the demo is served from `/<repo>/`: the baked feeds and their
+        // pictures are relative to the page, not to the origin.
+        if (store !== null) await seedDemoLibrary(store, undefined, import.meta.env.BASE_URL ?? "/");
+        demoDefaults = true;
         local = opened;
       } catch (cause) {
         startupNote = `The library on this device could not be opened: ${String(cause)}`;
@@ -261,6 +293,25 @@
       checking = false;
     }
   });
+
+  /**
+   * The other way in on the first screen: a library on this device.
+   *
+   * One press, and only from the screen that offered it — nothing opens a local
+   * library behind the reader's back. It says what it is where it is chosen, and
+   * the copy on the screen gives the difference in one line, because the two
+   * libraries never mix: a feed added here is never sent to a server.
+   */
+  async function useThisDevice() {
+    if (local !== null) return;
+    try {
+      local = await openLocalProfile();
+      chooseDeviceLibrary();
+      firstRun = false;
+    } catch (cause) {
+      startupNote = `The library on this device could not be opened: ${String(cause)}`;
+    }
+  }
 
   /** Signed in from the login screen: the first account, or one more of them. */
   function handleConnected(next: Session) {
@@ -369,6 +420,7 @@
             : startupNote}
           onconnected={handleConnected}
           oncancel={adding ? cancelAdd : undefined}
+          onlocal={firstRun ? () => void useThisDevice() : undefined}
         />
       </div>
     {/if}

@@ -328,6 +328,26 @@
    */
   const openStreamId = $derived(focused.activeStream);
 
+  /**
+   * Whose library the feeds about to be added will land in.
+   *
+   * A feed has exactly one owner, and it is the account on screen — another
+   * account's band is read-only, so nothing is ever added to two libraries at
+   * once. With one account there is nothing to say; with two filed, or with a
+   * library on this device, the form says it before the press rather than
+   * leaving the reader to find out afterwards (owner, 2026-11-05: *"when adding
+   * feeds do we pick the account they goto like local or sync"*).
+   */
+  const addOwner = $derived.by(() => {
+    const profile = reader.profile;
+    if (profile === null) return null;
+    if (profile.kind === "local") {
+      return "These feeds stay on this device — they are never sent to a server.";
+    }
+    if (!reader.hasAccountGroups) return null;
+    return `These feeds are added to ${profile.label}.`;
+  });
+
 
   /** The add-feed form: closed until asked for, so the sidebar stays a list. */
   let adding = $state(false);
@@ -1704,6 +1724,11 @@
          and it is gone the moment a feed exists. -->
     <div class="start">
       <p class="start-lead"><b>Start reading</b> — Add a feed or import your subscriptions.</p>
+      {#if reader.profile?.kind === "local"}
+        <p class="start-note">
+          Feeds you add here are kept on this device — they are never sent to a server.
+        </p>
+      {/if}
       <p class="start-note" hidden={!DEMO}>This demo is read-only: adding your own feeds needs the installed app.</p>
       <div class="start-actions">
         <button class="start-add" onclick={startAdding}>+ Add feed</button>
@@ -1757,6 +1782,9 @@
           inputmode="url"
           onkeydown={onFeedKey}
         ></textarea>
+        {#if addOwner !== null}
+          <p class="add-owner">{addOwner}</p>
+        {/if}
         <div class="add-actions">
           <button type="submit" class="submit" disabled={reader.feedBusy}>
             {#if reader.feedProgress}
@@ -3151,6 +3179,16 @@
   .cancel:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+
+  /* Whose library a new feed lands in: stated under the field, quiet, before the
+     press — the add form is the one place a feed changes hands. */
+  .add-owner {
+    margin: 6px 0 0;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
   }
 
   .add-error {
