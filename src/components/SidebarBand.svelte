@@ -290,13 +290,20 @@
 {#snippet pinControl()}
   <button
     class="ctl pin"
-    class:on={reader.pinView !== "all"}
+    class:on={reader.pinView !== "without"}
     onclick={cyclePins}
     title={pinTip}
     aria-label={`Pinned: ${facts.pinName}`}
   >
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
+      <!-- The "Hidden" view is the pin turned off, so it is drawn the way the
+           eye is drawn when it hides: grey, and struck through. A pin sitting
+           in the same lit colour in all three views said the filter was on
+           while the list had the pinned rows taken out of it. -->
+      {#if reader.pinView === "without"}
+        <path d="M4 4l16 16" />
+      {/if}
     </svg>
     {#if facts.pinLabel !== null}
       <span class="lbl">{facts.pinLabel}</span>
@@ -756,7 +763,7 @@
      lock and pinned look like three disabled buttons. */
   .ctl.hidden.on,
   .ctl.lock,
-  .ctl.pin {
+  .ctl.pin.on {
     background: color-mix(in srgb, var(--tone) 11%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 32%, transparent);
   }
@@ -765,9 +772,11 @@
     --tone: var(--tone-hidden);
   }
 
-  /* The pin keeps its tone in EVERY view. "Active" is one of the three working
-     states, not an idle one, so a grey seat would read as a disabled control. */
-  .ctl.pin {
+  /* The pin keeps its tone while it is filtering the list — "Active" and "Only"
+     are both working states, so a grey seat would read as a disabled control.
+     "Hidden" is the pin switched off, and it is drawn the way the eye is when it
+     hides: the quiet ink, no glass, and its glyph struck through. */
+  .ctl.pin.on {
     --tone: var(--tone-pinned);
   }
 

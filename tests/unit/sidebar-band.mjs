@@ -422,6 +422,34 @@ get pinsOnDevice() { return globalThis.__band.pinsOnDevice ?? false; },
     check("open: the lock offers to lock", body.includes('aria-label="Lock hidden categories"'));
   }
 
+  // The pin answers a press the way the eye does: the view that takes the pinned
+  // rows away is the pin switched off, so its seat goes quiet and its glyph is
+  // struck through, exactly as the eye's does when it hides. Owner, 2026-11-06:
+  // "when pin is set to hidden the button should turn grey and pin should get
+  // slash".
+  {
+    /** The extra classes on the pin's own button, without Svelte's scope hash. */
+    const pinClasses = (body) =>
+      (/<button[^>]*class="ctl pin([^"]*)"/.exec(body)?.[1] ?? null)
+        ?.split(/\s+/)
+        .filter((name) => name !== "" && !name.startsWith("svelte-"))
+        .join(" ") ?? null;
+    const lit = (body) => (pinClasses(body) ?? "").split(" ").includes("on");
+    const slashed = (body) => body.includes("M4 4l16 16");
+
+    const off = draw({ pinView: "without" });
+    check("pin hidden: the seat is quiet, not lit", !lit(off), `class="ctl pin ${pinClasses(off)}"`);
+    check("pin hidden: ...and the glyph is struck through", slashed(off));
+    check("pin hidden: ...under the view's own word", off.includes('aria-label="Pinned: Hidden"'));
+
+    const only = draw({ pinView: "only" });
+    check("pin only: the seat keeps its tone", lit(only));
+    check("pin only: ...and no strike", !slashed(only));
+
+    const all = draw({ pinView: "all" });
+    check("pin active: the seat keeps its tone", lit(all));
+  }
+
   {
     const body = draw({ view: "revealed" });
     check("revealed: the eye says so", body.includes("Hidden categories: Revealed"));
