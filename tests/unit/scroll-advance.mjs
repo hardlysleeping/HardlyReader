@@ -260,10 +260,10 @@ check(
 );
 const cards = readFileSync(new URL("../../src/components/ArticleList.svelte", import.meta.url), "utf8");
 check(
-  "the cards column holds to the same rule",
-  /if \(listStepSpent\) \{\s*resetListPull\(\);\s*return;/.test(cards) &&
-    /listStepSpent = true;\s*listSettleUntil/.test(cards) &&
-    /isNewGesture\(now, listWheelAt\)/.test(cards),
+  "the cards column advances one adjacent item and blocks the burst tail",
+  /event\.preventDefault\(\);\s*if \(listStepSpent\) return;/.test(cards) &&
+    /const row = currentCard\(\);\s*if \(!row\) return;\s*listStepSpent = true;\s*stepCard\(direction\);/.test(cards) &&
+    /isNewGesture\(now, listWheelAt, GESTURE_GAP_MS\)/.test(cards),
 );
 
 // The Aa panel the phone opens has the row; the desktop's does not, because a

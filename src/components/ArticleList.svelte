@@ -47,7 +47,7 @@
   import { carousel } from "../state/carousel.svelte";
   import { pullLabels } from "../lib/gestures";
   import { chrome } from "../state/chrome.svelte";
-  import { SETTLE_MS, accumulate, isNewGesture, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
+  import { GESTURE_GAP_MS, SETTLE_MS, isNewGesture } from "../lib/scroll-advance";
   import { articleQueue, candidateFor } from "../lib/extract-queue";
   import { ledger } from "../lib/extract-ledger";
   import { wantsFullText } from "../lib/full-text";
@@ -573,31 +573,12 @@
   /** The scroll port the rows are measured against. */
   let itemsEl = $state<HTMLElement | null>(null);
 
-  /*
-   * Cards are pages, and scrolling one should hand you the next whole card, not
-   * half of two. The card list therefore reads its wheel the way the article
-   * pane does — the same pull, the same curve, the same effort setting and the
-   * same settle delay — but its "end" is the bottom of the card you are looking
-   * at rather than the bottom of a document. Travel past that end fills a pull;
-   * filling it steps one card and puts it at the top of the list.
-   */
-  let listPull = $state(0);
-  let listPullTimer: ReturnType<typeof setTimeout> | null = null;
-  let listSettleUntil = 0;
-  /** The push in progress, and whether it has already moved the list — see
-   * `isNewGesture`: one flick, one card, however long the deltas keep coming. */
+  /* One locked wheel gesture advances one adjacent card, even when the card is
+   * taller than the pane. Native touch/drag remains available for reading a tall
+   * comic; the wheel never coasts into another card. */
   let listWheelAt = Number.NaN;
   let listStepSpent = false;
   let stepTimer: ReturnType<typeof setTimeout> | null = null;
-  const listThreshold = $derived(thresholdFor(reading.scrollEffort));
-
-  function resetListPull(): void {
-    listPull = 0;
-    if (listPullTimer !== null) {
-      clearTimeout(listPullTimer);
-      listPullTimer = null;
-    }
-  }
 
   /** The rows, in order, as elements carrying their post's id. */
   function cardRows(): HTMLElement[] {
@@ -675,26 +656,6 @@
     const el = scrollPort();
     if (!el) return false;
     return row.getBoundingClientRect().height <= el.clientHeight + 1;
-  }
-
-  /**
-   * Whether the card in the middle has run out in the direction the wheel is
-   * going — its last pixels showing when the wheel is down, its first when up.
-   *
-   * A card taller than the pane is read by scrolling it, so the wheel belongs to
-   * the scroll until then. Past that it belongs to the step, the way the article
-   * pane's does at the end of a document. Without this the tall case had no pull
-   * at all: no fill, no step, just a scroll that ran into the next card — and one
-   * card per row makes a comic taller than the pane the normal case rather than
-   * the exception. The gesture, its effort setting and its filling line were
-   * simply unreachable there.
-   */
-  function atCardEnd(row: HTMLElement, direction: number): boolean {
-    const el = scrollPort();
-    if (!el) return false;
-    const card = row.getBoundingClientRect();
-    const port = el.getBoundingClientRect();
-    return direction > 0 ? card.bottom <= port.bottom + 2 : card.top >= port.top - 2;
   }
 
   /**
@@ -1183,7 +1144,6 @@
         window.removeEventListener("pointercancel", onPanUp);
         if (outer !== null) outer.removeEventListener("scroll", onPortScroll);
         cancelAnimationFrame(snapFrameNested);
-        resetListPull();
       },
     };
   }
@@ -1248,55 +1208,23 @@
   function onListWheel(event: WheelEvent): void {
     columnTouched = true;
     const el = scrollPort();
-    if (view !== "cards" || !reading.advanceOnScroll || !el || event.deltaY === 0) {
-      resetListPull();
-      return;
-    }
-    const row = currentCard();
-    const towards = event.deltaY > 0 ? 1 : -1;
-    // A card that fits the pane is one you look at whole, so a wheel past it
-    // steps. A card taller than the pane is read by scrolling it — but only
-    // until its end has run out; from there the rest of the gesture is the step,
-    // the same way the article pane turns a pull at the bottom of a document.
-    if (!row || (!cardFits(row) && !atCardEnd(row, towards))) {
-      resetListPull();
-      return;
-    }
-    // From here every delta belongs to the step, so the list must not also move.
-    // This includes the deltas during the settle window: those used to fall
-    // through without being stopped, so the list scrolled natively underneath
-    // the step the handler had just made — one flick crossed five cards and
-    // then snapped back onto whichever one it happened to land near.
-    event.preventDefault();
+    if (view !== "cards" || !reading.advanceOnScroll || !el || event.deltaY === 0) return;
+
+    const direction = event.deltaY > 0 ? 1 : -1;
     const now = performance.now();
-    if (isNewGesture(now, listWheelAt)) listStepSpent = false;
+    if (isNewGesture(now, listWheelAt, GESTURE_GAP_MS)) listStepSpent = false;
     listWheelAt = now;
-    // One push, one card: the rest of this flick is spent, whatever the settle
-    // window says. A trackpad keeps sending deltas long after the hand has gone.
-    if (listStepSpent) {
-      resetListPull();
-      return;
-    }
-    if (performance.now() < listSettleUntil) {
-      // Still inside the tail of the step just taken. The window is a fixed
-      // interval, not one that every arriving delta pushes out again: a hand
-      // that keeps scrolling never goes quiet, and holding the step until it
-      // does meant that scrolling without moving the mouse did nothing at all.
-      resetListPull();
-      return;
-    }
-    listPull = accumulate(listPull, event.deltaY, listThreshold);
-    if (listPullTimer !== null) clearTimeout(listPullTimer);
-    listPullTimer = setTimeout(() => {
-      listPull = 0;
-      listPullTimer = null;
-    }, 700);
-    if (!shouldAdvance(listPull, listThreshold)) return;
-    const away = listPull > 0 ? 1 : -1;
-    resetListPull();
+
+    // In locked Cards mode the wheel has one meaning everywhere: next card or
+    // previous card. Never also let native scroll momentum coast through the
+    // rows after the step. Tall-card reading remains available by touch/drag.
+    event.preventDefault();
+    if (listStepSpent) return;
+
+    const row = currentCard();
+    if (!row) return;
     listStepSpent = true;
-    listSettleUntil = performance.now() + SETTLE_MS;
-    stepCard(away);
+    stepCard(direction);
   }
 
   /**
@@ -2011,13 +1939,6 @@
       </button>
     {/if}
   </div>
-  <div
-    class="list-pull"
-    class:visible={listPull !== 0}
-    class:up={listPull < 0}
-    style:--p={progressOf(listPull, listThreshold)}
-    aria-hidden="true"
-  ></div>
 </section>
 
 <style>
@@ -2088,34 +2009,6 @@
     flex: 0 0 auto;
     flex-wrap: wrap;
     justify-content: flex-end;
-  }
-
-  /* The card list's pull, drawn exactly where the article's is: a line filling
-     along the pane's edge, from the bottom for the next card and the top for the
-     previous one. Same colour, same thickness, so the gesture reads as one. */
-  .list-pull {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 4;
-    height: 3px;
-    transform: scaleX(var(--p, 0));
-    transform-origin: left center;
-    background: var(--accent);
-    opacity: 0;
-    pointer-events: none;
-    transition: transform 80ms linear, opacity 120ms ease;
-  }
-
-  .list-pull.visible {
-    opacity: 0.9;
-  }
-
-  .list-pull.up {
-    top: 0;
-    bottom: auto;
-    transform-origin: right center;
   }
 
   /* The sizing pills sit next to the view pills and read as a second group: a

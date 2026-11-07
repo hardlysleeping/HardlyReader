@@ -213,39 +213,36 @@ check(
   })(),
 );
 
-// ------------------------------------------------- the pull, on a tall card --
+// -------------------------------------------------- one wheel, one card --
 
-// One card per row makes a comic taller than the pane the normal case, and there
-// the wheel used to belong to the scroll in both directions and nothing else: no
-// pull, no filling line, no step. The article pane has always turned a pull at
-// the bottom of a document; the card column now does the same at the end of a
-// card, so the gesture and its effort setting are reachable on the cards that
-// are actually read.
+// A Cards wheel gesture has one meaning anywhere in the column: advance to the
+// adjacent card, then consume the rest of that gesture so native momentum cannot
+// coast across more items. Tall comics remain readable by touch/drag.
 check(
-  "a card taller than the pane pulls once its end has run out",
+  "one locked wheel gesture steps exactly one card in its direction",
   (() => {
-    const at = list.indexOf("function atCardEnd");
-    const fn = list.slice(at, at + 700);
-    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 3200);
+    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 1100);
     return (
-      /card\.bottom <= port\.bottom \+ 2/.test(fn) &&
-      /card\.top >= port\.top - 2/.test(fn) &&
-      // the wheel asks for the card's end before giving up on the gesture
-      /!cardFits\(row\) && !atCardEnd\(row, towards\)/.test(wheel) &&
-      // and the direction the pull was heading is what steps
-      /const away = listPull > 0 \? 1 : -1;/.test(wheel) &&
-      /stepCard\(away\)/.test(wheel)
+      /event\.preventDefault\(\);\s*if \(listStepSpent\) return;/.test(wheel) &&
+      /const row = currentCard\(\);\s*if \(!row\) return;\s*listStepSpent = true;\s*stepCard\(direction\);/.test(wheel)
     );
   })(),
 );
 
 check(
-  "and a card that fits still steps without the end test",
+  "wheel input only advances when the lock is enabled and one burst cannot double-step",
   (() => {
-    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 2000);
-    return /const towards = event\.deltaY > 0 \? 1 : -1;/.test(wheel) && /cardFits\(row\)/.test(wheel);
+    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 1100);
+    return (
+      /!reading\.advanceOnScroll/.test(wheel) &&
+      /isNewGesture\(now, listWheelAt, GESTURE_GAP_MS\)/.test(wheel) &&
+      /listWheelAt = now;/.test(wheel) &&
+      !/accumulate\(|shouldAdvance\(|listPull|cardFits\(row\)/.test(wheel)
+    );
   })(),
 );
+
+check("the redundant card-list pull bar is gone", !/list-pull|listPull|listThreshold/.test(list));
 
 // ------------------------------------------------------ the whole card fits --
 
