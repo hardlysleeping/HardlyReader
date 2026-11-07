@@ -270,3 +270,28 @@ export function peekOf(progress: number, on = true): number {
  * in the article and in the card list, so stepping feels identical.
  */
 export const SETTLE_MS = 420;
+
+/**
+ * How long the wheel has to be quiet before a push counts as a NEW gesture.
+ *
+ * The settle window above is a fixed interval, so a trackpad or a spun wheel
+ * that keeps sending deltas for a second and a half outlives it: every 420ms
+ * another pull fills on travel the reader already spent, and one flick walks
+ * several posts. On short posts — a comic strip, a one-line link — that reads as
+ * the list jumping from the 5th to the 1st, which is exactly what the owner
+ * reported. So a gesture earns one switch: the deltas that follow it are spent
+ * until one arrives after a gap this long, which is a hand that has stopped and
+ * pushed again.
+ *
+ * Deliberately short. A mouse wheel's own clicks are 30–80ms apart while it
+ * spins, so a spin stays ONE gesture; a reader who wants the next post lifts off
+ * and pushes, and 160ms is below the time it takes to do that.
+ */
+export const GESTURE_GAP_MS = 160;
+
+/** Whether a wheel event starts a new push, rather than continuing the last one. */
+export function isNewGesture(now: number, last: number, gap = GESTURE_GAP_MS): boolean {
+  if (!Number.isFinite(now)) return false;
+  if (!Number.isFinite(last)) return true;
+  return now - last > gap;
+}

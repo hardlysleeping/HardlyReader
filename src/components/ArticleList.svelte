@@ -47,7 +47,7 @@
   import { carousel } from "../state/carousel.svelte";
   import { pullLabels } from "../lib/gestures";
   import { chrome } from "../state/chrome.svelte";
-  import { SETTLE_MS, accumulate, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
+  import { SETTLE_MS, accumulate, isNewGesture, progressOf, shouldAdvance, thresholdFor } from "../lib/scroll-advance";
   import { articleQueue, candidateFor } from "../lib/extract-queue";
   import { ledger } from "../lib/extract-ledger";
   import { wantsFullText } from "../lib/full-text";
@@ -584,6 +584,10 @@
   let listPull = $state(0);
   let listPullTimer: ReturnType<typeof setTimeout> | null = null;
   let listSettleUntil = 0;
+  /** The push in progress, and whether it has already moved the list — see
+   * `isNewGesture`: one flick, one card, however long the deltas keep coming. */
+  let listWheelAt = Number.NaN;
+  let listStepSpent = false;
   let stepTimer: ReturnType<typeof setTimeout> | null = null;
   const listThreshold = $derived(thresholdFor(reading.scrollEffort));
 
@@ -1264,6 +1268,15 @@
     // the step the handler had just made — one flick crossed five cards and
     // then snapped back onto whichever one it happened to land near.
     event.preventDefault();
+    const now = performance.now();
+    if (isNewGesture(now, listWheelAt)) listStepSpent = false;
+    listWheelAt = now;
+    // One push, one card: the rest of this flick is spent, whatever the settle
+    // window says. A trackpad keeps sending deltas long after the hand has gone.
+    if (listStepSpent) {
+      resetListPull();
+      return;
+    }
     if (performance.now() < listSettleUntil) {
       // Still inside the tail of the step just taken. The window is a fixed
       // interval, not one that every arriving delta pushes out again: a hand
@@ -1281,6 +1294,7 @@
     if (!shouldAdvance(listPull, listThreshold)) return;
     const away = listPull > 0 ? 1 : -1;
     resetListPull();
+    listStepSpent = true;
     listSettleUntil = performance.now() + SETTLE_MS;
     stepCard(away);
   }

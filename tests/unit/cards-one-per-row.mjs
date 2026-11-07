@@ -226,7 +226,7 @@ check(
   (() => {
     const at = list.indexOf("function atCardEnd");
     const fn = list.slice(at, at + 700);
-    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 2200);
+    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 3200);
     return (
       /card\.bottom <= port\.bottom \+ 2/.test(fn) &&
       /card\.top >= port\.top - 2/.test(fn) &&

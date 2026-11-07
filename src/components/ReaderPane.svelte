@@ -21,6 +21,7 @@
   import {
     SETTLE_MS,
     accumulate,
+    isNewGesture,
     peekOf,
     progressOf,
     shouldAdvance,
@@ -403,6 +404,17 @@
   /** Nothing counts towards a switch until the wheel has been still this long. */
   let settleUntil = 0;
 
+  /**
+   * The wheel gesture in progress, and whether it has already bought its post.
+   *
+   * One push, one post. A flick's deltas arrive for a second or more after the
+   * hand has gone, so the fixed settle window was not enough on short posts: a
+   * single flick crossed four of them. Now the deltas that follow a switch are
+   * spent until the wheel goes quiet (`isNewGesture`), which is a new push.
+   */
+  let lastWheelAt = Number.NaN;
+  let stepSpent = false;
+
   /** How long a release takes to put a half-made pull back. */
   const SPRING_MS = 260;
 
@@ -517,6 +529,19 @@
       resetPull();
       return;
     }
+    const now = performance.now();
+    // A new push starts here; the rest of it belongs to this gesture.
+    if (isNewGesture(now, lastWheelAt)) stepSpent = false;
+    lastWheelAt = now;
+    // This gesture has already switched posts. Every delta after that one is the
+    // tail of the same flick — a trackpad keeps sending them for a second or
+    // more — and letting them fill a second pull is how one scroll walked four
+    // posts. Refused here, before the settle test, because the fix is "one push,
+    // one post", not "wait a moment and the same push will do it again".
+    if (stepSpent) {
+      resetPull();
+      return;
+    }
     if (performance.now() < settleUntil) {
       resetPull();
       return;
@@ -543,6 +568,8 @@
     if (!shouldAdvance(pull, threshold)) return;
     const direction = pull > 0 ? 1 : -1;
     resetPull();
+    // This gesture is spent: its post is bought.
+    stepSpent = true;
     settleUntil = performance.now() + SETTLE_MS;
     void store.advanceArticle(direction);
   }

@@ -2,6 +2,7 @@ import {
   EFFORT_DEFAULT, EFFORT_HARD_MAX, EFFORT_HARD_MIN, EFFORT_MAX, EFFORT_MIN, PULL_CURVE,
   PULL_THRESHOLD, accumulate, clampEffort, curveAt, directionOf, effortForSwipePx, peekOf,
   progressOf, shouldAdvance, SWIPE_GAIN, swipePxFor, swipePull, swipeTravel, thresholdFor,
+  GESTURE_GAP_MS, isNewGesture,
   travelAt, travelFor, travelToAdvance, withinSlider,
 } from "../../src/lib/scroll-advance.ts";
 
@@ -236,6 +237,34 @@ check("...and the wheel reveals after it accumulates, not before", (() => {
 check("the open post lifts out of the way", /style:transform=\{peek > 0 \? `translateY\(\$\{\(-peek \* PEEK_LIFT\)/.test(pane));
 check("the next post is drawn behind it", /<div class="next" style:--peek=\{peek\} aria-hidden="true">/.test(pane) && /Next post/.test(pane));
 check("a switch is still the quiet one", /resetPull\(\);\s*settleUntil = performance\.now\(\) \+ SETTLE_MS;\s*void store\.advanceArticle\(1\);/.test(pane));
+
+// One push, one post. A flick's deltas outlive the fixed settle window, and a
+// stream of short posts (a comic strip a day) was walked four at a time by a
+// single scroll. A gesture now buys one switch; the tail of it is spent until
+// the wheel has been quiet long enough to be a new push.
+check("a quiet wheel starts a gesture", isNewGesture(1000, Number.NaN) === true);
+check("deltas of one flick are one gesture", isNewGesture(1050, 1000) === false && isNewGesture(160 + 999, 1000) === false);
+check("a pause makes the next push its own", isNewGesture(1000 + GESTURE_GAP_MS + 1, 1000) === true);
+check("a mouse wheel's own clicks stay one spin", isNewGesture(1040, 1000) === false && isNewGesture(1080, 1040) === false);
+check("a nonsense clock never re-arms", isNewGesture(Number.NaN, 1000) === false);
+check("the gap is short enough to feel like lifting off", GESTURE_GAP_MS <= 200);
+
+// Both wheel handlers hold to it, and both mark the gesture spent at the switch.
+check(
+  "the article pane spends a gesture at its switch",
+  /if \(stepSpent\) \{\s*resetPull\(\);\s*return;/.test(pane) && /stepSpent = true;\s*settleUntil/.test(pane),
+);
+check(
+  "...and reads the gesture from the clock",
+  /if \(isNewGesture\(now, lastWheelAt\)\) stepSpent = false;/.test(pane),
+);
+const cards = readFileSync(new URL("../../src/components/ArticleList.svelte", import.meta.url), "utf8");
+check(
+  "the cards column holds to the same rule",
+  /if \(listStepSpent\) \{\s*resetListPull\(\);\s*return;/.test(cards) &&
+    /listStepSpent = true;\s*listSettleUntil/.test(cards) &&
+    /isNewGesture\(now, listWheelAt\)/.test(cards),
+);
 
 // The Aa panel the phone opens has the row; the desktop's does not, because a
 // cursor has no drag to shorten.
