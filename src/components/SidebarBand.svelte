@@ -291,6 +291,7 @@
   <button
     class="ctl pin"
     class:on={reader.pinView !== "without"}
+    class:only={reader.pinView === "only"}
     onclick={cyclePins}
     title={pinTip}
     aria-label={`Pinned: ${facts.pinName}`}
@@ -394,6 +395,7 @@
           <button
             class="ctl hidden"
             class:on={reader.hiddenView !== "hidden"}
+            class:only={reader.hiddenView === "only"}
             onclick={cycleHidden}
             disabled={!facts.hidden.enabled}
             title={facts.hidden.enabled
@@ -778,6 +780,26 @@
      hides: the quiet ink, no glass, and its glyph struck through. */
   .ctl.pin.on {
     --tone: var(--tone-pinned);
+  }
+
+  /* "Only" narrows the list to one thing, so both seats say it the same way:
+     the tone lifts towards white, and the ring with it. Subtle on purpose —
+     the word under the glyph already says which view this is, so the light only
+     has to confirm it. Owner, 2026-11-06: "brighter red for hidden, brighter
+     blue for pinned, but subtle, maybe just make the text lighter and
+     brighter". */
+  .ctl.hidden.only,
+  .ctl.pin.only {
+    --tone: color-mix(in srgb, var(--only-base) 68%, #fff);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 46%, transparent);
+  }
+
+  .ctl.hidden.only {
+    --only-base: var(--tone-hidden);
+  }
+
+  .ctl.pin.only {
+    --only-base: var(--tone-pinned);
   }
 
   .ctl.lock {

@@ -450,6 +450,28 @@ get pinsOnDevice() { return globalThis.__band.pinsOnDevice ?? false; },
     check("pin active: the seat keeps its tone", lit(all));
   }
 
+  // "Only" narrows the list, and both seats say it the same way: the tone lifts
+  // towards white and the ring with it — brighter red for hidden, brighter blue
+  // for pinned, and nothing more than that. Owner, 2026-11-06.
+  {
+    const tag = (body, kind) => new RegExp(`<button[^>]*class="ctl ${kind}([^"]*)"`).exec(body)?.[1] ?? "";
+    const names = (attr) => attr.split(/\s+/).filter((n) => n !== "" && !n.startsWith("svelte-"));
+
+    check("only: the eye asks for the lifted tone", names(tag(draw({ view: "only" }), "hidden")).includes("only"));
+    check("only: ...and so does the pin", names(tag(draw({ pinView: "only" }), "pin")).includes("only"));
+    check(
+      "only: the lift is one rule per seat, off each seat's own colour",
+      /\.ctl\.hidden\.only,\s*\n\s*\.ctl\.pin\.only \{[^}]*color-mix\(in srgb, var\(--only-base\) 68%, #fff\)/.test(source) &&
+        /\.ctl\.hidden\.only \{\s*\n\s*--only-base: var\(--tone-hidden\)/.test(source) &&
+        /\.ctl\.pin\.only \{\s*\n\s*--only-base: var\(--tone-pinned\)/.test(source),
+    );
+    check(
+      "only: ...and the ring brightens with the text",
+      /\.ctl\.hidden\.only,[\s\S]{0,400}?box-shadow: inset 0 0 0 1px color-mix\(in srgb, var\(--tone\) 46%, transparent\)/.test(source),
+    );
+    check("only: the active view is left alone", !names(tag(draw({ pinView: "all" }), "pin")).includes("only"));
+  }
+
   {
     const body = draw({ view: "revealed" });
     check("revealed: the eye says so", body.includes("Hidden categories: Revealed"));
