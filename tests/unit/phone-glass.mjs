@@ -365,12 +365,12 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
   check("the bar has a rule of its own", bar !== undefined);
   const body = bar?.body ?? "";
   check(
-    "and it paints nothing: no fill, no blur, no hairline, no shadow",
+    "and it paints nothing but the one hairline under it: no fill, no blur, no shadow",
     /background:\s*none/.test(body) &&
       /backdrop-filter:\s*none/.test(body) &&
-      /border-bottom:\s*0/.test(body) &&
       /box-shadow:\s*none/.test(body) &&
-      !/var\(--glass-edge\)/.test(body),
+      (body.match(/border-bottom:/g) ?? []).length === 1 &&
+      /border-bottom:\s*1px solid var\(--glass-edge\)/.test(body),
     body.replace(/\s+/g, " ").trim(),
   );
   check(

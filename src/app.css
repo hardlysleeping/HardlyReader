@@ -757,7 +757,10 @@ html[data-device="phone"] .phone-header {
   background: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  border-bottom: 0;
+  /* One hairline where the bar meets the content under it — the line belongs to
+     the bar's lower edge, not to its surface. It is the soft edge the material
+     used, at the strength the bar has always drawn it. */
+  border-bottom: 1px solid var(--glass-edge);
   box-shadow: none;
 }
 
