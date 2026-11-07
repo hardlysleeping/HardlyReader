@@ -406,6 +406,13 @@
             <svg viewBox="0 0 24 24" aria-hidden="true">
               {#if reader.hiddenView === "hidden"}
                 <path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3.1 4.2M6.6 6.6C4.3 8 2.7 10.2 2 12c1 2.5 5 7 10 7a9.9 9.9 0 0 0 5.4-1.6" />
+              {:else if reader.hiddenView === "revealed"}
+                <!-- Revealed wears HardlyTracking's own eye — the open eye with the
+                     corner-to-corner stroke (`EYE_PATHS.revealed` in that app) —
+                     so the same view reads as the same control in both. One path,
+                     not a shape plus a pupil: it is the glyph the owner points
+                     at when he says "like that one". -->
+                <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M4 20 20 4" />
               {:else}
                 <path d="M2 12c1-2.5 5-7 10-7s9 4.5 10 7c-1 2.5-5 7-10 7S3 14.5 2 12z" />
                 <circle cx="12" cy="12" r="3" />

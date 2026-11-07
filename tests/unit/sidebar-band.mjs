@@ -472,6 +472,19 @@ get pinsOnDevice() { return globalThis.__band.pinsOnDevice ?? false; },
     check("only: the active view is left alone", !names(tag(draw({ pinView: "all" }), "pin")).includes("only"));
   }
 
+  // Revealed wears HardlyTracking's own eye: the open eye plus the
+  // corner-to-corner stroke, copied verbatim from `EYE_PATHS.revealed` in that
+  // app so the same view reads as the same control in both. Owner, 2026-11-06:
+  // "change revealed icon to be the one used for hardlytracking".
+  {
+    const REVEALED_GLYPH = "M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M4 20 20 4";
+
+    check("revealed draws HardlyTracking's eye", draw({ view: "revealed" }).includes(REVEALED_GLYPH));
+    check("...and it is the only glyph with that stroke", draw({ view: "only" }).includes(REVEALED_GLYPH) === false && draw({ view: "hidden" }).includes(REVEALED_GLYPH) === false);
+    check("hidden keeps its crossed-out eye", draw({ view: "hidden" }).includes("M3 3l18 18"));
+    check("only keeps the open eye and its pupil", /class="ctl hidden[\s\S]{0,400}?<circle cx="12" cy="12" r="3"/.test(draw({ view: "only" })));
+  }
+
   {
     const body = draw({ view: "revealed" });
     check("revealed: the eye says so", body.includes("Hidden categories: Revealed"));
