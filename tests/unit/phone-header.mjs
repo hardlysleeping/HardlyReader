@@ -92,10 +92,19 @@ check(
   /class="wordmark as-button"[\s\S]{0,240}>\{serviceName\}</.test(feedDepth) &&
     !/>HardlyReader</.test(feedDepth),
 );
+// The panel is drawn beside the bar, not inside it: the bar is `overflow: hidden`
+// and a filter there made it the containing block for fixed children, so the
+// panel was clipped to the bar and sat under the feeds — opening the accounts
+// looked like nothing happened. Same rule, same binding; a different parent.
 check(
   "and pressing the name opens the accounts on this device",
   /onclick=\{\(\) => accountsPanel\?\.openAccounts\(\)\}/.test(feedDepth) &&
-    /bind:this=\{accountsPanel\}/.test(feedDepth),
+    /bind:this=\{accountsPanel\}/.test(header),
+);
+check(
+  "...and the panel is drawn outside the bar, which would clip it",
+  !/bind:this=\{accountsPanel\}/.test(header.slice(0, header.indexOf("</header>"))) &&
+    /<\/header>[\s\S]{0,900}?<AccountsPanel/.test(header),
 );
 check("and no control to its left", !/class="step"/.test(feedDepth) && !/onclick=\{back\}/.test(feedDepth));
 
@@ -154,7 +163,7 @@ check(
 // island — 2 leaves ~9pt of clear band above the controls on a 59pt inset.
 check(
   "the bar clears the island by a few points, not by a band",
-  /--status-lift: 2px;/.test(app) && (app.match(/--status-lift:/g) ?? []).length === 1,
+  /--status-lift: 4px;/.test(app) && (app.match(/--status-lift:/g) ?? []).length === 1,
 );
 
 check(
@@ -162,7 +171,7 @@ check(
   // Measured from where the padding puts it: the bar rides `--status-lift`
   // higher than the raw inset, and its height has to agree or `overflow: hidden`
   // clips it.
-  /height: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 40px\)/.test(header),
+  /height: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 36px\)/.test(header),
 );
 check(
   "...and that is the air, not a taller glyph: the controls are still 30px",
@@ -208,7 +217,7 @@ check("and the Aa panel opens from it", /<ReadingControls bind:this=\{readingCon
 check("...closing the sheet on its way open", /onopen=\{\(\) => \(settingsOpen = false\)\}/.test(header));
 check(
   "the Aa panel clears the bar it opens under",
-  /--rc-panel-top: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 44px\)/.test(app) &&
+  /--rc-panel-top: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 40px\)/.test(app) &&
     /top: var\(--rc-panel-top, 46px\)/.test(read("src/components/ReadingControls.svelte")),
 );
 // The panel is fixed and mounted inside the bar, and a phone's bar is

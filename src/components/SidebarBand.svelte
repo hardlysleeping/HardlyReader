@@ -645,43 +645,23 @@
     margin: 0 0 6px;
   }
 
-  /* Idle on a phone: the fold handle moves to the end of the row, so the two
-     strips become one and the tree starts a row higher.
-
-     The handle keeps its place in the markup — it is still the way to fold the
-     band, and it still says which way a press will go — and it gains rather than
-     loses: a full row's height instead of the 8px line it used to be.
-     `:not(.collapsed)` is deliberate: a folded band is the handle on its own, and
-     there the full-width 12px strip is the target. */
+  /* Open or folded, the handle sits in the same place: the strip across the top
+     of the band. A phone used to move it to the trailing edge while the controls
+     were showing, so folding the band made the control it was pressed with jump
+     to a different corner — one control in two places reads as two controls, and
+     the one you just pressed is never where your thumb has learned to go. */
   :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 22px;
-    align-items: stretch;
-    column-gap: 2px;
     margin-bottom: 4px;
   }
 
-  /* 34px, not 22: the handle is the only way back to the band, and at 22 it was
-     the smallest thing on the row it sits in — narrower than the gap between two
-     feed rows, and dim enough at 0.6 that it read as a decoration rather than a
-     control. The glyph grows with it so the press has something to aim at. */
   :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .bar {
-    grid-column: 2;
-    grid-row: 1;
-    width: 34px;
-    height: auto;
-    min-height: 34px;
+    height: 16px;
     opacity: 0.85;
   }
 
   :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .bar .caret {
     width: 14px;
     height: 14px;
-  }
-
-  :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .reveal {
-    grid-column: 1;
-    grid-row: 1;
   }
 
   /* The seats lose their labels and the padding that spaced them, never their

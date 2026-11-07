@@ -198,7 +198,6 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
 {
   const selectors = carrying.map((rule) => rule.selector);
   const expected = [
-    'html[data-device="phone"] .phone-header',
     'html[data-device="phone"] .phone-header .more',
     'html[data-device="phone"] .sheet[role="dialog"]',
     // The feeds column joined them on the owner's word (2026-11-03): the pane he
@@ -206,13 +205,16 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
     'html[data-device="phone"] .panes > .slot.feeds',
   ];
   check(
-    "four surfaces carry it: the bar, the ••• pill, the sheet, the feeds column",
+    "three surfaces carry it: the ••• pill, the sheet, the feeds column",
     selectors.length === expected.length && expected.every((selector) => selectors.includes(selector)),
     selectors.join(" · "),
   );
+  // The bar left them on the owner's word (2026-11-07): its own fill read as a
+  // lighter slab against the black status region, with a hairline under it. The
+  // top of the screen is one colour, so the bar paints nothing at all.
   check(
-    "the header is one of them, in full",
-    selectors.includes('html[data-device="phone"] .phone-header'),
+    "the bar carries none of it",
+    !selectors.includes('html[data-device="phone"] .phone-header'),
   );
   check(
     "the ••• control is a surface of its own",
@@ -329,7 +331,6 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
   // Both blocks must name all three surfaces, or one of them ships half done:
   // a solid bar next to a translucent pill is the state nobody screenshots.
   const expected = [
-    'html[data-device="phone"] .phone-header',
     'html[data-device="phone"] .phone-header .more',
     'html[data-device="phone"] .sheet[role="dialog"]',
   ];
@@ -358,14 +359,18 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
 // ---------------------------------------------------------------------------
 
 {
-  const bar = carrying.find((rule) => rule.selector === 'html[data-device="phone"] .phone-header');
-  check("the bar carries the material", bar !== undefined);
+  const bar = APP.filter(
+    (rule) => rule.selector === 'html[data-device="phone"] .phone-header',
+  ).find((rule) => /background:/.test(rule.body));
+  check("the bar has a rule of its own", bar !== undefined);
   const body = bar?.body ?? "";
   check(
-    "the bar has exactly one hairline, and it is the soft one",
-    /border-bottom:\s*1px solid var\(--glass-edge\)/.test(body) &&
-      !/border-bottom:\s*1px solid var\(--edge\)/.test(body) &&
-      !/border(-top|-left|-right)?:\s*1px solid/.test(body.replace(/border-bottom:[^;]*;/, "")),
+    "and it paints nothing: no fill, no blur, no hairline, no shadow",
+    /background:\s*none/.test(body) &&
+      /backdrop-filter:\s*none/.test(body) &&
+      /border-bottom:\s*0/.test(body) &&
+      /box-shadow:\s*none/.test(body) &&
+      !/var\(--glass-edge\)/.test(body),
     body.replace(/\s+/g, " ").trim(),
   );
   check(
@@ -377,11 +382,6 @@ const onPhone = (selector) => /^(?::global\()?html\[data-device="phone"\]/.test(
     /box-shadow:\s*var\(--glass-lit\), var\(--glass-shadow\)/.test(
       APP.find((rule) => rule.selector.includes('.sheet[role="dialog"]'))?.body ?? "",
     ),
-  );
-  check(
-    "the bar's lit lip faces the content, not the screen edge nobody sees",
-    /box-shadow:\s*\n?\s*inset 0 -1px 0 rgb\(255 255 255 \/ 0\.1\),\s*var\(--glass-shadow\)/.test(body),
-    body.replace(/\s+/g, " ").trim(),
   );
   // The 3px activity seam was the second line under the bar on a phone.
   const aura = APP.find((rule) => rule.selector === 'html[data-device="phone"] .aura');

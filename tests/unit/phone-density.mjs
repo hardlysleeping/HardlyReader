@@ -156,9 +156,13 @@ check(
   /const idle = \$derived\(\s*!locked && reader\.hiddenView === "hidden" && reader\.pinView === "all",?\s*\)/.test(band),
 );
 check("the bandbox carries it", /class:collapsed=\{chrome\.bandCollapsed\} class:idle/.test(band));
+// It was a grid so the handle could join the row at the trailing edge; that put
+// one control in two places — right when the band was open, on top when it was
+// folded — so the handle stays on top, above the seats, in both states.
 check(
-  "idle on a phone, the handle joins the row",
-  /:global\(html\[data-device="phone"\]\) \.bandbox\.idle:not\(\.collapsed\) \{\s*display: grid;/.test(band),
+  "idle on a phone, the handle stays above the row, in one place",
+  !/:global\(html\[data-device="phone"\]\) \.bandbox\.idle:not\(\.collapsed\) \{\s*display: grid;/.test(band) &&
+    /:global\(html\[data-device="phone"\]\) \.bandbox\.idle:not\(\.collapsed\) > \.bar \{\s*height: 16px;/.test(band),
 );
 check(
   "...and the two default words are hidden, not removed: the seats keep their names",
