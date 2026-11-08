@@ -88,7 +88,14 @@ check("reduced motion has no retraction to animate, and it still leaves",
 
 // --- the gesture library keeps its promises
 const pull = read("src/lib/pull.ts");
-check("it only starts at the top", /node\.scrollTop > 0[\s\S]{0,80}return;/.test(pull));
+check(
+  "it only starts at the top",
+  // "The top" is the scroller's, not the node's: a feed unfolded in the tree is
+  // sized by its posts and the tree scrolls, so `node.scrollTop` was 0 for ever
+  // and the gesture armed at the bottom of a long feed.
+  /function scrollerFor/.test(pull) &&
+    /if \(!atBeginning\(node, scrollerFor\(node\)\)\) \{\s*tracking = false;\s*return;\s*\}/.test(pull),
+);
 check("it leaves sideways drags alone", /Math\.abs\(dx\) > Math\.abs\(dy\)/.test(pull));
 check("it stops the browser's own overscroll", /event\.preventDefault\(\)/.test(pull));
 check("it takes its listeners away", /removeEventListener\("touchmove", onMove\)/.test(pull));

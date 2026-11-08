@@ -196,6 +196,12 @@
    */
   function back(): void {
     if (!slideStack) {
+      // The walk's one step out of an unfolded feed is folding it, not leaving
+      // the screen it is drawn in.
+      if (reader.expandedFeedId !== null) {
+        reader.setExpandedFeed(null);
+        return;
+      }
       reader.closeReader();
       return;
     }

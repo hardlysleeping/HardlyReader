@@ -127,7 +127,17 @@
       reader.closeReader();
       return true;
     }
-    return step === "overlay";
+    if (step === "overlay") return true;
+    // A feed unfolded in the tree is a layer you went into, so it is a layer
+    // back goes out of — before the panes, after the article. The swipe and the
+    // system key take it the same way (owner, 2026-11-07: "I want my swipe
+    // gesture for going back to also work for collapsing the feed I'm on in one
+    // pane view").
+    if (reader.expandedFeedId !== null) {
+      reader.setExpandedFeed(null);
+      return true;
+    }
+    return false;
   }
 
   /* ------------------------------------------------------------------ *

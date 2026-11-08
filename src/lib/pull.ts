@@ -71,6 +71,44 @@ export interface PullOptions {
   active?: () => boolean;
 }
 
+/**
+ * The box that actually scrolls under this node.
+ *
+ * A list that is nested inside the feeds tree does not scroll itself — it is
+ * sized by its posts and the tree scrolls (`ArticleList n`ested`.items` is
+ * `overflow: visible` for exactly that reason). Reading `node.scrollTop` there
+ * is reading 0 for ever, so the gesture armed at the bottom of a feed as
+ * readily as at its top, and pulling up to read back through a feed started a
+ * refresh instead. The gesture asks the nearest scrolling ancestor, and the
+ * node itself when it is the scroller.
+ */
+function scrollerFor(node: HTMLElement): HTMLElement {
+  let candidate: HTMLElement | null = node;
+  while (candidate !== null) {
+    const overflow = getComputedStyle(candidate).overflowY;
+    const scrolls = overflow === "auto" || overflow === "scroll" || overflow === "overlay";
+    if (scrolls && candidate.scrollHeight > candidate.clientHeight + 1) return candidate;
+    candidate = candidate.parentElement;
+  }
+  return node;
+}
+
+/**
+ * Whether the content is still at its beginning.
+ *
+ * Two shapes, because there are two: the node scrolls itself (a pane's list),
+ * or it is a list inside a scroller (a feed unfolded in the tree). In the
+ * second the question is not "is the scroller at 0" — the tree above the feed
+ * is content too — but "has this list been scrolled past", which is true exactly
+ * while its own top edge is still at or below the top of the viewport.
+ */
+function atBeginning(node: HTMLElement, scroller: HTMLElement): boolean {
+  if (scroller === node) return node.scrollTop <= 0;
+  const listTop = node.getBoundingClientRect().top;
+  const viewTop = scroller.getBoundingClientRect().top;
+  return listTop >= viewTop - 1;
+}
+
 export function pullDown(node: HTMLElement, options: PullOptions) {
   let opts = options;
   let startX = 0;
@@ -139,7 +177,7 @@ export function pullDown(node: HTMLElement, options: PullOptions) {
     if (event.touches.length !== 1) return;
     if (opts.enabled !== undefined && !opts.enabled()) return;
     // Only from the top: a pull in the middle of the content is a scroll.
-    if (node.scrollTop > 0) {
+    if (!atBeginning(node, scrollerFor(node))) {
       tracking = false;
       return;
     }
@@ -162,7 +200,7 @@ export function pullDown(node: HTMLElement, options: PullOptions) {
       if (pull !== 0) settle();
       return;
     }
-    if (node.scrollTop > 0) {
+    if (!atBeginning(node, scrollerFor(node))) {
       tracking = false;
       settle();
       return;

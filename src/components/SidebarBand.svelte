@@ -315,7 +315,7 @@
 <!-- One band above the stream list: eye on the left, lock in the middle, pin on
      the right. Each control is drawn from `facts`, so the three states are one
      model rather than three branches of markup that can drift apart. -->
-<div class="bandbox" class:collapsed={chrome.bandCollapsed} class:idle>
+<div class="bandbox" class:collapsed={chrome.bandCollapsed} class:idle class:locked>
   {#if pulse}
     <span
       class="pulse {pulse}"
@@ -328,6 +328,28 @@
        what the curtain covers. The arrow points up while the controls are
        showing and down while they are hidden, so the direction always describes
        what a click will do. -->
+  {#if locked}
+    <!-- The pin, on its own strip above the caret and everything the curtain
+         covers.
+         It was folded away with the rest for a while, on the argument that a
+         control changing the list the lock just covered is a control whose result
+         nobody can check — and the owner's answer is that a pin is *what* is
+         shown, not what is in it: choosing "Starred only" or "without pins" is
+         reading the list that is left, and needing the passcode first is the lock
+         doing something nobody asked it to. On a phone the lock also folds the
+         band (`collapseBandForLock`), which is why this sits *outside* the reveal
+         rather than in the compact row: folded, the band is a caret, and the pin
+         stays under the thumb.
+         It sits *above* the caret on the owner's word (2026-11-07): the handle
+         you fold with belongs at the bottom of the strip, under the things it
+         folds, not on top of them.
+         The curtain still applies to what it says: while locked `bandFacts` gives
+         the pin no word and names it by the count alone, so the strip cannot be
+         read as a statement about what is hidden. -->
+    <div class="band compact pinstrip">
+      {@render pinControl()}
+    </div>
+  {/if}
   <button
     class="bar"
     onclick={toggleBand}
@@ -339,25 +361,6 @@
       <path d="M6 9l6 6 6-6" />
     </svg>
   </button>
-  {#if locked}
-    <!-- The pin, on its own strip between the caret and everything the curtain
-         covers.
-         It was folded away with the rest for a while, on the argument that a
-         control changing the list the lock just covered is a control whose result
-         nobody can check — and the owner's answer is that a pin is *what* is
-         shown, not what is in it: choosing "Starred only" or "without pins" is
-         reading the list that is left, and needing the passcode first is the lock
-         doing something nobody asked it to. On a phone the lock also folds the
-         band (`collapseBandForLock`), which is why this sits *outside* the reveal
-         rather than in the compact row: folded, the band is a caret, and the pin
-         stays under the thumb.
-         The curtain still applies to what it says: while locked `bandFacts` gives
-         the pin no word and names it by the count alone, so the strip cannot be
-         read as a statement about what is hidden. -->
-    <div class="band compact pinstrip">
-      {@render pinControl()}
-    </div>
-  {/if}
   {#if facts.row}
     <div
       class="reveal"
@@ -719,6 +722,19 @@
     border-color: color-mix(in srgb, var(--text) 6%, transparent);
     background: color-mix(in srgb, var(--band-face) 30%, transparent);
     box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+  }
+
+  /* Locked, on a phone, the band is two glyphs and nothing else: a lock and a
+     pin. The full-width pill it used to draw around them was a border with no
+     edge to hold — one control centred in a slab across the column reads as a
+     disabled row, not as a lock. The slab stays on a window, where the band is
+     a row of three seats with words in it. */
+  :global(html[data-device="phone"]) .bandbox.locked .band.compact {
+    border: 0;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
   }
 
   .ctl {

@@ -572,6 +572,32 @@
    * fetches the posts — the same request the posts column would have made — but
    * the sidebar stays put, so nothing slides out from under the finger.
    */
+  /**
+   * A stream that is not a feed, unfolded in one panel.
+   *
+   * The Reading list and Favourites are streams the same way a feed is: on a
+   * phone with one column there is no pane 2 to put them in, so pressing them
+   * replaces the tree with their posts. A feed unfolds under its own row
+   * instead, and the owner asked for the same thing here (2026-11-07): "both
+   * uncollapse in 1 pane only view like how feeds do when clicked". Same
+   * mechanism, one state: `expandedFeed` holds the stream's id and the nested
+   * list is drawn under the row, so a press folds what it opened.
+   */
+  async function toggleInlineStream(streamId: string, title: string) {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    if (expandedFeed === streamId) {
+      reader.setExpandedFeed(null);
+      return;
+    }
+    reader.setExpandedFeed(streamId);
+    await reader.openStream(streamId, title);
+    await tick();
+    pinFeed(streamId);
+  }
+
   async function toggleFeed(feed: Subscription) {
     if (swallowClick) {
       swallowClick = false;
@@ -606,7 +632,7 @@
   function unfoldedRow(id: string): HTMLElement | null {
     if (feedTree === null) return null;
     return feedTree.querySelector<HTMLElement>(
-      `[data-drop-feed="${id}"], [data-drop-cat-row="${id}"]`,
+      `[data-drop-feed="${id}"], [data-drop-cat-row="${id}"], [data-inline-row="${id}"]`,
     );
   }
 
@@ -653,8 +679,19 @@
     const row = unfoldedRow(id);
     if (row === null) return;
     feedRowHeight = row.offsetHeight;
+    // **Measured unstuck.** The unfolded row is `position: sticky`, so once the
+    // list under it has been scrolled the row's rect *is* the top of the
+    // viewport and the arithmetic below returns the scroll it is already at —
+    // a no-op that left a feed opening wherever the previous one had been
+    // scrolled to, sometimes at its end. Reading it while it is static gives
+    // the row's place in the content, which is what "put this feed at the top"
+    // means. `offsetTop` would be cheaper but it is not the same number in a
+    // nested tree with its own offsets.
+    const stuck = getComputedStyle(row).position === "sticky";
+    if (stuck) row.style.position = "static";
     const offset =
       row.getBoundingClientRect().top - feedTree.getBoundingClientRect().top + feedTree.scrollTop;
+    if (stuck) row.style.position = "";
     feedTree.scrollTo({ top: Math.max(0, offset) });
   }
 
@@ -1509,22 +1546,38 @@
     <button
       class="row strong"
       class:active={openStreamId === READING_LIST}
-      onclick={() => open(READING_LIST, "Reading list")}
+      class:unfolded={inlinePosts && expandedFeed === READING_LIST}
+      data-inline-row={READING_LIST}
+      aria-expanded={inlinePosts ? expandedFeed === READING_LIST : undefined}
+      onclick={() =>
+        inlinePosts
+          ? void toggleInlineStream(READING_LIST, "Reading list")
+          : open(READING_LIST, "Reading list")}
     >
       <span class="label">Reading list</span>
       <span class="count">{reader.countFor(READING_LIST)}</span>
     </button>
+    {#if inlinePosts && expandedFeed === READING_LIST}
+      <ArticleList nested />
+    {/if}
     <button
       class="row strong"
       class:active={openStreamId === STATE_STARRED}
+      class:unfolded={inlinePosts && expandedFeed === STATE_STARRED}
+      data-inline-row={STATE_STARRED}
       bind:this={starredRow}
-      onclick={() => open(STATE_STARRED, "Favourites")}
+      aria-expanded={inlinePosts ? expandedFeed === STATE_STARRED : undefined}
+      onclick={() =>
+        inlinePosts ? void toggleInlineStream(STATE_STARRED, "Favourites") : open(STATE_STARRED, "Favourites")}
     >
       <span class="label">Favourites</span>
       {#if reader.countIfKnown(STATE_STARRED) !== null}
         <span class="count">{reader.countFor(STATE_STARRED)}</span>
       {/if}
     </button>
+    {#if inlinePosts && expandedFeed === STATE_STARRED}
+      <ArticleList nested />
+    {/if}
   </div>
 
   {#each reader.categories as category, index (category.id)}
