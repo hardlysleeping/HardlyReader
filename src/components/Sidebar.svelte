@@ -1924,7 +1924,12 @@
   {/if}
 
   <!-- The counts are the last row on the screen: under the footer, so opening
-       the add form cannot lift them off the bottom edge. -->
+       the add form cannot lift them off the bottom edge.
+       Locked, there is no row at all. The curtain takes the hidden count away, and
+       a strip with nothing left to say still drew its top hairline — a line under
+       the tree that looked like a row that had failed to load. Nothing to say now
+       means nothing drawn. -->
+  {#if !reader.hiddenLocked && ((strip.hiddenCount !== null && strip.hiddenCount > 0) || strip.pinnedCount > 0)}
   <div class="status" aria-live="polite">
     {#if strip.hiddenCount !== null && strip.hiddenCount > 0}
       <span class="stat">Hidden <b>{strip.hiddenCount}</b></span>
@@ -1941,6 +1946,7 @@
       <span class="stat">{words.count} <b>{strip.pinnedCount}</b></span>
     {/if}
   </div>
+  {/if}
 </nav>
 
 <style>

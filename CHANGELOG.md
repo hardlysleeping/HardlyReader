@@ -4,6 +4,48 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.41] — 2026-11-08
+
+### Fixed
+
+- **A hiccup is no longer a wipe.** A sidebar state read that fails with a
+  5xx, a proxy page or a timeout keeps the state this device already knew and
+  says what failed; only a 404 — the route genuinely absent — clears it. So a
+  server restart or a bad minute can never look like "the extension forgot
+  everything".
+- **Transient failures are retried, identical writes are not repeated.** A
+  dropped connection, a 408/425/429 or a 5xx is tried twice more (300 ms, then
+  900 ms) before it is reported. Sign-in posts are never repeated, and a locked
+  (423) or convergence (409) answer is final the first time, so a retry can
+  never double a write.
+- **The counts strip is absent while locked**, instead of drawing a lone
+  hairline where the hidden count would be.
+- **The passcode dots no longer animate.** Each digit repainted an animated
+  background, border and glow; the dots are a colour change now, so typing a
+  passcode does no compositing work.
+
+### Changed
+
+- **Due feeds are fetched four at a time, not one after another.** A bounded
+  pool (four by default, never more than eight) claims the due list in order, so
+  the order feeds start in and the report read back are exactly the sequential
+  version's — it just finishes a wake in a quarter of the wall clock. A feed that
+  never started because of an abort is reported as aborted, never as fetched.
+
+### Since 0.6.40
+
+- The phone's top is one surface, and back folds the feed: pull only at the
+  top, unfold at the top.
+- The bar keeps the one hairline under it.
+- Cards view: one wheel gesture buys one post however long its deltas run, and
+  steps one adjacent comic.
+- The pin's hidden view goes quiet and struck through, revealed wears
+  HardlyTracking's own eye.
+- Settings follow the HardlyReader account, never the feed server; a library on
+  this device names itself once in the top bar; signing in is the first screen
+  and this device is a choice on it.
+- The filter pairs lose the slash, and the hollow star takes the left.
+
 ## [0.6.40] — 2026-11-05
 
 ### Added

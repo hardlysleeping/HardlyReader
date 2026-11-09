@@ -2647,6 +2647,12 @@ export class ReaderState {
 
     if (!this.hiddenCategories.available || this.hiddenCategories.locked) return null;
 
+    // Nothing to say: the view in hand already is the one being asked for, and
+    // nothing is queued behind it. Re-sending it would be a second write to the
+    // extension's store for a value it already holds — the exact traffic that
+    // used to overlap with another client's write.
+    if (this.hiddenCategories.view === view && this.hiddenPending === 0) return null;
+
     const previous = this.hiddenCategories;
     this.hiddenCategories = withView(previous, view);
     // `revealed` draws every category and `only` draws just the hidden ones;
@@ -3406,16 +3412,15 @@ export class ReaderState {
       // A failed read is not news about the state: when a write is still out,
       // what is drawn stays drawn, and only a read with nothing in flight may
       // report the extension gone.
-      if (this.hiddenWritesSettled(generation)) {
-        // The curtain, though, stays down. Falling back to "no extension" here
-        // would put the hidden categories back on screen because the network
-        // blinked — the one thing a lock exists to prevent — so a lock that is
-        // already drawn stays drawn until a read proves otherwise.
-        if (gone || !this.hiddenCategories.locked) {
-          this.hiddenCategories = unavailableState();
-          this.favorites = unavailableFavorites();
-          this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
-        }
+      if (this.hiddenWritesSettled(generation) && gone) {
+        // Only a 404 says the route is not there. A 5xx, a proxy page or a
+        // timeout says nothing at all: blanking the state for one of those
+        // silently unlocks the curtain and puts hidden categories back on
+        // screen, and the device's own empty set then answers for a server that
+        // does remember. Keep what the server last said and report the error.
+        this.hiddenCategories = unavailableState();
+        this.favorites = unavailableFavorites();
+        this.sidebarIndent = { available: false, px: SIDEBAR_INDENT_FALLBACK_PX, max: SIDEBAR_INDENT_MAX_PX };
       }
       this.hiddenError = message(error);
       report?.fail("extension");

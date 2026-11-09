@@ -153,23 +153,23 @@
     padding: 3px 0 5px;
   }
 
+  /* No transition and no glow on the dots.
+     Each digit repaints these, and on a phone's web view an animated
+     background/box-shadow per keypress was the one thing on the screen doing
+     work while the passcode was typed. A filled dot is a colour change now —
+     instant, and nothing to composite. */
   .dot {
     width: 9px;
     height: 9px;
     border: 1px solid color-mix(in srgb, var(--pad-tone) 40%, transparent);
     border-radius: 50%;
-    transition:
-      background-color 0.12s ease,
-      box-shadow 0.12s ease,
-      border-color 0.12s ease;
   }
 
-  /* Filled dots take the tone and a little light, so the count reads at a
-     glance without the digits ever being on screen. */
+  /* Filled dots take the tone, so the count reads at a glance without the
+     digits ever being on screen. */
   .dot.on {
     border-color: var(--pad-tone);
     background: var(--pad-tone);
-    box-shadow: 0 0 7px color-mix(in srgb, var(--pad-tone) 45%, transparent);
   }
 
   .keys {
