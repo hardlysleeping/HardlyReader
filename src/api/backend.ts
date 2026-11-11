@@ -23,9 +23,19 @@
  *    local backend that invented its own ids would need a translation layer
  *    everywhere else.
  *
- * Nothing here is implemented yet beyond `GReaderBackend`, which delegates to
- * the existing functions and therefore changes no behaviour. `LocalBackend` is
- * the other side of the seam and is not written.
+ * Both sides are written. `GReaderBackend` delegates to the existing functions
+ * and therefore changes no behaviour; `LocalBackend` answers the same questions
+ * from a database on this device, and is what a device library is read through.
+ * The store holds one of them and never learns which.
+ *
+ * The seam covers reading: subscriptions, labels, streams, marks, subscribing,
+ * moving a feed, and — only where it applies — fetching. Two things are
+ * deliberately *not* on it, and their absence is a claim rather than an
+ * omission: the body and picture caches (the device's own storage budget, which
+ * no server has an opinion about) and device sync (a merge over rows and files,
+ * which is `api/local/sync.ts` and is handed a store explicitly). Putting either
+ * on this interface would mean a backend that has to implement something no
+ * backend on the other side of the seam can do.
  */
 import type {
   Session,

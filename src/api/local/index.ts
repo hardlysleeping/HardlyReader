@@ -1,10 +1,21 @@
 /**
  * Local mode, in one import.
  *
- * The seam is `ReaderBackend`; this directory is the other side of it. Nothing
- * in the app imports this yet — wiring the store to hold a `LocalBackend`
- * instead of calling the GReader functions is a separate change, and it is a
- * change to the store, not to the backend.
+ * The seam is `ReaderBackend`; this directory is the other side of it. The app
+ * holds a `LocalBackend` the same way it holds a `GReaderBackend` — `profile.ts`
+ * builds one for a device library, and the store reads, writes and polls through
+ * it without knowing which side of the seam it is on.
+ *
+ * Three things in the app still reach past the seam to this directory, each for
+ * a reason that is about the library rather than about reading it:
+ *
+ * - **device sync** holds the `LocalStore`, because a merge is a question about
+ *   the file set and the rows, not about a stream of articles;
+ * - **the body and picture caches** hold it, because they are the device's own
+ *   storage budget and no server is involved in what they keep;
+ * - **the demo** seeds rows into it before a reader exists.
+ *
+ * Everything else goes through the backend.
  *
  * The two entry points a caller is expected to use:
  *
