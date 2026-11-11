@@ -23,6 +23,8 @@ export { LocalBackend } from "./local-backend";
 export { LocalStore, localItemId } from "./store";
 export { openLocalDatabase, preferredEngine } from "./open";
 export { LocalStorageError } from "./driver";
+export { migrate, readVersion, writeVersion, SCHEMA_VERSION } from "./migrations";
+export type { Migration, MigrationOptions, MigrationReport, SqlExecutor } from "./migrations";
 export { MemoryDatabase } from "./memory-db";
 export {
   DEVICES_FILE,

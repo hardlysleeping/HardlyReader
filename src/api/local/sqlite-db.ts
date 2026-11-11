@@ -17,22 +17,21 @@
  *   post twice with different flags. The queue is a promise chain, which is
  *   enough because the whole app is one thread.
  *
- * The schema is created on open from `createTableSql`, the same text the unit
- * suite runs against a real SQLite engine. Migrations are expected to grow
- * here as `ALTER TABLE` steps guarded by `PRAGMA user_version`; nothing needs
- * that yet, and `CREATE TABLE IF NOT EXISTS` is the correct first step.
+ * The tables are created on open from `createTableSql`, the same text the unit
+ * suite runs against a real SQLite engine — but creating them is only the first
+ * of the things an open does to a file that already exists. Bringing an older
+ * library forward, stamping its schema version and refusing a newer one are
+ * `migrations.ts`'s job; `open` does none of it itself.
  */
 import {
   LocalStorageError,
   type LocalDatabase,
   type WriteOperation,
 } from "./driver";
+import { migrate, type MigrationReport } from "./migrations";
 import {
   columnNames,
   columnValues,
-  createTableSql,
-  sqlType,
-  tableNames,
   TABLES,
   type LocalRow,
   type TableName,
@@ -79,48 +78,13 @@ async function connectPlugin(name: string): Promise<SqlDatabase> {
 }
 
 /**
- * The two statements a migration needs, so it can be run by a test against an
- * engine other than the plugin.
- *
- * `ensureColumns` below is the only part of this file that touches a database
- * that already exists, which makes it the only part worth proving outside a
- * launched app: a fresh install creates its tables from `createTableSql` and
- * never notices, while an install from before a column existed is exactly the
- * case that would fail on first write with `no such column`.
+ * How a library is brought forward lives in `migrations.ts` — the version stamp,
+ * the column heal, the ordered steps and the refusal of a newer file. It is
+ * re-exported here because this is the file every other module already knows as
+ * "the SQLite one", and because the suites prove the migration through it.
  */
-export interface SqlExecutor {
-  execute(query: string, values?: unknown[]): Promise<unknown>;
-  select<T>(query: string, values?: unknown[]): Promise<T>;
-}
-
-/**
- * Adds, to a table that already exists, every column the schema declares and
- * the table is missing.
- *
- * SQLite's `CREATE TABLE IF NOT EXISTS` does nothing at all to a table that is
- * already there, so a new column is invisible to every database created before
- * it — and a `put` that names it fails at the first write rather than at the
- * first read, which is a library that stops accepting articles after an update.
- * `ALTER TABLE … ADD COLUMN` is the whole fix; a new column is always nullable
- * here, because a row written before it has no value to invent.
- *
- * Returns the columns it added, which is what the suite asserts on.
- */
-export async function ensureColumns(db: SqlExecutor, table: TableName): Promise<string[]> {
-  const rows = await db.select<{ name: string }[]>(
-    `SELECT name FROM pragma_table_info('${table}')`,
-  );
-  const present = new Set(rows.map((row) => row.name));
-  const added: string[] = [];
-  for (const column of TABLES[table].columns) {
-    if (present.has(column.name)) continue;
-    await db.execute(
-      `ALTER TABLE "${table}" ADD COLUMN "${column.name}" ${sqlType(column.type)}`,
-    );
-    added.push(column.name);
-  }
-  return added;
-}
+export { ensureColumns, migrate, readVersion, writeVersion, SCHEMA_VERSION } from "./migrations";
+export type { Migration, MigrationOptions, MigrationReport, SqlExecutor } from "./migrations";
 
 /** SQLite's default limit on bound parameters, with room left for the rest. */
 const KEY_CHUNK = 400;
@@ -141,8 +105,11 @@ export class SqliteDatabase implements LocalDatabase {
     this.db = db;
   }
 
+  /** What opening this library had to change. Null until `open` has finished. */
+  report: MigrationReport | null = null;
+
   /**
-   * Opens (or creates) the library file and makes sure the tables exist.
+   * Opens (or creates) the library file and brings it up to this build's shape.
    *
    * The plugin resolves `sqlite:hardlyreader.db` under the app's data
    * directory, which is where a library belongs: beside the account's own
@@ -150,6 +117,10 @@ export class SqliteDatabase implements LocalDatabase {
    *
    * `connect` is the plugin by default; a test hands in its own engine so the
    * `CREATE TABLE`, migration and write statements below are the ones that run.
+   *
+   * `report` is what the open had to do — nothing at all on a library already at
+   * this version, which is the normal case, and the columns it healed on one
+   * written by an older build.
    */
   static async open(
     name: string = LOCAL_DATABASE_FILE,
@@ -157,13 +128,7 @@ export class SqliteDatabase implements LocalDatabase {
   ): Promise<SqliteDatabase> {
     const db = await connect(name);
     const opened = new SqliteDatabase(db);
-    for (const table of tableNames()) {
-      await db.execute(createTableSql(table));
-      // A library created by an older version has the table but not every
-      // column in it; the file is the reader's, so it is brought forward rather
-      // than replaced.
-      await ensureColumns(db, table);
-    }
+    opened.report = await migrate(db);
     return opened;
   }
 
