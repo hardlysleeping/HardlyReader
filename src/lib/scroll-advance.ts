@@ -289,6 +289,38 @@ export const SETTLE_MS = 420;
  */
 export const GESTURE_GAP_MS = 160;
 
+/**
+ * The same question for the cards column, whose answer is not the wheel's one.
+ *
+ * `GESTURE_GAP_MS` above is about a *wheel*, and a wheel is either turning or
+ * not: its notches are 30–80ms apart, so a 160ms gap really is a hand that
+ * stopped. Two-finger scrolling is not like that. Its deltas are emitted as the
+ * accumulated travel crosses a threshold, so a *slow* push sends them 200–450ms
+ * apart while the reader's fingers have never left the pad — and after a flick,
+ * the desktop's own kinetic scrolling keeps sending them at that spacing too.
+ *
+ * At 160ms each of those read as a fresh gesture, so the column bought a card
+ * per event: measured in a real browser against this component, ten deltas 180ms
+ * apart crossed ten cards, and the same ten at 120ms apart crossed one. That is
+ * the owner's "I scroll the comics and it jumps days at a time".
+ *
+ * The fix is not a longer *gap* — a slow push and two separate pushes can both
+ * arrive 300ms apart, so no gap distinguishes them — it is the rule the article
+ * pane already uses on its own wheel: a step buys the gesture, and the column
+ * does not listen again until the wheel has been *quiet* for long enough that a
+ * hand can plausibly have stopped and pushed again. Measured, that is 600ms:
+ * deltas spaced anywhere from 8ms to 550ms cross exactly one card, while a
+ * reader who stops and pushes again a second later gets the next one. Anything
+ * shorter leaves a slow scroll — 450ms between deltas still crossed ten cards
+ * at `SETTLE_MS` — and anything longer makes the column feel deaf.
+ *
+ * The cost is deliberate: a continuous scroll buys one card and then waits, so
+ * skimming a strip of comics is the arrow keys' job (`store.stepSeq`), not the
+ * wheel's. That is the trade the wheel is making, and it is the one the owner
+ * asked for: the scroll lock is worth nothing if one scroll takes several days.
+ */
+export const LIST_GESTURE_GAP_MS = 600;
+
 /** Whether a wheel event starts a new push, rather than continuing the last one. */
 export function isNewGesture(now: number, last: number, gap = GESTURE_GAP_MS): boolean {
   if (!Number.isFinite(now)) return false;

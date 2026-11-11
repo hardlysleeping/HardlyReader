@@ -2,7 +2,7 @@ import {
   EFFORT_DEFAULT, EFFORT_HARD_MAX, EFFORT_HARD_MIN, EFFORT_MAX, EFFORT_MIN, PULL_CURVE,
   PULL_THRESHOLD, accumulate, clampEffort, curveAt, directionOf, effortForSwipePx, peekOf,
   progressOf, shouldAdvance, SWIPE_GAIN, swipePxFor, swipePull, swipeTravel, thresholdFor,
-  GESTURE_GAP_MS, isNewGesture,
+  GESTURE_GAP_MS, LIST_GESTURE_GAP_MS, isNewGesture,
   travelAt, travelFor, travelToAdvance, withinSlider,
 } from "../../src/lib/scroll-advance.ts";
 
@@ -263,7 +263,28 @@ check(
   "the cards column advances one adjacent item and blocks the burst tail",
   /event\.preventDefault\(\);\s*if \(listStepSpent\) return;/.test(cards) &&
     /const row = currentCard\(\);\s*if \(!row\) return;\s*listStepSpent = true;\s*stepCard\(direction\);/.test(cards) &&
-    /isNewGesture\(now, listWheelAt, GESTURE_GAP_MS\)/.test(cards),
+    /isNewGesture\(now, listWheelAt, LIST_GESTURE_GAP_MS\)/.test(cards),
+);
+
+// The cards column asks a different question than the wheel does, and it was
+// asked the wheel's way: a two-finger scroll sends its deltas as far apart as
+// 450ms with the fingers still on the pad, so at GESTURE_GAP_MS every delta was
+// a new gesture and ten deltas crossed ten cards — the owner's "I scroll the
+// comics and it jumps days at a time". Measured in a real browser against this
+// component before and after the constant below.
+check("a slow scroll is still one gesture for the cards", LIST_GESTURE_GAP_MS > GESTURE_GAP_MS);
+check(
+  "...so deltas 450ms apart do not re-arm it",
+  isNewGesture(1000 + 450, 1000, LIST_GESTURE_GAP_MS) === false &&
+    isNewGesture(1000 + 180, 1000, LIST_GESTURE_GAP_MS) === false,
+);
+check(
+  "...while a hand that stopped and pushed again does",
+  isNewGesture(1000 + LIST_GESTURE_GAP_MS + 1, 1000, LIST_GESTURE_GAP_MS) === true,
+);
+check(
+  "...and the cards column reads its own constant, not the wheel's",
+  !/(?<!LIST_)GESTURE_GAP_MS\)/.test(cards) && /LIST_GESTURE_GAP_MS/.test(cards),
 );
 
 // The Aa panel the phone opens has the row; the desktop's does not, because a

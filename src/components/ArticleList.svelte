@@ -47,7 +47,7 @@
   import { carousel } from "../state/carousel.svelte";
   import { pullLabels } from "../lib/gestures";
   import { chrome } from "../state/chrome.svelte";
-  import { GESTURE_GAP_MS, SETTLE_MS, isNewGesture } from "../lib/scroll-advance";
+  import { LIST_GESTURE_GAP_MS, SETTLE_MS, isNewGesture } from "../lib/scroll-advance";
   import { articleQueue, candidateFor } from "../lib/extract-queue";
   import { ledger } from "../lib/extract-ledger";
   import { wantsFullText } from "../lib/full-text";
@@ -1212,7 +1212,12 @@
 
     const direction = event.deltaY > 0 ? 1 : -1;
     const now = performance.now();
-    if (isNewGesture(now, listWheelAt, GESTURE_GAP_MS)) listStepSpent = false;
+    // The cards column asks a different question than the article pane: not
+    // "has the wheel started a new push" (a slow two-finger scroll sends its
+    // deltas hundreds of milliseconds apart and would read as one push per
+    // delta — ten cards from one scroll) but "has the wheel been quiet long
+    // enough that a new push can have begun". See `LIST_GESTURE_GAP_MS`.
+    if (isNewGesture(now, listWheelAt, LIST_GESTURE_GAP_MS)) listStepSpent = false;
     listWheelAt = now;
 
     // In locked Cards mode the wheel has one meaning everywhere: next card or

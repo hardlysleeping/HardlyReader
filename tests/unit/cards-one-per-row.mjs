@@ -221,7 +221,7 @@ check(
 check(
   "one locked wheel gesture steps exactly one card in its direction",
   (() => {
-    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 1100);
+    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 1700);
     return (
       /event\.preventDefault\(\);\s*if \(listStepSpent\) return;/.test(wheel) &&
       /const row = currentCard\(\);\s*if \(!row\) return;\s*listStepSpent = true;\s*stepCard\(direction\);/.test(wheel)
@@ -232,10 +232,10 @@ check(
 check(
   "wheel input only advances when the lock is enabled and one burst cannot double-step",
   (() => {
-    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 1100);
+    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 1700);
     return (
       /!reading\.advanceOnScroll/.test(wheel) &&
-      /isNewGesture\(now, listWheelAt, GESTURE_GAP_MS\)/.test(wheel) &&
+      /isNewGesture\(now, listWheelAt, LIST_GESTURE_GAP_MS\)/.test(wheel) &&
       /listWheelAt = now;/.test(wheel) &&
       !/accumulate\(|shouldAdvance\(|listPull|cardFits\(row\)/.test(wheel)
     );
