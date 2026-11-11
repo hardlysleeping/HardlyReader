@@ -1,7 +1,7 @@
 {
   "name": "hardlyreader",
   "private": true,
-  "version": "0.6.41",
+  "version": "0.6.42",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {
@@ -16,22 +16,22 @@
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
-    "@supabase/supabase-js": "^2.118.0",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-http": "^2.8.3",
-    "@tauri-apps/plugin-opener": "^2.7.2",
-    "@tauri-apps/plugin-sql": "^2",
+    "@supabase/supabase-js": "^2.119.0",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-http": "^2.9.0",
+    "@tauri-apps/plugin-opener": "^2.7.3",
+    "@tauri-apps/plugin-sql": "^2.6.0",
     "dompurify": "^3.4.17"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.1.2",
-    "@tauri-apps/cli": "^2",
-    "@types/node": "^26.6.5",
-    "lucide-static": "0.545.0",
-    "svelte": "^5.56.3",
-    "svelte-check": "^4.6.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@tauri-apps/cli": "^2.12.4",
+    "@types/node": "^26.6.6",
+    "lucide-static": "1.71.0",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.8",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.3.7"
   },
   "engines": {
     "node": ">=22"

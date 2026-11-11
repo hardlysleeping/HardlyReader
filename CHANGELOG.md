@@ -4,6 +4,35 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.42] — 2026-11-11
+
+### Fixed
+
+- **A slow scroll is one card, not a whole week of them.** The cards column
+  asked the wheel's question — "has a new push begun" — with the wheel's own
+  160 ms gap. Two-finger scrolling does not send deltas like a wheel: it emits
+  them as accumulated travel crosses a threshold, so a slow push sends them
+  200–450 ms apart with the fingers never leaving the pad, and the desktop's
+  kinetic scrolling keeps sending them at that spacing after a flick. Every one
+  of those counted as a fresh gesture and bought a card, so one scroll walked
+  several days of comics. The column now re-arms only after 600 ms of quiet —
+  a hand that has stopped rather than a push still running. Measured in a real
+  browser: deltas spaced 8–550 ms apart cross exactly one card; three pushes a
+  second apart cross three. The article pane keeps its own 160 ms gate.
+- **A library from a newer build is refused instead of downgraded.** Opening
+  the store now reads `PRAGMA user_version`: a fresh library is stamped, an old
+  one is healed and then stamped, and a file written by a newer build throws a
+  message naming both versions rather than being read with the columns this
+  build happens to know and written back with nulls in the rest. Migration
+  steps run in version order and the stamp is written only after they all
+  succeed, so an interrupted open repeats its work instead of skipping it.
+
+### Changed
+
+- **Everything is up to date.** Dependencies and Rust crates brought to their
+  current releases; the icon set regenerated from lucide-static 1.x. TypeScript
+  stays on 6 because `svelte-check` cannot drive TypeScript 7 yet.
+
 ## [0.6.41] — 2026-11-08
 
 ### Fixed
