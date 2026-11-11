@@ -101,3 +101,58 @@ export async function screenSize(): Promise<{ width: number; height: number } | 
   }
   return null;
 }
+
+/**
+ * What the window should become to show one card whole — and no more than that.
+ *
+ * **The fit is minimal.** The pane keeps the width it has and the window only
+ * grows in height, by the amount the card is short of. Widening is never the
+ * answer: a card's picture is drawn across the pane, so a wider pane makes the
+ * picture *taller*, which is the opposite of fitting it. Growing to the screen's
+ * full height on every press — what this used to ask for — resized a window for
+ * a comic that already fitted, and the reader got a window he did not ask for.
+ *
+ * The picture keeps its own shape (`height = paneWidth × share ÷ natural`), the
+ * card keeps its furniture (`chrome`) and its two slivers (`peek`), so the
+ * neighbours still show above and below. Never shorter than `windowHeight`: a
+ * fit that shrank the window is a fit nobody asked for, and the shell clamps
+ * some asks anyway. Returns `null` when nothing would move, so a press on a card
+ * that already fits does nothing at all.
+ */
+export interface CardFitInput {
+  /** The pane the cards are drawn in, right now. */
+  paneWidth: number;
+  /** The share of the pane one picture is drawn across (panels share one zoom). */
+  share: number;
+  /** The picture's own shape: width ÷ height. */
+  natural: number;
+  /** Everything in the window that is not the picture: the card's text, header. */
+  chrome: number;
+  /** The window as it stands, and the screen it is on, in logical pixels. */
+  windowHeight: number;
+  screenHeight: number;
+  /** The sliver kept above and below the card, as the sheet fades by. */
+  peek: number;
+  /** The shortest window the app may be asked for. */
+  floor: number;
+}
+
+export interface CardFit {
+  paneWidth: number;
+  height: number;
+}
+
+export function fitCardToWindow(input: CardFitInput): CardFit | null {
+  const { paneWidth, share, natural, chrome, windowHeight, screenHeight, peek, floor } = input;
+  if (!Number.isFinite(natural) || natural <= 0) return null;
+  if (!Number.isFinite(paneWidth) || paneWidth <= 0) return null;
+  const pictureH = (paneWidth * share) / natural;
+  const wanted = chrome + pictureH + 2 * peek;
+  // The screen is the ceiling, the shell's own floor is the floor, and the
+  // window as it stands is the third bound: a fit only ever grows. A window
+  // already taller than the screen is left alone rather than clamped down to it.
+  const ceiling = Math.max(floor, screenHeight);
+  const height = Math.round(Math.max(windowHeight, Math.min(ceiling, Math.max(wanted, floor))));
+  if (Math.abs(height - windowHeight) < 1) return null;
+  return { paneWidth: Math.round(paneWidth), height };
+}

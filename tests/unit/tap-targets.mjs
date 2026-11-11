@@ -213,8 +213,8 @@ const phoneHeader = read("src/components/PhoneHeader.svelte");
       /html\[data-device="phone"\] \.phone-header :is\(\.step, \.more, \.sync\)::after \{/.test(app),
   );
   check(
-    "and every box in that bar stops at the bar's 40px, not at the panes",
-    /--tap44-h: 40px/.test(
+    "and every box in that bar stops at the bar's 36px, not at the panes",
+    /--tap44-h: 36px/.test(
       ruleBody(app, 'html[data-device="phone"] .phone-header :is(.step, .more, .sync)', "app.css"),
     ),
   );
@@ -445,7 +445,7 @@ function noOverlaps(label, controls) {
     "and its box stops at the bar's edges",
     // The bar's own Sync is `PhoneHeader`'s now; the cap lives in the one rule
     // that names the bar's three controls, so a 44px box cannot reach the panes.
-    /--tap44-h: 40px/.test(
+    /--tap44-h: 36px/.test(
       ruleBody(app, 'html[data-device="phone"] .phone-header :is(.step, .more, .sync)', "app.css"),
     ),
   );

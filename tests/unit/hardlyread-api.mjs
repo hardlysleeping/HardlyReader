@@ -23,6 +23,7 @@ import {
   setIndent,
   setView,
   unlockHidden,
+  addPerson,
   unavailableState,
 } from "../../src/api/hardlyread.ts";
 import { effectiveView, showsCategory, visibleGroups } from "../../src/state/hidden.ts";
@@ -482,6 +483,83 @@ check("unavailable state has no passcode", unavailableState().hasPasscode === fa
     refused = error;
   }
   check("a non-integer is refused before it is sent", refused instanceof RangeError && calls.length === 1);
+}
+
+/* ------------------------------------------------------- transient retries */
+
+async function attempts(handler, run) {
+  const { transport, calls } = recorder(handler);
+  let result = null;
+  let error = null;
+  try {
+    result = await run(transport);
+  } catch (caught) {
+    error = caught;
+  }
+  return { calls, result, error };
+}
+
+{
+  // A 503 twice, then the answer: the read arrives instead of the sidebar
+  // giving up on the extension for the rest of the session.
+  let n = 0;
+  const { calls, result } = await attempts(
+    () => (++n < 3 ? jsonResponse(503, { ok: false, error: { code: "store_busy" } }) : jsonResponse(200, stateBody())),
+    (t) => getState(t, SESSION),
+  );
+  check("a 503 on GET is retried until it answers", calls.length === 3 && result.mode === "strict", `${calls.length} calls`);
+}
+
+{
+  // A dropped connection is not an answer either.
+  let n = 0;
+  const { calls, result } = await attempts(
+    () => {
+      if (++n === 1) throw new TypeError("fetch failed");
+      return jsonResponse(200, stateBody());
+    },
+    (t) => getState(t, SESSION),
+  );
+  check("a network error on GET is retried once", calls.length === 2 && result.available === true, `${calls.length} calls`);
+}
+
+{
+  // 423 locked is the server saying "no", not "not yet".
+  const { calls, error } = await attempts(
+    () => jsonResponse(423, { ok: false, error: { code: "locked", message: "locked" }, hiddenCategories: stateBody().hiddenCategories }),
+    (t) => setView(t, SESSION, "revealed"),
+  );
+  check("a 423 is never retried", calls.length === 1 && error instanceof ApiError && error.status === 423, `${calls.length} calls`);
+}
+
+{
+  // A full-state PUT is idempotent: repeating it for a moment of trouble is safe.
+  let n = 0;
+  const { calls, result } = await attempts(
+    () => (++n === 1
+      ? jsonResponse(500, { ok: false, error: { code: "server_error" } })
+      : jsonResponse(200, { ok: true, changed: true, hiddenCategories: stateBody().hiddenCategories })),
+    (t) => setView(t, SESSION, "revealed"),
+  );
+  check("a 500 on PUT is retried and lands", calls.length === 2 && result.changed === true, `${calls.length} calls`);
+}
+
+{
+  // Give up after two retries rather than hanging on a server that keeps failing.
+  const { calls, error } = await attempts(
+    () => jsonResponse(503, { ok: false, error: { code: "store_busy" } }),
+    (t) => getState(t, SESSION),
+  );
+  check("retries stop at three attempts", calls.length === 3 && error instanceof ApiError, `${calls.length} calls`);
+}
+
+{
+  // POST /v1/people appends: repeating it would add the person twice.
+  const { calls, error } = await attempts(
+    () => jsonResponse(503, { ok: false, error: { code: "store_busy" } }),
+    (t) => addPerson(t, SESSION, "Ada"),
+  );
+  check("POST is never retried", calls.length === 1 && error instanceof ApiError, `${calls.length} calls`);
 }
 
 console.log(`\n${checks} checks, ${failures} failure(s)`);

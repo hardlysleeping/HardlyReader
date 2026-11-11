@@ -88,6 +88,8 @@ export function buildReaderModule() {
     .replaceAll('"../lib/place"', JSON.stringify(absolute("src/lib/place.ts")))
     .replaceAll('"../lib/sidebar-doc"', JSON.stringify(absolute("src/lib/sidebar-doc.ts")))
     .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
+    .replaceAll('"../lib/settings-scope"', JSON.stringify(absolute("src/lib/settings-scope.ts")))
+    .replaceAll('"../lib/identity-key"', JSON.stringify(absolute("src/lib/identity-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
     .replaceAll('"../lib/feed-move"', JSON.stringify(absolute("src/lib/feed-move.ts")))
     .replaceAll('"../lib/opml"', JSON.stringify(absolute("src/lib/opml.ts")))

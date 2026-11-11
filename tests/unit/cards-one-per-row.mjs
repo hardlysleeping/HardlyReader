@@ -93,18 +93,22 @@ check(
     const btn = list.slice(list.indexOf('class="sizebtn fit"'), list.indexOf("</button>", list.indexOf('class="sizebtn fit"')));
     return (
       /\{#if canFitWindow\(\)\}[\s\S]{0,400}?<div class="sizer" role="group" aria-label="Cards">[\s\S]{0,200}?class="sizebtn fit"/.test(list) &&
-      /import \{ canFitWindow, fitWindowTo, screenSize \} from "\.\.\/lib\/window-fit";/.test(list) &&
+      /import \{ canFitWindow, fitCardToWindow, fitWindowTo, screenSize \} from "\.\.\/lib\/window-fit";/.test(list) &&
       /onclick=\{\(\) => void fitToComic\(\)\}/.test(btn) &&
       // a press, not a lit mode: nothing to leave switched on
       !/aria-pressed/.test(btn) &&
       !/class:on/.test(btn) &&
       /const pane1 = feeds \? Math\.round\(feeds\.getBoundingClientRect\(\)\.width\) : 0;/.test(fn) &&
-      // The room the page needs, capped by its own pixels and the monitor.
-      /const room = Math\.min\(availH \* natural, img\.naturalWidth \/ share, availW\);/.test(fn) &&
-      /const paneNext = Math\.round\(Math\.min\(room, availW\)\);/.test(fn) &&
+      // The ask is the minimal one: the pane's own width, the window's height,
+      // the screen as the ceiling — the arithmetic lives in `window-fit.ts`.
+      /fitCardToWindow\(\{[\s\S]{0,400}?paneWidth: pane2,[\s\S]{0,400}?windowHeight: window\.innerHeight,[\s\S]{0,200}?screenHeight: screen\.height,/.test(fn) &&
+      /if \(fit === null\) return;/.test(fn) &&
       /async function fitToComic\(\): Promise<void>/.test(fn) &&
-      /await fitWindowTo\(pane1 \+ rest \+ paneNext, height\);/.test(fn) &&
-      /if \(fitting \|\| view !== "cards"\) return;/.test(fn)
+      /await fitWindowTo\(pane1 \+ rest \+ fit\.paneWidth, fit\.height\);/.test(fn) &&
+      /if \(fitting \|\| view !== "cards"\) return;/.test(fn) &&
+      // Nothing widens the pane: a wider pane draws a card's picture taller,
+      // which is the opposite of fitting it.
+      !/paneNext/.test(fn) && !/availW|availH/.test(fn)
     );
   })(),
 );
@@ -160,10 +164,9 @@ check(
     const ask = list.slice(list.indexOf("async function fitToComic"), list.indexOf("function syncSnap"));
     return (
       /const share = Math\.min\(\s*1,\s*Math\.max\(0\.1, img\.getBoundingClientRect\(\)\.width \/ Math\.max\(1, pane2\)\),\s*\);/.test(ask) &&
-      /img\.naturalWidth \/ share/.test(ask) &&
-      /const pictureH = Math\.round\(\(paneNext \* share\) \/ natural\);/.test(ask) &&
-      // one picture is the whole width, so the single-page case is unchanged
-      !/const room = Math\.min\(availH \* natural, img\.naturalWidth, availW\)/.test(ask)
+      // the share is what the ask is built from, and the picture's own shape
+      // travels with it — a strip's panel must not be sized as the whole pane
+      /share,[\s\S]{0,120}?natural: img\.naturalWidth \/ img\.naturalHeight,/.test(ask)
     );
   })(),
 );
@@ -200,51 +203,46 @@ check(
     return (
       Number.isFinite(min) &&
       declared === min &&
-      /const height = Math\.min\(\s*screen\.height,\s*Math\.max\(FIT_FLOOR_H, chrome \+ pictureH \+ 2 \* CARD_PEEK\),\s*\);/.test(list) &&
-      // the height asked for is the page's, not whatever the window happens to
-      // be: a fit that kept the current height could not fit a short strip
-      (() => {
-        const at = list.indexOf("const height = Math.min(");
-        const line = list.slice(at, list.indexOf(";", at));
-        return !/innerHeight/.test(line) && !/\b240\b/.test(line);
-      })()
+      /floor: FIT_FLOOR_H,/.test(list) &&
+      // The floor and the ceiling are the lib's: it never asks below the shell's
+      // minimum, never past the screen, and never shorter than the window is now
+      // — a fit that shrank the window is a fit nobody asked for.
+      /const ceiling = Math\.max\(floor, screenHeight\);/.test(read("src/lib/window-fit.ts")) &&
+      /Math\.max\(windowHeight, Math\.min\(ceiling, Math\.max\(wanted, floor\)\)\)/.test(read("src/lib/window-fit.ts"))
     );
   })(),
 );
 
-// ------------------------------------------------- the pull, on a tall card --
+// -------------------------------------------------- one wheel, one card --
 
-// One card per row makes a comic taller than the pane the normal case, and there
-// the wheel used to belong to the scroll in both directions and nothing else: no
-// pull, no filling line, no step. The article pane has always turned a pull at
-// the bottom of a document; the card column now does the same at the end of a
-// card, so the gesture and its effort setting are reachable on the cards that
-// are actually read.
+// A Cards wheel gesture has one meaning anywhere in the column: advance to the
+// adjacent card, then consume the rest of that gesture so native momentum cannot
+// coast across more items. Tall comics remain readable by touch/drag.
 check(
-  "a card taller than the pane pulls once its end has run out",
+  "one locked wheel gesture steps exactly one card in its direction",
   (() => {
-    const at = list.indexOf("function atCardEnd");
-    const fn = list.slice(at, at + 700);
-    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 2200);
+    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 1100);
     return (
-      /card\.bottom <= port\.bottom \+ 2/.test(fn) &&
-      /card\.top >= port\.top - 2/.test(fn) &&
-      // the wheel asks for the card's end before giving up on the gesture
-      /!cardFits\(row\) && !atCardEnd\(row, towards\)/.test(wheel) &&
-      // and the direction the pull was heading is what steps
-      /const away = listPull > 0 \? 1 : -1;/.test(wheel) &&
-      /stepCard\(away\)/.test(wheel)
+      /event\.preventDefault\(\);\s*if \(listStepSpent\) return;/.test(wheel) &&
+      /const row = currentCard\(\);\s*if \(!row\) return;\s*listStepSpent = true;\s*stepCard\(direction\);/.test(wheel)
     );
   })(),
 );
 
 check(
-  "and a card that fits still steps without the end test",
+  "wheel input only advances when the lock is enabled and one burst cannot double-step",
   (() => {
-    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 2000);
-    return /const towards = event\.deltaY > 0 \? 1 : -1;/.test(wheel) && /cardFits\(row\)/.test(wheel);
+    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 1100);
+    return (
+      /!reading\.advanceOnScroll/.test(wheel) &&
+      /isNewGesture\(now, listWheelAt, GESTURE_GAP_MS\)/.test(wheel) &&
+      /listWheelAt = now;/.test(wheel) &&
+      !/accumulate\(|shouldAdvance\(|listPull|cardFits\(row\)/.test(wheel)
+    );
   })(),
 );
+
+check("the redundant card-list pull bar is gone", !/list-pull|listPull|listThreshold/.test(list));
 
 // ------------------------------------------------------ the whole card fits --
 
@@ -258,7 +256,8 @@ check(
     return (
       /const chrome =\s*card\.offsetHeight - Math\.round\(img\.getBoundingClientRect\(\)\.height\) \+\s*\(header \? Math\.round\(header\.getBoundingClientRect\(\)\.height\) : 0\)/.test(fn) &&
       // …and it is `chrome` the height is built from, not the picture alone
-      /chrome \+ pictureH/.test(fn)
+      /chrome,/.test(fn) &&
+      /chrome \+ pictureH \+ 2 \* peek/.test(read("src/lib/window-fit.ts"))
     );
   })(),
 );
@@ -266,6 +265,27 @@ check(
 // A window that ends exactly on the card's edges says the stream ends there. Room
 // for the neighbours says it does not — and the sheet fades them by the same
 // length, so a fitted card sits just past its own fade and stays crisp.
+// A card is mostly picture, so the list's 0.48 does not read as "read" there:
+// read cards dim to 0.32, the centred one to 0.6 (it is the one being read, so
+// it keeps more weight), and the pointer still brightens what it is over.
+check(
+  "a read card dims harder than a read row",
+  /\.cards \.row\.read \{\s*opacity: 0\.32;\s*\}/.test(list) &&
+    /\.cards \.row\.read\.held \{\s*opacity: 0\.6;\s*\}/.test(list) &&
+    /\.cards \.row\.read:hover,/.test(list) &&
+    // the list's own dimming is untouched: this is the cards' answer
+    /\.row\.read \{\s*opacity: 0\.48;\s*\}/.test(list),
+);
+
+// A starred card says so in the strip under its page: the mat is the star's gold
+// at 44% instead of the accent's 28%, plus a 3px band along the bottom edge. Two
+// sizes, because the band is what survives a page that fills the card's width.
+check(
+  "a starred card carries a brighter, thicker underglow",
+  /\.cards \.row\.starred \.lead \{[\s\S]{0,200}?background: color-mix\(in srgb, var\(--star\) 44%, var\(--bg\)\);/.test(list) &&
+    /box-shadow: inset 0 -3px 0 0 color-mix\(in srgb, var\(--star\) 72%, transparent\);/.test(list),
+);
+
 check(
   "and it leaves the sliver of the card above and below",
   (() => {
@@ -274,7 +294,9 @@ check(
     return (
       declared === 24 &&
       faded === declared &&
-      /chrome \+ pictureH \+ 2 \* CARD_PEEK/.test(list)
+      // the same number is handed to the ask, so the sliver is not a second guess
+      /peek: CARD_PEEK,/.test(list) &&
+      /chrome \+ pictureH \+ 2 \* peek/.test(read("src/lib/window-fit.ts"))
     );
   })(),
   `fit ${/const CARD_PEEK = (\d+);/.exec(list)?.[1]}, sheet ${/\.cards \{[\s\S]{0,1600}?--card-peek: (\d+)px;/.exec(list)?.[1]}`,

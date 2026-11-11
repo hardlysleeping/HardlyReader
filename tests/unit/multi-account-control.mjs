@@ -44,9 +44,10 @@ const markup = () => render(AccountsBody).body;
 const first = syncProfile({ serverUrl: "https://first.example", email: "one", token: "test" }, { kind: "greader" });
 const second = syncProfile({ serverUrl: "https://second.example", email: "two", token: "test" }, { kind: "greader" });
 reader.adoptAccounts([first, localProfile({ kind: "local" })]);
-check("one server beside empty local has no combined control", !markup().includes('aria-label="Combine reading list and starred"'));
+// "Starred" is the server's word for it; the reader calls it Favourites.
+check("one server beside empty local has no combined control", !markup().includes('aria-label="Combine reading list and favourites"'));
 reader.adoptAccounts([second]);
-check("two real servers draw the control even before subscriptions load", markup().includes('aria-label="Combine reading list and starred"'));
+check("two real servers draw the control even before subscriptions load", markup().includes('aria-label="Combine reading list and favourites"'));
 check("approved default is visibly pressed", markup().includes('aria-pressed="true"'));
 chrome.setMultiAccount(false);
 check("off is visibly unpressed", markup().includes('aria-pressed="false"'));

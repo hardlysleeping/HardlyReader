@@ -465,10 +465,57 @@ await check("an abandoned wake stops before the next feed", async () => {
     },
     [FEED_B]: response(200, rssDocument({ items: [{ guid: "b1" }] })),
   });
-  const report = await refreshDueFeeds({ store, fetch: fetcher, now: T, signal: controller.signal });
+  // Width 1 is the sequential contract: the abort happens on the first feed, so
+  // the second is never started. With a wider pool a feed already in flight
+  // cannot be un-started, which the next check covers.
+  const report = await refreshDueFeeds({ store, fetch: fetcher, now: T, signal: controller.signal, concurrency: 1 });
   equal(report.aborted, true, "aborted");
   equal(report.attempted, 1, "attempted once");
   equal(fetcher.calls.length, 1, "one request");
+});
+
+await check("the pool fetches every due feed, never more than its width at once", async () => {
+  // The wake cap is six feeds, so six is a full wake.
+  const feeds = Array.from({ length: 6 }, (_, i) => `https://feed${i}.test/rss`);
+  const store = await storeWith(feeds);
+  let inFlight = 0;
+  let peak = 0;
+  const fetcher = async (url) => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    inFlight -= 1;
+    return response(200, rssDocument({ site: url, items: [{ guid: `${url}-1` }] }));
+  };
+
+  const report = await refreshDueFeeds({ store, fetch: fetcher, now: T, concurrency: 3 });
+  equal(report.attempted, 6, "every due feed is attempted");
+  equal(report.changed, 6, "every feed is stored");
+  if (peak > 3) fail(`peak in flight was ${peak}, above the width`);
+  if (peak < 2) fail(`peak in flight was ${peak}: the pool ran one at a time`);
+});
+
+await check("a width above the cap is clamped, not obeyed", async () => {
+  const feeds = Array.from({ length: 10 }, (_, i) => `https://c${i}.test/rss`);
+  const store = await storeWith(feeds);
+  let inFlight = 0;
+  let peak = 0;
+  const fetcher = async (url) => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    inFlight -= 1;
+    return response(200, rssDocument({ site: url, items: [{ guid: `${url}-1` }] }));
+  };
+  const report = await refreshDueFeeds({
+    store,
+    fetch: fetcher,
+    now: T,
+    concurrency: 1000,
+    policy: { ...REFRESH_POLICY, maxFeedsPerWake: 10 },
+  });
+  equal(report.attempted, 10, "all attempted");
+  if (peak > 8) fail(`peak in flight was ${peak}, above the hard cap`);
 });
 
 /* ---------------------------------------------------------------------------

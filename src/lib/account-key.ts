@@ -100,6 +100,28 @@ function ownerKey(base: string): string {
 }
 
 /**
+ * Carry one value into an account's key, if the key may still be claimed.
+ *
+ * The same ownership rule `readAccountValue` applies, for a migration that has
+ * the value in hand instead of in a legacy key: an unclaimed base is claimed by
+ * the first account that adopts, and every later account starts from defaults
+ * rather than inheriting a stranger's state. A value that is not adopted writes
+ * nothing at all, so a refusal cannot look like a success.
+ */
+export function adoptAccountValue(
+  storage: KeyStore,
+  base: string,
+  account: AccountIdentity,
+  value: string,
+): void {
+  const slug = accountSlug(account);
+  const owner = get(storage, ownerKey(base));
+  if (owner !== null && owner !== slug) return;
+  if (owner === null) set(storage, ownerKey(base), slug);
+  set(storage, scopedKey(base, account), value);
+}
+
+/**
  * The value for this account, adopting a pre-scoping key once.
  *
  * A scoped key wins whenever it exists. When it does not, the legacy key — the

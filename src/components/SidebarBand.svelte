@@ -290,13 +290,21 @@
 {#snippet pinControl()}
   <button
     class="ctl pin"
-    class:on={reader.pinView !== "all"}
+    class:on={reader.pinView !== "without"}
+    class:only={reader.pinView === "only"}
     onclick={cyclePins}
     title={pinTip}
     aria-label={`Pinned: ${facts.pinName}`}
   >
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M9 3h6l-1 6 4 4H6l4-4-1-6zM12 13v8" />
+      <!-- The "Hidden" view is the pin turned off, so it is drawn the way the
+           eye is drawn when it hides: grey, and struck through. A pin sitting
+           in the same lit colour in all three views said the filter was on
+           while the list had the pinned rows taken out of it. -->
+      {#if reader.pinView === "without"}
+        <path d="M4 4l16 16" />
+      {/if}
     </svg>
     {#if facts.pinLabel !== null}
       <span class="lbl">{facts.pinLabel}</span>
@@ -307,7 +315,7 @@
 <!-- One band above the stream list: eye on the left, lock in the middle, pin on
      the right. Each control is drawn from `facts`, so the three states are one
      model rather than three branches of markup that can drift apart. -->
-<div class="bandbox" class:collapsed={chrome.bandCollapsed} class:idle>
+<div class="bandbox" class:collapsed={chrome.bandCollapsed} class:idle class:locked>
   {#if pulse}
     <span
       class="pulse {pulse}"
@@ -320,6 +328,28 @@
        what the curtain covers. The arrow points up while the controls are
        showing and down while they are hidden, so the direction always describes
        what a click will do. -->
+  {#if locked}
+    <!-- The pin, on its own strip above the caret and everything the curtain
+         covers.
+         It was folded away with the rest for a while, on the argument that a
+         control changing the list the lock just covered is a control whose result
+         nobody can check — and the owner's answer is that a pin is *what* is
+         shown, not what is in it: choosing "Starred only" or "without pins" is
+         reading the list that is left, and needing the passcode first is the lock
+         doing something nobody asked it to. On a phone the lock also folds the
+         band (`collapseBandForLock`), which is why this sits *outside* the reveal
+         rather than in the compact row: folded, the band is a caret, and the pin
+         stays under the thumb.
+         It sits *above* the caret on the owner's word (2026-11-07): the handle
+         you fold with belongs at the bottom of the strip, under the things it
+         folds, not on top of them.
+         The curtain still applies to what it says: while locked `bandFacts` gives
+         the pin no word and names it by the count alone, so the strip cannot be
+         read as a statement about what is hidden. -->
+    <div class="band compact pinstrip">
+      {@render pinControl()}
+    </div>
+  {/if}
   <button
     class="bar"
     onclick={toggleBand}
@@ -331,25 +361,6 @@
       <path d="M6 9l6 6 6-6" />
     </svg>
   </button>
-  {#if locked}
-    <!-- The pin, on its own strip between the caret and everything the curtain
-         covers.
-         It was folded away with the rest for a while, on the argument that a
-         control changing the list the lock just covered is a control whose result
-         nobody can check — and the owner's answer is that a pin is *what* is
-         shown, not what is in it: choosing "Starred only" or "without pins" is
-         reading the list that is left, and needing the passcode first is the lock
-         doing something nobody asked it to. On a phone the lock also folds the
-         band (`collapseBandForLock`), which is why this sits *outside* the reveal
-         rather than in the compact row: folded, the band is a caret, and the pin
-         stays under the thumb.
-         The curtain still applies to what it says: while locked `bandFacts` gives
-         the pin no word and names it by the count alone, so the strip cannot be
-         read as a statement about what is hidden. -->
-    <div class="band compact pinstrip">
-      {@render pinControl()}
-    </div>
-  {/if}
   {#if facts.row}
     <div
       class="reveal"
@@ -387,6 +398,7 @@
           <button
             class="ctl hidden"
             class:on={reader.hiddenView !== "hidden"}
+            class:only={reader.hiddenView === "only"}
             onclick={cycleHidden}
             disabled={!facts.hidden.enabled}
             title={facts.hidden.enabled
@@ -397,6 +409,13 @@
             <svg viewBox="0 0 24 24" aria-hidden="true">
               {#if reader.hiddenView === "hidden"}
                 <path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3.1 4.2M6.6 6.6C4.3 8 2.7 10.2 2 12c1 2.5 5 7 10 7a9.9 9.9 0 0 0 5.4-1.6" />
+              {:else if reader.hiddenView === "revealed"}
+                <!-- Revealed wears HardlyTracking's own eye — the open eye with the
+                     corner-to-corner stroke (`EYE_PATHS.revealed` in that app) —
+                     so the same view reads as the same control in both. One path,
+                     not a shape plus a pupil: it is the glyph the owner points
+                     at when he says "like that one". -->
+                <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M4 20 20 4" />
               {:else}
                 <path d="M2 12c1-2.5 5-7 10-7s9 4.5 10 7c-1 2.5-5 7-10 7S3 14.5 2 12z" />
                 <circle cx="12" cy="12" r="3" />
@@ -629,43 +648,23 @@
     margin: 0 0 6px;
   }
 
-  /* Idle on a phone: the fold handle moves to the end of the row, so the two
-     strips become one and the tree starts a row higher.
-
-     The handle keeps its place in the markup — it is still the way to fold the
-     band, and it still says which way a press will go — and it gains rather than
-     loses: a full row's height instead of the 8px line it used to be.
-     `:not(.collapsed)` is deliberate: a folded band is the handle on its own, and
-     there the full-width 12px strip is the target. */
+  /* Open or folded, the handle sits in the same place: the strip across the top
+     of the band. A phone used to move it to the trailing edge while the controls
+     were showing, so folding the band made the control it was pressed with jump
+     to a different corner — one control in two places reads as two controls, and
+     the one you just pressed is never where your thumb has learned to go. */
   :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 22px;
-    align-items: stretch;
-    column-gap: 2px;
     margin-bottom: 4px;
   }
 
-  /* 34px, not 22: the handle is the only way back to the band, and at 22 it was
-     the smallest thing on the row it sits in — narrower than the gap between two
-     feed rows, and dim enough at 0.6 that it read as a decoration rather than a
-     control. The glyph grows with it so the press has something to aim at. */
   :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .bar {
-    grid-column: 2;
-    grid-row: 1;
-    width: 34px;
-    height: auto;
-    min-height: 34px;
+    height: 16px;
     opacity: 0.85;
   }
 
   :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .bar .caret {
     width: 14px;
     height: 14px;
-  }
-
-  :global(html[data-device="phone"]) .bandbox.idle:not(.collapsed) > .reveal {
-    grid-column: 1;
-    grid-row: 1;
   }
 
   /* The seats lose their labels and the padding that spaced them, never their
@@ -725,6 +724,19 @@
     box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
   }
 
+  /* Locked, on a phone, the band is two glyphs and nothing else: a lock and a
+     pin. The full-width pill it used to draw around them was a border with no
+     edge to hold — one control centred in a slab across the column reads as a
+     disabled row, not as a lock. The slab stays on a window, where the band is
+     a row of three seats with words in it. */
+  :global(html[data-device="phone"]) .bandbox.locked .band.compact {
+    border: 0;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+
   .ctl {
     --tone: var(--muted, #999);
     display: flex;
@@ -756,7 +768,7 @@
      lock and pinned look like three disabled buttons. */
   .ctl.hidden.on,
   .ctl.lock,
-  .ctl.pin {
+  .ctl.pin.on {
     background: color-mix(in srgb, var(--tone) 11%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 32%, transparent);
   }
@@ -765,10 +777,32 @@
     --tone: var(--tone-hidden);
   }
 
-  /* The pin keeps its tone in EVERY view. "Active" is one of the three working
-     states, not an idle one, so a grey seat would read as a disabled control. */
-  .ctl.pin {
+  /* The pin keeps its tone while it is filtering the list — "Active" and "Only"
+     are both working states, so a grey seat would read as a disabled control.
+     "Hidden" is the pin switched off, and it is drawn the way the eye is when it
+     hides: the quiet ink, no glass, and its glyph struck through. */
+  .ctl.pin.on {
     --tone: var(--tone-pinned);
+  }
+
+  /* "Only" narrows the list to one thing, so both seats say it the same way:
+     the tone lifts towards white, and the ring with it. Subtle on purpose —
+     the word under the glyph already says which view this is, so the light only
+     has to confirm it. Owner, 2026-11-06: "brighter red for hidden, brighter
+     blue for pinned, but subtle, maybe just make the text lighter and
+     brighter". */
+  .ctl.hidden.only,
+  .ctl.pin.only {
+    --tone: color-mix(in srgb, var(--only-base) 68%, #fff);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 46%, transparent);
+  }
+
+  .ctl.hidden.only {
+    --only-base: var(--tone-hidden);
+  }
+
+  .ctl.pin.only {
+    --only-base: var(--tone-pinned);
   }
 
   .ctl.lock {

@@ -195,7 +195,7 @@ export const DEMO_FEEDS: readonly DemoFeed[] = [
         title: "Keyboard first",
         author: "Sample Editor",
         hoursAgo: 57,
-        body: ["Press ? for the list of keys: next and previous post and feed, mark read, star, open in the browser, back."],
+        body: ["Press ? for the list of keys: next and previous post and feed, mark read, favourite, open in the browser, back."],
       },
       {
         title: "Four ways to list posts",

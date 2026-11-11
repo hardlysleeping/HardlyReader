@@ -59,7 +59,7 @@ import {
   widthFor,
 } from "../lib/panes";
 import { canFitWindow, fitWindowTo, screenWidth } from "../lib/window-fit";
-import { readAccountValue, storedAccount, writeAccountValue } from "../lib/account-key";
+import { readSettings, writeSettings } from "../lib/settings-scope";
 
 /**
  * The base of the layout key. An account's copy is `base:<slug>`; the bare key is
@@ -1392,7 +1392,7 @@ class LayoutState {
       return;
     }
     try {
-      const raw = readAccountValue(localStorage, STORAGE_KEY, storedAccount(localStorage));
+      const raw = readSettings(localStorage, STORAGE_KEY);
       if (raw === null) {
         this.settle(false);
         return;
@@ -1682,10 +1682,9 @@ class LayoutState {
   private save(): void {
     if (typeof localStorage === "undefined") return;
     try {
-      writeAccountValue(
+      writeSettings(
         localStorage,
         STORAGE_KEY,
-        storedAccount(localStorage),
         JSON.stringify({
           mode: this.desired,
           panes: this.panes,

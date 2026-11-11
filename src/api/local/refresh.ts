@@ -210,7 +210,17 @@ export interface RefreshOptions {
   signal?: AbortSignal;
   /** Why the caller woke it. Defaults to `manual`. */
   wake?: WakeReason;
+  /**
+   * How many feeds may be in flight at once. Omitted means {@link POOL_DEFAULT}.
+   * Never above {@link POOL_MAX}: a hundred feeds grabbed in parallel is an
+   * attack on the sites being read, not a faster refresh.
+   */
+  concurrency?: number;
 }
+
+/** Four at a time: enough to hide the per-request latency, few enough to stay polite. */
+const POOL_DEFAULT = 4;
+const POOL_MAX = 8;
 
 function seconds(): number {
   return Math.floor(Date.now() / 1000);
@@ -259,12 +269,13 @@ function requestHeaders(feed: FeedRow): Record<string, string> {
 /**
  * Polls every feed that is due, and keeps whatever changed.
  *
- * Feeds are fetched one at a time, in the order {@link dueFeeds} chose. That is
- * slower than a burst of parallel requests and it is the right trade for a
- * poller that runs on a phone: a burst is what makes a wake look like an attack
- * to the sites being read, and the order is the only thing that makes a bounded
- * wake fair. A wake that is worth running for an hour is a bug in the caller,
- * not something this loop should be fast enough to hide.
+ * Feeds are fetched by a small pool — four in flight by default, eight at the
+ * very most — started in the order {@link dueFeeds} chose. That is the trade for
+ * a poller on a phone: one request at a time wastes the whole wake on latency,
+ * while an unbounded burst makes a wake look like an attack to the sites being
+ * read. A bounded wake stays fair because the pool takes the oldest-due feeds
+ * first, and a wake worth running for an hour is a bug in the caller, not
+ * something this loop should be fast enough to hide.
  *
  * It never throws because of a feed. A network error, a `500`, an HTML page
  * where the feed should be — each becomes one line in `failures` and one
@@ -301,14 +312,37 @@ export async function refreshDueFeeds(options: RefreshOptions): Promise<RefreshR
   const due = dueFeeds(feeds, at, policy);
   report.due = due.length;
 
-  for (const feed of due) {
-    if (options.signal?.aborted) {
-      report.aborted = true;
-      break;
+  // A small pool, not a burst: `concurrency` feeds are in flight at once and the
+  // rest wait their turn. The order dueFeeds() chose is kept as the order they
+  // are *started*, so a bounded wake still reaches the oldest-due feeds first,
+  // and the results are folded in the same order, so the report reads the same
+  // as it did one-at-a-time.
+  const width = Math.max(1, Math.min(POOL_MAX, Math.floor(options.concurrency ?? POOL_DEFAULT)));
+  let cursor = 0;
+  let stop = false;
+  // null = never started, which is not the same as "failed" in the report.
+  const outcomes: (PollOutcome | null)[] = due.map(() => null);
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (stop || options.signal?.aborted) return;
+      const index = cursor++;
+      if (index >= due.length) return;
+      const outcome = await pollFeed(due[index]!, options, policy, at);
+      outcomes[index] = outcome;
+      if (outcome.kind === "aborted") stop = true;
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(width, due.length) }, () => worker()));
 
+  for (let index = 0; index < due.length; index++) {
+    const outcome = outcomes[index];
+    if (outcome === null) {
+      // Never started: the wake stopped before this feed's turn, and nothing was
+      // asked of it — which is not a failure and not an attempt.
+      report.aborted = report.aborted || options.signal?.aborted === true;
+      continue;
+    }
     report.attempted += 1;
-    const outcome = await pollFeed(feed, options, policy, at);
     if (outcome.kind === "aborted") {
       report.aborted = true;
       break;

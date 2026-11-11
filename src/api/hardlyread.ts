@@ -497,18 +497,67 @@ async function request(
     headers["Content-Type"] = "application/json";
   }
 
-  const response = await transport(apiUrl(session.serverUrl, path), {
-    method: options.method,
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    signal: options.signal,
-  });
+  const url = apiUrl(session.serverUrl, path);
+  for (let attempt = 0; ; attempt++) {
+    let response: Response;
+    try {
+      response = await transport(url, {
+        method: options.method,
+        headers,
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        signal: options.signal,
+      });
+    } catch (error) {
+      // A dropped connection is not an answer. Repeating an idempotent request
+      // once the pipe is back is the difference between "the sidebar forgot my
+      // change" and it simply arriving a moment later.
+      if (attempt < RETRIES && retryable(options.method, options.signal)) {
+        await pause(BACKOFF[attempt]);
+        continue;
+      }
+      throw error;
+    }
 
-  const body = await bodyOf(response);
-  if (!response.ok) {
-    throw failure(response.status, body);
+    const body = await bodyOf(response);
+    if (!response.ok) {
+      if (attempt < RETRIES && retryable(options.method, options.signal) && transient(response.status)) {
+        await pause(BACKOFF[attempt]);
+        continue;
+      }
+      throw failure(response.status, body);
+    }
+    return body;
   }
-  return body;
+}
+
+/** Two extra attempts, backing off: ~0.3s, then ~0.9s. */
+const RETRIES = 2;
+const BACKOFF = [300, 900];
+
+/**
+ * A request may be repeated only when repeating it cannot change the outcome
+ * twice: reads and full-state PUTs are idempotent, `POST /v1/people` is not
+ * (it appends) and is never retried. An aborted request is never retried.
+ */
+function retryable(method: string, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return false;
+  return method !== "POST";
+}
+
+/**
+ * The statuses that mean "the server had a moment", not "the server said no".
+ *
+ * 423 locked and 409 convergence_failed are answers and stay answers: retrying
+ * a lock would hammer the curtain, and a converged state is the caller's to
+ * reconcile. 429 and 503 are the extension saying its store is busy/temporarily
+ * unavailable — exactly the case worth a second look.
+ */
+function transient(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**

@@ -328,6 +328,26 @@
    */
   const openStreamId = $derived(focused.activeStream);
 
+  /**
+   * Whose library the feeds about to be added will land in.
+   *
+   * A feed has exactly one owner, and it is the account on screen — another
+   * account's band is read-only, so nothing is ever added to two libraries at
+   * once. With one account there is nothing to say; with two filed, or with a
+   * library on this device, the form says it before the press rather than
+   * leaving the reader to find out afterwards (owner, 2026-11-05: *"when adding
+   * feeds do we pick the account they goto like local or sync"*).
+   */
+  const addOwner = $derived.by(() => {
+    const profile = reader.profile;
+    if (profile === null) return null;
+    if (profile.kind === "local") {
+      return "These feeds stay on this device — they are never sent to a server.";
+    }
+    if (!reader.hasAccountGroups) return null;
+    return `These feeds are added to ${profile.label}.`;
+  });
+
 
   /** The add-feed form: closed until asked for, so the sidebar stays a list. */
   let adding = $state(false);
@@ -552,6 +572,32 @@
    * fetches the posts — the same request the posts column would have made — but
    * the sidebar stays put, so nothing slides out from under the finger.
    */
+  /**
+   * A stream that is not a feed, unfolded in one panel.
+   *
+   * The Reading list and Favourites are streams the same way a feed is: on a
+   * phone with one column there is no pane 2 to put them in, so pressing them
+   * replaces the tree with their posts. A feed unfolds under its own row
+   * instead, and the owner asked for the same thing here (2026-11-07): "both
+   * uncollapse in 1 pane only view like how feeds do when clicked". Same
+   * mechanism, one state: `expandedFeed` holds the stream's id and the nested
+   * list is drawn under the row, so a press folds what it opened.
+   */
+  async function toggleInlineStream(streamId: string, title: string) {
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
+    if (expandedFeed === streamId) {
+      reader.setExpandedFeed(null);
+      return;
+    }
+    reader.setExpandedFeed(streamId);
+    await reader.openStream(streamId, title);
+    await tick();
+    pinFeed(streamId);
+  }
+
   async function toggleFeed(feed: Subscription) {
     if (swallowClick) {
       swallowClick = false;
@@ -586,7 +632,7 @@
   function unfoldedRow(id: string): HTMLElement | null {
     if (feedTree === null) return null;
     return feedTree.querySelector<HTMLElement>(
-      `[data-drop-feed="${id}"], [data-drop-cat-row="${id}"]`,
+      `[data-drop-feed="${id}"], [data-drop-cat-row="${id}"], [data-inline-row="${id}"]`,
     );
   }
 
@@ -633,8 +679,19 @@
     const row = unfoldedRow(id);
     if (row === null) return;
     feedRowHeight = row.offsetHeight;
+    // **Measured unstuck.** The unfolded row is `position: sticky`, so once the
+    // list under it has been scrolled the row's rect *is* the top of the
+    // viewport and the arithmetic below returns the scroll it is already at —
+    // a no-op that left a feed opening wherever the previous one had been
+    // scrolled to, sometimes at its end. Reading it while it is static gives
+    // the row's place in the content, which is what "put this feed at the top"
+    // means. `offsetTop` would be cheaper but it is not the same number in a
+    // nested tree with its own offsets.
+    const stuck = getComputedStyle(row).position === "sticky";
+    if (stuck) row.style.position = "static";
     const offset =
       row.getBoundingClientRect().top - feedTree.getBoundingClientRect().top + feedTree.scrollTop;
+    if (stuck) row.style.position = "";
     feedTree.scrollTo({ top: Math.max(0, offset) });
   }
 
@@ -1489,22 +1546,38 @@
     <button
       class="row strong"
       class:active={openStreamId === READING_LIST}
-      onclick={() => open(READING_LIST, "Reading list")}
+      class:unfolded={inlinePosts && expandedFeed === READING_LIST}
+      data-inline-row={READING_LIST}
+      aria-expanded={inlinePosts ? expandedFeed === READING_LIST : undefined}
+      onclick={() =>
+        inlinePosts
+          ? void toggleInlineStream(READING_LIST, "Reading list")
+          : open(READING_LIST, "Reading list")}
     >
       <span class="label">Reading list</span>
       <span class="count">{reader.countFor(READING_LIST)}</span>
     </button>
+    {#if inlinePosts && expandedFeed === READING_LIST}
+      <ArticleList nested />
+    {/if}
     <button
       class="row strong"
       class:active={openStreamId === STATE_STARRED}
+      class:unfolded={inlinePosts && expandedFeed === STATE_STARRED}
+      data-inline-row={STATE_STARRED}
       bind:this={starredRow}
-      onclick={() => open(STATE_STARRED, "Starred")}
+      aria-expanded={inlinePosts ? expandedFeed === STATE_STARRED : undefined}
+      onclick={() =>
+        inlinePosts ? void toggleInlineStream(STATE_STARRED, "Favourites") : open(STATE_STARRED, "Favourites")}
     >
-      <span class="label">Starred</span>
+      <span class="label">Favourites</span>
       {#if reader.countIfKnown(STATE_STARRED) !== null}
         <span class="count">{reader.countFor(STATE_STARRED)}</span>
       {/if}
     </button>
+    {#if inlinePosts && expandedFeed === STATE_STARRED}
+      <ArticleList nested />
+    {/if}
   </div>
 
   {#each reader.categories as category, index (category.id)}
@@ -1704,6 +1777,11 @@
          and it is gone the moment a feed exists. -->
     <div class="start">
       <p class="start-lead"><b>Start reading</b> — Add a feed or import your subscriptions.</p>
+      {#if reader.profile?.kind === "local"}
+        <p class="start-note">
+          Feeds you add here are kept on this device — they are never sent to a server.
+        </p>
+      {/if}
       <p class="start-note" hidden={!DEMO}>This demo is read-only: adding your own feeds needs the installed app.</p>
       <div class="start-actions">
         <button class="start-add" onclick={startAdding}>+ Add feed</button>
@@ -1757,6 +1835,9 @@
           inputmode="url"
           onkeydown={onFeedKey}
         ></textarea>
+        {#if addOwner !== null}
+          <p class="add-owner">{addOwner}</p>
+        {/if}
         <div class="add-actions">
           <button type="submit" class="submit" disabled={reader.feedBusy}>
             {#if reader.feedProgress}
@@ -1843,7 +1924,12 @@
   {/if}
 
   <!-- The counts are the last row on the screen: under the footer, so opening
-       the add form cannot lift them off the bottom edge. -->
+       the add form cannot lift them off the bottom edge.
+       Locked, there is no row at all. The curtain takes the hidden count away, and
+       a strip with nothing left to say still drew its top hairline — a line under
+       the tree that looked like a row that had failed to load. Nothing to say now
+       means nothing drawn. -->
+  {#if !reader.hiddenLocked && ((strip.hiddenCount !== null && strip.hiddenCount > 0) || strip.pinnedCount > 0)}
   <div class="status" aria-live="polite">
     {#if strip.hiddenCount !== null && strip.hiddenCount > 0}
       <span class="stat">Hidden <b>{strip.hiddenCount}</b></span>
@@ -1860,6 +1946,7 @@
       <span class="stat">{words.count} <b>{strip.pinnedCount}</b></span>
     {/if}
   </div>
+  {/if}
 </nav>
 
 <style>
@@ -3151,6 +3238,16 @@
   .cancel:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+
+  /* Whose library a new feed lands in: stated under the field, quiet, before the
+     press — the add form is the one place a feed changes hands. */
+  .add-owner {
+    margin: 6px 0 0;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
   }
 
   .add-error {

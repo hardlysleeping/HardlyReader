@@ -21,6 +21,7 @@
   import {
     SETTLE_MS,
     accumulate,
+    isNewGesture,
     peekOf,
     progressOf,
     shouldAdvance,
@@ -403,11 +404,19 @@
   /** Nothing counts towards a switch until the wheel has been still this long. */
   let settleUntil = 0;
 
+  /**
+   * The wheel gesture in progress, and whether it has already bought its post.
+   *
+   * One push, one post. A flick's deltas arrive for a second or more after the
+   * hand has gone, so the fixed settle window was not enough on short posts: a
+   * single flick crossed four of them. Now the deltas that follow a switch are
+   * spent until the wheel goes quiet (`isNewGesture`), which is a new push.
+   */
+  let lastWheelAt = Number.NaN;
+  let stepSpent = false;
+
   /** How long a release takes to put a half-made pull back. */
   const SPRING_MS = 260;
-
-  /** Finger travel past the end, in the pixels the curve counts. */
-  let travelPx = $state(0);
 
   /**
    * How far the next post has been revealed at the apex, 0..1.
@@ -452,7 +461,6 @@
     }
     pull = 0;
     peek = 0;
-    travelPx = 0;
     if (pullTimer !== null) {
       clearTimeout(pullTimer);
       pullTimer = null;
@@ -471,10 +479,7 @@
   function springBack(): void {
     const fromPull = pull;
     const fromPeek = peek;
-    if (fromPull === 0 && fromPeek === 0) {
-      travelPx = 0;
-      return;
-    }
+    if (fromPull === 0 && fromPeek === 0) return;
     if (springRaf !== 0) cancelAnimationFrame(springRaf);
     springRaf = 0;
     if (reduceMotion()) {
@@ -492,7 +497,6 @@
       } else {
         pull = 0;
         peek = 0;
-        travelPx = 0;
         springRaf = 0;
       }
     };
@@ -525,6 +529,19 @@
       resetPull();
       return;
     }
+    const now = performance.now();
+    // A new push starts here; the rest of it belongs to this gesture.
+    if (isNewGesture(now, lastWheelAt)) stepSpent = false;
+    lastWheelAt = now;
+    // This gesture has already switched posts. Every delta after that one is the
+    // tail of the same flick — a trackpad keeps sending them for a second or
+    // more — and letting them fill a second pull is how one scroll walked four
+    // posts. Refused here, before the settle test, because the fix is "one push,
+    // one post", not "wait a moment and the same push will do it again".
+    if (stepSpent) {
+      resetPull();
+      return;
+    }
     if (performance.now() < settleUntil) {
       resetPull();
       return;
@@ -535,6 +552,13 @@
       return;
     }
     pull = accumulate(pull, event.deltaY, threshold);
+    // The same reveal a thumb gets, at the same place on the line: past 80% of
+    // the bar the open post lifts away and the next one shows behind it, so the
+    // last push has somewhere to go. A wheel had none of this before — it filled
+    // the line and then swapped the post under you. Forward only: the layer
+    // behind the page is the post *after* this one, so uncovering it while
+    // scrolling up would show the wrong post for the direction.
+    peek = pull > 0 ? peekOf(progressOf(pull, threshold), reading.apexPeek) : 0;
     if (pullTimer !== null) clearTimeout(pullTimer);
     pullTimer = setTimeout(() => {
       pullTimer = null;
@@ -544,6 +568,8 @@
     if (!shouldAdvance(pull, threshold)) return;
     const direction = pull > 0 ? 1 : -1;
     resetPull();
+    // This gesture is spent: its post is bought.
+    stepSpent = true;
     settleUntil = performance.now() + SETTLE_MS;
     void store.advanceArticle(direction);
   }
@@ -579,7 +605,6 @@
     }
     pull = 0;
     peek = 0;
-    travelPx = 0;
     swipeId = event.touches[0].identifier;
     swipeStart = event.touches[0].clientY;
   }
@@ -596,12 +621,12 @@
       return;
     }
     const travel = swipeStart - touch.clientY;
-    travelPx = Math.max(0, travel);
     pull = travel > 0 ? swipePull(travel, threshold) : 0;
-    // Past 85% of the apex the post starts to move out of the way and the next
+    // Past 80% of the bar the page starts to move out of the way and the next
     // one shows behind it — only when "Reveal next" is on; off, this is 0 and
-    // the pull is the line filling, exactly as it was.
-    peek = peekOf(travelPx, threshold, reading.apexPeek);
+    // the pull is the line filling, exactly as it was. Progress, not travel, so
+    // a wheel pushing past the end reveals the same thing at the same place.
+    peek = pull > 0 ? peekOf(progressOf(pull, threshold), reading.apexPeek) : 0;
   }
 
   function onArticleTouchEnd(): void {
@@ -1081,12 +1106,14 @@
         class="icon star"
         class:on={isStarred(item)}
         aria-pressed={isStarred(item)}
-        aria-label={isStarred(item) ? "Remove star" : "Add star"}
+        aria-label={isStarred(item) ? "Remove favourite" : "Add to favourites"}
         onclick={() => store.toggleStar(item)}
-        title={isStarred(item) ? "Starred" : "Star"}
+        title={isStarred(item) ? "Favourite" : "Not a favourite"}
       >★</button>
       <button
-        class="icon"
+        class="icon mark"
+        class:on={isRead(item)}
+        aria-pressed={isRead(item)}
         aria-label={isRead(item) ? "Mark unread" : "Mark read"}
         title={isRead(item) ? "Mark unread" : "Mark read"}
         onclick={() => {
@@ -1097,7 +1124,17 @@
           store.markRead(item);
           onRead?.();
         }}
-      >{isRead(item) ? "◯" : "●"}</button>
+      >
+        <!-- The same mark the post list's rows use, because it is the same
+             question in both panes: a hollow circle means unread and a tick
+             inside it means read. The toolbar used to say it with two text
+             characters, which was a second alphabet for one state. -->
+        <svg viewBox="0 0 16 16" aria-hidden="true"
+          ><circle cx="8" cy="8" r="5.4" />{#if isRead(item)}<path
+              d="M5.2 8.2l2 2 3.6-3.9"
+            />{/if}</svg
+        >
+      </button>
       {#if link && canExtract(link)}
         <!-- Experimental: one article, fetched on demand. Sat next to "open
              original" because it is the same page, read in here instead. -->
@@ -1532,6 +1569,25 @@
 
   .star.on {
     color: var(--star);
+  }
+
+  /* The read mark, drawn as a ring that gains a tick once the post is read —
+     hollow and ticked the way the rows in the post list are, rather than as the
+     two text glyphs (● / ◯) this button used to carry. */
+  .mark svg {
+    /* 16px and a 1.45 stroke: at 15/1.35 the ring read thinner and fainter than
+       the ⇣ ⏱ ★ beside it, which are 13px text at full weight. */
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.45;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .mark.on {
+    color: var(--text);
   }
 
   /* The same padlock the band draws, so the curtain has one shape in the app. */

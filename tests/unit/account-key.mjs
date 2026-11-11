@@ -35,6 +35,14 @@ import {
   writeAccountValue,
 } from "../../src/lib/account-key.ts";
 import { SESSION_KEY } from "../../src/api/session.ts";
+import { IDENTITY_KEY } from "../../src/lib/identity-key.ts";
+import {
+  DEVICE_IDENTITY,
+  PERSON_SERVER,
+  settingsAccount,
+  readSettings,
+  writeSettings,
+} from "../../src/lib/settings-scope.ts";
 import {
   CHROME_KEY,
   readBandCollapsed,
@@ -85,7 +93,10 @@ function buildLayoutModule() {
   });
   const compiled = compileModule(outputText, { generate: "client", filename: "layout.svelte.ts" });
   const code = compiled.js.code.replace(/from\s+"(\.[^"]*)"/g, (whole, specifier) => {
-    const target = join(ROOT, "src/state", `${specifier}.ts`);
+    const resolved = specifier.startsWith("../lib/")
+      ? join(ROOT, "src/lib", `${specifier.slice("../lib/".length)}.ts`)
+      : join(ROOT, "src/state", `${specifier}.ts`);
+    const target = resolved;
     if (!existsSync(target)) throw new Error(`unresolved import ${specifier} from layout.svelte.ts`);
     return `from ${JSON.stringify(pathToFileURL(target).href)}`;
   });
@@ -105,6 +116,8 @@ function buildReadingModule() {
   const compiled = compileModule(outputText, { generate: "client", filename: "reading.svelte.ts" });
   const code = compiled.js.code
     .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
+    .replaceAll('"../lib/settings-scope"', JSON.stringify(absolute("src/lib/settings-scope.ts")))
+    .replaceAll('"../lib/identity-key"', JSON.stringify(absolute("src/lib/identity-key.ts")))
     .replaceAll('"../lib/article-filter"', JSON.stringify(absolute("src/lib/article-filter.ts")))
     .replaceAll('"../lib/list-view"', JSON.stringify(absolute("src/lib/list-view.ts")))
     .replaceAll('"../lib/extract"', JSON.stringify(absolute("src/lib/extract.ts")))
@@ -195,28 +208,32 @@ function buildReadingModule() {
 }
 
 // --- the chrome, through its real reader and writer --------------------------
-// Two accounts, one device, values that must not meet.
+// A folded band, a passcode pad and an auto-sync interval are the person's
+// settings, not a feed server's: one scope, so two logins on one device share
+// them, and a pre-scoping global blob is adopted once.
 {
   const storage = memoryStore();
   writeBandCollapsed(storage, true, ONE);
   writePinPad(storage, true, TWO);
 
-  check("the first account keeps its folded band", readBandCollapsed(storage, ONE) === true);
-  check("...and not the second account's pad", readPinPad(storage, ONE) === false);
-  check("the second account keeps its pad", readPinPad(storage, TWO) === true);
-  check("...and not the first account's band", readBandCollapsed(storage, TWO) === false);
+  check("a fold written by one login is read by the other", readBandCollapsed(storage, TWO) === true);
+  check("...and so is the pad", readPinPad(storage, ONE) === true);
   check(
-    "two keys, and neither names an address",
-    [...storage.store.keys()].filter((key) => key.startsWith(CHROME_KEY)).length === 2 &&
-      [...storage.store.keys()].every((key) => !key.includes("@") && !key.includes("one.example")),
+    "one chrome key, under the settings scope, not one per account",
+    [...storage.store.keys()].filter((key) => key.startsWith(CHROME_KEY)).length === 1 &&
+      storage.store.has(scopedKey(CHROME_KEY, DEVICE_IDENTITY)),
+    [...storage.store.keys()].join(", "),
+  );
+  check(
+    "no key names an address or a feed server",
+    [...storage.store.keys()].every((key) => !key.includes("@") && !key.includes("one.example")),
     [...storage.store.keys()].join(", "),
   );
 
-  // A device that already had the global key, now signing in: the first account
-  // gets it, the second starts fresh.
+  // A device that already had the global key, now signing in: the scope adopts it.
   const upgraded = memoryStore({ [CHROME_KEY]: JSON.stringify({ bandCollapsed: true, indentOpen: false }) });
-  check("the first account on an upgraded device keeps the fold", readBandCollapsed(upgraded, ONE) === true);
-  check("the second account opens expanded", readBandCollapsed(upgraded, TWO) === false);
+  check("an upgraded device keeps the fold", readBandCollapsed(upgraded, ONE) === true);
+  check("...for any login on it", readBandCollapsed(upgraded, TWO) === true);
   check("the old global blob is still readable", JSON.parse(upgraded.getItem(CHROME_KEY))?.bandCollapsed === true);
 }
 
@@ -239,8 +256,11 @@ function buildReadingModule() {
 }
 
 // --- the reading preferences, through the real module -----------------------
-// Three launches over two accounts: A writes, B must not see it, A comes back and
-// finds what it left. Each launch is a fresh module instance, like a restart.
+// Settings belong to the person, not to the feed server (owner, 2026-11-05):
+// *"all the settings that are kept should be hardlyreader account based not based
+// off whatever sync account they have connect"*. With no HardlyReader account the
+// scope is this device, so two feed accounts on one device share one set of
+// choices; with one, the choices follow the person's `userId`.
 {
   const readingModule = buildReadingModule();
   let launches = 0;
@@ -258,30 +278,94 @@ function buildReadingModule() {
   };
 
   try {
+    const deviceSlug = accountSlug(DEVICE_IDENTITY);
     const first = await launch(ONE);
     first.setListView("cards");
-    check("the first account's choice is written", readAccountValue(storage, "hardlyreader.reading.v1", ONE)?.includes('"cards"') === true);
+    check(
+      "the first account's choice is written under this device's settings scope",
+      storage.getItem(scopedKey("hardlyreader.reading.v1", DEVICE_IDENTITY))?.includes('"cards"') === true,
+      [...storage.store.keys()].join(", "),
+    );
+    check(
+      "...and never under the feed account",
+      storage.getItem(scopedKey("hardlyreader.reading.v1", ONE)) === null &&
+        storage.getItem(scopedKey("hardlyreader.reading.v1", TWO)) === null,
+    );
 
+    // A second feed account on the same device is the same person looking at a
+    // different server, so it opens on the same choices — that is the change.
     const second = await launch(TWO);
-    check("the second account opens on the shipped view", second.listView === "regular", second.listView);
+    check("a second server keeps the same person's view", second.listView === "cards", second.listView);
     second.setListView("grid");
 
     const firstAgain = await launch(ONE);
-    check("the first account comes back to its own view", firstAgain.listView === "cards", firstAgain.listView);
-
-    const secondAgain = await launch(TWO);
-    check("the second account keeps its own", secondAgain.listView === "grid", secondAgain.listView);
+    check("and the change comes back to the first", firstAgain.listView === "grid", firstAgain.listView);
 
     const keys = [...storage.store.keys()];
     check(
-      "two reading keys, one per account",
-      keys.filter((key) => key.startsWith("hardlyreader.reading.v1")).length === 2,
+      "one reading key for the device, not one per account",
+      keys.filter((key) => key.startsWith("hardlyreader.reading.v1")).length === 1,
       keys.filter((key) => key.startsWith("hardlyreader.reading.v1")).join(", "),
     );
     check(
       "no storage key names an address",
       keys.every((key) => !key.includes("@") && !key.includes("one.example") && !key.includes("two.example")),
       keys.join(", "),
+    );
+
+    // A HardlyReader account signs in: the choices move to the person, and a
+    // second person on the device starts from the shipped view.
+    storage.setItem(IDENTITY_KEY, JSON.stringify({ userId: "person-a", token: "t", provider: "email" }));
+    const person = settingsAccount(storage);
+    check("the settings scope is the account's userId", person.email === "person-a" && person.serverUrl === PERSON_SERVER);
+    const personal = await launch(ONE);
+    personal.setListView("list");
+    check(
+      "a signed-in person's choice goes under their slug",
+      storage.getItem(scopedKey("hardlyreader.reading.v1", person))?.includes('"list"') === true,
+      storage.getItem(scopedKey("hardlyreader.reading.v1", person)),
+    );
+
+    storage.setItem(IDENTITY_KEY, JSON.stringify({ userId: "person-b", token: "t", provider: "email" }));
+    const stranger = await launch(TWO);
+    check("a second person does not inherit the first", stranger.listView === "regular", stranger.listView);
+
+    // The upgrade: a per-server build wrote the copy under the feed account. The
+    // person signed in now adopts it once, and it lands on their own key.
+    const upgraded = memoryStore({
+      [SESSION_KEY]: JSON.stringify(ONE),
+      [IDENTITY_KEY]: JSON.stringify({ userId: "person-c", token: "t", provider: "email" }),
+    });
+    upgraded.setItem(scopedKey("hardlyreader.reading.v1", ONE), JSON.stringify({ listView: "cards" }));
+    check(
+      "a copy written per server is read by the person signed in",
+      readSettings(upgraded, "hardlyreader.reading.v1")?.includes('"cards"') === true,
+    );
+    check(
+      "and lands on the person's key",
+      upgraded.getItem(scopedKey("hardlyreader.reading.v1", { serverUrl: PERSON_SERVER, email: "person-c" }))?.includes('"cards"') === true,
+    );
+    check(
+      "the feed account's key is left as it was",
+      upgraded.getItem(scopedKey("hardlyreader.reading.v1", ONE))?.includes('"cards"') === true,
+    );
+    writeSettings(upgraded, "hardlyreader.reading.v1", JSON.stringify({ listView: "grid" }));
+    check(
+      "a write never lands on the feed account's key",
+      JSON.parse(upgraded.getItem(scopedKey("hardlyreader.reading.v1", { serverUrl: PERSON_SERVER, email: "person-c" }))).listView === "grid",
+    );
+    // The ownership rule still holds: a base that another scope already claimed
+    // is not handed to a new person, so a shared device cannot leak settings.
+    const claimed = memoryStore({
+      [SESSION_KEY]: JSON.stringify(TWO),
+      [IDENTITY_KEY]: JSON.stringify({ userId: "person-d", token: "t", provider: "email" }),
+      "hardlyreader.reading.v1:legacy-owner": "00000000",
+    });
+    claimed.setItem(scopedKey("hardlyreader.reading.v1", TWO), JSON.stringify({ listView: "cards" }));
+    check(
+      "a copy already claimed by another scope is not adopted",
+      readSettings(claimed, "hardlyreader.reading.v1") === null,
+      readSettings(claimed, "hardlyreader.reading.v1"),
     );
   } finally {
     if (original === undefined) delete globalThis.localStorage;
@@ -290,9 +374,9 @@ function buildReadingModule() {
 }
 
 // --- the layout, through the real store -------------------------------------
-// The layout is read at import, before anything renders, so the account has to be
-// found the same way there as everywhere else — and with no account (a login
-// screen) the bare key is still the one that works.
+// The layout is read at import, before anything renders, so the scope has to be
+// found the same way there as everywhere else: never the feed account, the person
+// when there is one, this device when there is not.
 {
   const LAYOUT_KEY = "hardlyreader.layout.v1";
   const storage = memoryStore({ [SESSION_KEY]: JSON.stringify(ONE) });
@@ -316,16 +400,27 @@ function buildReadingModule() {
 
   const { layout } = await import(`${buildLayoutModule()}?account=one`);
   layout.setMode(2);
-  check("a signed-in account's layout goes under its slug", storage.getItem(scopedKey(LAYOUT_KEY, ONE)) !== null);
-  check("...and not under the bare key", storage.getItem(LAYOUT_KEY) === null);
-
-  storage.removeItem(SESSION_KEY);
-  layout.setMode(1);
-  check("with no account the bare key is still used", storage.getItem(LAYOUT_KEY) !== null);
   check(
-    "and the account's copy was not overwritten",
-    storage.getItem(scopedKey(LAYOUT_KEY, ONE)) !== null &&
-      storage.getItem(scopedKey(LAYOUT_KEY, ONE)) !== storage.getItem(LAYOUT_KEY),
+    "a signed-in feed account scopes nothing: the layout goes to this device",
+    storage.getItem(scopedKey(LAYOUT_KEY, DEVICE_IDENTITY)) !== null,
+    [...storage.store.keys()].join(", "),
+  );
+  check(
+    "...and not under the feed account",
+    storage.getItem(scopedKey(LAYOUT_KEY, ONE)) === null &&
+      storage.getItem(scopedKey(LAYOUT_KEY, TWO)) === null,
+  );
+
+  // Signing into the HardlyReader account moves the scope to the person.
+  storage.setItem(IDENTITY_KEY, JSON.stringify({ userId: "person-layout", token: "t", provider: "email" }));
+  const { layout: personal } = await import(`${buildLayoutModule()}?account=person`);
+  personal.setMode(3);
+  const personKey = scopedKey(LAYOUT_KEY, { serverUrl: PERSON_SERVER, email: "person-layout" });
+  check("with an account the layout goes under the person's slug", storage.getItem(personKey) !== null);
+  check(
+    "and the device's copy is not overwritten by it",
+    storage.getItem(scopedKey(LAYOUT_KEY, DEVICE_IDENTITY)) !== null &&
+      storage.getItem(personKey) !== storage.getItem(scopedKey(LAYOUT_KEY, DEVICE_IDENTITY)),
   );
 }
 

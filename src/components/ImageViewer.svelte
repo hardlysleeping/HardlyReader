@@ -253,7 +253,7 @@
               <button
                 class="round"
                 class:on={isStarred(frame.item)}
-                aria-label={isStarred(frame.item) ? "Remove star" : "Star this post"}
+                aria-label={isStarred(frame.item) ? "Remove favourite" : "Add to favourites"}
                 onclick={() => void store.toggleStar(frame.item)}
                 ><span aria-hidden="true">★</span></button
               >

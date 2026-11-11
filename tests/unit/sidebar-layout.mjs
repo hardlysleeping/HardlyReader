@@ -144,8 +144,14 @@ function divSpan(text, className) {
       /\{#if inlinePosts && expandedFeed === category\.id\}[\s\S]{0,900}<ArticleList nested \/>/,
     );
   });
-  check("there is still one list, so a feed and a category cannot both be open", () => {
-    assert.equal(markup.split("<ArticleList nested />").length - 1, 2);
+  // One open stream, whichever kind it is: a feed, a category, the reading list
+  // or the favourites. The state is a single id (`expandedFeed`), so the four
+  // mount points cannot disagree — what has to hold is that every nested list is
+  // guarded by that one id rather than drawn unconditionally.
+  check("there is still one list, so two streams cannot both be open", () => {
+    const mounts = markup.split("<ArticleList nested />").length - 1;
+    const guards = markup.match(/\{#if inlinePosts && expandedFeed === [\w.]+\}/g) ?? [];
+    assert.equal(guards.length, mounts);
     assert.match(markup, /\{#if inlinePosts && expandedFeed === feed\.id\}/);
   });
   check("a double tap in one pane anchors the category rather than the dead stack", () => {
@@ -175,7 +181,12 @@ function divSpan(text, className) {
     assert.match(source, /if \(expandedFeed === feed\.id\) \{/);
   });
   check("the way back finds a category's row, not only a feed's", () => {
-    assert.match(source, /`\[data-drop-feed="\$\{id\}"\], \[data-drop-cat-row="\$\{id\}"\]`/);
+    // The reading list and the favourites are rows too, so the same lookup finds
+    // them: all three selectors, one query.
+    assert.match(
+      source,
+      /`\[data-drop-feed="\$\{id\}"\], \[data-drop-cat-row="\$\{id\}"\], \[data-inline-row="\$\{id\}"\]`/,
+    );
   });
   check("the heading carries the unfolded ink the feed row carries", () => {
     assert.match(source, /\.feed\.unfolded,\s*[\s\S]{0,200}\.group-title\.unfolded \{/);

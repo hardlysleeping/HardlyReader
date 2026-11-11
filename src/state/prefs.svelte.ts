@@ -36,6 +36,7 @@ import {
   type PreferencesWrite,
 } from "../api/hardlyread";
 import { scopedKey } from "../lib/account-key";
+import { settingsAccount } from "../lib/settings-scope";
 import {
   PREFS_NAMESPACES,
   PrefsQueue,
@@ -462,12 +463,19 @@ export class PrefsSync {
     this.schedule(delay);
   }
 
-  /** This device's stamps and values for one account, or nothing it can read. */
-  private readRecord(session: Session): PrefsDoc {
+  /**
+   * This device's stamps and values for the person, or nothing it can read.
+   *
+   * Filed by the settings scope, not by the feed account: the document is the
+   * person's, and the server it is mirrored to is carriage. Two servers signed in
+   * on one device therefore share one record — which is the whole point, since
+   * they share one set of panes.
+   */
+  private readRecord(_session: Session): PrefsDoc {
     this.pulled = false;
     if (typeof localStorage === "undefined") return emptyPrefs();
     try {
-      const raw = localStorage.getItem(scopedKey(RECORD_KEY, session));
+      const raw = localStorage.getItem(scopedKey(RECORD_KEY, settingsAccount(localStorage)));
       if (raw === null) return emptyPrefs();
       const saved = JSON.parse(raw) as { pulled?: unknown };
       this.pulled = saved.pulled === true;
@@ -483,7 +491,7 @@ export class PrefsSync {
     if (typeof localStorage === "undefined" || this.session === null) return;
     try {
       localStorage.setItem(
-        scopedKey(RECORD_KEY, this.session),
+        scopedKey(RECORD_KEY, settingsAccount(localStorage)),
         JSON.stringify({
           pulled: this.pulled,
           entries: Object.fromEntries(

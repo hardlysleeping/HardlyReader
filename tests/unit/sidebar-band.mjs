@@ -422,6 +422,69 @@ get pinsOnDevice() { return globalThis.__band.pinsOnDevice ?? false; },
     check("open: the lock offers to lock", body.includes('aria-label="Lock hidden categories"'));
   }
 
+  // The pin answers a press the way the eye does: the view that takes the pinned
+  // rows away is the pin switched off, so its seat goes quiet and its glyph is
+  // struck through, exactly as the eye's does when it hides. Owner, 2026-11-06:
+  // "when pin is set to hidden the button should turn grey and pin should get
+  // slash".
+  {
+    /** The extra classes on the pin's own button, without Svelte's scope hash. */
+    const pinClasses = (body) =>
+      (/<button[^>]*class="ctl pin([^"]*)"/.exec(body)?.[1] ?? null)
+        ?.split(/\s+/)
+        .filter((name) => name !== "" && !name.startsWith("svelte-"))
+        .join(" ") ?? null;
+    const lit = (body) => (pinClasses(body) ?? "").split(" ").includes("on");
+    const slashed = (body) => body.includes("M4 4l16 16");
+
+    const off = draw({ pinView: "without" });
+    check("pin hidden: the seat is quiet, not lit", !lit(off), `class="ctl pin ${pinClasses(off)}"`);
+    check("pin hidden: ...and the glyph is struck through", slashed(off));
+    check("pin hidden: ...under the view's own word", off.includes('aria-label="Pinned: Hidden"'));
+
+    const only = draw({ pinView: "only" });
+    check("pin only: the seat keeps its tone", lit(only));
+    check("pin only: ...and no strike", !slashed(only));
+
+    const all = draw({ pinView: "all" });
+    check("pin active: the seat keeps its tone", lit(all));
+  }
+
+  // "Only" narrows the list, and both seats say it the same way: the tone lifts
+  // towards white and the ring with it — brighter red for hidden, brighter blue
+  // for pinned, and nothing more than that. Owner, 2026-11-06.
+  {
+    const tag = (body, kind) => new RegExp(`<button[^>]*class="ctl ${kind}([^"]*)"`).exec(body)?.[1] ?? "";
+    const names = (attr) => attr.split(/\s+/).filter((n) => n !== "" && !n.startsWith("svelte-"));
+
+    check("only: the eye asks for the lifted tone", names(tag(draw({ view: "only" }), "hidden")).includes("only"));
+    check("only: ...and so does the pin", names(tag(draw({ pinView: "only" }), "pin")).includes("only"));
+    check(
+      "only: the lift is one rule per seat, off each seat's own colour",
+      /\.ctl\.hidden\.only,\s*\n\s*\.ctl\.pin\.only \{[^}]*color-mix\(in srgb, var\(--only-base\) 68%, #fff\)/.test(source) &&
+        /\.ctl\.hidden\.only \{\s*\n\s*--only-base: var\(--tone-hidden\)/.test(source) &&
+        /\.ctl\.pin\.only \{\s*\n\s*--only-base: var\(--tone-pinned\)/.test(source),
+    );
+    check(
+      "only: ...and the ring brightens with the text",
+      /\.ctl\.hidden\.only,[\s\S]{0,400}?box-shadow: inset 0 0 0 1px color-mix\(in srgb, var\(--tone\) 46%, transparent\)/.test(source),
+    );
+    check("only: the active view is left alone", !names(tag(draw({ pinView: "all" }), "pin")).includes("only"));
+  }
+
+  // Revealed wears HardlyTracking's own eye: the open eye plus the
+  // corner-to-corner stroke, copied verbatim from `EYE_PATHS.revealed` in that
+  // app so the same view reads as the same control in both. Owner, 2026-11-06:
+  // "change revealed icon to be the one used for hardlytracking".
+  {
+    const REVEALED_GLYPH = "M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M4 20 20 4";
+
+    check("revealed draws HardlyTracking's eye", draw({ view: "revealed" }).includes(REVEALED_GLYPH));
+    check("...and it is the only glyph with that stroke", draw({ view: "only" }).includes(REVEALED_GLYPH) === false && draw({ view: "hidden" }).includes(REVEALED_GLYPH) === false);
+    check("hidden keeps its crossed-out eye", draw({ view: "hidden" }).includes("M3 3l18 18"));
+    check("only keeps the open eye and its pupil", /class="ctl hidden[\s\S]{0,400}?<circle cx="12" cy="12" r="3"/.test(draw({ view: "only" })));
+  }
+
   {
     const body = draw({ view: "revealed" });
     check("revealed: the eye says so", body.includes("Hidden categories: Revealed"));

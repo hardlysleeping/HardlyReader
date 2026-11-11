@@ -196,6 +196,12 @@
    */
   function back(): void {
     if (!slideStack) {
+      // The walk's one step out of an unfolded feed is folding it, not leaving
+      // the screen it is drawn in.
+      if (reader.expandedFeedId !== null) {
+        reader.setExpandedFeed(null);
+        return;
+      }
       reader.closeReader();
       return;
     }
@@ -288,13 +294,6 @@
       aria-haspopup="dialog"
       onclick={() => accountsPanel?.openAccounts()}
     >{serviceName}</button>
-    <AccountsPanel
-      bind:this={accountsPanel}
-      subtitle={subtitle}
-      {server}
-      {onaddaccount}
-      {onsignout}
-    />
   {:else}
     <button
       type="button"
@@ -429,8 +428,24 @@
   </button>
 </header>
 
-<!-- Outside the bar, like the desktop header's: the sheet is a fixed overlay
-     over the whole app, and the bar's own box is not where a dialog belongs. -->
+<!-- Outside the bar, like the desktop header's: both dialogs are fixed overlays
+     over the whole app, and the bar's own box is not where a dialog belongs.
+
+     The accounts panel used to be drawn inside the header, which is
+     `overflow: hidden` and, on a phone, carries the navigation material — a
+     filter, and a filter makes the element a containing block for its fixed
+     children. The panel was therefore clipped to the 36px bar and sat *under*
+     the feeds: pressing the wordmark opened nothing anyone could see or press.
+     It lives here with the settings sheet, which was moved out for the same
+     reason. -->
+<AccountsPanel
+  bind:this={accountsPanel}
+  subtitle={subtitle}
+  {server}
+  {onaddaccount}
+  {onsignout}
+/>
+
 <SettingsPanel
   bind:open={settingsOpen}
   name={subtitle}
@@ -461,8 +476,10 @@
     /* The same 40px of content, measured from where the padding puts it: the
        bar sits `--status-lift` higher than the raw inset (see `app.css`), and
        its height has to agree or `overflow: hidden` clips the controls. */
-    height: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 40px);
-    background: var(--surface);
+    height: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 36px);
+    /* Nothing painted here: the top of the screen is the page's own colour, so
+       the bar and the status region are one surface with no edge between them. */
+    background: none;
     overflow: hidden;
   }
 
@@ -622,7 +639,9 @@
       bordered group. On a 40px bar it keeps its size and loses the border, so the
      bar reads as one row of glyphs rather than a row with a widget in it. */
   .phone-header :global(.switch) {
-    height: 26px;
+    height: 30px;
+    align-items: stretch;
+    padding: 0;
     border-color: transparent;
     background: none;
   }

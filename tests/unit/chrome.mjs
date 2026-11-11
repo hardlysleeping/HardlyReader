@@ -19,6 +19,7 @@ import {
   writeBandCollapsed,
     writePinPad,
 } from "../../src/lib/chrome-prefs.ts";
+import { settingsKey } from "../../src/lib/settings-scope.ts";
 
 let failures = 0;
 let checks = 0;
@@ -41,12 +42,17 @@ function memoryStorage() {
 
 const storage = memoryStorage();
 
+/** The key the chrome actually lives on: the settings scope, this device's with
+ *  no HardlyReader account. The bare `CHROME_KEY` seeds below are the legacy blob
+ *  an older build wrote, which is adopted once. */
+const KEY = (store) => settingsKey(store, CHROME_KEY);
+
 check("a first run is expanded", readBandCollapsed(storage) === false);
 check("no storage means expanded", readBandCollapsed(undefined) === false);
 
 writeBandCollapsed(storage, true);
-check("collapsing writes its own key", storage.store.has(CHROME_KEY));
-check("the value is the collapsed flag", JSON.parse(storage.store.get(CHROME_KEY))?.bandCollapsed === true);
+check("collapsing writes the settings key", storage.store.has(KEY(storage)));
+check("the value is the collapsed flag", JSON.parse(storage.store.get(KEY(storage)))?.bandCollapsed === true);
 check("only one key is written", storage.store.size === 1, [...storage.store.keys()].join(","));
 check("it reads back as collapsed", readBandCollapsed(storage) === true);
 
@@ -68,9 +74,9 @@ check("an older blob's indent flag is not read as the band's", (() => {
   return readBandCollapsed(half) === false;
 })());
 
-storage.store.set(CHROME_KEY, "{not json");
+storage.store.set(KEY(storage), "{not json");
 check("corrupt JSON falls back to expanded", readBandCollapsed(storage) === false);
-storage.store.set(CHROME_KEY, JSON.stringify({ bandCollapsed: "yes" }));
+storage.store.set(KEY(storage), JSON.stringify({ bandCollapsed: "yes" }));
 check("a non-boolean is not collapsed", readBandCollapsed(storage) === false);
 
 // Storage that throws must never take the sidebar down with it.
@@ -100,7 +106,7 @@ check("no storage types the passcode", readPinPad(undefined) === false);
 
 writePinPad(pad, true);
 check("turning the keypad on is persisted", readPinPad(pad) === true);
-check("it writes the flag, not its own key", JSON.parse(pad.store.get(CHROME_KEY))?.pinPad === true);
+check("it writes the flag, not its own key", JSON.parse(pad.store.get(KEY(pad)))?.pinPad === true);
 check("one key holds every chrome flag", pad.store.size === 1, [...pad.store.keys()].join(","));
 
 // The remaining flags share one key: each write must carry the others along.
@@ -140,7 +146,7 @@ check("one is not true here either", readPinPad(old) === false);
   writeAutoSyncHours(fresh, 7);
   check("an interval the panel does not offer is refused", readAutoSyncHours(fresh) === 1);
 
-  const saved = JSON.parse(fresh.store.get(CHROME_KEY));
+  const saved = JSON.parse(fresh.store.get(KEY(fresh)));
   check("both live under the one chrome key", saved.autoSync === true && saved.autoSyncHours === 1);
   check("only one key is ever written", fresh.store.size === 1);
 }
@@ -236,6 +242,11 @@ check("one is not true here either", readPinPad(old) === false);
 
 {
   const storage = memoryStorage();
+
+/** The key the chrome actually lives on: the settings scope, this device's with
+ *  no HardlyReader account. The bare `CHROME_KEY` seeds below are the legacy blob
+ *  an older build wrote, which is adopted once. */
+const KEY = (store) => settingsKey(store, CHROME_KEY);
   check("missing storage preserves approved on default", readMultiAccount(undefined));
   for (const raw of [null, "garbage", "null", "0", "true"]) {
     if (raw !== null) storage.setItem(MULTI_ACCOUNT_KEY, raw);

@@ -4,6 +4,106 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.41] — 2026-11-08
+
+### Fixed
+
+- **A hiccup is no longer a wipe.** A sidebar state read that fails with a
+  5xx, a proxy page or a timeout keeps the state this device already knew and
+  says what failed; only a 404 — the route genuinely absent — clears it. So a
+  server restart or a bad minute can never look like "the extension forgot
+  everything".
+- **Transient failures are retried, identical writes are not repeated.** A
+  dropped connection, a 408/425/429 or a 5xx is tried twice more (300 ms, then
+  900 ms) before it is reported. Sign-in posts are never repeated, and a locked
+  (423) or convergence (409) answer is final the first time, so a retry can
+  never double a write.
+- **The counts strip is absent while locked**, instead of drawing a lone
+  hairline where the hidden count would be.
+- **The passcode dots no longer animate.** Each digit repainted an animated
+  background, border and glow; the dots are a colour change now, so typing a
+  passcode does no compositing work.
+
+### Changed
+
+- **Due feeds are fetched four at a time, not one after another.** A bounded
+  pool (four by default, never more than eight) claims the due list in order, so
+  the order feeds start in and the report read back are exactly the sequential
+  version's — it just finishes a wake in a quarter of the wall clock. A feed that
+  never started because of an abort is reported as aborted, never as fetched.
+
+### Since 0.6.40
+
+- The phone's top is one surface, and back folds the feed: pull only at the
+  top, unfold at the top.
+- The bar keeps the one hairline under it.
+- Cards view: one wheel gesture buys one post however long its deltas run, and
+  steps one adjacent comic.
+- The pin's hidden view goes quiet and struck through, revealed wears
+  HardlyTracking's own eye.
+- Settings follow the HardlyReader account, never the feed server; a library on
+  this device names itself once in the top bar; signing in is the first screen
+  and this device is a choice on it.
+- The filter pairs lose the slash, and the hollow star takes the left.
+
+## [0.6.40] — 2026-11-05
+
+### Added
+
+- **Favourites, said in words.** The star's state is a favourite everywhere a
+  person reads it: the filter pair, the post list, the article bar, the viewer,
+  the theme panel and the account control. Nothing migrated — the server's
+  `…/state/com.google/starred`, the stream ids and `isStarred()` keep their
+  names, because they are identifiers, not sentences.
+- **Messages from the author, in Settings.** A bell with a dot when something
+  arrived, and a section that lists them; one request when the sheet opens, no
+  timer, no push, and a failure says what failed rather than drawing an empty
+  inbox. The two reads are `security definer` functions keyed on `auth.uid()`
+  (`supabase/app-messages.sql`), so targeting and read state are the server's
+  decision, and a message for one app never appears in the other.
+
+### Changed
+
+- **The filters are two switches, not four words.** Unread and Favourites are
+  independent and combine: pressing one of a pair shows that half, pressing it
+  again shows everything, and an axis that is showing everything wears a slash.
+  The buttons are icons — a circle, a circle with a tick, a star filled and
+  hollow — because the row already speaks that language. A fresh install opens
+  on unread only; the empty list offers "Show what you have read" in one press.
+- **The article bar's read button is the list's own mark.** A hollow ring until
+  the post is read, a tick inside it after, instead of the two text characters
+  the bar used to use.
+- **The scroll past the end of a post gets heavier as it fills.** The pull is
+  `1 − (1 − u)²` on the travel: a 100px notch is worth 72px of pull on the first
+  one and 8px on the last, the first quarter of the line costs 13% of the travel
+  and the last quarter half of it. The total is unchanged — 728px at ×1 — so it
+  is the distribution that moved, not the distance.
+- **The page slides away to reveal the post it is scrolling towards.** From 80%
+  of the pull the open post lifts and the next one's feed and headline show in
+  the strip underneath. This existed for a thumb only; a wheel had none of it and
+  swapped the post with nothing moving. "Reveal next" is on by default now —
+  saved under a new key, so an install that has ever written a preference is not
+  stuck on the old silent default.
+- **The fit button grows the window by what the card is short of.** Height only:
+  a wider pane draws a card's picture *taller*, so the pane keeps its width, the
+  window only grows, and never past the screen. It used to resize the whole
+  window's width on every press — 299px for a page, 1133px for a banner — which
+  is what "overly expands the window" was.
+- **A read card dims harder than a read row** (0.32 against 0.48, the centred
+  one 0.6), because a card is mostly picture and a picture at 0.48 still looks
+  like a picture.
+
+### Fixed
+
+- **A card lands where the pane's middle falls inside it**, not at the nearest
+  centre, which with unequal heights could round backwards; and the card is
+  re-placed once its picture supplies its real height, standing down the moment
+  the reader touches the column.
+- **A starred card is identifiable in Cards.** Its mat is the star's gold at 44%
+  instead of the accent's 28%, with a 3px band of that gold along the card's
+  bottom edge, so a feed of read comics has a way to show which ones are
+  favourites.
+
 ## [0.6.39] — 2026-11-05
 
 ### Added

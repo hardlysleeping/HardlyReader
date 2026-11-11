@@ -31,6 +31,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { compileModule } from "svelte/compiler";
 import ts from "typescript";
 
+import { settingsKey } from "../../src/lib/settings-scope.ts";
+
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
 const STORAGE_KEY = "hardlyreader.layout.v1";
@@ -450,7 +452,9 @@ try {
     layout.setAvailable(1400);
     await layout.chooseMode(2);
     layout.setAvailable(1200);
-    const saved = JSON.parse(stored.get(STORAGE_KEY));
+    // The layout is a setting, so it lives in the settings scope (this device's,
+    // with no HardlyReader account), never on a bare key.
+    const saved = JSON.parse(stored.get(settingsKey(globalThis.localStorage, STORAGE_KEY)));
     check("a press is written", saved.mode === 2, `saved mode ${saved?.mode}`);
   }
   // --- the hold is a value the frame can see --------------------------------

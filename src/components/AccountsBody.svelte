@@ -220,7 +220,7 @@
     </span>
     <button
       class="action combined-toggle"
-      aria-label="Combine reading list and starred"
+      aria-label="Combine reading list and favourites"
       aria-pressed={chrome.multiAccount}
       onclick={() => chrome.setMultiAccount(!chrome.multiAccount)}
     >{chrome.multiAccount ? "On" : "Off"}</button>
@@ -228,7 +228,7 @@
   <p class="note">
     {chrome.multiAccount
       ? "Posts are grouped by account."
-      : "Reading list and starred show only the account in use."}
+      : "Reading list and favourites show only the account in use."}
     All accounts stay signed in. This choice stays on this device.
   </p>
 {/if}

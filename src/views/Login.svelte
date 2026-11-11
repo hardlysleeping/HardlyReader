@@ -39,6 +39,12 @@
      * in is the only way forward.
      */
     oncancel?: () => void;
+    /**
+     * The first screen's other way in: a library on this device, chosen rather
+     * than arrived at. Absent when signing in is not the suggested answer — a
+     * reader adding a second account already has a library open.
+     */
+    onlocal?: () => void;
   }
 
   let {
@@ -46,6 +52,7 @@
     notice = "",
     onconnected,
     oncancel,
+    onlocal,
   }: Props = $props();
 
   let serverUrl = $state(untrack(() => initialServerUrl));
@@ -377,6 +384,19 @@
         <p class="hint small">
           No captcha here. A computer that is already signed in approves the code,
           and this phone keeps a sign-in you can revoke.
+        </p>
+      {/if}
+
+      <!-- The other way in on a first run: a library that lives in this app.
+           Drawn under the two ways into a server, and said in one line rather
+           than a paragraph — a feed added here is never sent to a server, and a
+           server's feeds never appear here, so the two libraries stay separate. -->
+      {#if onlocal}
+        <div class="or"><span>or</span></div>
+        <button type="button" class="local" onclick={onlocal}>Use this device only</button>
+        <p class="hint small">
+          Feeds you add then live in this app on this device. Nothing is sent to a server,
+          and a server's feeds do not appear here — the two libraries never mix.
         </p>
       {/if}
 
@@ -755,7 +775,8 @@
 
   /* Pairing is an alternative, not the primary: an outline, so the one filled
      button on the screen is still Connect. */
-  .pair {
+  .pair,
+  .local {
     width: 100%;
     padding: 0.62rem 0.8rem;
     border: 1px solid var(--border);
@@ -769,7 +790,8 @@
       border-color 140ms ease;
   }
 
-  .pair:hover:not(:disabled) {
+  .pair:hover:not(:disabled),
+  .local:hover:not(:disabled) {
     background: var(--bg-alt);
     border-color: var(--muted);
   }

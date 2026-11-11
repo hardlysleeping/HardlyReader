@@ -6,7 +6,15 @@
  * off — and turning it off keeps the ↑/↓ buttons and Space-at-end working.
  */
 
-import { isArticleFilter, type ArticleFilter } from "../lib/article-filter";
+import {
+  READ_FILTER_DEFAULT,
+  STAR_FILTER_DEFAULT,
+  isReadFilter,
+  isStarFilter,
+  type ArticleFilter,
+  type ReadFilter,
+  type StarFilter,
+} from "../lib/article-filter";
 import {
   CARD_SIZE_DEFAULT,
   CURVE_DEFAULT,
@@ -56,7 +64,7 @@ import {
 } from "../lib/reading-layout";
 import { clampEffort, EFFORT_DEFAULT } from "../lib/scroll-advance";
 import { EXTRACT_DEFAULT } from "../lib/extract";
-import { readAccountValue, storedAccount, writeAccountValue } from "../lib/account-key";
+import { readSettings, writeSettings } from "../lib/settings-scope";
 
 /**
  * The base of the reading key; an account's copy is `base:<slug>`.
@@ -98,10 +106,14 @@ class ReadingState {
   /**
    * Which posts the list shows, everywhere.
    *
-   * `all` by default: a filter that hides posts on first launch would look like
-   * a feed that had lost them.
+   * Unread on the read half, nothing on the star half: a reader opens on what
+   * is new, which is what the owner asked for, and the empty unread list says so
+   * and offers the read half in one press. Each half is its own pair of buttons
+   * in the posts bar — unread/read, starred/not starred — with neither pressed
+   * meaning every post, so one press never disturbs the other.
    */
-  articleFilter = $state<ArticleFilter>("all");
+  readFilter = $state<ReadFilter>(READ_FILTER_DEFAULT);
+  starFilter = $state<StarFilter>(STAR_FILTER_DEFAULT);
 
   /**
    * The shape of the posts column: regular rows, one-line list, cards or grid.
@@ -201,12 +213,17 @@ class ReadingState {
   /**
    * Whether the next post comes into view at the end of a pull.
    *
-   * Off, which is the behaviour the owner kept: letting go simply loads the next
-   * post with no fanfare. On, the last stretch of the pull slides the open post
-   * away and shows the next one's feed and headline behind it, so the switch is
-   * decided by what is coming rather than by a line filling.
+   * On: the last stretch of the pull slides the open post away and shows the
+   * next one's feed and headline behind it, so the switch is decided by what is
+   * coming rather than by a line filling alone. Off, letting go simply loads the
+   * next post with no fanfare. The owner asked for the reveal to happen, so it
+   * is the default; the switch is still there for the quiet reading.
+   *
+   * Saved as `revealNext`, not as `apexPeek`: the old key was written by an
+   * earlier default that was off, and reading it back would keep every existing
+   * install quiet for ever. The old key is not read at all.
    */
-  apexPeek = $state(false);
+  apexPeek = $state(true);
 
   /**
    * Text size in the article, as a multiple of the tuned size.
@@ -287,7 +304,8 @@ class ReadingState {
   private defaults(): void {
     this.advanceOnScroll = true;
     this.articleBar = "bottom";
-    this.articleFilter = "all";
+    this.readFilter = READ_FILTER_DEFAULT;
+    this.starFilter = STAR_FILTER_DEFAULT;
     this.listView = LIST_VIEW_DEFAULT;
     this.readInPane = false;
     this.rowsEnd = ROW_END_DEFAULT;
@@ -299,7 +317,7 @@ class ReadingState {
     this.autoMarkRead = false;
     this.autoMarkSeconds = DWELL_SECONDS_DEFAULT;
     this.scrollEffort = EFFORT_DEFAULT;
-    this.apexPeek = false;
+    this.apexPeek = true;
     this.textScale = TEXT_SCALE.initial;
     this.rowScale = ROW_SCALE.initial;
     this.leading = LEADING_INITIAL;
@@ -317,7 +335,9 @@ class ReadingState {
     this.defaults();
     if (typeof localStorage === "undefined") return;
     try {
-      const raw = readAccountValue(localStorage, STORAGE_KEY, storedAccount(localStorage));
+      // Settings follow the person (or this device), never the feed account:
+      // `lib/settings-scope` also carries a per-server copy across on upgrade.
+      const raw = readSettings(localStorage, STORAGE_KEY);
       if (raw === null) return;
       this.applySaved(JSON.parse(raw) as Record<string, unknown>);
     } catch {
@@ -336,7 +356,8 @@ class ReadingState {
     return {
       advanceOnScroll: this.advanceOnScroll,
       articleBar: this.articleBar,
-      articleFilter: this.articleFilter,
+      readFilter: this.readFilter,
+      starFilter: this.starFilter,
       listView: this.listView,
       readInPane: this.readInPane,
       rowsEnd: this.rowsEnd,
@@ -350,7 +371,7 @@ class ReadingState {
       markReadMode: this.autoMarkRead ? "auto" : "manual",
       autoMarkSeconds: this.autoMarkSeconds,
       scrollEffort: this.scrollEffort,
-      apexPeek: this.apexPeek,
+      revealNext: this.apexPeek,
       textScale: this.textScale,
       rowScale: this.rowScale,
       leading: this.leading,
@@ -382,7 +403,16 @@ class ReadingState {
   private applySaved(saved: Record<string, unknown>): void {
     if (typeof saved.advanceOnScroll === "boolean") this.advanceOnScroll = saved.advanceOnScroll;
     if (isArticleBarSide(saved.articleBar)) this.articleBar = saved.articleBar;
-    if (isArticleFilter(saved.articleFilter)) this.articleFilter = saved.articleFilter;
+    if (isReadFilter(saved.readFilter)) this.readFilter = saved.readFilter;
+    if (isStarFilter(saved.starFilter)) this.starFilter = saved.starFilter;
+    // Before the two switches existed the filters were one of four words. A
+    // saved choice still means what it meant — "starred" now sits on the star
+    // half — so an upgrade opens on the same list it was left on.
+    if (saved.readFilter === undefined && saved.starFilter === undefined) {
+      if (saved.articleFilter === "unread") this.readFilter = "unread";
+      if (saved.articleFilter === "read") this.readFilter = "read";
+      if (saved.articleFilter === "starred") this.starFilter = "starred";
+    }
     if (isListView(saved.listView)) this.listView = saved.listView;
     if (typeof saved.readInPane === "boolean") this.readInPane = saved.readInPane;
     if (isRowEnd(saved.rowsEnd)) this.rowsEnd = saved.rowsEnd;
@@ -406,7 +436,10 @@ class ReadingState {
     if (isMarkReadMode(saved.markReadMode)) this.autoMarkRead = saved.markReadMode === "auto";
     if (saved.autoMarkSeconds !== undefined) this.autoMarkSeconds = clampDwellSeconds(saved.autoMarkSeconds);
     if (saved.scrollEffort !== undefined) this.scrollEffort = clampEffort(saved.scrollEffort);
-    if (typeof saved.apexPeek === "boolean") this.apexPeek = saved.apexPeek;
+    // `revealNext` only: `apexPeek` was saved while the reveal defaulted to off,
+    // and honouring it would silence the reveal on every install that has ever
+    // written a preference.
+    if (typeof saved.revealNext === "boolean") this.apexPeek = saved.revealNext;
     this.textScale = clampScale(saved.textScale, TEXT_SCALE);
     this.rowScale = clampScale(saved.rowScale, ROW_SCALE);
     if (isLeading(saved.leading)) this.leading = saved.leading;
@@ -559,9 +592,20 @@ class ReadingState {
     this.save();
   }
 
-  setArticleFilter(filter: ArticleFilter): void {
-    if (this.articleFilter === filter) return;
-    this.articleFilter = filter;
+  /** What the list is filtered by right now, both halves. */
+  get articleFilter(): ArticleFilter {
+    return { read: this.readFilter, star: this.starFilter };
+  }
+
+  setReadFilter(filter: ReadFilter): void {
+    if (!isReadFilter(filter) || this.readFilter === filter) return;
+    this.readFilter = filter;
+    this.save();
+  }
+
+  setStarFilter(filter: StarFilter): void {
+    if (!isStarFilter(filter) || this.starFilter === filter) return;
+    this.starFilter = filter;
     this.save();
   }
 
@@ -661,12 +705,7 @@ class ReadingState {
   private save(): void {
     if (typeof localStorage === "undefined") return;
     try {
-      writeAccountValue(
-        localStorage,
-        STORAGE_KEY,
-        storedAccount(localStorage),
-        JSON.stringify(this.snapshot()),
-      );
+      writeSettings(localStorage, STORAGE_KEY, JSON.stringify(this.snapshot()));
     } catch {
       // Best effort: the setting still applies for this session.
     }

@@ -18,6 +18,7 @@ import { compileModule } from "svelte/compiler";
 import ts from "typescript";
 
 import { scopedKey } from "../../src/lib/account-key.ts";
+import { settingsKey } from "../../src/lib/settings-scope.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const GEN_DIR = join(ROOT, `tests/unit/.gen-${process.pid}`);
@@ -66,6 +67,8 @@ function buildReadingModule() {
     .replaceAll('"../lib/scroll-advance"', JSON.stringify(absolute("src/lib/scroll-advance.ts")))
     .replaceAll('"../lib/reading-layout"', JSON.stringify(absolute("src/lib/reading-layout.ts")))
     .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
+    .replaceAll('"../lib/settings-scope"', JSON.stringify(absolute("src/lib/settings-scope.ts")))
+    .replaceAll('"../lib/identity-key"', JSON.stringify(absolute("src/lib/identity-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
     .replaceAll('"../lib/feed-move"', JSON.stringify(absolute("src/lib/feed-move.ts")));
   mkdirSync(GEN_DIR, { recursive: true });
@@ -159,6 +162,8 @@ function buildReaderModule() {
     .replaceAll('"../lib/stream-perf"', JSON.stringify(absolute("src/lib/stream-perf.ts")))
     .replaceAll('"../lib/stream-scroll"', JSON.stringify(absolute("src/lib/stream-scroll.ts")))
     .replaceAll('"../lib/account-key"', JSON.stringify(absolute("src/lib/account-key.ts")))
+    .replaceAll('"../lib/settings-scope"', JSON.stringify(absolute("src/lib/settings-scope.ts")))
+    .replaceAll('"../lib/identity-key"', JSON.stringify(absolute("src/lib/identity-key.ts")))
     .replaceAll('"../lib/add-feeds"', JSON.stringify(absolute("src/lib/add-feeds.ts")))
     .replaceAll('"../lib/opml"', JSON.stringify(absolute("src/lib/opml.ts")))
     .replaceAll('"../lib/extract-ledger"', JSON.stringify(absolute("src/lib/extract-ledger.ts")))
@@ -330,7 +335,10 @@ try {
     subscription("feed/2", "Second", "Tech"),
     subscription("feed/3", "Third", "Tech"),
   ];
-  reading.setArticleFilter("all");
+  // Every post must be walkable here, so neither filter half narrows the list:
+  // the read switch off and the star switch off is "everything".
+  reading.setReadFilter("off");
+  reading.setStarFilter("off");
   reading.autoMarkRead = false;
 
   const order = r.traversalStreams.map((stream) => stream.id);
@@ -375,7 +383,7 @@ try {
   r.collapsedCategories = {};
 
   // The unread view is the one place the walk can end: nothing anywhere.
-  reading.setArticleFilter("unread");
+  reading.setReadFilter("unread");
   r.counts = new Map([
     [READING_LIST_ID, 0],
     ["feed/1", 0],
@@ -520,7 +528,9 @@ try {
     }
   }
 
-  reading.setArticleFilter("all");
+  // Nothing narrowed: both filter halves off, so every post is walkable.
+  reading.setReadFilter("off");
+  reading.setStarFilter("off");
 }
 
 // --- collapsed categories roundtrip ----------------------------------------
@@ -571,7 +581,10 @@ try {
     setItem: (key, value) => store.set(key, String(value)),
     removeItem: (key) => store.delete(key),
   };
-  const KEY = "hardlyreader.reading.v1";
+  // Reading choices are a setting: they live in the settings scope (this
+  // device's, with no HardlyReader account), never on the bare base key — which
+  // is only read once, as an upgrade.
+  const KEY = settingsKey(globalThis.localStorage, "hardlyreader.reading.v1");
   const { reading: prefs } = await import(buildReadingModule());
   const before = prefs.autoMarkRead;
   try {
