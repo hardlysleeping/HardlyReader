@@ -141,7 +141,18 @@ class ChromeState {
    */
   addFeedAsk = $state(0);
 
-  askAddFeed(): void {
+  /**
+   * What the press wants in the field, when it came with something.
+   *
+   * Empty for the bar's `+`, which asks for a blank form. A feed handed in from
+   * outside the app — the phone's share sheet, a `hardlyreader://subscribe`
+   * link — arrives with the URL already in it, so the reader sees the form it
+   * expects with the one thing they would have typed already there.
+   */
+  addFeedUrl = $state("");
+
+  askAddFeed(value = ""): void {
+    this.addFeedUrl = value;
     this.addFeedAsk += 1;
   }
 

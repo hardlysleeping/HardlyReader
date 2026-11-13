@@ -3,7 +3,7 @@
  *
  *   node tests/unit/harness-imports.mjs
  *
- * Seven suites compile `reader.svelte.ts` themselves with Svelte's
+ * Eight suites compile `reader.svelte.ts` themselves with Svelte's
  * `compileModule` — `build-reader`, `reader-state`, `favorites`, `hidden-write`,
  * `hidden-local`, `positions` and `sync-progress` — so every relative import in
  * that source file
@@ -44,6 +44,7 @@ const BUILDERS = [
   "tests/unit/hidden-local.mjs",
   "tests/unit/positions.mjs",
   "tests/unit/sync-progress.mjs",
+  "tests/unit/feature-authority.mjs",
 ];
 
 /** Every relative specifier a source file imports, as written. */
@@ -69,7 +70,7 @@ const builders = BUILDERS.map((path) => ({ path, text: read(path) }));
 for (const source of SOURCES) {
   const specs = specifiers(source);
   check(`${source} imports something relative at all`, specs.length > 0, String(specs.length));
-  check("every suite that compiles it carries a list", builders.length === 7, String(builders.length));
+  check("every suite that compiles it carries a list", builders.length === 8, String(builders.length));
   for (const builder of builders) {
     // A builder that rewrites none of this module's specifiers builds it through
     // `generated()`, which resolves every relative import on its own (that is

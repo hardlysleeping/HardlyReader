@@ -32,6 +32,10 @@ tauri-plugin-dialog = "2"
 # sqlite driver is compiled in — the postgres and mysql features would add a
 # second network client to the binary for a database this app never talks to.
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+# `hardlyreader://subscribe?feed=…` — the phone's share sheet cannot add a feed
+# itself (it is a few seconds in a small box, with no accounts and no queue), so
+# it hands the feed to the app as a URL. See `src/lib/deep-link.ts`.
+tauri-plugin-deep-link = "2"
 # The phone-on-the-network server: tiny, blocking, one dependency, and it serves
 # the assets that are already inside the binary.
 tiny_http = "0.12"

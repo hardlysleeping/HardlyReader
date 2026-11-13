@@ -10,6 +10,7 @@
   import { layout } from "./state/layout.svelte";
   import { chrome } from "./state/chrome.svelte";
   import { installDragScroll } from "./lib/drag-scroll";
+  import { installDeepLinks } from "./lib/deep-link-host";
   import { chooseDeviceLibrary, deviceLibraryChosen } from "./lib/device-library";
   import { reader } from "./state/reader.svelte";
   import { theme } from "./state/theme.svelte";
@@ -200,10 +201,22 @@
    * whole session. A reader with a local library never meets any of it.
    */
   let stopWatchingIdentity: (() => void) | null = null;
+  /** The `hardlyreader://subscribe` listener, for the life of the window. */
+  let stopDeepLinks: (() => void) | null = null;
 
   onMount(async () => {
     stopWatchingEntitlement = entitlement.watch();
     stopWatchingIdentity = identity.watch();
+
+    // The phone's share sheet hands a feed over as `hardlyreader://subscribe`.
+    // Registered here rather than in a view because it has to be listening
+    // before the first screen decides what to draw: a link that launched the app
+    // is the reason the app is running, and the form it asks for is drawn by the
+    // sidebar, which is not mounted yet at this point. `chrome.askAddFeed` is a
+    // counter, so asking now means the sidebar opens the form when it appears.
+    void installDeepLinks((link) => chrome.askAddFeed(link.seed)).then((stop) => {
+      stopDeepLinks = stop;
+    });
 
     // Before anything reads the extension state: if the page is served by a host
     // that can forward for the server (the PWA on this box), the adapter's routes
@@ -328,6 +341,8 @@
   }
 
   onDestroy(() => {
+    stopDeepLinks?.();
+    stopDeepLinks = null;
     stopWatchingEntitlement?.();
     stopWatchingEntitlement = null;
     stopWatchingIdentity?.();

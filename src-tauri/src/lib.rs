@@ -21,6 +21,10 @@ pub fn run() {
         // migration, so the table definitions have exactly one home and the
         // unit suite can run the same `CREATE TABLE` text against real SQLite.
         .plugin(tauri_plugin_sql::Builder::default().build())
+        // `hardlyreader://subscribe?...`, from the phone's share extension. The
+        // scheme itself is declared in the generated Info.plist by the Codemagic
+        // workflow; this is the listener the page hears it on.
+        .plugin(tauri_plugin_deep_link::init())
         .manage(lan::LanState::default())
         .invoke_handler(tauri::generate_handler![
             lan::lan_start,

@@ -102,6 +102,32 @@ workflows:
             }
           done
           echo "the native files are in the app target"
+      - name: Add the share extension
+        script: |
+          set -euo pipefail
+          # The Safari share sheet is a second binary inside the app, and like the
+          # Swift half above it cannot live only in the repo: the Xcode project is
+          # regenerated from Tauri's template on every run. So the sources are
+          # copied beside the app's, and `scripts/ios-add-extension.rb` merges the
+          # target into the generated project.yml before XcodeGen runs.
+          cp -Rv src-tauri/ios/SubscribeExtension src-tauri/gen/apple/
+          ruby scripts/ios-add-extension.rb src-tauri/gen/apple
+          cd src-tauri/gen/apple
+          set -- *.xcodeproj
+          PROJ="$1"
+          XCODEGEN=$(command -v xcodegen || echo /opt/homebrew/bin/xcodegen)
+          "$XCODEGEN" generate --spec project.yml
+          # A target that is in project.yml but not in the pbxproj compiles
+          # nothing and says nothing, so the generated project is asked directly.
+          for expected in "HardlyReaderSubscribe" "appex"; do
+            if grep -q "$expected" "$PROJ/project.pbxproj"; then
+              echo "project contains: $expected"
+            else
+              echo "project is missing: $expected"
+              exit 1
+            fi
+          done
+          echo "the share extension is a target of the app"
       - name: Let the app hide the status bar
         script: |
           set -euo pipefail
@@ -120,6 +146,26 @@ workflows:
             /usr/libexec/PlistBuddy -c 'Add :UIViewControllerBasedStatusBarAppearance bool false' "$PLIST"
           fi
           /usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "$PLIST"
+      - name: Declare the subscribe URL scheme
+        script: |
+          set -euo pipefail
+          # `hardlyreader://subscribe?feed=…` is how the share extension hands a
+          # feed to the app; without this declaration iOS drops the URL and the
+          # feature is a button that does nothing. Same reason as the status bar
+          # above: the Info.plist is a build product.
+          PLIST=$(find src-tauri/gen/apple -name 'Info.plist' -not -path '*/build/*' -not -path '*SubscribeExtension*' -print -quit)
+          [ -n "$PLIST" ] || { echo "no app Info.plist in gen/apple"; exit 1; }
+          echo "plist: $PLIST"
+          if /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' "$PLIST" >/dev/null 2>&1; then
+            echo "CFBundleURLTypes already declared"
+          else
+            /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes array' "$PLIST"
+            /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0 dict' "$PLIST"
+            /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLName string ing.hardlysleep.hardlyreader' "$PLIST"
+            /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes array' "$PLIST"
+            /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string hardlyreader' "$PLIST"
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$PLIST"
       - name: Build unsigned .app
         script: |
           set -euo pipefail
@@ -167,5 +213,22 @@ workflows:
               exit 1
             fi
           done
+          # And the extension: an .appex that was never embedded is a share sheet
+          # Safari does not offer, which looks exactly like a working build until
+          # someone tries it on a phone.
+          APPEX="$APP/PlugIns/HardlyReaderSubscribe.appex"
+          [ -d "$APPEX" ] || { echo "no share extension at $APPEX"; find "$APP" -name '*.appex' || true; exit 1; }
+          EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APPEX/Info.plist")
+          strings -a "$APPEX/$EXEC" > "$CM_BUILD_DIR/build/appex-strings.txt"
+          for symbol in hardlyreader-subscribe-extension-1 SubscribeViewController FeedDiscovery; do
+            if grep -q -- "$symbol" "$CM_BUILD_DIR/build/appex-strings.txt"; then
+              echo "found in the extension: $symbol"
+            else
+              echo "MISSING from the extension: $symbol"
+              exit 1
+            fi
+          done
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APPEX/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$APP/Info.plist"
     artifacts:
       - build/HardlyReader-unsigned.ipa

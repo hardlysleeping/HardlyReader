@@ -886,7 +886,12 @@
     const ask = chrome.addFeedAsk;
     if (ask === asked) return;
     asked = ask;
+    // Read before `startAdding`, which moves the phone to this column: a URL
+    // that arrived with the press is the reason the form is open, and it must be
+    // in the field before the box is fitted to its height.
+    const value = chrome.addFeedUrl;
     startAdding();
+    if (value !== "") feedUrl = value;
   });
 
   function onFeedPointerDown(event: PointerEvent, feed: Subscription) {

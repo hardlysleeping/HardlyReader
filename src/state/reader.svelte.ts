@@ -3,6 +3,7 @@ import { SvelteMap } from "svelte/reactivity";
 import { readSessions } from "../api/session";
 import type { OpmlFeed } from "../lib/opml";
 import { addFeedsMessage, parseFeedUrls, type AddFeedsResult } from "../lib/add-feeds";
+import { subscribeFeeds, type FeedEntry } from "../lib/subscribe-feeds";
 import { landingItem, step } from "../lib/reading-order";
 import { stepIndex } from "../lib/list-view";
 import { isNoopDrop, moveInOrder, moveNotice, sortByOrder } from "../lib/feed-order";
@@ -3533,38 +3534,25 @@ export class ReaderState {
     return this.subscribeEach(feeds);
   }
 
-  /** The loop both entry points share. */
-  private async subscribeEach(
-    entries: readonly { url: string; title?: string; category?: string }[],
-  ): Promise<AddFeedsResult> {
+  /**
+   * The loop both entry points share.
+   *
+   * The subscribing itself is `lib/subscribe-feeds` — the same function the
+   * phone's share sheet runs, so a feed added from Safari and a feed pasted into
+   * this form go through one implementation. What stays here is this screen's
+   * own follow-up: the progress count, the sidebar reload, and the open stream,
+   * which was drawn before the new articles existed.
+   */
+  private async subscribeEach(entries: readonly FeedEntry[]): Promise<AddFeedsResult> {
     this.feedBusy = true;
     this.addFeedError = null;
     this.feedProgress = { done: 0, total: entries.length };
-    const result: AddFeedsResult = { added: [], failed: [] };
-    const backend = this.source();
     try {
-      for (const entry of entries) {
-        try {
-          await backend.subscribe({ feedUrl: entry.url, title: entry.title, category: entry.category });
-          result.added.push(entry.url);
-        } catch (error) {
-          result.failed.push({ url: entry.url, error: message(error) });
-        }
-        this.feedProgress = { done: result.added.length + result.failed.length, total: entries.length };
-      }
+      const result = await subscribeFeeds(this.source(), entries, (done, total) => {
+        this.feedProgress = { done, total };
+      });
       if (result.added.length > 0) {
-        // A subscription on a local library starts empty: fetch it now, or the
-        // first thing a new feed shows is "no articles" and a sync button.
-        if (backend.fetchNew !== undefined) {
-          try {
-            await backend.fetchNew({ wake: "manual" });
-          } catch {
-            /* the feed is subscribed; a failed first fetch is the poll's to report */
-          }
-        }
         await this.loadSidebar();
-        // The open stream is where the new articles belong, and it was drawn
-        // before they existed.
         await this.reloadStream({ force: true });
       }
       this.addFeedError = addFeedsMessage(result);
