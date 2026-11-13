@@ -93,14 +93,14 @@ struct SubscribeView: View {
                 case .empty:
                     MessageView(
                         title: "No feed found",
-                        body: "HardlyReader couldn’t find an RSS, Atom, or JSON feed for this page.",
+                        detail: "HardlyReader couldn’t find an RSS, Atom, or JSON feed for this page.",
                         retry: nil,
                         open: model.openApp
                     )
                 case .failed(let reason):
                     MessageView(
                         title: "Couldn’t check this page",
-                        body: reason,
+                        detail: reason,
                         retry: { Task { await model.start() } },
                         open: model.openApp
                     )
@@ -142,7 +142,7 @@ private struct FeedRow: View {
 
 private struct MessageView: View {
     let title: String
-    let body: String
+    let detail: String
     let retry: (() -> Void)?
     let open: () -> Void
 
@@ -150,7 +150,7 @@ private struct MessageView: View {
         VStack(spacing: 16) {
             Text(title)
                 .font(.headline)
-            Text(body)
+            Text(detail)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

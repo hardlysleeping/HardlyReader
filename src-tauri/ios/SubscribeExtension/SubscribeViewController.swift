@@ -66,7 +66,7 @@ final class SubscribeViewController: UIViewController {
         let host = UIHostingController(
             rootView: MessageScreen(
                 title: "Nothing to open",
-                body: "Share a web page with HardlyReader to find its feeds."
+                detail: "Share a web page with HardlyReader to find its feeds."
             )
         )
         loading?.willMove(toParent: nil)
@@ -146,12 +146,12 @@ private struct LoadingView: View {
 /// Used when the share carried no page at all.
 struct MessageScreen: View {
     let title: String
-    let body: String
+    let detail: String
 
     var body: some View {
         VStack(spacing: 12) {
             Text(title).font(.headline)
-            Text(body)
+            Text(detail)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
