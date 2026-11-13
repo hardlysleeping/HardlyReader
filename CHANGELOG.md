@@ -4,6 +4,39 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.43] — 2026-11-13
+
+### Added
+
+- **Safari → Share → HardlyReader can add the feed it found.** The share sheet
+  lists the RSS, Atom and JSON feeds a page offers — a page that is already a
+  feed, the `<link rel="alternate">` declarations resolved against the address
+  the browser ended on, and, only when nothing is declared, `/feed`-style
+  guesses that are verified before they are offered. Tapping Add opens the app's
+  own Add Feed form with the URL in the field; the subscribing happens there,
+  where the accounts, the backends and the queue are.
+- **A feed can be handed to the app as a link.** `hardlyreader://subscribe?feed=…&page=…&title=…`
+  opens that form filled in; every scheme can be opened by any app, so only
+  `http(s)` values reach the field and anything else opens a blank form.
+
+### Changed
+
+- **One implementation of "add these feeds".** The sidebar's form, an OPML
+  import and a shared link all subscribe through `lib/subscribe-feeds`:
+  sequential, a failure does not stop the run, and one fetch at the end for a
+  backend that crawls for itself.
+
+### Notes
+
+- The share extension is a second binary inside the app, added to the Xcode
+  project at build time — `tauri ios init` regenerates that project on every run,
+  so `scripts/ios-add-extension.rb` merges the target into the generated spec and
+  CI checks the packaged IPA really contains `PlugIns/HardlyReaderSubscribe.appex`.
+- The handoff is a URL rather than a shared file on purpose: the IPA is unsigned
+  and re-signed on the device, and App Groups is a capability a re-signing
+  profile does not grant, so a shared container would be nil at runtime and a
+  "pending subscriptions" file would be written where nothing can read it.
+
 ## [0.6.42] — 2026-11-11
 
 ### Fixed
