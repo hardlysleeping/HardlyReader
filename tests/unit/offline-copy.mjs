@@ -146,7 +146,7 @@ equal("an empty id is dropped", parseKept(JSON.stringify({ "": NOW }), NOW).size
   check("a sync warms the copy, after the list", /if \(this\.error === null\) void this\.warmOfflineCopy\(\);/.test(reader));
   check(
     "and a launch without a sync warms it too, once the feeds are known",
-    /this\.persistSidebar\(counts\.value\);\s*\n[^]{0,400}void this\.warmOfflineCopy\(\);/.test(reader),
+    /this\.persistSidebar\(counts\.value, complete\);\s*\n[^]{0,400}void this\.warmOfflineCopy\(\);/.test(reader),
   );
   check("one feed at a time", /for \(const feedId of plan\) \{/.test(reader) && !/Promise\.all\(plan/.test(reader));
   check("and it is off unless the setting says so", /if \(!this\.keepOfflineCopy \|\| !this\.canRead\) return 0;/.test(reader));

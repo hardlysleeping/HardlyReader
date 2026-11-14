@@ -456,6 +456,66 @@ try {
     await freshOnly;
   }
 
+  /* --------------------------------------------------------------------------- *
+   * (g) An enforced read never shrinks the copy a reveal draws from
+   * --------------------------------------------------------------------------- */
+  {
+    const reader = new ReaderState();
+    reader.session = sessionOf(ONE);
+    reader.hiddenCategories = hiddenState();
+    reader.subscriptions = HIDDEN_LIVE_ROWS.map((entry) => ({ ...entry }));
+    seedSidebar(reader, { rows: REMEMBERED_ROWS, counts: REMEMBERED_COUNTS, at: Date.now() });
+    await reader.hydrateSidebar();
+
+    // Strict is on, so the answer omits A's feeds — what every launch looks
+    // like on an account that is being enforced.
+    reply = sidebarReply({
+      rows: HIDDEN_LIVE_ROWS,
+      counts: [{ id: "feed/3", count: 3 }],
+      state: hiddenState(),
+    });
+    const landed = await reader.loadSidebar();
+    await tick();
+
+    check("an enforced read still lands", landed === true);
+    check("...and the live list is the partial answer", feedIds(reader).join(",") === "feed/3", feedIds(reader).join(","));
+
+    // The copy must keep the rows the answer omitted, in memory and on disk:
+    // the next launch paints the disk copy, and its first reveal has to draw
+    // them without waiting for the catch-up.
+    const persisted = store.get(reader.diskKey("sidebar"))?.value;
+    const persistedIds = (persisted?.subscriptions ?? []).map((entry) => entry.id).join(",");
+    check("the persisted copy keeps the rows Strict omitted", persistedIds === "feed/3,feed/1,feed/2", persistedIds);
+    check(
+      "...and their counts",
+      persisted?.counts?.find((entry) => entry.id === "feed/1")?.count === 5,
+      JSON.stringify(persisted?.counts),
+    );
+
+    reply = () => stateReply(hiddenState({ hiddenIds: [] }));
+    const pending = reader.setCategoryHidden(CATEGORY_A, false);
+    check("a reveal after that read is still instant", idsOf(reader, CATEGORY_A) === "feed/1,feed/2", idsOf(reader, CATEGORY_A));
+    await pending;
+
+    // A complete read is still exactly the answer: once the server speaks with
+    // nothing hidden, a row it dropped is not carried forward.
+    reader.hiddenCategories = hiddenState({ view: "revealed", effectiveView: "revealed", hiddenIds: [hiddenId] });
+    reply = sidebarReply({
+      rows: [feed("feed/1", "A one", CATEGORY_A), feed("feed/3", "B one", CATEGORY_B)],
+      counts: [
+        { id: "feed/1", count: 1 },
+        { id: "feed/3", count: 3 },
+      ],
+      state: hiddenState({ view: "revealed", effectiveView: "revealed", hiddenIds: [hiddenId] }),
+    });
+    await reader.loadSidebar();
+    await tick();
+    const completeValue = store.get(reader.diskKey("sidebar"))?.value;
+    const completeIds = (completeValue?.subscriptions ?? []).map((entry) => entry.id).join(",");
+    check("a complete read replaces the copy", completeIds === "feed/1,feed/3", completeIds);
+    check("...so a deleted row is dropped there too", !completeIds.includes("feed/2"), completeIds);
+  }
+
   await tick();
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });

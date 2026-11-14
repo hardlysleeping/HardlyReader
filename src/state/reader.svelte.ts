@@ -3170,13 +3170,21 @@ export class ReaderState {
     }
   }
 
-  private persistSidebar(counts: { id: string; count: number }[]): void {
+  private persistSidebar(counts: { id: string; count: number }[], complete: boolean): void {
     const key = this.diskKey("sidebar");
     if (key === null) return;
+    // Under Strict the answer omits every feed in a hidden category, and a
+    // launch paints this blob before any read: persisting only the answer
+    // teaches the next launch that those rows do not exist, so its first reveal
+    // has nothing to draw and waits for the catch-up — the exact wait this
+    // cache exists to remove. The remembered copy is the union, so when the
+    // read was not complete, the union is what gets written.
+    const remembered = this.rememberedSidebar;
+    const carry = !complete && remembered !== null && remembered.key === key;
     void writeCached<SidebarSnapshot>(key, {
-      subscriptions: this.subscriptions,
+      subscriptions: carry ? remembered.subscriptions : this.subscriptions,
       tags: this.tags,
-      counts,
+      counts: carry ? remembered.counts : counts,
       api: {
         hiddenCategories: this.hiddenCategories,
         favorites: this.favorites,
@@ -3188,19 +3196,70 @@ export class ReaderState {
   /**
    * Keeps what the server just sent, for the next reveal.
    *
-   * Exactly the rows and counts of the answer — never `this.subscriptions`,
+   * A complete read is remembered exactly as it came — never `this.subscriptions`,
    * which a reveal may already have padded with remembered rows. A feed deleted
    * elsewhere must not be remembered back into existence by a later merge.
+   *
+   * An enforced read is not complete: Strict answers without the feeds in hidden
+   * categories, so remembering only that answer would empty the copy the next
+   * reveal draws from. For that one, the rows this answer omits are carried over
+   * from the previous copy (same account, still inside the age cap), and the
+   * answer wins by id wherever both have the row.
    */
   private rememberSidebar(
     key: string | null,
     subscriptions: Subscription[],
     counts: { id: string; count: number }[],
+    complete: boolean,
+    states: HiddenCategoriesState[],
   ): void {
     // The read took four requests: an account that started meanwhile is not the
     // one these rows belong to, so they are let go rather than mis-filed.
     if (key === null || this.diskKey("sidebar") !== key) return;
+    if (!complete) {
+      const carried = this.carriedRows(subscriptions, counts, states);
+      if (carried !== null) {
+        this.rememberedSidebar = { key, ...carried, at: Date.now() };
+        return;
+      }
+    }
     this.rememberedSidebar = { key, subscriptions, counts, at: Date.now() };
+  }
+
+  /**
+   * The answer plus the rows the previous copy holds and this one lacks.
+   *
+   * Only ever widens, and only with rows the enforcement could have removed:
+   * one of the row's categories has to be hidden in a state the read was served
+   * under. A row missing for any other reason was deleted elsewhere, and
+   * carrying it would put a dead feed back in front of the reader. A previous
+   * copy for another account, or one past the age cap, contributes nothing —
+   * stale rows are not worth trusting, and a fresh timestamp on them would make
+   * them look trustworthy.
+   */
+  private carriedRows(
+    subscriptions: Subscription[],
+    counts: { id: string; count: number }[],
+    states: HiddenCategoriesState[],
+  ): { subscriptions: Subscription[]; counts: { id: string; count: number }[] } | null {
+    const previous = this.rememberedSidebar;
+    const key = this.diskKey("sidebar");
+    if (previous === null || key === null || previous.key !== key) return null;
+    if (!(Date.now() - previous.at <= SIDEBAR_REMEMBERED_MAX_AGE_MS)) return null;
+    const couldBeOmitted = (feed: Subscription): boolean =>
+      (feed.categories ?? []).some((category) =>
+        states.some((state) => isHiddenCategory(state, category.label)),
+      );
+
+    const present = new Set(subscriptions.map((feed) => feed.id));
+    const extra = previous.subscriptions.filter((feed) => !present.has(feed.id) && couldBeOmitted(feed));
+    if (extra.length === 0) return null;
+    const carriedIds = new Set(extra.map((feed) => feed.id));
+    const extraCounts = previous.counts.filter((entry) => carriedIds.has(entry.id));
+    return {
+      subscriptions: [...subscriptions, ...extra],
+      counts: [...counts, ...extraCounts],
+    };
   }
 
   /**
@@ -3309,6 +3368,11 @@ export class ReaderState {
     const backend = this.source();
     // Captured before the four reads: the answer is only this account's.
     const sidebarKey = this.diskKey("sidebar");
+    // Was the request made while Strict was hiding rows? The state read in the
+    // same batch can land a different view than the one the other reads were
+    // served under, so either side being enforced makes the feed list partial.
+    const stateBefore = this.hiddenCategories;
+    const enforcedAtStart = enforcing(stateBefore);
     const fetchStep = <T>(id: "feeds" | "tags" | "counts", fetchOne: () => Promise<T>): Promise<T> => {
       report?.start(id);
       return fetchOne().then(
@@ -3345,10 +3409,16 @@ export class ReaderState {
     this.subscriptions = feeds.value;
     this.tags = tags.value;
     this.setCounts(counts.value);
+    // An enforced answer is partial by design — it has no rows for the hidden
+    // categories — and it must not overwrite the copy a reveal draws from.
+    const complete = !enforcedAtStart && !enforcing(this.hiddenCategories);
     // The answer, exactly as it came: this is what a later reveal may draw from
     // while the next read is out.
-    this.rememberSidebar(sidebarKey, feeds.value, counts.value);
-    this.persistSidebar(counts.value);
+    this.rememberSidebar(sidebarKey, feeds.value, counts.value, complete, [
+      stateBefore,
+      this.hiddenCategories,
+    ]);
+    this.persistSidebar(counts.value, complete);
     // The feeds are known now, which is the one thing a copy pass needs to decide
     // which of them are worth keeping. It runs here as well as after a sync because a
     // launch with no sync would otherwise never keep anything: the first sync of the
