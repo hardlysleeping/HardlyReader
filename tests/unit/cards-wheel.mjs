@@ -65,6 +65,16 @@ const wheel = functionBody(articleList, "onListWheel");
 
 check("the wheel handler exists", wheel.length > 0);
 
+// 0. Height is not the whole story: a card with a picture mounts at the height
+//    of its words and grows when the picture lands, so between those moments it
+//    measures as a card that fits. Turning it there is the jump this exists to
+//    stop, so a pending picture counts as a page.
+check(
+  "a card whose picture has not landed is not turned",
+  /!cardFits\(row\) \|\| !pictureLanded\(row\)/.test(wheel) &&
+    /img\.complete && img\.naturalHeight > 0/.test(articleList),
+);
+
 // 1. A tall card is scrolled, not turned: the branch is tested before anything
 //    is refused, so the browser gets the notch.
 check("the wheel asks whether the card is taller than the pane", /!cardFits\(row\)/.test(wheel));

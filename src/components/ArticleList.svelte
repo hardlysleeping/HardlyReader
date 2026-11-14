@@ -691,6 +691,22 @@
   }
 
   /**
+   * Whether the card's picture has landed. A post without one counts: its card
+   * is the height of its words and that height is the whole truth about it.
+   *
+   * A card with a picture mounts at the height of its words and grows to the
+   * height of its page when the picture decodes, so between those two moments
+   * it measures as a card that fits — and a card that fits is turned by the
+   * notch. That would turn a page the reader had not read yet, which is the
+   * jump this whole branch exists to stop. Until the picture is there the notch
+   * belongs to the column, and scrolling the card into view is what loads it.
+   */
+  function pictureLanded(row: HTMLElement): boolean {
+    const img = row.querySelector<HTMLImageElement>(".lead img");
+    return img === null || (img.complete && img.naturalHeight > 0);
+  }
+
+  /**
    * Whether the card in the middle is too tall for the pane.
    *
    * Snapping is a promise that letting go finishes the gesture: the card you
@@ -1248,7 +1264,9 @@
     const direction = event.deltaY > 0 ? 1 : -1;
     const row = currentCard();
     if (!row) return;
-    const tall = !cardFits(row);
+    // A card whose picture has not landed yet measures as one that fits, and a
+    // card that fits is turned by the notch — see `pictureLanded`.
+    const tall = !cardFits(row) || !pictureLanded(row);
 
     const now = performance.now();
     // A new push starts here; the rest of it belongs to this gesture.
