@@ -42,6 +42,7 @@ Every request needs the same `Authorization: GoogleLogin auth=...` credential th
 |---|---|---|
 | GET | `/v1/revision` | one short token over the user's state; poll this, not the whole state |
 | GET | `/v1/state` | hidden categories, favourites, pins and their order, sidebar indent |
+| GET | `/v1/subscriptions` | every feed the account has, hidden ones included, with unread counts |
 | GET | `/v1/positions` | the arrangement the user dragged, as stored for this user |
 | PUT | `/v1/positions` | store that arrangement; last write wins by the client's `updatedAt`, a stale write is `409` |
 | GET | `/v1/preferences` | the reader's remembered settings, one stamped document per account |
@@ -60,6 +61,8 @@ Errors carry a status and a stable code, and the codes are mapped from what the 
 `/v1/positions` is one of two routes where this extension keeps state instead of forwarding: FreshRSS stores no folder position, so there is nothing to hand it to. It is a per-user `positions.json` under `data/users/<login>/extensions/HardlyRead/`, a file rather than the user config because a finishing refresh rewrites that config from its in-memory copy and would silently drop a write made by another request.
 
 `/v1/preferences` is the second: a `preferences.json` beside it, holding the client's namespaces (`reading`, `cards`, `theme`, `search`) as `{ updatedAt, value }` entries. The extension does not interpret a namespace's fields — a newer client may add one, and this server keeps it intact — and it never stores anything from the session. A read-only or older install answers `404`/`503`, which a client reads as "keep it on this device".
+
+`/v1/subscriptions` is the read-only answer to a gap in GReader: `subscription/list` drops every feed at priority `-10`, which is exactly where Hidden Categories puts a feed while its category is hidden. A client whose sidebar is enforced therefore has no rows for the categories it is about to reveal, and every reveal costs a round trip. This route walks the same categories and reports every feed with nothing dropped, so a client can keep the rows and make a reveal a filter. It is read-only and visibility-neutral: what is hidden is still Hidden Categories' answer, no priority is written, and no other extension's state is opened. Added in adapter version 2 — an older copy answers `404`, which a client reads as "keep using GReader's list".
 
 The optional `/v1/people` routes exist only on an install that also carries the people provider; everywhere else they are plain unknown routes, because an empty list would read as "no such person" — a different truth from "this install cannot do that".
 

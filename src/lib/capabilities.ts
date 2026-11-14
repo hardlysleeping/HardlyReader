@@ -198,6 +198,12 @@ const EXTENDED: Feature[] = ALL.filter((feature) => !GREADER_CAPABILITIES[featur
  * capabilities* rather than answering `404` later. That is also how the place would
  * become a backend's, if the extension ever gains a place block.
  *
+ * The one route outside this table is version 2's `GET /v1/subscriptions`. It has no
+ * feature row because nothing on screen depends on a capability flag for it: the sidebar
+ * asks once after an enforced read and treats `404` as "older adapter, use GReader's
+ * list", which is the same answer a ceiling would produce without a probe. A version 2
+ * adapter therefore claims exactly what a version 1 one does.
+ *
  * The residual, stated rather than hidden: `API_VERSION` was already 1 when the
  * arrangement and preferences routes were added, so a v1 adapter from before those routes
  * cannot be told apart from one that carries them — both say 1. Such a copy over-claims
