@@ -215,34 +215,30 @@ check(
 
 // -------------------------------------------------- one wheel, one card --
 
-// A Cards wheel gesture has one meaning anywhere in the column: advance to the
-// adjacent card, then consume the rest of that gesture so native momentum cannot
-// coast across more items. Tall comics remain readable by touch/drag.
+// A wheel has one rule in Cards, and it is the article pane's: the notch
+// scrolls the page you are on, and only past that page's own end does it turn
+// to the next card. A card that fits is turned by the notch itself. The detail
+// is pinned in `cards-wheel.mjs`; what is here is the shape of the rule.
+const wheelSource = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 3200);
+
 check(
-  "one locked wheel gesture steps exactly one card in its direction",
-  (() => {
-    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 1700);
-    return (
-      /event\.preventDefault\(\);\s*if \(listStepSpent\) return;/.test(wheel) &&
-      /const row = currentCard\(\);\s*if \(!row\) return;\s*listStepSpent = true;\s*stepCard\(direction\);/.test(wheel)
-    );
-  })(),
+  "a notch inside a page is the column's, not a turn",
+  /!cardFits\(row\)/.test(wheelSource) &&
+    /if \(!pastEdge\) \{\s*resetListPull\(\);\s*return;/.test(wheelSource),
 );
 
 check(
-  "wheel input only advances when the lock is enabled and one burst cannot double-step",
-  (() => {
-    const wheel = list.slice(list.indexOf("function onListWheel"), list.indexOf("function onListWheel") + 1700);
-    return (
-      /!reading\.advanceOnScroll/.test(wheel) &&
-      /isNewGesture\(now, listWheelAt, LIST_GESTURE_GAP_MS\)/.test(wheel) &&
-      /listWheelAt = now;/.test(wheel) &&
-      !/accumulate\(|shouldAdvance\(|listPull|cardFits\(row\)/.test(wheel)
-    );
-  })(),
+  "past the page it is the article pane's pull, and one burst cannot double-step",
+  /!reading\.advanceOnScroll/.test(wheelSource) &&
+    /listStepSpent = true/.test(wheelSource) &&
+    /accumulate\(listPull, event\.deltaY, listThreshold\)/.test(wheelSource) &&
+    /shouldAdvance\(listPull, listThreshold\)/.test(wheelSource),
 );
 
-check("the redundant card-list pull bar is gone", !/list-pull|listPull|listThreshold/.test(list));
+check(
+  "the page turn draws the article pane's filling line",
+  /class="card-pull"/.test(list) && /\.card-pull\b/.test(list),
+);
 
 // ------------------------------------------------------ the whole card fits --
 

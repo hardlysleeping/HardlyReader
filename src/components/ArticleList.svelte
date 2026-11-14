@@ -47,7 +47,16 @@
   import { carousel } from "../state/carousel.svelte";
   import { pullLabels } from "../lib/gestures";
   import { chrome } from "../state/chrome.svelte";
-  import { LIST_GESTURE_GAP_MS, SETTLE_MS, isNewGesture } from "../lib/scroll-advance";
+  import {
+    GESTURE_GAP_MS,
+    LIST_GESTURE_GAP_MS,
+    SETTLE_MS,
+    accumulate,
+    isNewGesture,
+    progressOf,
+    shouldAdvance,
+    thresholdFor,
+  } from "../lib/scroll-advance";
   import { articleQueue, candidateFor } from "../lib/extract-queue";
   import { ledger } from "../lib/extract-ledger";
   import { wantsFullText } from "../lib/full-text";
@@ -573,12 +582,35 @@
   /** The scroll port the rows are measured against. */
   let itemsEl = $state<HTMLElement | null>(null);
 
-  /* One locked wheel gesture advances one adjacent card, even when the card is
-   * taller than the pane. Native touch/drag remains available for reading a tall
-   * comic; the wheel never coasts into another card. */
+  /* A card that fits the pane is stepped by the notch: one push, one card.
+   * A card taller than the pane is a page, and a page is read like an article
+   * — the wheel scrolls it, and only a push past the edge it is heading for
+   * turns to the next card. Stepping those made a page and a half of comic
+   * unreachable by wheel: every notch teleported the whole card past.
+   *
+   * The two gestures need different quiet windows. A wheel notching over a
+   * card that fits has to be told apart from a slow two-finger scroll, which
+   * sends its deltas hundreds of milliseconds apart (`LIST_GESTURE_GAP_MS`).
+   * The pull at a page's edge is the article pane's, and it fills over many
+   * deltas of one push, so it uses the article's own gap (`GESTURE_GAP_MS`). */
   let listWheelAt = Number.NaN;
   let listStepSpent = false;
   let stepTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Wheel travel accumulated past the edge of a card taller than the pane. */
+  let listPull = $state(0);
+  let listPullTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The same effort the article pane uses, so one setting shapes both. */
+  const listThreshold = $derived(thresholdFor(reading.scrollEffort));
+
+  /** Let go of a half-made pull: the line fades and the next push starts fresh. */
+  function resetListPull(): void {
+    if (listPullTimer !== null) {
+      clearTimeout(listPullTimer);
+      listPullTimer = null;
+    }
+    if (listPull !== 0) listPull = 0;
+  }
 
   /** The rows, in order, as elements carrying their post's id. */
   function cardRows(): HTMLElement[] {
@@ -1208,26 +1240,64 @@
   function onListWheel(event: WheelEvent): void {
     columnTouched = true;
     const el = scrollPort();
-    if (view !== "cards" || !reading.advanceOnScroll || !el || event.deltaY === 0) return;
+    if (view !== "cards" || !reading.advanceOnScroll || !el || event.deltaY === 0) {
+      resetListPull();
+      return;
+    }
 
     const direction = event.deltaY > 0 ? 1 : -1;
-    const now = performance.now();
-    // The cards column asks a different question than the article pane: not
-    // "has the wheel started a new push" (a slow two-finger scroll sends its
-    // deltas hundreds of milliseconds apart and would read as one push per
-    // delta — ten cards from one scroll) but "has the wheel been quiet long
-    // enough that a new push can have begun". See `LIST_GESTURE_GAP_MS`.
-    if (isNewGesture(now, listWheelAt, LIST_GESTURE_GAP_MS)) listStepSpent = false;
-    listWheelAt = now;
-
-    // In locked Cards mode the wheel has one meaning everywhere: next card or
-    // previous card. Never also let native scroll momentum coast through the
-    // rows after the step. Tall-card reading remains available by touch/drag.
-    event.preventDefault();
-    if (listStepSpent) return;
-
     const row = currentCard();
     if (!row) return;
+    const tall = !cardFits(row);
+
+    const now = performance.now();
+    // A new push starts here; the rest of it belongs to this gesture.
+    if (isNewGesture(now, listWheelAt, tall ? GESTURE_GAP_MS : LIST_GESTURE_GAP_MS)) {
+      listStepSpent = false;
+      resetListPull();
+    }
+    listWheelAt = now;
+
+    if (tall) {
+      // The wheel scrolls a page, so the notch is the column's until the page
+      // has no more to give in that direction. Refusing it here is what left a
+      // comic taller than the pane unreadable: every notch was spent turning
+      // the page over, and the page under it never moved.
+      const port = el.getBoundingClientRect();
+      const box = row.getBoundingClientRect();
+      const pastEdge = direction > 0 ? box.bottom <= port.bottom + 2 : box.top >= port.top - 2;
+      if (!pastEdge) {
+        resetListPull();
+        return;
+      }
+      // Past the edge there is nothing left to scroll, so the notch becomes a
+      // pull — the article pane's own accumulator, curve and line, so the
+      // effort that turns a page turns a card too.
+      event.preventDefault();
+      if (listStepSpent) {
+        resetListPull();
+        return;
+      }
+      listPull = accumulate(listPull, event.deltaY, listThreshold);
+      if (listPullTimer !== null) clearTimeout(listPullTimer);
+      // A pause is a release: a stray push at the edge does not stay half-made.
+      listPullTimer = setTimeout(resetListPull, 700);
+      if (!shouldAdvance(listPull, listThreshold)) return;
+      resetListPull();
+      listStepSpent = true;
+      stepCard(direction);
+      return;
+    }
+
+    // A card that fits has one meaning for the wheel everywhere: next card or
+    // previous card. Never also let native momentum coast through the rows
+    // after the step — one push buys one card.
+    event.preventDefault();
+    if (listStepSpent) {
+      resetListPull();
+      return;
+    }
+    resetListPull();
     listStepSpent = true;
     stepCard(direction);
   }
@@ -1944,6 +2014,20 @@
       </button>
     {/if}
   </div>
+
+  <!-- The feedback the article pane gives when a wheel pushes past the end of a
+       page: a line filling along the edge the next card is on. Only a card
+       taller than the pane has an edge to push past — a card that fits is
+       turned by the notch itself. -->
+  {#if view === "cards"}
+    <div
+      class="card-pull"
+      class:visible={listPull !== 0}
+      class:up={listPull < 0}
+      style:--p={progressOf(listPull, listThreshold)}
+      aria-hidden="true"
+    ></div>
+  {/if}
 </section>
 
 <style>
@@ -3396,6 +3480,42 @@
   .cards::-webkit-scrollbar {
     width: 0;
     height: 0;
+  }
+
+  /* The same line the article pane draws when a wheel pushes past the end of a
+     page: it fills from the edge the next card is on, so the effort between
+     "the comic has ended" and "the next card" is visible before it happens. */
+  .card-pull {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 3;
+    height: 3px;
+    transform: scaleX(var(--p, 0));
+    transform-origin: left center;
+    background: var(--accent);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 80ms linear, opacity 120ms ease;
+  }
+
+  .card-pull.visible {
+    opacity: 0.9;
+  }
+
+  /* Scrolling up fills from the top edge, so the direction reads as well as
+     the amount. */
+  .card-pull.up {
+    top: 0;
+    bottom: auto;
+    transform-origin: right center;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card-pull {
+      transition: none;
+    }
   }
 
   /* A card taller than the pane is read by scrolling it, so it is exempt: the
