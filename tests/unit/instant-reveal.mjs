@@ -516,6 +516,99 @@ try {
     check("...so a deleted row is dropped there too", !completeIds.includes("feed/2"), completeIds);
   }
 
+  /* --------------------------------------------------------------------------- *
+   * (h) The adapter's full sidebar fills the copy under enforcement
+   * --------------------------------------------------------------------------- */
+  {
+    const reader = new ReaderState();
+    reader.session = sessionOf(ONE);
+    reader.hiddenCategories = hiddenState();
+    reader.subscriptions = HIDDEN_LIVE_ROWS.map((entry) => ({ ...entry }));
+    seedSidebar(reader, {
+      rows: HIDDEN_LIVE_ROWS,
+      counts: [{ id: "feed/3", count: 3 }],
+      at: Date.now(),
+    });
+    await reader.hydrateSidebar();
+
+    let fullReads = 0;
+    const greader = sidebarReply({
+      rows: HIDDEN_LIVE_ROWS,
+      counts: [{ id: "feed/3", count: 3 }],
+      state: hiddenState(),
+    });
+    reply = (url) => {
+      if (url.includes("/v1/subscriptions")) {
+        fullReads += 1;
+        return {
+          status: 200,
+          body: { apiVersion: 2, subscriptions: REMEMBERED_ROWS, counts: REMEMBERED_COUNTS },
+        };
+      }
+      return greader(url);
+    };
+    calls = [];
+    const landed = await reader.loadSidebar();
+    await tick();
+
+    check("an enforced sidebar still lands", landed === true);
+    check("...and the copy is filled from the adapter", fullReads === 1, `${fullReads} full read(s)`);
+    check(
+      "...by one request through the adapter's route",
+      calls.some((call) => String(call.url).includes("/v1/subscriptions")),
+      calls.map((call) => String(call.url).split("/").pop()).join(","),
+    );
+    const warmed = store.get(reader.diskKey("sidebar"))?.value;
+    const warmedIds = (warmed?.subscriptions ?? []).map((entry) => entry.id).join(",");
+    check("the persisted copy holds the hidden rows", warmedIds === "feed/1,feed/2,feed/3", warmedIds);
+    check(
+      "...with their counts",
+      warmed?.counts?.find((entry) => entry.id === "feed/1")?.count === 5,
+      JSON.stringify(warmed?.counts),
+    );
+
+    reply = () => stateReply(hiddenState({ hiddenIds: [] }));
+    const pending = reader.setCategoryHidden(CATEGORY_A, false);
+    check("the next reveal is still a filter", idsOf(reader, CATEGORY_A) === "feed/1,feed/2", idsOf(reader, CATEGORY_A));
+    await pending;
+
+    // An adapter without the route: asked once, then never again.
+    const old = new ReaderState();
+    old.session = sessionOf(TWO);
+    old.hiddenCategories = hiddenState();
+    old.subscriptions = HIDDEN_LIVE_ROWS.map((entry) => ({ ...entry }));
+    seedSidebar(old, {
+      rows: HIDDEN_LIVE_ROWS,
+      counts: [{ id: "feed/3", count: 3 }],
+      at: Date.now(),
+    });
+    await old.hydrateSidebar();
+    let oldAsks = 0;
+    calls = [];
+    reply = (url) => {
+      if (url.includes("/v1/subscriptions")) {
+        oldAsks += 1;
+        return { status: 404, body: { error: { code: "route_not_found" } } };
+      }
+      return sidebarReply({
+        rows: HIDDEN_LIVE_ROWS,
+        counts: [{ id: "feed/3", count: 3 }],
+        state: hiddenState(),
+      })(url);
+    };
+    await old.loadSidebar();
+    await tick();
+    await old.loadSidebar();
+    await tick();
+
+    check("an old adapter is asked once", oldAsks === 1, `${oldAsks} ask(s)`);
+    check(
+      "...and its partial answer is kept as it came",
+      feedIds(old).join(",") === "feed/3",
+      feedIds(old).join(","),
+    );
+  }
+
   await tick();
 } finally {
   rmSync(GEN_DIR, { recursive: true, force: true });

@@ -22,6 +22,7 @@ require_once __DIR__ . '/HardlyReadPins.php';
  *   loadSidebarIndent(string $username): ?object   username → Sidebar Feed Indent extension, or null
  *   loadPins(string $username): ?object            username → the category-position reader/writer, or null
  *   loadPeople(): ?object                          the optional people provider, or null when absent
+ *   loadSubscriptions(string $username): ?array    username → every feed + unread count, hidden ones included, or null
  *
  * Order matters and is fixed: authenticate BEFORE routing, so an unauthenticated
  * caller cannot enumerate routes, and authenticate BEFORE anything reads
@@ -35,7 +36,7 @@ require_once __DIR__ . '/HardlyReadPins.php';
  */
 final class HardlyReadApi
 {
-	public const API_VERSION = 1;
+	public const API_VERSION = 2;
 
 	/** The only path segment between the extension name and the route. */
 	private const API_SEGMENT = 'v1';
@@ -126,6 +127,16 @@ final class HardlyReadApi
 	private ?Closure $loadPairing = null;
 
 	/**
+	 * The full subscription list, hidden rows included.
+	 *
+	 * Null on an extension.php that predates the route; the client asks once,
+	 * reads the `404` and keeps using GReader's own list.
+	 *
+	 * @var ?Closure(string): ?array{subscriptions: list<array<string, mixed>>, counts: list<array<string, mixed>>}
+	 */
+	private ?Closure $loadSubscriptions = null;
+
+	/**
 	 * @param callable(string): ?string $authenticate
 	 * @param callable(string): ?object $loadHiddenCategories
 	 * @param callable(string): ?object $loadFavorites
@@ -135,6 +146,7 @@ final class HardlyReadApi
 	 * @param (callable(string): array)|null $loadPreferences
 	 * @param (callable(string, array): bool)|null $savePreferences
 	 * @param (callable(): ?object)|null $loadPairing
+	 * @param (callable(string): ?array)|null $loadSubscriptions
 	 */
 	public function __construct(
 		callable $authenticate,
@@ -148,6 +160,7 @@ final class HardlyReadApi
 		?callable $loadPreferences = null,
 		?callable $savePreferences = null,
 		?callable $loadPairing = null,
+		?callable $loadSubscriptions = null,
 	) {
 		$this->authenticate = Closure::fromCallable($authenticate);
 		$this->loadHiddenCategories = Closure::fromCallable($loadHiddenCategories);
@@ -160,6 +173,7 @@ final class HardlyReadApi
 		$this->loadPreferences = $loadPreferences === null ? null : Closure::fromCallable($loadPreferences);
 		$this->savePreferences = $savePreferences === null ? null : Closure::fromCallable($savePreferences);
 		$this->loadPairing = $loadPairing === null ? null : Closure::fromCallable($loadPairing);
+		$this->loadSubscriptions = $loadSubscriptions === null ? null : Closure::fromCallable($loadSubscriptions);
 	}
 
 	/**
@@ -253,6 +267,32 @@ final class HardlyReadApi
 				// carries ids only, so this is the one place a client can see
 				// which categories are pinned and in what order.
 				'pins' => $this->pinsState($this->pins($username)),
+			]);
+		}
+
+		// GET /v1/subscriptions — the sidebar's rows, hidden ones included.
+		//
+		// GReader's `subscription/list` drops every feed sitting at priority
+		// -10, which is exactly how Hidden Categories enforces Strict. A client
+		// that only has that list has no rows for the categories it is about to
+		// reveal, so a reveal costs a round trip instead of a filter. These are
+		// the same rows with nothing dropped, for the client to keep; what is
+		// visible is still the hidden state's answer, not this list's.
+		if ($segments[0] === 'subscriptions') {
+			if (count($segments) !== 1) {
+				return self::error(404, 'route_not_found', 'Unknown route.');
+			}
+			if ($method !== 'GET') {
+				return self::methodNotAllowed('GET');
+			}
+			$rows = $this->loadSubscriptions === null ? null : ($this->loadSubscriptions)($username);
+			if (!is_array($rows)) {
+				return self::error(503, 'subscriptions_unavailable', 'The subscription list is not available on this server.');
+			}
+			return new HardlyReadApiResponse(200, [
+				'apiVersion' => self::API_VERSION,
+				'subscriptions' => self::subscriptionRows($rows['subscriptions'] ?? []),
+				'counts' => self::countRows($rows['counts'] ?? []),
 			]);
 		}
 
@@ -1530,6 +1570,84 @@ final class HardlyReadApi
 		}
 
 		return $people;
+	}
+
+	/**
+	 * The subscription rows, in the shape the client already parses.
+	 *
+	 * Built here rather than forwarded: a row without an id or a title cannot be
+	 * matched against the hidden state or drawn, and a category without a label
+	 * is not a category. Everything else is optional and defaults to empty.
+	 *
+	 * @return list<array{id: string, title: string, url: string, htmlUrl: string, iconUrl: string, categories: list<array{id: string, label: string}>}>
+	 */
+	private static function subscriptionRows(mixed $rows): array
+	{
+		$out = [];
+		foreach (is_array($rows) ? $rows : [] as $row) {
+			if (!is_array($row)) {
+				continue;
+			}
+			$id = $row['id'] ?? null;
+			$title = $row['title'] ?? null;
+			if (!is_string($id) || $id === '' || !is_string($title)) {
+				continue;
+			}
+
+			$categories = [];
+			foreach (is_array($row['categories'] ?? null) ? $row['categories'] : [] as $category) {
+				if (!is_array($category)) {
+					continue;
+				}
+				$label = $category['label'] ?? null;
+				if (!is_string($label) || $label === '') {
+					continue;
+				}
+				$labelId = $category['id'] ?? null;
+				$categories[] = [
+					'id' => is_string($labelId) && $labelId !== '' ? $labelId : 'user/-/label/' . $label,
+					'label' => $label,
+				];
+			}
+
+			$out[] = [
+				'id' => $id,
+				'title' => $title,
+				'url' => is_string($row['url'] ?? null) ? $row['url'] : '',
+				'htmlUrl' => is_string($row['htmlUrl'] ?? null) ? $row['htmlUrl'] : '',
+				'iconUrl' => is_string($row['iconUrl'] ?? null) ? $row['iconUrl'] : '',
+				'categories' => $categories,
+			];
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Unread counts for the same streams, per feed and per label.
+	 *
+	 * A count is a claim, so a row without a real number is dropped rather than
+	 * reported as zero: the client prints nothing for a stream the server said
+	 * nothing about.
+	 *
+	 * @return list<array{id: string, count: int}>
+	 */
+	private static function countRows(mixed $rows): array
+	{
+		$out = [];
+		foreach (is_array($rows) ? $rows : [] as $row) {
+			if (!is_array($row)) {
+				continue;
+			}
+			$id = $row['id'] ?? null;
+			$count = $row['count'] ?? null;
+			if (!is_string($id) || $id === '' || !is_int($count)) {
+				continue;
+			}
+			$out[] = ['id' => $id, 'count' => max(0, $count)];
+		}
+
+		return $out;
 	}
 
 	/**

@@ -86,6 +86,7 @@ class HardlyReadExtension extends Minz_Extension
 				loadPeople: fn (): ?object => $this->loadPeople(),
 				loadPins: fn (string $username): ?object => $this->pins($username),
 				loadPairing: fn (): ?object => $this->pairing(),
+				loadSubscriptions: fn (string $username): ?array => $this->subscriptions($username),
 			);
 
 			$this->respond($api->dispatch($method, $path, $this->authorizationHeader(), $body, $_GET));
@@ -274,6 +275,73 @@ class HardlyReadExtension extends Minz_Extension
 		require_once __DIR__ . '/lib/HardlyReadPairingStore.php';
 
 		return new HardlyReadPairingStore(HardlyReadPairingStore::rootForServer());
+	}
+
+	/**
+	 * Every subscription, including the ones GReader hides.
+	 *
+	 * `subscription/list` drops each feed sitting at priority -10, which is
+	 * where Hidden Categories puts a feed while its category is hidden. A
+	 * client that only has that list therefore has no rows for the categories
+	 * it is about to reveal — the rows exist, they are just not offered — and
+	 * the reveal becomes a round trip instead of a filter. This reports them
+	 * unchanged, in GReader's own shapes, for a client to keep.
+	 *
+	 * Read-only and visibility-neutral: what is hidden is still Hidden
+	 * Categories' answer, and the client filters with it. No priority is
+	 * written here and no other extension's state is opened.
+	 *
+	 * @return array{subscriptions: list<array<string, mixed>>, counts: list<array{id: string, count: int}>}|null
+	 */
+	private function subscriptions(string $username): ?array
+	{
+		if (!class_exists('FreshRSS_Factory') || !class_exists('FreshRSS_Category')) {
+			return null;
+		}
+
+		try {
+			$categoryDAO = FreshRSS_Factory::createCategoryDao($username);
+			$subscriptions = [];
+			$counts = [];
+
+			// Same walk greader.php::subscriptionList() makes, with the priority
+			// test left out: that test is the only reason hidden feeds vanish.
+			foreach ($categoryDAO->listCategories(prePopulateFeeds: true, details: true) as $category) {
+				if (!$category instanceof FreshRSS_Category) {
+					continue;
+				}
+				$label = htmlspecialchars_decode((string) $category->name(), ENT_QUOTES);
+				foreach ($category->feeds() as $feed) {
+					if (!$feed instanceof FreshRSS_Feed) {
+						continue;
+					}
+					$subscriptions[] = [
+						'id' => 'feed/' . $feed->id(),
+						'title' => escapeToUnicodeAlternative((string) $feed->name(), true),
+						'categories' => [
+							['id' => 'user/-/label/' . $label, 'label' => $label],
+						],
+						'url' => htmlspecialchars_decode((string) $feed->url(), ENT_QUOTES),
+						'htmlUrl' => htmlspecialchars_decode((string) $feed->website(), ENT_QUOTES),
+						'iconUrl' => str_replace(
+							'/api/greader.php/reader/api/0/subscription',	// Security if base_url is not set properly
+							'',
+							htmlspecialchars_decode($feed->favicon(absolute: true), ENT_QUOTES),
+						),
+					];
+					$counts[] = ['id' => 'feed/' . $feed->id(), 'count' => (int) $feed->nbNotRead()];
+				}
+				$counts[] = ['id' => 'user/-/label/' . $label, 'count' => (int) $category->nbNotRead()];
+			}
+
+			return ['subscriptions' => $subscriptions, 'counts' => $counts];
+		} catch (Throwable $e) {
+			// The sidebar can still be read the GReader way; this route failing
+			// must not take the whole extension's answer down with it.
+			Minz_Log::warning('HardlyRead API: subscriptions unavailable: ' . $e->getMessage());
+
+			return null;
+		}
 	}
 
 	/**

@@ -1417,12 +1417,128 @@ final class HardlyReadApiTest extends TestCase
 		);
 	}
 
+	// ------------------------------------------------------- subscriptions --
+
+	public function testSubscriptionsReportsRowsGReaderWouldDrop(): void
+	{
+		$response = $this->api(
+			new FakeHiddenCategories(),
+			subscriptions: static fn (string $username): ?array => [
+				'subscriptions' => [
+					[
+						'id' => 'feed/7',
+						'title' => 'Kept',
+						'url' => 'https://example.test/feed',
+						'htmlUrl' => 'https://example.test/',
+						'iconUrl' => 'https://example.test/icon.png',
+						'categories' => [['id' => 'user/-/label/Comics', 'label' => 'Comics']],
+						'priority' => '-10',
+					],
+				],
+				'counts' => [
+					['id' => 'feed/7', 'count' => 4],
+					['id' => 'user/-/label/Comics', 'count' => 4],
+				],
+			],
+		)->dispatch('GET', '/v1/subscriptions', self::AUTH);
+
+		self::assertSame(200, $response->status);
+		self::assertSame(2, $response->body['apiVersion'], 'the route ships in adapter version 2');
+		self::assertSame(
+			[
+				[
+					'id' => 'feed/7',
+					'title' => 'Kept',
+					'url' => 'https://example.test/feed',
+					'htmlUrl' => 'https://example.test/',
+					'iconUrl' => 'https://example.test/icon.png',
+					'categories' => [['id' => 'user/-/label/Comics', 'label' => 'Comics']],
+				],
+			],
+			$response->body['subscriptions'],
+			'a hidden row is the whole point of the route',
+		);
+		self::assertSame(
+			[['id' => 'feed/7', 'count' => 4], ['id' => 'user/-/label/Comics', 'count' => 4]],
+			$response->body['counts'],
+		);
+	}
+
+	public function testSubscriptionsDropsRowsThatCannotBeDrawn(): void
+	{
+		$response = $this->api(
+			new FakeHiddenCategories(),
+			subscriptions: static fn (string $username): ?array => [
+				'subscriptions' => [
+					['id' => '', 'title' => 'no id'],
+					['id' => 'feed/1'],
+					['id' => 'feed/2', 'title' => 'Good', 'categories' => [['label' => '']]],
+					'not a row',
+				],
+				'counts' => [
+					['id' => 'feed/2', 'count' => -3],
+					['id' => 'feed/2', 'count' => '4'],
+					['id' => '', 'count' => 1],
+				],
+			],
+		)->dispatch('GET', '/v1/subscriptions', self::AUTH);
+
+		self::assertSame(200, $response->status);
+		self::assertSame(
+			[['id' => 'feed/2', 'title' => 'Good', 'url' => '', 'htmlUrl' => '', 'iconUrl' => '', 'categories' => []]],
+			$response->body['subscriptions'],
+		);
+		self::assertSame([['id' => 'feed/2', 'count' => 0]], $response->body['counts'], 'a count is never negative, and never invented');
+	}
+
+	public function testSubscriptionsWithoutACollaboratorAnswers503(): void
+	{
+		$response = $this->api(new FakeHiddenCategories())->dispatch('GET', '/v1/subscriptions', self::AUTH);
+
+		self::assertSame(503, $response->status, 'the door exists in this build, the install behind it does not');
+		self::assertSame('subscriptions_unavailable', $response->body['error']['code']);
+	}
+
+	public function testSubscriptionsIsReadOnly(): void
+	{
+		$response = $this->api(new FakeHiddenCategories())->dispatch('PUT', '/v1/subscriptions', self::AUTH);
+
+		self::assertSame(405, $response->status);
+		self::assertSame('GET', $response->headers['Allow']);
+	}
+
+	public function testSubscriptionsRejectsExtraSegments(): void
+	{
+		$response = $this->api(new FakeHiddenCategories())->dispatch('GET', '/v1/subscriptions/feed/7', self::AUTH);
+
+		self::assertSame(404, $response->status);
+		self::assertSame('route_not_found', $response->body['error']['code']);
+	}
+
+	public function testSubscriptionsRequiresAuthentication(): void
+	{
+		$called = false;
+		$response = $this->api(
+			new FakeHiddenCategories(),
+			authenticated: false,
+			subscriptions: static function (string $username) use (&$called): ?array {
+				$called = true;
+
+				return ['subscriptions' => [], 'counts' => []];
+			},
+		)->dispatch('GET', '/v1/subscriptions');
+
+		self::assertSame(401, $response->status);
+		self::assertFalse($called, 'no collaborator runs before the credential is checked');
+	}
+
 	private function api(
 		?object $hidden,
 		bool $authenticated = true,
 		?object $favorites = null,
 		?object $sidebarIndent = null,
 		?object $pins = null,
+		?callable $subscriptions = null,
 	): HardlyReadApi {
 		return new HardlyReadApi(
 			authenticate: function (string $authorization) use ($authenticated): ?string {
@@ -1452,6 +1568,7 @@ final class HardlyReadApiTest extends TestCase
 
 				return $pins;
 			},
+			loadSubscriptions: $subscriptions,
 		);
 	}
 

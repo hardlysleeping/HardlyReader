@@ -50,6 +50,8 @@ import {
   favoriteIdForLabel,
   isHiddenCategory,
   getApiState as getApiStateFromServer,
+  getApiSubscriptions as apiSubscriptions,
+  isRouteMissing,
   clampIndentPx,
   getState as getHiddenState,
   setCategoryFavorite as apiSetCategoryFavorite,
@@ -1205,6 +1207,17 @@ export class ReaderState {
    * and checked against the session's own key before it is ever drawn.
    */
   private rememberedSidebar: RememberedSidebar | null = null;
+
+  /**
+   * Whether the adapter can report the whole sidebar, hidden rows included.
+   *
+   * `unknown` asks once; `404` means the adapter predates the route, so it is
+   * never asked again this session and GReader's own list is all there is.
+   */
+  private sidebarRoute: "unknown" | "available" | "missing" = "unknown";
+
+  /** Bumped per `loadSidebar`, so an older full read cannot replace a newer one. */
+  private sidebarReadGen = 0;
 
   /** Last lock/unlock message, so a wrong passcode is visible rather than silent. */
   lockNotice = $state<string | null>(null);
@@ -3181,10 +3194,23 @@ export class ReaderState {
     // read was not complete, the union is what gets written.
     const remembered = this.rememberedSidebar;
     const carry = !complete && remembered !== null && remembered.key === key;
+    this.persistCopy(
+      key,
+      carry ? remembered.subscriptions : this.subscriptions,
+      carry ? remembered.counts : counts,
+    );
+  }
+
+  /** The blob itself: one sidebar, one account, one moment. */
+  private persistCopy(
+    key: string,
+    subscriptions: Subscription[],
+    counts: { id: string; count: number }[],
+  ): void {
     void writeCached<SidebarSnapshot>(key, {
-      subscriptions: carry ? remembered.subscriptions : this.subscriptions,
+      subscriptions,
       tags: this.tags,
-      counts: carry ? remembered.counts : counts,
+      counts,
       api: {
         hiddenCategories: this.hiddenCategories,
         favorites: this.favorites,
@@ -3333,6 +3359,9 @@ export class ReaderState {
     this.hiddenBusy = false;
     // The rows one account's server sent are not the next one's.
     this.rememberedSidebar = null;
+    // Nor is a route discovered on one server's adapter one the next has.
+    this.sidebarRoute = "unknown";
+    this.sidebarReadGen = 0;
     // Nor are the copies Pane 1 drew under the other accounts' bands.
     this.accountSidebars = {};
     this.openAccountGroups = [];
@@ -3365,6 +3394,9 @@ export class ReaderState {
     // and the rows are the account's, not one pane's.
     if (this.isPane) return false;
     if (!this.canRead) return false;
+    // Every read owns the copy it lands: a full read started earlier must not
+    // replace a newer one, which would bring back a feed deleted in between.
+    const sidebarReadGen = (this.sidebarReadGen += 1);
     const backend = this.source();
     // Captured before the four reads: the answer is only this account's.
     const sidebarKey = this.diskKey("sidebar");
@@ -3419,6 +3451,10 @@ export class ReaderState {
       this.hiddenCategories,
     ]);
     this.persistSidebar(counts.value, complete);
+    // The enforced answer has no rows for the hidden categories, and the copy a
+    // reveal draws from needs them: one request fills it, so the next reveal is
+    // a filter rather than a catch-up.
+    if (!complete) void this.warmFullSidebar(sidebarReadGen);
     // The feeds are known now, which is the one thing a copy pass needs to decide
     // which of them are worth keeping. It runs here as well as after a sync because a
     // launch with no sync would otherwise never keep anything: the first sync of the
@@ -3428,6 +3464,45 @@ export class ReaderState {
     // the readout beside sync draws the queue.
     void this.readWriteStatus();
     return true;
+  }
+
+  /**
+   * Fills the reveal copy from the adapter's full sidebar.
+   *
+   * GReader answers `subscription/list` without the feeds a hidden category is
+   * enforcing, so the answer `loadSidebar` just kept is partial by design. The
+   * rows still exist on the server — the adapter's `/v1/subscriptions` reports
+   * them — and one read here is what makes the next reveal a filter instead of
+   * a 250 ms catch-up. Nothing on screen changes: the live list and the counts
+   * beside it stay the enforced answer; only the remembered copy, the one a
+   * reveal draws from, is replaced.
+   *
+   * An adapter old enough to predate the route answers `404` and is not asked
+   * again this session — GReader's list is then all there is, which is what the
+   * app had before. Any other failure is the network: the copy in hand stands,
+   * and the next read asks again.
+   */
+  private async warmFullSidebar(generation: number): Promise<void> {
+    const session = this.session;
+    if (this.sidebarRoute === "missing" || session === null) return;
+    const key = this.diskKey("sidebar");
+    if (key === null) return;
+    try {
+      const full = await apiSubscriptions(transport, session);
+      // An answer with no rows is not a sidebar: a server that reports one is
+      // either empty or confused, and replacing a usable copy with it would
+      // throw away exactly the rows the next reveal needs. Leave the route
+      // unknown and ask again on the next read.
+      if (full.subscriptions.length === 0) return;
+      this.sidebarRoute = "available";
+      // A newer read owns the copy: this answer is older than it, and an older
+      // full list is exactly how a feed deleted in between would come back.
+      if (generation !== this.sidebarReadGen || this.diskKey("sidebar") !== key) return;
+      this.rememberedSidebar = { key, subscriptions: full.subscriptions, counts: full.counts, at: Date.now() };
+      this.persistCopy(key, full.subscriptions, full.counts);
+    } catch (error) {
+      if (isRouteMissing(error)) this.sidebarRoute = "missing";
+    }
   }
 
   /**

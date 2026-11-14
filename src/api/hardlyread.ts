@@ -25,6 +25,9 @@
  *                                       carrying the winning document under `preferences`
  *   GET /v1/people?q=                -> { enabled, people: [{ name, added }] }
  *   POST /v1/people                  <- { "name": "…" }  (one write, never retried)
+ *   GET /v1/subscriptions            -> { apiVersion, subscriptions[], counts[] }
+ *                                       every feed, including the ones GReader
+ *                                       drops at priority -10 (adapter 2)
  *
  * `peopleAvailable` is additive on `/v1/state`, appended after the keys above:
  * a server without the capability simply omits it, which reads as false.
@@ -36,7 +39,7 @@
  * (`user/-/label/Technology`), never FreshRSS's numeric category id — and the
  * PUT route needs that id. `categoryIdForLabel()` is the bridge.
  */
-import { normalizeApiPath, normalizeServerUrl, type Session, type Transport } from "./freshrss";
+import { normalizeApiPath, normalizeServerUrl, type FeedCategory, type Session, type Subscription, type Transport, type UnreadCount } from "./freshrss";
 import { transport } from "./transport";
 import { capabilitiesFromState, wholeReport, type CapabilityAnswer } from "../lib/capabilities";
 import { mergePositions, nextStamp, parsePositions, positionsBody, type Positions } from "../lib/positions";
@@ -774,6 +777,90 @@ export async function getApiState(transport: Transport, session: Session): Promi
   // take a control away from a server that has it.
   recordAvailability(session.serverUrl, session.email, state.peopleAvailable);
   return state;
+}
+
+/** The whole sidebar as the adapter reports it: every feed, hidden ones too. */
+export interface ApiSubscriptions {
+  subscriptions: Subscription[];
+  counts: UnreadCount[];
+}
+
+/**
+ * Reads every subscription the account has, hidden ones included.
+ *
+ * GReader's own list stops at priority -10, which is exactly where Hidden
+ * Categories puts a feed while its category is hidden. The enforced answer is
+ * therefore missing every row a reveal is about to draw, and the reveal costs
+ * a round trip. This route is that list with nothing dropped, so the client can
+ * keep it and make a reveal a filter.
+ *
+ * Adapter 2 and later only. A `404` is the older adapter, and the caller falls
+ * back to `listSubscriptions` — the app must work on a plain FreshRSS.
+ */
+export async function getApiSubscriptions(
+  transport: Transport,
+  session: Session,
+): Promise<ApiSubscriptions> {
+  const body = await request(transport, session, "/subscriptions", { method: "GET" });
+  return {
+    subscriptions: parseSubscriptions(body.subscriptions),
+    counts: parseUnreadCounts(body.counts),
+  };
+}
+
+/**
+ * One subscription row, as the adapter sends it.
+ *
+ * An id and a title are what a row cannot work without, so a row missing
+ * either is dropped rather than drawn blank. The rest defaults: a server that
+ * grows a field must not break a client that predates it.
+ */
+function parseSubscriptions(raw: unknown): Subscription[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Subscription[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const id = typeof entry.id === "string" ? entry.id : "";
+    const title = typeof entry.title === "string" ? entry.title : "";
+    if (id === "" || title === "") continue;
+
+    const categories: FeedCategory[] = [];
+    if (Array.isArray(entry.categories)) {
+      for (const value of entry.categories) {
+        if (!isRecord(value)) continue;
+        const label = typeof value.label === "string" ? value.label : "";
+        if (label === "") continue;
+        categories.push({
+          id: typeof value.id === "string" && value.id !== "" ? value.id : `${LABEL_PREFIX}${label}`,
+          label,
+        });
+      }
+    }
+
+    out.push({
+      id,
+      title,
+      url: typeof entry.url === "string" ? entry.url : "",
+      htmlUrl: typeof entry.htmlUrl === "string" ? entry.htmlUrl : undefined,
+      iconUrl: typeof entry.iconUrl === "string" ? entry.iconUrl : undefined,
+      categories,
+    });
+  }
+  return out;
+}
+
+/** Unread counts for those rows, per feed and per label. */
+function parseUnreadCounts(raw: unknown): UnreadCount[] {
+  if (!Array.isArray(raw)) return [];
+  const out: UnreadCount[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const id = typeof entry.id === "string" ? entry.id : "";
+    const count = entry.count;
+    if (id === "" || typeof count !== "number" || !Number.isFinite(count)) continue;
+    out.push({ id, count: Math.max(0, Math.round(count)) });
+  }
+  return out;
 }
 
 /**
