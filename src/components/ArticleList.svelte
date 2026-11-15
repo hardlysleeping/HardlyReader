@@ -2214,7 +2214,10 @@
     background: none;
     color: var(--text-dim);
     cursor: pointer;
-    transition: background-color 0.12s ease, color 0.12s ease;
+    transition:
+      background-color 0.12s ease,
+      color 0.12s ease,
+      transform 0.08s ease;
   }
 
   .viewicon svg {
@@ -2227,9 +2230,16 @@
     stroke-linejoin: round;
   }
 
-  .viewicon:hover {
+  .viewicon:hover,
+  .viewicon:focus-visible {
     color: var(--text);
     background: var(--hover);
+  }
+
+  /* Pressed: the same acknowledgement the filters in this bar already give,
+     value for value -- a scale on the press, not a toolbar that moves. */
+  .viewicon:active {
+    transform: scale(0.95);
   }
 
   .viewicon.on {

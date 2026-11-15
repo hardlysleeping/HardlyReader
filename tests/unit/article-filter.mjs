@@ -176,6 +176,23 @@ check(
   "the switches are thumb targets on a phone",
   /@media \(pointer: coarse\)[\s\S]*?\n    \.filter \{[\s\S]{0,320}?width: var\(--viewbox-w\);/.test(list),
 );
+// A press is answered on the frame the pointer goes down, and the bar says so in
+// one voice: the four shapes give the same acknowledgement the filters beside
+// them already gave, at the same value (the band's .ctl is 0.97; this group is
+// 0.95 on both sides of the gap).
+check(
+  "the shapes answer a press the way the filters do",
+  /\.viewicon:active \{\s*transform: scale\(0\.95\);/.test(list) &&
+    /\.filter:active \{\s*transform: scale\(0\.95\);/.test(list),
+);
+check(
+  "...and that press is short, not a jump",
+  /\.viewicon \{[\s\S]{0,700}?transform 0\.08s ease;/.test(list),
+);
+check(
+  "...and focus reads like hover, not only as an outline ring",
+  /\.viewicon:hover,\s*\n  \.viewicon:focus-visible \{/.test(list),
+);
 // "or just read": an empty unread list offers the half that has the posts, in
 // one press, without asking the server.
 check(

@@ -150,7 +150,10 @@
     background: none;
     color: var(--text-dim);
     cursor: pointer;
-    transition: background-color 0.12s ease, color 0.12s ease;
+    transition:
+      background-color 0.12s ease,
+      color 0.12s ease,
+      transform 0.08s ease;
   }
 
   .corner svg {
@@ -164,9 +167,14 @@
   }
 
   .corner:hover,
+  .corner:focus-visible,
   .corner.on {
     color: var(--text);
     background: var(--hover);
+  }
+
+  .corner:active {
+    transform: scale(0.95);
   }
 
   .panel {
