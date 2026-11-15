@@ -244,6 +244,7 @@
      because the header clips its own overflow. */
   .panel {
     position: fixed;
+    animation: popover-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
     /* Below the bar that opened it. The bar is not the same height in the two
        headers that mount this component — a window's is 42px, a phone's is 40px
        under the part of the status bar it does not spend — so the host declares
@@ -276,6 +277,21 @@
   @media (max-width: 520px) {
     .step {
       display: none;
+    }
+  }
+
+  /* Arrives the way the settings sheet does, smaller: 140ms, 3px, no layout
+     change while it runs. Off entirely under reduced motion. */
+  @keyframes popover-in {
+    from {
+      opacity: 0;
+      transform: translateY(3px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel {
+      animation: none;
     }
   }
 </style>
