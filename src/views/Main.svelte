@@ -1977,7 +1977,10 @@
     align-items: center;
     justify-content: center;
     width: 100%;
-    height: 100%;
+    /* Full height, minus the home indicator's band: a 6px strip that reaches the
+       bottom edge sits where iOS gives the system swipe priority, so its last
+       points are unhittable and reaching for it can raise the app switcher. */
+    height: calc(100% - var(--safe-bottom, 0px));
     padding: 0;
     border: 0;
     border-right: 1px solid var(--edge-soft);

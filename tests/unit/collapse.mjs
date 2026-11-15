@@ -176,7 +176,11 @@ function method(source, name) {
   const css = slice(main.slice(main.indexOf(".restore {")), ".restore {", "}");
   check(
     "the strip is painted without hovering: the button fills the rail",
-    /width: 100%;/.test(css) && /height: 100%;/.test(css) && /background: color-mix\(in srgb, var\(--surface\) 70%, var\(--bg\)\);/.test(css),
+    // Full height, minus only the home indicator's band where the OS reserves one
+    // (`calc(100% - var(--safe-bottom, 0px))` is 100% on a device without an inset).
+    /width: 100%;/.test(css) &&
+      /height: (?:100%|calc\(100% - var\(--safe-bottom, 0px\)\);)/.test(css) &&
+      /background: color-mix\(in srgb, var\(--surface\) 70%, var\(--bg\)\);/.test(css),
     css.replace(/\s+/g, " "),
   );
   check("and it is not gated on a hover to be drawn at all", !/opacity: 0;/.test(css));
