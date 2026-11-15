@@ -559,6 +559,11 @@
     color: var(--text);
   }
 
+  /* A glyph: the posts bar's 0.95, not a text seat's 0.97. */
+  .close:active {
+    transform: scale(0.95);
+  }
+
   .close:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
     outline-offset: 1px;

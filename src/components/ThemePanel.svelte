@@ -1332,6 +1332,10 @@
     color: var(--text);
   }
 
+  .door:active {
+    transform: scale(0.97);
+  }
+
   .door:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
     outline-offset: 1px;
@@ -1373,6 +1377,10 @@
   .tab:hover {
     background: var(--hover);
     color: var(--text);
+  }
+
+  .tab:active {
+    transform: scale(0.97);
   }
 
   .tab.on {
@@ -1490,6 +1498,10 @@
   .mini:hover:not(:disabled) {
     color: var(--text);
     background: var(--hover);
+  }
+
+  .mini:active:not(:disabled) {
+    transform: scale(0.97);
   }
 
   .mini:disabled {
@@ -1703,6 +1715,10 @@
     background: var(--hover);
   }
 
+  .segbtn:active {
+    transform: scale(0.97);
+  }
+
   .segbtn.on {
     color: var(--text);
     border-color: color-mix(in srgb, var(--accent) 60%, transparent);
@@ -1753,6 +1769,11 @@
   .done:hover {
     color: var(--text);
     background: var(--hover);
+  }
+
+  .reset:active,
+  .done:active {
+    transform: scale(0.97);
   }
 
   .done {

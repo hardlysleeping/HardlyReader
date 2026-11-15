@@ -398,5 +398,28 @@ check("there is no favourites wording left", !/avour/.test(JSON.stringify(pinWor
 
 check("the pin is drawable path data", typeof MARKER_PATH === "string" && MARKER_PATH.startsWith("M"));
 
+// A press is answered on the frame the pointer goes down, everywhere in this
+// panel. Measured first: every control here already ends on the panel's inner
+// right edge, so the only thing missing was the press itself. Two values, both
+// already in the app -- 0.97 for a text or segmented seat, 0.95 for a glyph.
+{
+  const frame = readFileSync(join(root, "src/components/SettingsPanel.svelte"), "utf8");
+  const seats = readFileSync(join(root, "src/components/ThemePanel.svelte"), "utf8");
+  const named = [".door", ".tab", ".segbtn", ".mini", ".reset", ".done"];
+  for (const seat of named) {
+    check(`${seat} answers a press`, seats.includes(`${seat}:active`));
+  }
+  check("the close glyph answers a press", /\.close:active \{[^}]*transform: scale\(0\.95\);/.test(frame));
+  const scales = new Set([
+    ...[...seats.matchAll(/:active[^{]*\{[^}]*transform: scale\(([\d.]+)\)/g)].map((m) => m[1]),
+    ...[...frame.matchAll(/:active[^{]*\{[^}]*transform: scale\(([\d.]+)\)/g)].map((m) => m[1]),
+  ]);
+  check(
+    "the panel uses the app's two press values, not a third",
+    scales.size > 0 && [...scales].every((v) => v === "0.95" || v === "0.97"),
+    [...scales].join(", "),
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);
