@@ -139,9 +139,11 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    /* WCAG 2.5.8: 24x24 minimum. The glyph is unchanged. */
-    width: 24px;
-    height: 24px;
+    /* WCAG 2.5.8: 24x24 minimum. The glyph is unchanged. The box itself comes
+       from the bar this sits in (`.bar` sets --viewbox-*), so the trigger is the
+       same size as the controls beside it instead of 24px among 32x30. */
+    width: var(--viewbox-w, 24px);
+    height: var(--viewbox-h, 24px);
     padding: 0;
     border: 0;
     border-radius: 5px;

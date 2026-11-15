@@ -2116,6 +2116,12 @@
     flex: 0 0 auto;
     flex-wrap: wrap;
     justify-content: flex-end;
+    /* One box for every icon control on this bar -- the four shapes, the row
+       settings, the four filters. Declared once here so a size cannot drift by
+       one control: the row-corner popup's trigger is 24px in its own component
+       and read 24 among 32x30 siblings on a phone. */
+    --viewbox-w: 24px;
+    --viewbox-h: 24px;
   }
 
   /* The sizing pills sit next to the view pills and read as a second group: a
@@ -2200,8 +2206,8 @@
     justify-content: center;
     /* 24px is the WCAG 2.5.8 floor. The glyph inside is unchanged; this is the
        hit area around it, which was 21x19 and hard to land on. */
-    width: 24px;
-    height: 24px;
+    width: var(--viewbox-w);
+    height: var(--viewbox-h);
     padding: 0;
     border: 0;
     border-radius: 5px;
@@ -3238,9 +3244,9 @@
 
     /* The views and the filter pills are the way into the list at all on a
        phone, where there is no other column to change. 21x19 is a mouse size. */
-    .viewicon {
-      width: 32px;
-      height: 30px;
+    .bar {
+      --viewbox-w: 32px;
+      --viewbox-h: 30px;
     }
 
     .viewicon svg {
@@ -3249,11 +3255,10 @@
     }
 
     .filter {
-      /* Thumb-sized: the two switches are 30px squares, the same box as the
-         view icons beside them, and there is room for both now that four word
-         pills are gone. */
-      width: 30px;
-      height: 30px;
+      /* Thumb-sized, and now literally the same box as the view icons beside
+         them: 32x30 was the view icons' size while these were 30x30. */
+      width: var(--viewbox-w);
+      height: var(--viewbox-h);
     }
 
     .filter svg {

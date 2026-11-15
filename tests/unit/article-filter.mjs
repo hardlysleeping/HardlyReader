@@ -170,10 +170,11 @@ check(
   /\.filter \{[\s\S]{0,600}?opacity: 0\.5;/.test(list) && /\.filter\.on \{[\s\S]{0,200}?opacity: 1;/.test(list),
 );
 // Two switches, one row, 390px: thumb-sized on a phone, the same box as the
-// view icons beside them.
+// view icons beside them -- both read the bar's --viewbox-*, so they cannot
+// drift apart again.
 check(
   "the switches are thumb targets on a phone",
-  /@media \(pointer: coarse\)[\s\S]*?\n    \.filter \{[\s\S]{0,320}?width: 30px;/.test(list),
+  /@media \(pointer: coarse\)[\s\S]*?\n    \.filter \{[\s\S]{0,320}?width: var\(--viewbox-w\);/.test(list),
 );
 // "or just read": an empty unread list offers the half that has the posts, in
 // one press, without asking the server.
