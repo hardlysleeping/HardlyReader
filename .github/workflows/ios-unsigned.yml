@@ -155,6 +155,17 @@ jobs:
           [ -n "$APP" ] || { echo "no .app was produced"; exit 1; }
           APP="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
           echo "app=$APP"
+          # `tauri ios build` regenerates the app's Info.plist, so the key the
+          # pre-build step wrote is not in the product: measured on this IPA,
+          # CFBundleURLTypes survived (tauri.conf.json declares it) while
+          # UIViewControllerBasedStatusBarAppearance was gone. Set it on the app
+          # that is about to be zipped, and print what landed.
+          if /usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "$APP/Info.plist" >/dev/null 2>&1; then
+            /usr/libexec/PlistBuddy -c 'Set :UIViewControllerBasedStatusBarAppearance false' "$APP/Info.plist"
+          else
+            /usr/libexec/PlistBuddy -c 'Add :UIViewControllerBasedStatusBarAppearance bool false' "$APP/Info.plist"
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :UIViewControllerBasedStatusBarAppearance' "$APP/Info.plist"
           rm -rf build/ipa; mkdir -p build/ipa/Payload
           cp -R "$APP" build/ipa/Payload/
           ( cd build/ipa && zip -qry "$GITHUB_WORKSPACE/build/ipa-dir.ipa" Payload )
