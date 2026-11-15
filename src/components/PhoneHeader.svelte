@@ -476,7 +476,7 @@
     /* The same 40px of content, measured from where the padding puts it: the
        bar sits `--status-lift` higher than the raw inset (see `app.css`), and
        its height has to agree or `overflow: hidden` clips the controls. */
-    height: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 36px);
+    height: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 40px);
     /* Nothing painted here: the top of the screen is the page's own colour, so
        the bar and the status region are one surface with no edge between them. */
     background: none;

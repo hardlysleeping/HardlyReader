@@ -171,7 +171,7 @@ check(
   // Measured from where the padding puts it: the bar rides `--status-lift`
   // higher than the raw inset, and its height has to agree or `overflow: hidden`
   // clips it.
-  /height: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 36px\)/.test(header),
+  /height: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 40px\)/.test(header),
 );
 check(
   "...and that is the air, not a taller glyph: the controls are still 30px",
@@ -217,7 +217,7 @@ check("and the Aa panel opens from it", /<ReadingControls bind:this=\{readingCon
 check("...closing the sheet on its way open", /onopen=\{\(\) => \(settingsOpen = false\)\}/.test(header));
 check(
   "the Aa panel clears the bar it opens under",
-  /--rc-panel-top: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 40px\)/.test(app) &&
+  /--rc-panel-top: calc\(max\(0px, calc\(var\(--safe-top\) - var\(--status-lift\)\)\) \+ 44px\)/.test(app) &&
     /top: var\(--rc-panel-top, 46px\)/.test(read("src/components/ReadingControls.svelte")),
 );
 // The panel is fixed and mounted inside the bar, and a phone's bar is

@@ -28,6 +28,12 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="theme-color" content="#0078e0" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <!-- Installed on an iPhone, `black-translucent` is what lets the page start at
+         the top edge and pay the inset itself (`--safe-top`), the way the native
+         build does by hiding the status bar. Without it iOS draws a bar of its own
+         above the app and the phone header starts below a seam that is not ours. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="HardlyReader" />
   </head>
   <body>
     <div id="app"></div>

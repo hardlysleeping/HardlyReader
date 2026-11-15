@@ -714,7 +714,7 @@ html[data-device="phone"] {
      inside it was clipped to the bar and painted nothing (see
      `ReadingControls.svelte`). A window's bar is 42px and keeps the component's
      own 46px default. */
-  --rc-panel-top: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 40px);
+  --rc-panel-top: calc(max(0px, calc(var(--safe-top) - var(--status-lift))) + 44px);
 }
 
 /* Light glass is lit from the same side, but a white sheen on a light surface is
@@ -957,7 +957,7 @@ html[data-device="phone"] .phone-header :is(.step, .more, .sync) {
   position: relative;
   touch-action: manipulation;
   --tap44-w: 44px;
-  --tap44-h: 36px;
+  --tap44-h: 40px;
 }
 
 /* The stack's own bar is gone: the phone's bar is the one strip, and its three
