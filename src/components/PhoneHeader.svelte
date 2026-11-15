@@ -528,7 +528,10 @@
   }
 
   .wordmark.as-button:active {
-    background: var(--fill);
+    /* `--fill` was used here and defined nowhere, so this declaration was
+       invalid and the press painted nothing. */
+    background: var(--hover);
+    transform: scale(0.97);
   }
 
   /* One step out. The glyph and the word are one control, so the thing that
