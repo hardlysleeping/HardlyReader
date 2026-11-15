@@ -57,8 +57,17 @@
      */
     document.body.appendChild(box);
     measure();
+    /* Who opened it, remembered before the sheet takes focus. A sheet that closes
+       and leaves focus on `body` takes the keyboard's place away: the next Tab
+       starts at the top of the page instead of at the control that was pressed. */
+    const opener = document.activeElement as HTMLElement | null;
     node.focus({ preventScroll: true });
-    return () => box.remove();
+    return () => {
+      box.remove();
+      /* `preventScroll` because the sheet sat over the list: restoring focus must
+         not move the page under the reader. */
+      if (opener && opener.isConnected) opener.focus({ preventScroll: true });
+    };
   });
 
   function grab(event: PointerEvent): void {

@@ -208,5 +208,14 @@ check(
   "moving only the section left the scrim behind, and lost it on the next open",
 );
 
+// A sheet that closes must hand the keyboard back to the control that opened it.
+// Measured in the running app before this: Escape closed it onto <body>, so the
+// next Tab started at the top of the page.
+check(
+  "the sheet remembers who opened it, and gives focus back",
+  /const opener = document\.activeElement as HTMLElement \| null;/.test(sheet) &&
+    /if \(opener && opener\.isConnected\) opener\.focus\(\{ preventScroll: true \}\);/.test(sheet),
+);
+
 console.log(`${checks - failures}/${checks} checks passed`);
 process.exit(failures === 0 ? 0 : 1);
