@@ -665,12 +665,21 @@
     transition:
       color 120ms ease,
       background 120ms ease,
-      border-color 120ms ease;
+      border-color 120ms ease,
+      transform 80ms ease;
   }
 
-  .sync:hover:not(:disabled) {
+  /* The other seats on this bar already answer a press: `.step` and `.more`
+     fold :focus-visible into their hover, and the wordmark takes a fill. Sync
+     was the one that stayed still, on the bar where a thumb lands hardest. */
+  .sync:hover:not(:disabled),
+  .sync:focus-visible:not(:disabled) {
     background: color-mix(in srgb, var(--tone-sync) 12%, transparent);
     border-color: color-mix(in srgb, var(--tone-sync) 60%, transparent);
+  }
+
+  .sync:active:not(:disabled) {
+    transform: scale(0.95);
   }
 
   .sync:disabled {

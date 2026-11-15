@@ -382,5 +382,18 @@ check(
   /html\[data-device="phone"\] \.aura:not\(\.on\):not\(\.syncing\) \{[\s\S]{0,200}?height: 0;/.test(app),
 );
 
+// Every seat on this bar answers a press: .step and .more fold :focus-visible
+// into their hover, the wordmark takes a fill, and Sync -- the one a thumb lands
+// on hardest -- now does the same instead of staying still.
+check(
+  "the phone's Sync answers a press",
+  /\.sync:active:not\(:disabled\) \{\s*transform: scale\(0\.95\);/.test(header),
+);
+check(
+  "...and reads as focused, not only outlined",
+  /\.sync:focus-visible:not\(:disabled\) \{/.test(header) &&
+    /\.sync \{[\s\S]{0,600}?transform 80ms ease;/.test(header),
+);
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

@@ -216,6 +216,12 @@
     outline-offset: 1px;
   }
 
+  /* These had a hover and a focus ring and nothing under the finger. */
+  .step:not(:disabled):active,
+  .more:active {
+    transform: scale(0.97);
+  }
+
   .step.small {
     font-size: 12px;
   }

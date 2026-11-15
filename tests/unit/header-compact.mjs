@@ -170,5 +170,54 @@ for (const [name, source] of [["settings", themePanel], ["reading", readingContr
 }
 check("settings also closes on Escape", /event\.key === "Escape"\) open = false/.test(themePanel));
 
+// A press is answered on the frame the pointer goes down, and keyboard focus
+// looks like a state rather than only an outline ring -- the same two treatments
+// the posts bar's own buttons carry. The value is copied from that bar (0.95 over
+// 0.08s); the band's .ctl is 0.97 on its own seat.
+check(
+  "a header tool answers a press",
+  /\.icon:active:not\(:disabled\) \{\s*transform: scale\(0\.95\);/.test(header),
+);
+check(
+  "...and eases it rather than jumping",
+  /\.icon \{[\s\S]{0,600}?transition: transform 0\.08s ease;/.test(header),
+);
+check(
+  "...and focus reads like hover",
+  /\.icon:hover,\s*\n  \.icon:focus-visible \{/.test(header),
+);
+check(
+  "Sync answers a press too, and keeps its colour while focused",
+  /\.sync:active:not\(:disabled\) \{\s*transform: scale\(0\.95\);/.test(header) &&
+    /\.sync:focus-visible:not\(:disabled\) \{/.test(header),
+);
+// Two numbers in the app, not three: 0.95 for a glyph button (the posts bar's
+// filters), 0.97 for a text seat (the band's .ctl). A press is answered on the
+// frame the pointer goes down, and every control in this bar answers one.
+{
+  const seats = {
+    header,
+    accounts: read("src/components/AccountsPanel.svelte"),
+    layout: read("src/components/LayoutSwitch.svelte"),
+    reading: read("src/components/ReadingControls.svelte"),
+    theme: read("src/components/ThemeToggle.svelte"),
+    gutter: read("src/components/PaneGutter.svelte"),
+  };
+  const scales = new Set();
+  for (const src of Object.values(seats)) {
+    for (const m of src.matchAll(/:active[^{]*\{[^}]*transform: scale\(([\d.]+)\)/g)) scales.add(m[1]);
+  }
+  check(
+    "the bar uses two press values, both already in the app",
+    [...scales].every((v) => v === "0.95" || v === "0.97"),
+    [...scales].join(", "),
+  );
+  check(
+    "...and every seat in this bar answers a press at all",
+    /:active/.test(seats.accounts) && /:active/.test(seats.layout) && /:active/.test(seats.reading) &&
+      /:active/.test(seats.theme) && /:active/.test(seats.gutter),
+  );
+}
+
 console.log(`${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

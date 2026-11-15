@@ -140,9 +140,15 @@
   }
 
   .who:hover,
+  .who:focus-visible,
   .who[aria-expanded="true"] {
     background: var(--hover);
     color: var(--text);
+  }
+
+  /* A text seat: the band's 0.97, like the mode switch beside it. */
+  .who:active {
+    transform: scale(0.97);
   }
 
   /* The address sits beside the name and takes the slack: when the bar runs

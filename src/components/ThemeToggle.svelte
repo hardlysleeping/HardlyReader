@@ -76,6 +76,10 @@
     outline-offset: 1px;
   }
 
+  .mode:active {
+    transform: scale(0.95);
+  }
+
   .mode svg {
     width: var(--mode-glyph, 12px);
     height: var(--mode-glyph, 12px);

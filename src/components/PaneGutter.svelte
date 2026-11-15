@@ -597,7 +597,14 @@
     transition: color 0.12s ease, background-color 0.12s ease;
   }
 
-  .fold-bar button:hover {
+  .fold-bar button:hover,
+  .fold-bar button:focus-visible {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  .fold-bar button:active {
+    transform: scale(0.95);
     color: var(--text);
     background: var(--hover);
   }

@@ -103,8 +103,15 @@
     cursor: pointer;
   }
 
-  .mode:hover {
+  .mode:hover,
+  .mode:focus-visible {
     color: var(--text);
+  }
+
+  /* A press on a text seat takes the band's 0.97, not the glyphs' 0.95: the same
+     value the sidebar band's own seats use. */
+  .mode:active {
+    transform: scale(0.97);
   }
 
   .mode.on {

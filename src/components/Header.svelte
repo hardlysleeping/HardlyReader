@@ -389,11 +389,20 @@
     font: inherit;
     font-size: 14px;
     cursor: pointer;
+    /* Only the press is eased: these icons have always changed colour on the
+       frame it happens, and that is not what was missing. */
+    transition: transform 0.08s ease;
   }
 
-  .icon:hover {
+  .icon:hover,
+  .icon:focus-visible {
     background: var(--hover);
     color: var(--text);
+  }
+
+  /* Pressed: the same acknowledgement the posts bar gives, at the same value. */
+  .icon:active:not(:disabled) {
+    transform: scale(0.95);
   }
 
   .icon:disabled {
@@ -430,15 +439,21 @@
     transition:
       color 120ms ease,
       background 120ms ease,
-      border-color 120ms ease;
+      border-color 120ms ease,
+      transform 80ms ease;
   }
 
   /* Sync keeps its own colour, chosen in Options, because it is the one control
      that means "ask the server", not "change the view". */
-  .sync:hover:not(:disabled) {
+  .sync:hover:not(:disabled),
+  .sync:focus-visible:not(:disabled) {
     color: var(--tone-sync);
     background: color-mix(in srgb, var(--tone-sync) 12%, transparent);
     border-color: color-mix(in srgb, var(--tone-sync) 60%, transparent);
+  }
+
+  .sync:active:not(:disabled) {
+    transform: scale(0.95);
   }
 
   .sync:disabled {
