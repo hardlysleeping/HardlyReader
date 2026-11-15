@@ -277,6 +277,10 @@
     color: var(--text);
   }
 
+  .act:active {
+    transform: scale(0.95);
+  }
+
   .lead {
     display: block;
     width: auto;

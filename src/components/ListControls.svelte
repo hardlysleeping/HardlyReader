@@ -117,6 +117,10 @@
     background: var(--hover);
   }
 
+  .options:active {
+    transform: scale(0.95);
+  }
+
   .options.on {
     color: var(--text);
     background: color-mix(in srgb, var(--accent) 30%, transparent);

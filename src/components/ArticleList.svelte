@@ -3146,6 +3146,11 @@
     background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
 
+  /* A per-post mark is a glyph seat: pressed, it answers like the bar's own. */
+  .act:active {
+    transform: scale(0.95);
+  }
+
   /* One colour per action, so a row says what its three marks are: the star in
      gold, the read mark in the theme's trim, the link in its own blue. All three
      are names rather than colours — `--act-*` resolves to a single quiet ink

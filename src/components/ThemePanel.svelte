@@ -1268,6 +1268,11 @@
     color: var(--text);
   }
 
+  /* The settings gear in the window bar is this swatch. */
+  .swatch:active {
+    transform: scale(0.95);
+  }
+
   /* A gear, drawn rather than a coloured dot: the swatch said "theme", and this
      panel has grown past being the theme's own popover. */
   .gear {

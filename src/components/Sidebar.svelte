@@ -2559,6 +2559,10 @@
     background: var(--hover);
   }
 
+  .open:active {
+    transform: scale(0.95);
+  }
+
   .open .count {
     font-size: 11px;
     font-variant-numeric: tabular-nums;
@@ -2810,6 +2814,10 @@
   .find-deep:hover {
     color: var(--text);
     background: var(--hover);
+  }
+
+  .find-deep:active {
+    transform: scale(0.95);
   }
 
   /* Quiet until wanted: the mode mark is dim in an idle field and states itself
@@ -3171,6 +3179,10 @@
     color: var(--text);
   }
 
+  .add-open:active {
+    transform: scale(0.97);
+  }
+
   /* One line by default; the height is set from the content by `fitFeedBox`,
      so the box grows with a pasted list and never leaves a blank row behind. */
   .url {
@@ -3337,6 +3349,10 @@
     color: var(--text);
     background: var(--hover);
     border-color: var(--border);
+  }
+
+  .opml-export:active:not(:disabled) {
+    transform: scale(0.97);
   }
 
   .opml-import.busy,

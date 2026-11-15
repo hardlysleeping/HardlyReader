@@ -261,6 +261,10 @@
     background: var(--hover);
   }
 
+  .act:active {
+    transform: scale(0.95);
+  }
+
   .act svg {
     width: 13px;
     height: 13px;
