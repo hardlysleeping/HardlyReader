@@ -249,6 +249,18 @@ try {
   check("locked state uses effectiveView, not the stored view", labels(reader.categories) === "Art,Uncategorized", labels(reader.categories));
   check("hiddenView reports effectiveView", reader.hiddenView === "hidden");
 
+  // The reported case: the eye was left on Only, then the account was locked. The lock is not a
+  // filter over the eye — a category that is not tagged hidden comes back, and only the tagged one
+  // stays out — so the sidebar must not keep drawing the eye's answer.
+  reader.hiddenCategories = state({ view: "only", effectiveView: "only", locked: true });
+  check(
+    "locking while the eye is on Only reveals the untagged categories",
+    labels(reader.categories) === "Art,Uncategorized",
+    labels(reader.categories),
+  );
+  check("...and the tagged one stays hidden", !reader.categories.some((group) => group.label === "Technology"));
+  check("...and the lock is what is applying", reader.hiddenView === "hidden", reader.hiddenView);
+
   reader.hiddenCategories = parseState({ available: false });
   check("a server that reports the extension gone filters nothing again", labels(reader.categories) === "Art,Technology,Uncategorized");
 

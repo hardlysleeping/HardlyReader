@@ -40,7 +40,7 @@ import ts from "typescript";
 
 import { parseState } from "../../src/api/hardlyread.ts";
 import { bandFacts, bandState, statusFacts } from "../../src/lib/band.ts";
-import { HIDDEN_VIEW_LABELS, effectiveView, enforcing, nextHiddenView } from "../../src/state/hidden.ts";
+import { HIDDEN_VIEW_LABELS, effectiveView, enforcing, nextHiddenView, showsCategory } from "../../src/state/hidden.ts";
 import { PIN_VIEW_LABELS, nextPinView } from "../../src/state/pins.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
@@ -108,6 +108,27 @@ const CURTAIN_WORDS = /hidden|reveal|enforced/i;
   check("only is not", enforcing(state({ effectiveView: "only" })) === false);
   check("an absent extension enforces nothing", enforcing(parseState({ available: false })) === false);
   check("the lock does not change the applied view", effectiveView(state({ effectiveView: "hidden", locked: true })) === "hidden");
+  check(
+    "the lock wins over the eye: a locked account on 'only' applies 'hidden'",
+    effectiveView(state({ view: "only", effectiveView: "only", locked: true })) === "hidden",
+  );
+  check(
+    "...and over 'revealed'",
+    effectiveView(state({ view: "revealed", effectiveView: "revealed", locked: true })) === "hidden",
+  );
+  check(
+    "a locked account hides what is tagged and shows what is not",
+    showsCategory(state({ view: "only", effectiveView: "only", locked: true }), "Comics") === true &&
+      showsCategory(state({ view: "only", effectiveView: "only", locked: true, hiddenIds: [12] }), "Comics") === true,
+  );
+  check(
+    "a row that is tagged hidden stays hidden while locked",
+    showsCategory(state({ locked: true, hiddenIds: [12], categories: [{ id: 12, name: "Celeb", hidden: true }] }), "Celeb") === false,
+  );
+  check(
+    "unlocking restores the eye the lock interrupted",
+    effectiveView(state({ view: "only", effectiveView: "only", locked: false })) === "only",
+  );
 }
 
 /* ---------------------------------------------------------------------------

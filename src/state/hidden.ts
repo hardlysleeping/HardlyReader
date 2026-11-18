@@ -205,9 +205,26 @@ export function resolveHidden(
   };
 }
 
-/** The view the authority is actually applying; `view` differs while locked. */
+/**
+ * The view the authority is actually applying; `view` differs while locked.
+ *
+ * **The lock wins, always.** Locking is not a filter stacked on the eye: it means
+ * "everything tagged hidden is hidden, everything else is shown", so a category
+ * that is not tagged hidden and was only filtered out by the `only` view has to
+ * come back the moment the curtain lands — before the lock, `comics` was hidden by
+ * the view; after it, the view is not consulted at all.
+ *
+ * That is why this asks `locked` first instead of trusting a reported
+ * `effectiveView`: the optimistic frame written by `lockHidden()` has not been
+ * answered yet, and a server that reported the old view (or one whose lock check
+ * answers for a different session) would otherwise leave the sidebar on the old
+ * view while the lock visibly says it is down. Locking and unlocking only ever
+ * change the two ends of this rule; the stored `view` survives underneath, so
+ * unlocking restores whatever the eye was on before.
+ */
 export function effectiveView(state: HiddenCategoriesState): HiddenView {
-  return state.available ? state.effectiveView : "hidden";
+  if (!state.available) return "hidden";
+  return state.locked ? "hidden" : state.effectiveView;
 }
 
 /** What one press on the eye asks for: the next view in the extension's order. */
