@@ -105,6 +105,7 @@ mod platform_android {
     use jni::objects::{JObject, JString, JValue};
     use jni::{JNIEnv, JavaVM};
 
+
     /// `ing.hardlysleep.hardlyreader.SecureStore`, in JNI's own spelling.
     const CLASS: &str = "ing/hardlysleep/hardlyreader/SecureStore";
 
@@ -113,7 +114,9 @@ mod platform_android {
     /// A thread that has never called in is attached for the duration of the call
     /// and detached when the guard drops, so a token read from a background refresh
     /// costs one attach and no leaks.
-    fn with_env<T>(body: impl FnOnce(&mut JNIEnv) -> Result<T, String>) -> Result<T, String> {
+    fn with_env<T>(
+        body: impl FnOnce(&mut JNIEnv, &JObject) -> Result<T, String>,
+    ) -> Result<T, String> {
         let context = ndk_context::android_context();
         // SAFETY: the pointer is the JavaVM of the process that started this
         // library; `from_raw` only wraps it and never takes ownership.
@@ -122,7 +125,10 @@ mod platform_android {
         let mut env = vm
             .attach_current_thread()
             .map_err(|error| format!("could not attach to the JVM: {error}"))?;
-        body(&mut env)
+        // SAFETY: the app's Context jobject, owned by the runtime for the life of
+        // the process; borrowed only for this call.
+        let activity = unsafe { JObject::from_raw(context.context().cast()) };
+        body(&mut env, &activity)
     }
 
     fn text<'local>(env: &mut JNIEnv<'local>, value: &str) -> Result<JString<'local>, String> {
@@ -131,14 +137,14 @@ mod platform_android {
     }
 
     pub fn get(_app: &tauri::AppHandle, key: &str) -> Result<Option<String>, String> {
-        with_env(|env| {
+        with_env(|env, context| {
             let name = text(env, key)?;
             let answer = env
                 .call_static_method(
                     CLASS,
                     "get",
-                    "(Ljava/lang/String;)Ljava/lang/String;",
-                    &[JValue::Object(&name)],
+                    "(Landroid/content/Context;Ljava/lang/String;)Ljava/lang/String;",
+                    &[JValue::Object(context), JValue::Object(&name)],
                 )
                 .map_err(|error| format!("SecureStore.get failed: {error}"))?;
             let value = answer.l().map_err(|error| format!("bad answer: {error}"))?;
@@ -155,14 +161,14 @@ mod platform_android {
     }
 
     pub fn set(_app: &tauri::AppHandle, key: &str, value: &str) -> Result<(), String> {
-        with_env(|env| {
+        with_env(|env, context| {
             let name = text(env, key)?;
             let secret = text(env, value)?;
             env.call_static_method(
                 CLASS,
                 "set",
-                "(Ljava/lang/String;Ljava/lang/String;)V",
-                &[JValue::Object(&name), JValue::Object(&secret)],
+                "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)V",
+                &[JValue::Object(context), JValue::Object(&name), JValue::Object(&secret)],
             )
             .map_err(|error| format!("SecureStore.set failed: {error}"))?;
             Ok(())
@@ -170,10 +176,15 @@ mod platform_android {
     }
 
     pub fn remove(_app: &tauri::AppHandle, key: &str) -> Result<(), String> {
-        with_env(|env| {
+        with_env(|env, context| {
             let name = text(env, key)?;
             let _: JObject = env
-                .call_static_method(CLASS, "delete", "(Ljava/lang/String;)V", &[JValue::Object(&name)])
+                .call_static_method(
+                    CLASS,
+                    "delete",
+                    "(Landroid/content/Context;Ljava/lang/String;)V",
+                    &[JValue::Object(context), JValue::Object(&name)],
+                )
                 .map_err(|error| format!("SecureStore.delete failed: {error}"))?
                 .l()
                 .map_err(|error| format!("bad answer: {error}"))?;

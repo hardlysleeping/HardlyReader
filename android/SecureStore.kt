@@ -1,6 +1,6 @@
 package ing.hardlysleep.hardlyreader
 
-import android.app.AppGlobals
+import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -35,9 +35,16 @@ object SecureStore {
   private const val TRANSFORMATION = "AES/GCM/NoPadding"
   private const val TAG_BITS = 128
 
-  private fun prefs() =
-    AppGlobals.getInitialApplication()
-      .getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+  /**
+   * The prefs file, from the Context Rust passes in.
+   *
+   * Not `AppGlobals`: that is a hidden platform class, unavailable to an app
+   * compiled against the public SDK. The Context is handed over the JNI bridge
+   * instead — `ndk_context` already has it, so nothing here needs a static hook
+   * into MainActivity.
+   */
+  private fun prefs(context: Context) =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
   private fun key(): SecretKey {
     val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -57,14 +64,16 @@ object SecureStore {
 
   /** The stored value for `key`, or null. A decrypt failure answers null, never a crash. */
   @JvmStatic
-  fun get(key: String): String? {
-    val packed = prefs().getString(key, null) ?: return null
+  fun get(context: Context, key: String): String? {
+    val packed: String = prefs(context).getString(key, null) ?: return null
     return try {
-      val raw = Base64.decode(packed, Base64.NO_WRAP)
+      val raw: ByteArray = Base64.decode(packed, Base64.NO_WRAP)
       // iv (12 bytes) || ciphertext+tag
+      val iv: ByteArray = raw.copyOfRange(0, 12)
+      val body: ByteArray = raw.copyOfRange(12, raw.size)
       val cipher = Cipher.getInstance(TRANSFORMATION)
-      cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, raw, 0, 12))
-      String(cipher.doFinal(raw, 12, raw.size - 12), Charsets.UTF_8)
+      cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, iv))
+      String(cipher.doFinal(body), Charsets.UTF_8)
     } catch (error: Exception) {
       null
     }
@@ -72,18 +81,18 @@ object SecureStore {
 
   /** Encrypts and stores. A failure throws, so Rust answers Err and the page falls back. */
   @JvmStatic
-  fun set(key: String, value: String) {
+  fun set(context: Context, key: String, value: String) {
     val cipher = Cipher.getInstance(TRANSFORMATION)
     cipher.init(Cipher.ENCRYPT_MODE, key())
     val iv = cipher.iv
     val body = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
     val packed = Base64.encodeToString(iv + body, Base64.NO_WRAP)
-    prefs().edit().putString(key, packed).apply()
+    prefs(context).edit().putString(key, packed).apply()
   }
 
   /** Removes one key. Not being there is success. */
   @JvmStatic
-  fun delete(key: String) {
-    prefs().edit().remove(key).apply()
+  fun delete(context: Context, key: String) {
+    prefs(context).edit().remove(key).apply()
   }
 }

@@ -101,9 +101,11 @@ fi
 # ---------------------------------------------------------------------------
 
 # --- the Keystore store (see android/SecureStore.kt) -------------------------
-# The Kotlin class is committed at android/SecureStore.kt because
-# `tauri android init` regenerates gen/android: copying it here is what keeps it
-# in the app's source set, exactly like the iOS pipeline copying ios/*.m.
+# The Kotlin class is committed at android/SecureStore.kt because the tauri
+# android init step regenerates gen/android: copying it here is what keeps it in
+# the app source set, exactly like the iOS pipeline copying ios files into the app
+# target. No apostrophes in this comment on purpose: it lives inside a
+# single-quoted shell string.
 STORE_DIR="src-tauri/gen/android/app/src/main/java/ing/hardlysleep/hardlyreader"
 if [ -d "$STORE_DIR" ] && [ -f android/SecureStore.kt ]; then
   cp -v android/SecureStore.kt "$STORE_DIR/SecureStore.kt"
