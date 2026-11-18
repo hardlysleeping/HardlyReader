@@ -2439,6 +2439,21 @@
   .group-title .label {
     font-weight: 600;
     text-transform: none;
+    /* Indenting an open category is a move, not a jump: the step in and the step
+       back take the same 120ms every other small shift in the sidebar takes. */
+    transition: padding-left 0.12s ease;
+  }
+
+  /* The open category says so in two ways, and the second one survives a glance:
+     the row is filled and outlined (`.row.active`), and its name sits a few
+     pixels in from the names that are not open. It is the same row whether the
+     posts were opened into pane 2 or by a double tap in one-pane — both set the
+     stream, and `active` is the stream — so the step in happens exactly when the
+     category's posts are the ones on screen. Padding, not a transform: the label
+     is the flexed, ellipsised child, so the indent moves the text and leaves the
+     row's box, its caret and its count where they were. */
+  .row.group-title.active .label {
+    padding-left: 5px;
   }
 
   /* Pinned: the title takes the logo's blue, the row keeps a blue outline, a
