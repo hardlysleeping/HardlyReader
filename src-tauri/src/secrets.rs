@@ -41,7 +41,10 @@ use platform_file as platform;
 mod platform_ios {
     use std::ffi::{c_char, CStr, CString};
 
-    extern "C" {
+    // Edition 2024: an `extern` block is `unsafe` itself, not only the calls
+    // inside it. The Linux build never sees this file's iOS half, so the IPA is
+    // the only thing that compiles it — this line cost one red CI run to learn.
+    unsafe extern "C" {
         fn hr_keychain_set(key: *const c_char, value: *const c_char) -> i32;
         fn hr_keychain_get(key: *const c_char) -> *mut c_char;
         fn hr_keychain_free(value: *mut c_char);
