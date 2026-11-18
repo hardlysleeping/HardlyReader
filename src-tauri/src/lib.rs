@@ -2,6 +2,7 @@
 mod base64;
 mod files;
 mod lan;
+mod secrets;
 mod share;
 mod sync;
 
@@ -49,7 +50,15 @@ pub fn run() {
             share::share_file,
             // Whether a sheet exists here at all, so the page asks once instead
             // of treating every platform's refusal as a failure to report.
-            share::share_available
+            share::share_available,
+            // The session token: out of the page's storage and into the shell's
+            // own, one file per account, owner-only (`lib/secrets` on the page
+            // side, `secrets.rs` here). Registered everywhere so the page has one
+            // name to call; a platform with no store answers an error and the
+            // page falls back to this device's storage and says so.
+            secrets::secret_get,
+            secrets::secret_set,
+            secrets::secret_delete
         ])
         // A window that is gone is not a server: closing the reader stops the
         // share rather than leaving a socket open behind a closed window.

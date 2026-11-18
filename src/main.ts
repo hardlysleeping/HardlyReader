@@ -2,9 +2,18 @@ import { mount } from "svelte";
 import "./app.css";
 import App from "./App.svelte";
 import { installWebStore } from "./api/web-store";
+import { hydrateSessions } from "./api/session";
 
 // Drag-to-scroll lives in `App.svelte` now: it is a gesture with an off switch,
 // and the switch has to take the listener away rather than make it do nothing.
+
+// The token is not in the session record any more — it is in the OS's own store
+// where there is one (see `lib/secrets`), so the record has to be joined to it
+// before anything reads a session. `accounts` builds its rows from that store the
+// moment it is imported, and a session whose token has moved reads as no session,
+// so this runs first and is awaited: a launch that mounted before it would show
+// the connect screen for an account that is signed in.
+await hydrateSessions();
 
 // The shop, before anything mounts. With a billing service configured, the Buy
 // button opens Stripe Checkout in the system browser and a page that comes back
