@@ -216,7 +216,11 @@ workflows:
           # exit on its first match, close the pipe, and turn a match into a
           # SIGPIPE failure under pipefail.
           strings -a "$BIN" > "$CM_BUILD_DIR/build/binary-strings.txt"
-          for symbol in hardlyreader-share-sheet-1 share_sheet hardlyreader-status-bar-1 hardlyreader-keychain-1 hr_keychain_get; do
+          # Markers are STRING LITERALS, never Rust/ObjC function names: the
+          # release profile strips symbols, so a linked `hr_keychain_get` is
+          # invisible to `strings` while its marker constant survives. One run was
+          # spent discovering that the hard way.
+          for symbol in hardlyreader-share-sheet-1 share_sheet hardlyreader-status-bar-1 hardlyreader-keychain-1; do
             if grep -q -- "$symbol" "$CM_BUILD_DIR/build/binary-strings.txt"; then
               echo "found in the binary: $symbol"
             else
