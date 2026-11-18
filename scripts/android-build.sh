@@ -100,6 +100,19 @@ if [ "$PATCHED" = "1" ]; then
 fi
 # ---------------------------------------------------------------------------
 
+# --- the Keystore store (see android/SecureStore.kt) -------------------------
+# The Kotlin class is committed at android/SecureStore.kt because
+# `tauri android init` regenerates gen/android: copying it here is what keeps it
+# in the app's source set, exactly like the iOS pipeline copying ios/*.m.
+STORE_DIR="src-tauri/gen/android/app/src/main/java/ing/hardlysleep/hardlyreader"
+if [ -d "$STORE_DIR" ] && [ -f android/SecureStore.kt ]; then
+  cp -v android/SecureStore.kt "$STORE_DIR/SecureStore.kt"
+else
+  echo "ERROR: $STORE_DIR missing, or android/SecureStore.kt not in the tree" >&2
+  exit 1
+fi
+# ---------------------------------------------------------------------------
+
 TARGET_FLAGS=()
 for t in $TARGETS; do TARGET_FLAGS+=(--target "$t"); done
 

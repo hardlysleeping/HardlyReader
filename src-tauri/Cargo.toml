@@ -41,6 +41,13 @@ tauri-plugin-deep-link = "2"
 tiny_http = "0.12"
 
 
+# Android only: the JVM, to reach `android/SecureStore.kt`. `jni` is already in
+# the lock (Tauri pulls it for this target); `ndk-context` is what hands a Rust
+# thread the JavaVM the runtime started, so nothing here defines `JNI_OnLoad`.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

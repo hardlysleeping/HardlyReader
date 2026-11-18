@@ -33,7 +33,9 @@ use tauri::AppHandle;
 
 #[cfg(target_os = "ios")]
 use platform_ios as platform;
-#[cfg(not(target_os = "ios"))]
+#[cfg(target_os = "android")]
+use platform_android as platform;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use platform_file as platform;
 
 /// The Keychain, through the Objective-C half.
@@ -89,6 +91,94 @@ mod platform_ios {
         } else {
             Err("the Keychain refused the removal".to_string())
         }
+    }
+}
+
+
+/// The Keystore, through the Kotlin half and the JVM.
+///
+/// `android/SecureStore.kt` does the encryption; this module only reaches it. The
+/// JVM comes from `ndk_context` (initialised by the runtime that started the app),
+/// so nothing here owns a `JNI_OnLoad` — a second one would collide at link time.
+#[cfg(target_os = "android")]
+mod platform_android {
+    use jni::objects::{JObject, JString, JValue};
+    use jni::{JNIEnv, JavaVM};
+
+    /// `ing.hardlysleep.hardlyreader.SecureStore`, in JNI's own spelling.
+    const CLASS: &str = "ing/hardlysleep/hardlyreader/SecureStore";
+
+    /// Runs `body` with the current thread attached to the app's JVM.
+    ///
+    /// A thread that has never called in is attached for the duration of the call
+    /// and detached when the guard drops, so a token read from a background refresh
+    /// costs one attach and no leaks.
+    fn with_env<T>(body: impl FnOnce(&mut JNIEnv) -> Result<T, String>) -> Result<T, String> {
+        let context = ndk_context::android_context();
+        // SAFETY: the pointer is the JavaVM of the process that started this
+        // library; `from_raw` only wraps it and never takes ownership.
+        let vm = unsafe { JavaVM::from_raw(context.vm().cast()) }
+            .map_err(|error| format!("no JVM: {error}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|error| format!("could not attach to the JVM: {error}"))?;
+        body(&mut env)
+    }
+
+    fn text<'local>(env: &mut JNIEnv<'local>, value: &str) -> Result<JString<'local>, String> {
+        env.new_string(value)
+            .map_err(|error| format!("could not pass the secret's name: {error}"))
+    }
+
+    pub fn get(_app: &tauri::AppHandle, key: &str) -> Result<Option<String>, String> {
+        with_env(|env| {
+            let name = text(env, key)?;
+            let answer = env
+                .call_static_method(
+                    CLASS,
+                    "get",
+                    "(Ljava/lang/String;)Ljava/lang/String;",
+                    &[JValue::Object(&name)],
+                )
+                .map_err(|error| format!("SecureStore.get failed: {error}"))?;
+            let value = answer.l().map_err(|error| format!("bad answer: {error}"))?;
+            if value.is_null() {
+                return Ok(None);
+            }
+            let value: JString = value.into();
+            let value = env
+                .get_string(&value)
+                .map_err(|error| format!("could not read the secret: {error}"))?;
+            let value = value.to_string_lossy().into_owned();
+            Ok(if value.is_empty() { None } else { Some(value) })
+        })
+    }
+
+    pub fn set(_app: &tauri::AppHandle, key: &str, value: &str) -> Result<(), String> {
+        with_env(|env| {
+            let name = text(env, key)?;
+            let secret = text(env, value)?;
+            env.call_static_method(
+                CLASS,
+                "set",
+                "(Ljava/lang/String;Ljava/lang/String;)V",
+                &[JValue::Object(&name), JValue::Object(&secret)],
+            )
+            .map_err(|error| format!("SecureStore.set failed: {error}"))?;
+            Ok(())
+        })
+    }
+
+    pub fn remove(_app: &tauri::AppHandle, key: &str) -> Result<(), String> {
+        with_env(|env| {
+            let name = text(env, key)?;
+            let _: JObject = env
+                .call_static_method(CLASS, "delete", "(Ljava/lang/String;)V", &[JValue::Object(&name)])
+                .map_err(|error| format!("SecureStore.delete failed: {error}"))?
+                .l()
+                .map_err(|error| format!("bad answer: {error}"))?;
+            Ok(())
+        })
     }
 }
 
