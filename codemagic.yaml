@@ -216,7 +216,7 @@ workflows:
           # exit on its first match, close the pipe, and turn a match into a
           # SIGPIPE failure under pipefail.
           strings -a "$BIN" > "$CM_BUILD_DIR/build/binary-strings.txt"
-          for symbol in hardlyreader-share-sheet-1 share_sheet hardlyreader-status-bar-1; do
+          for symbol in hardlyreader-share-sheet-1 share_sheet hardlyreader-status-bar-1 hardlyreader-keychain-1 hr_keychain_get; do
             if grep -q -- "$symbol" "$CM_BUILD_DIR/build/binary-strings.txt"; then
               echo "found in the binary: $symbol"
             else

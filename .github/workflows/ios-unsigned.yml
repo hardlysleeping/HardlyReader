@@ -181,7 +181,7 @@ jobs:
           BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
           echo "binary: $BIN"
           strings -a "$BIN" > build/binary-strings.txt
-          for symbol in hardlyreader-share-sheet-1 share_sheet hardlyreader-status-bar-1; do
+          for symbol in hardlyreader-share-sheet-1 share_sheet hardlyreader-status-bar-1 hardlyreader-keychain-1 hr_keychain_get; do
             if grep -q -- "$symbol" build/binary-strings.txt; then
               echo "found in the binary: $symbol"
             else
