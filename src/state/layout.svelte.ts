@@ -445,6 +445,14 @@ class LayoutState {
    * arithmetic said otherwise.
    */
   get stacked(): boolean {
+    // A phone on its side always draws three columns. The stack exists because a
+    // portrait frame has the height for it and not the width; sideways the same
+    // arrangement gives the posts and the article 190pt each on a 440pt screen,
+    // which is the frame the owner called broken — "it doesnt account for the
+    // notch and the whole thing is cutoff" on a phone that had just been asked
+    // for three panes. So the choice is read where it can be read (upright), and
+    // sideways the columns are the only honest drawing.
+    if (this.device === "phone" && !this.upright) return false;
     return this.stackChoice || this.drawn < this.stackNeed;
   }
 

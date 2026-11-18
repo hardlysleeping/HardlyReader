@@ -106,7 +106,8 @@ function ruleBody(css, selector) {
 // still loads — as side by side, which is what that payload was looking at.
 check(
   "the drawn arrangement is the choice, or the only one a narrow window can draw",
-  /get stacked\(\): boolean \{\s*return this\.stackChoice \|\| this\.drawn < this\.stackNeed;/.test(layout) &&
+  /get stacked\(\): boolean \{/.test(layout) &&
+    /return this\.stackChoice \|\| this\.drawn < this\.stackNeed;/.test(layout) &&
     // The note about the window forcing the pair belongs to three panes only:
     // once the third has been tucked away the window is not overriding the
     // choice, it is drawing the two panes the choice reduced to.
@@ -115,6 +116,16 @@ check(
     ) &&
     /get stackChosen\(\): boolean \{\s*return this\s*\.stackChoice;/.test(layout),
 );
+// A phone on its side never stacks, whatever the saved choice says: the stack is
+// the portrait answer (height for two rows, no width for three columns), and
+// sideways it gave the posts and the article 190pt each on a 440pt screen — the
+// frame the owner reported as broken on his phone. The guard sits before the
+// choice, so no saved `stacked: true` can bring it back sideways.
+check(
+  "a landscape phone draws columns, never the stack",
+  /if \(this\.device === "phone" && !this\.upright\) return false;[\s\S]{0,120}?return this\.stackChoice/.test(layout),
+);
+
 check(
   "the stack and the mode are decided by one width, not two",
   /get stackNeed\(\): number \{[\s\S]{0,500}thresholdsFor\(this\.panes, this\.device, this\.panes\.sidebar, false\)\.three/.test(

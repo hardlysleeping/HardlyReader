@@ -587,6 +587,32 @@ html.drag-panning :is(button, a, [role="button"]):active:not(.on):not([aria-pres
   --status-lift: 4px;
 }
 
+/* A phone on its side takes a FLOOR on the side insets, not only the device's
+   answer.
+ *
+ * The shell has been seen reporting `env(safe-area-inset-left/right)` as 0 in
+ * landscape while the webview still runs edge to edge: the notch then lands
+ * *inside* the first pane instead of in a strip beside it, and the last column's
+ * text is stopped by the housing — the owner's report, "it has the notch in the
+ * middle of the pane 1 part", and the reason a screenshot shows nothing wrong
+ * (it captures the page, not the housing).
+ *
+ * So the hardware's own numbers are the floor: every notched iPhone turns
+ * landscape at 19:9 or wider and clears 59pt a side with 21pt below the home
+ * indicator, so a page that reports nothing still gets what the housing needs,
+ * while `env()` wins wherever it is larger (it is the real, per-model answer).
+ *
+ * The aspect gate is the part that keeps this honest: an SE or an 8 Plus on its
+ * side is 16:9 with no housing at either rim, and it must not pay 62pt of air
+ * for a notch it does not have. */
+@media (orientation: landscape) and (min-aspect-ratio: 19/9) {
+  html[data-device="phone"] {
+    --safe-left: max(env(safe-area-inset-left, 0px), 62px);
+    --safe-right: max(env(safe-area-inset-right, 0px), 62px);
+    --safe-bottom: max(env(safe-area-inset-bottom, 0px), 21px);
+  }
+}
+
 /* The page owns every pixel the app does not, so a strip left by a safe-area
    inset — the notch, the home indicator, the gutter beside a rotated phone — is
    the app's own colour rather than whatever the window paints (on iOS, black).
