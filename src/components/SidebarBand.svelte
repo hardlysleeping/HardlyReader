@@ -625,27 +625,22 @@
     opacity: 0.85;
   }
 
-  /* Folded, it is the pane's width, edge to edge, and it sits closer to the
-     search row than the open band does. The rail's right padding exists to keep
-     the day/night switch off the glass while the controls are showing; folded
-     there is no switch beside it, so the same padding left an 11px stripe of
-     nothing at the end of a hairline — invisible on a flat colour, obvious
-     against a picture. */
+  /* Folded, it is the pane's width and it sits closer to the search row than the
+     open band does. It wears the same 8px inset as the open band and as the
+     search field, so folding it does not slide the caret sideways: the handle is
+     the same width in both states, in the same place. */
   :global(html[data-device="phone"]) .bandbox.collapsed {
-    /* Right, the rail's own 10px of padding is taken back: that padding exists
-       to keep the day/night switch off the glass, and folded there is no switch
-       beside the handle. A negative margin rather than a rule on the rail,
-       because the rail is another component's box and this one is ours. */
-    margin: 0 -10px 0 0;
+    margin: 0 8px 0;
   }
 
-  /* On a phone the band shares a row with the day / night switch (the rail in
-     `Sidebar`), so it takes the width that is left instead of a margin of its
-     own on the right: the rail's padding is what keeps the pair off the edge. */
+  /* On a phone the band is the whole row: the rail in `Sidebar` stretches it, and
+     it wears the same 8px inset the search field above it wears — equal on both
+     sides, so the three seats sit centred under the field instead of ending short
+     of the right edge with a stripe of nothing beside them. */
   :global(html[data-device="phone"]) .bandbox {
     flex: 1 1 auto;
     min-width: 0;
-    margin: 0 0 6px;
+    margin: 0 8px 6px;
   }
 
   /* Open or folded, the handle sits in the same place: the strip across the top

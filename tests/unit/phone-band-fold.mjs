@@ -5,10 +5,14 @@
  *   node --experimental-strip-types --import ./register-ts.mjs phone-band-fold.mjs
  *
  * The band carries the eye, the lock and the pin. Folded it is a caret in a 16px
- * strip, and the owner's three complaints were all of the same kind: it did not
- * reach the glass, it was taller than a caret needs, and it answered to a margin
- * the open band needed rather than its own. CSS is read as text — measured on a
- * browser too (440x956: bar 0–439 x 79–95, tree starting 95 rather than 117).
+ * strip. Its complaints were all of one kind: it was taller than a caret needs,
+ * and it answered to margins meant for another row — first reaching past the
+ * glass, then (once the day / night switch left the rail) sitting on the left of
+ * the search field with a stripe of nothing on its right, which measures as the
+ * three seats ending short of the field above them. The rule now is one inset on
+ * every state, the same 8px the search field wears. CSS is read as text —
+ * measured on a browser too (390x844 phone: field x=8 w=373 right=381; open band
+ * x=8 w=373 right=381; folded band x=8 w=373; seats 154 / 56 / 154).
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -42,8 +46,8 @@ check("...and it keeps its lift, so it still reads as a control", /opacity:\s*0\
 const foldedBox = rule(':global(html[data-device="phone"]) .bandbox.collapsed {');
 check("the folded box has a rule of its own", foldedBox.length > 0);
 check(
-  "...which takes back the rail's right padding, so the strip reaches the glass",
-  /margin:\s*0\s+-10px\s+0\s+0/.test(foldedBox),
+  "...which wears the same 8px inset the search field wears, on both sides",
+  /margin:\s*0\s+8px\s+0/.test(foldedBox),
   foldedBox.trim().slice(0, 60),
 );
 check(
@@ -51,9 +55,15 @@ check(
   !/margin:\s*0 0 6px/.test(foldedBox),
 );
 check(
-  "the open band keeps its own 6px, so nothing about the unfolded row moved",
-  /:global\(html\[data-device="phone"\]\) \.bandbox \{[\s\S]{0,80}margin:\s*0 0 6px/.test(band),
+  "the open band wears the same 8px inset plus its 6px of air below",
+  /:global\(html\[data-device="phone"\]\) \.bandbox \{[\s\S]{0,120}margin:\s*0 8px 6px/.test(band),
 );
+// The rail is the band's only parent now that the day / night switch lives in
+// the title bar, so any padding it keeps becomes an asymmetric stripe: 0 on the
+// left, 10 on the right was exactly the owner's "slightly to the left".
+const sidebar = readFileSync(join(ROOT, "src/components/Sidebar.svelte"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const rail = sidebar.slice(sidebar.indexOf(':global(html[data-device="phone"]) .rail'));
+check("the phone rail keeps no padding of its own", !/padding-right:\s*10px/.test(rail.slice(0, rail.indexOf("}"))));
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exitCode = 1;

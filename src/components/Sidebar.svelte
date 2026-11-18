@@ -2976,11 +2976,15 @@
     display: contents;
   }
 
+  /* The band is the rail's only child now that the day / night switch lives in
+     the title bar, so the rail carries no padding of its own: any it kept became
+     a stripe of nothing on one side, and the band sat left of the search field
+     above it instead of under it. Both states wear the same 8px the field wears,
+     so the column reads straight and folding the band cannot move its handle. */
   :global(html[data-device="phone"]) .rail {
     display: flex;
     align-items: stretch;
     gap: 4px;
-    padding-right: 10px;
   }
 
   /* A thumb's target, drawn around a 20px glyph: the switch keeps its size and
