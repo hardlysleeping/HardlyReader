@@ -10,6 +10,8 @@
   import {
     filterWords,
     isFilterOff,
+    nextReadFilter,
+    nextStarFilter,
     READ_FILTER_LABELS,
     READ_FILTER_TITLES,
     STAR_FILTER_LABELS,
@@ -1672,68 +1674,63 @@
           </div>
         {/if}
       {/if}
-      <!-- Four buttons in two pairs, not four word pills with an "All" beside
-           them. Within a pair only one can be on — unread or read, starred or
-           not starred — and pressing the one already on is the way back to
-           everything, so nothing repeats what "no button pressed" already says.
-           The glyphs are the ones the rows already use, so the two controls
-           speak the same language: a circle is unread, a circle with a tick is
-           read, a hollow star on the left and a filled star on the right for
-           starred, and a button that is not pressed is dimmed. -->
+      <!-- One switch per question, not a pair of pills each. A press walks the
+           switch round — off, unread, read, off; off, not favourited,
+           favourited, off — so the single glyph says which state the list is
+           in, and the third press is the way back to everything. Both off is
+           the whole list; each choice is remembered from one session to the
+           next (`reading.save()`), so a refresh does not quietly reset it.
+           The glyphs are the ones the rows already use: a filled dot is unread,
+           a circle with a tick is read, a hollow circle is off, a filled star
+           is favourited, a struck-through star is not, a hollow star is off. -->
       <div class="filters" role="group" aria-label="Show posts">
-        <div class="filterpair" class:off={reading.readFilter === "off"} role="group" aria-label="Unread or read">
-          <button
-            class="filter"
-            class:on={reading.readFilter === "unread"}
-            aria-pressed={reading.readFilter === "unread"}
-            aria-label={`Show ${READ_FILTER_LABELS.unread} only`}
-            title={READ_FILTER_TITLES.unread}
-            onclick={() => reading.setReadFilter(reading.readFilter === "unread" ? "off" : "unread")}
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.4" /></svg>
-          </button>
-          <button
-            class="filter"
-            class:on={reading.readFilter === "read"}
-            aria-pressed={reading.readFilter === "read"}
-            aria-label={`Show ${READ_FILTER_LABELS.read} only`}
-            title={READ_FILTER_TITLES.read}
-            onclick={() => reading.setReadFilter(reading.readFilter === "read" ? "off" : "read")}
-          >
+        <button
+          class="filter"
+          class:on={reading.readFilter !== "off"}
+          aria-pressed={reading.readFilter !== "off"}
+          aria-label={`Read filter: ${READ_FILTER_LABELS[reading.readFilter]}`}
+          title={READ_FILTER_TITLES[reading.readFilter]}
+          onclick={() => reading.setReadFilter(nextReadFilter(reading.readFilter))}
+        >
+          {#if reading.readFilter === "read"}
             <svg viewBox="0 0 16 16" aria-hidden="true"
               ><circle cx="8" cy="8" r="5.4" /><path d="M5.2 8.2l2 2 3.6-3.9" /></svg
             >
-          </button>
-        </div>
-        <div class="filterpair" class:off={reading.starFilter === "off"} role="group" aria-label="Favourites or not favourited">
-          <button
-            class="filter"
-            class:on={reading.starFilter === "unstarred"}
-            aria-pressed={reading.starFilter === "unstarred"}
-            aria-label={`Show ${STAR_FILTER_LABELS.unstarred.toLowerCase()} posts only`}
-            title={STAR_FILTER_TITLES.unstarred}
-            onclick={() => reading.setStarFilter(reading.starFilter === "unstarred" ? "off" : "unstarred")}
-          >
+          {:else if reading.readFilter === "unread"}
             <svg viewBox="0 0 16 16" aria-hidden="true"
-              ><path d="M8 1.9l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.7 4.2 13.7l.7-4.3-3.1-3 4.3-.6z" /></svg
+              ><circle cx="8" cy="8" r="5.4" class="filled" /></svg
             >
-          </button>
-          <button
-            class="filter"
-            class:on={reading.starFilter === "starred"}
-            aria-pressed={reading.starFilter === "starred"}
-            aria-label={`Show ${STAR_FILTER_LABELS.starred} only`}
-            title={STAR_FILTER_TITLES.starred}
-            onclick={() => reading.setStarFilter(reading.starFilter === "starred" ? "off" : "starred")}
-          >
+          {:else}
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.4" /></svg>
+          {/if}
+        </button>
+        <button
+          class="filter"
+          class:on={reading.starFilter !== "off"}
+          aria-pressed={reading.starFilter !== "off"}
+          aria-label={`Favourite filter: ${STAR_FILTER_LABELS[reading.starFilter]}`}
+          title={STAR_FILTER_TITLES[reading.starFilter]}
+          onclick={() => reading.setStarFilter(nextStarFilter(reading.starFilter))}
+        >
+          {#if reading.starFilter === "starred"}
             <svg viewBox="0 0 16 16" aria-hidden="true"
               ><path
                 d="M8 1.9l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.7 4.2 13.7l.7-4.3-3.1-3 4.3-.6z"
                 class="filled"
               /></svg
             >
-          </button>
-        </div>
+          {:else if reading.starFilter === "unstarred"}
+            <svg viewBox="0 0 16 16" aria-hidden="true"
+              ><path d="M8 1.9l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.7 4.2 13.7l.7-4.3-3.1-3 4.3-.6z" /><path
+                d="M3.4 13.4L12.6 2.9"
+              /></svg
+            >
+          {:else}
+            <svg viewBox="0 0 16 16" aria-hidden="true"
+              ><path d="M8 1.9l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.7 4.2 13.7l.7-4.3-3.1-3 4.3-.6z" /></svg
+            >
+          {/if}
+        </button>
       </div>
     </div>
   </header>
@@ -2261,27 +2258,9 @@
     flex: 0 0 auto;
   }
 
-  /* A pair is one question with two answers: unread or read, starred or not.
-     Only one of them can be on, and a tighter gap inside the pair than between
-     the pairs is what says so. */
-  .filterpair {
-    position: relative;
-    display: flex;
-    gap: 2px;
-    flex: 0 0 auto;
-  }
-
-  /* A pair that is off filters nothing, and a deeper dim is what says so: no
-     slash, no second shape — the buttons only go quieter than an unchosen one. */
-  .filterpair.off .filter {
-    opacity: 0.32;
-  }
-
-  /* Cut-out pills, matching the band: outline until chosen, filled when on.
-     Icon only — the glyph is the state, so there is no word to keep in step
-     with it: a filled dot is unread, a ring is read, a filled star is starred,
-     a hollow star is not. Off is dimmed, because a switch that is off filters
-     nothing and must not read as a choice. */
+  /* One button per question. A switch that is off filters nothing; `on` is the
+     only thing that fills it, so the glyph inside it is always the state the
+     list is in rather than one of two halves competing for the same box. */
   .filter {
     display: inline-flex;
     align-items: center;

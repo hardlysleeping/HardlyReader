@@ -11,6 +11,8 @@ import {
   isFilterOff,
   isReadFilter,
   isStarFilter,
+  nextReadFilter,
+  nextStarFilter,
 } from "../../src/lib/article-filter.ts";
 
 let failures = 0;
@@ -40,7 +42,7 @@ const at = (readState, starState) => filterItems(items, { read: readState, star:
 // Two switches, three states each, and the third is off: the control has no
 // "All" button because "off" is all, and no fourth pill to repeat it.
 check("the read switch walks off, unread, read", READ_FILTERS.join(",") === "off,unread,read", READ_FILTERS.join(","));
-check("the star switch walks off, starred, unstarred", STAR_FILTERS.join(",") === "off,starred,unstarred", STAR_FILTERS.join(","));
+check("the star switch walks off, unstarred, starred", STAR_FILTERS.join(",") === "off,unstarred,starred", STAR_FILTERS.join(","));
 check(
   "only those states are states",
   isReadFilter("unread") && isReadFilter("off") && !isReadFilter("all") && !isReadFilter(null) &&
@@ -48,7 +50,7 @@ check(
 );
 
 
-check("a fresh install opens on unread only", READ_FILTER_DEFAULT === "unread" && STAR_FILTER_DEFAULT === "off");
+check("a fresh install filters nothing", READ_FILTER_DEFAULT === "off" && STAR_FILTER_DEFAULT === "off");
 
 check("both switches off is the whole list", ids(at("off", "off")) === "a,b,c,d", ids(at("off", "off")));
 check("...and is what the app calls unfiltered", isFilterOff(FILTER_OFF) && !isFilterOff({ read: "off", star: "starred" }));
@@ -104,67 +106,54 @@ check(
 );
 check("...and says nothing was filtered when both are off", filterWords(FILTER_OFF) === "everything", filterWords(FILTER_OFF));
 
-// The control is two pairs of buttons drawn from the same tables as the model:
-// icon-only, so there is no word to keep in step with the state. Within a pair
-// only one can be on, and pressing the one already on turns the pair off — the
-// model's "off" is reached that way, because there is no All button for it.
+// One switch per question, each a three-state cycle — off, the first half, the
+// second half, back to off — so one press is one step and there is no "All"
+// button beside it. The model's cycle is what the button calls.
+check(
+  "the read cycle is off, unread, read, off",
+  nextReadFilter("off") === "unread" && nextReadFilter("unread") === "read" && nextReadFilter("read") === "off",
+);
+check(
+  "the star cycle is off, unstarred, starred, off",
+  nextStarFilter("off") === "unstarred" && nextStarFilter("unstarred") === "starred" && nextStarFilter("starred") === "off",
+);
+check("a value that is not a state restarts the cycle", nextReadFilter("all") === "off" && nextStarFilter(7) === "off");
+
 const list = readFileSync(new URL("../../src/components/ArticleList.svelte", import.meta.url), "utf8");
-const pairs = list.match(/class="filterpair"/g) ?? [];
-check("the switches are drawn in two pairs", pairs.length === 2, String(pairs.length));
+const switches = list.match(/class="filter"/g) ?? [];
+check("the two switches are two buttons, not four", switches.length === 2, String(switches.length));
+check("no pair wrapper is left behind", !/class="filterpair"/.test(list));
 check(
-  "the read pair is unread and read, one at a time",
-  /reading\.setReadFilter\(reading\.readFilter === "unread" \? "off" : "unread"\)/.test(list) &&
-    /reading\.setReadFilter\(reading\.readFilter === "read" \? "off" : "read"\)/.test(list),
+  "each button walks its own cycle",
+  /onclick=\{\(\) => reading\.setReadFilter\(nextReadFilter\(reading\.readFilter\)\)\}/.test(list) &&
+    /onclick=\{\(\) => reading\.setStarFilter\(nextStarFilter\(reading\.starFilter\)\)\}/.test(list),
 );
 check(
-  "the star pair is starred and not starred, one at a time",
-  /reading\.setStarFilter\(reading\.starFilter === "starred" \? "off" : "starred"\)/.test(list) &&
-    /reading\.setStarFilter\(reading\.starFilter === "unstarred" \? "off" : "unstarred"\)/.test(list),
+  "a switch is pressed only when it is filtering",
+  /class:on=\{reading\.readFilter !== "off"\}/.test(list) && /class:on=\{reading\.starFilter !== "off"\}/.test(list),
+);
+// Every state has its own glyph, so the button says which half is showing
+// rather than only whether something is on.
+check(
+  "the read switch draws off, unread and read",
+  /\{#if reading\.readFilter === "read"\}/.test(list) &&
+    /\{:else if reading\.readFilter === "unread"\}/.test(list) &&
+    /\{:else\}/.test(list) &&
+    /<circle cx="8" cy="8" r="5\.4" \/><path d="M5\.2 8\.2l2 2 3\.6-3\.9" \/>/.test(list),
 );
 check(
-  "each button is pressed only in its own state",
-  /class:on=\{reading\.readFilter === "unread"\}/.test(list) &&
-    /class:on=\{reading\.readFilter === "read"\}/.test(list) &&
-    /class:on=\{reading\.starFilter === "starred"\}/.test(list) &&
-    /class:on=\{reading\.starFilter === "unstarred"\}/.test(list),
+  "the star switch draws off, not favourited and favourited",
+  /\{#if reading\.starFilter === "starred"\}/.test(list) &&
+    /\{:else if reading\.starFilter === "unstarred"\}/.test(list) &&
+    /class="filled"/.test(list) &&
+    /d="M3\.4 13\.4L12\.6 2\.9"/.test(list),
 );
-// The read pair reuses the row's own mark icons — a circle, and a circle with a
-// tick — so the filter and the row it filters say the same thing.
-check(
-  "the read pair is the row's circle and circle-with-tick",
-  /<circle cx="8" cy="8" r="5\.4" \/><path d="M5\.2 8\.2l2 2 3\.6-3\.9" \/>/.test(list) &&
-    /<circle cx="8" cy="8" r="5\.4" \/><\/svg>/.test(list),
-);
-check("the star pair is one filled glyph and one hollow", /class="filled"/.test(list));
-// The hollow star sits on the left and the filled one on the right: "not
-// starred" reads as the absence of the mark, so it comes first.
-{
-  const starPair = list.slice(list.indexOf('aria-label="Favourites or not favourited"'));
-  const pair = starPair.slice(0, starPair.indexOf("</div>"));
-  const hollow = pair.indexOf('<path d="M8 1.9l1.9 3.9');
-  const filled = pair.indexOf('class="filled"');
-  check(
-    "the hollow star is on the left and the filled star on the right",
-    hollow > -1 && filled > -1 && hollow < filled,
-    `hollow@${hollow} filled@${filled}`,
-  );
-}
 // The row's own mark uses the same circle, ticked only once the post is read.
 check(
   "a row's mark is a hollow circle until the post is read",
   /\{#if isRead\(item\)\}<path\s+d="M5\.2 8\.2l2 2 3\.6-3\.9"/.test(list),
 );
 check("no All button is left beside them", !/All<\/button>/.test(list) && !/ARTICLE_FILTERS/.test(list));
-// A pair that is off filters nothing, and it says so by going dimmer — never
-// by a slash drawn across it (it read as a defect, not as a state).
-check(
-  "an off pair is dimmed and not struck through",
-  /class:off=\{reading\.readFilter === "off"\}/.test(list) &&
-    /class:off=\{reading\.starFilter === "off"\}/.test(list) &&
-    /\.filterpair\.off \.filter \{[\s\S]{0,80}?opacity: 0\.32;/.test(list) &&
-    !/\.filterpair\.off::after/.test(list) &&
-    !/linear-gradient\(\s*\n\s*to top right/.test(list),
-);
 check(
   "an inert switch is dimmed",
   /\.filter \{[\s\S]{0,600}?opacity: 0\.5;/.test(list) && /\.filter\.on \{[\s\S]{0,200}?opacity: 1;/.test(list),

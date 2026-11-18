@@ -29,16 +29,22 @@ import { authorNameOf } from "./people";
 export const READ_FILTERS = ["off", "unread", "read"] as const;
 export type ReadFilter = (typeof READ_FILTERS)[number];
 
-/** The star half, walked the same way: off, starred, unstarred. */
-export const STAR_FILTERS = ["off", "starred", "unstarred"] as const;
+/**
+ * The star half, walked the same way: off, not favourited, favourited.
+ *
+ * `unstarred` comes first because it is the quieter half: the reader reaches for
+ * the star to see favourites, and passing through "what I have not marked" on
+ * the way costs one press rather than landing on it.
+ */
+export const STAR_FILTERS = ["off", "unstarred", "starred"] as const;
 export type StarFilter = (typeof STAR_FILTERS)[number];
 
 /**
- * A fresh install opens on unread and nothing else: a reader wants what is new,
- * and the empty unread list offers the read half in one press. The star half
- * starts off, because "no star pressed" already means every post.
+ * Nothing is filtered until the reader says so: both switch starts off, because
+ * the app opens on the whole list — a first launch that silently hid posts would
+ * read as a feed that lost them, and the choice is remembered from there on.
  */
-export const READ_FILTER_DEFAULT: ReadFilter = "unread";
+export const READ_FILTER_DEFAULT: ReadFilter = "off";
 export const STAR_FILTER_DEFAULT: StarFilter = "off";
 
 /** Both halves at once: what the list is filtered by, everywhere. */
@@ -70,22 +76,23 @@ export const STAR_FILTER_LABELS: Record<StarFilter, string> = {
 };
 
 /**
- * What each button says in its title.
+ * What each button says in its title: what is showing now, and what the next
+ * press asks for.
  *
- * The two states of an axis are drawn side by side and only one of them can be
- * pressed at a time, so the second press on the one already on is the way back
- * to everything — there is no third button for it.
+ * There is one button per switch, so the words have to carry both facts — the
+ * button is never labelled for a state it is not in — and the third press lands
+ * back on everything rather than on a fourth control that says "All".
  */
 export const READ_FILTER_TITLES: Record<ReadFilter, string> = {
-  off: "Show every post",
-  unread: "Show unread posts only — press again for every post",
-  read: "Show read posts only — press again for every post",
+  off: "Showing every post — press for unread",
+  unread: "Showing unread posts — press for read",
+  read: "Showing read posts — press for every post",
 };
 
 export const STAR_FILTER_TITLES: Record<StarFilter, string> = {
-  off: "Show every post",
-  starred: "Show favourite posts only — press again for every post",
-  unstarred: "Show posts you have not favourited — press again for every post",
+  off: "Showing every post — press for not favourited",
+  unstarred: "Showing posts you have not favourited — press for favourites",
+  starred: "Showing favourite posts — press for every post",
 };
 
 export function isReadFilter(value: unknown): value is ReadFilter {
@@ -94,6 +101,27 @@ export function isReadFilter(value: unknown): value is ReadFilter {
 
 export function isStarFilter(value: unknown): value is StarFilter {
   return typeof value === "string" && (STAR_FILTERS as readonly string[]).includes(value);
+}
+
+/**
+ * What one press on the read switch asks for: the next state in its own order.
+ *
+ * The cycle is the whole control — off, unread, read, off — so there is no
+ * "All" button beside it and no second pill competing for the same question.
+ * A value that is not a state (an old build's, or a corrupted blob) restarts at
+ * off rather than throwing.
+ */
+export function nextReadFilter(filter: ReadFilter): ReadFilter {
+  const index = READ_FILTERS.indexOf(filter);
+  if (index === -1) return "off";
+  return READ_FILTERS[(index + 1) % READ_FILTERS.length] ?? "off";
+}
+
+/** The star switch, walked the same way: off, not favourited, favourited. */
+export function nextStarFilter(filter: StarFilter): StarFilter {
+  const index = STAR_FILTERS.indexOf(filter);
+  if (index === -1) return "off";
+  return STAR_FILTERS[(index + 1) % STAR_FILTERS.length] ?? "off";
 }
 
 /** True when neither half is filtering. */
