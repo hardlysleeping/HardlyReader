@@ -428,6 +428,11 @@
   }
 
   async function open(streamId: string, title: string) {
+    // Picking a feed is a request to see that feed. Buzz is a sibling mode that
+    // owns pane 2 while it is open, so leaving it open is what kept the stories
+    // on screen after a tap — on a phone, 2-pane mode sat on Buzz while the feed
+    // the reader had just chosen was nowhere. Leaving Buzz is one boolean.
+    if (buzz.active) buzz.close();
     await focused.openStream(streamId, title);
   }
 
@@ -607,6 +612,9 @@
       reader.setExpandedFeed(null);
       return;
     }
+    // Same rule as `open`: a feed tap asks for that feed, so Buzz — which owns
+    // the posts pane while it is open — gets out of the way first.
+    if (buzz.active) buzz.close();
     reader.setExpandedFeed(feed.id);
     await reader.openStream(feed.id, feed.title);
     await tick();
