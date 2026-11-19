@@ -1732,6 +1732,8 @@ dependencies = [
 name = "hardlyreader"
 version = "0.6.43"
 dependencies = [
+ "jni",
+ "ndk-context",
  "serde",
  "serde_json",
  "tauri",

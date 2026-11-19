@@ -4,6 +4,42 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.44] — 2026-11-18
+
+### Fixed
+
+- **Landscape on a phone accounts for the notch.** Turned sideways, the app takes a
+  62pt floor on both side insets (and 21pt under the home indicator) whenever the phone
+  is 19:9 or wider — the hardware's own numbers, used whether or not the shell reports
+  them, because the webview has been seen reporting zero while still running edge to
+  edge. The first pane no longer sits under the housing and the last column no longer
+  ends against it.
+- **Three panes on a phone are three columns.** Sideways, pressing 3 fell into a stacked
+  three — posts above the article, about 190pt each on a 440pt screen. The stack is the
+  portrait answer; a landscape phone now always draws the columns.
+- **The lock wins over the eye.** Locking a category set while the eye was left on *Only*
+  kept that view, so nothing was revealed. Locked now always means "everything tagged
+  hidden is hidden, everything else shown", and unlocking restores the view underneath.
+- **The phone's band sits under the search field.** It was starting at the pane edge and
+  stopping short on the right, because the rail still carried padding from a control
+  that had moved. Both band states now wear the search field's own 8px inset.
+
+### Changed
+
+- **One switch per post filter, not two buttons each.** The read filter walks off → unread
+  → read → off and the favourite filter off → not favourited → favourites → off; the glyph
+  in the button is the state the list is in. Both start off (everything), and each choice is
+  remembered between launches.
+- **An open category indents its name** a few pixels, so the one whose posts are on screen
+  reads apart from the ones that are not.
+
+### Security
+
+- **The sign-in token is no longer kept in the page's storage.** It lives in the platform's
+  own store — the iOS Keychain, an Android Keystore-encrypted preference, or a single
+  owner-only file on desktop — behind one seam, and an existing sign-in is moved there on
+  the first launch of this build. Nothing to do: a reader who was signed in stays signed in.
+
 ## [0.6.43] — 2026-11-13
 
 ### Added
