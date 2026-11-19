@@ -150,6 +150,7 @@ export class PrefsSync {
       this.detach = () => window.removeEventListener("online", wake);
     }
 
+    console.debug(`[prefs] start ${session.serverUrl} ${session.apiPath} routes=${supportsExtensionRoutes(session)}`);
     // A server that could never carry the adapter is not worth a request.
     if (!supportsExtensionRoutes(session)) {
       this.route = "missing";
@@ -237,6 +238,7 @@ export class PrefsSync {
       remote = await getPreferences(transport, session);
     } catch (error) {
       if (this.session !== session) return false;
+      console.debug(`[prefs] read failed ${String(error)}`);
       this.noteReadFailure(error);
       return false;
     }
@@ -245,6 +247,7 @@ export class PrefsSync {
     this.route = "available";
     this.remote = remote;
     this.pulled = true;
+    console.debug(`[prefs] pulled ${Object.keys(remote.entries).join(",") || "nothing"} at ${remote.updatedAt}`);
 
     const merged = mergePreferences(this.snapshotDoc(this.local), remote);
     this.applyAdopted(merged.adopted, remote);
