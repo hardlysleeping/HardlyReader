@@ -4,6 +4,19 @@ All notable changes to HardlyReader are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.45] — 2026-11-19
+
+### Changed
+
+- **Moving to the next feed on a phone no longer waits on the server.** A mouse could
+  always hover a feed and have it fetched before the click; a finger has no hover, so every
+  tap between comic feeds paid a round trip. On a touch screen the next feed in the tree is
+  now fetched while the current one is still on screen, and the tap that follows lands on a
+  cached page — measured against a stand-in server: the tap made no request at all, and the
+  warm-up for the feed after it left in the same frame. Desktops are untouched (hover already
+  did this), merged columns are skipped, and the warm-up shares the hover's two in-flight
+  slots so a phone never fetches a library.
+
 ## [0.6.44] — 2026-11-18
 
 ### Fixed

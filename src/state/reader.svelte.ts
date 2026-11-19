@@ -7,7 +7,7 @@ import { subscribeFeeds, type FeedEntry } from "../lib/subscribe-feeds";
 import { landingItem, step } from "../lib/reading-order";
 import { stepIndex } from "../lib/list-view";
 import { isNoopDrop, moveInOrder, moveNotice, sortByOrder } from "../lib/feed-order";
-import { attemptOrder } from "../lib/stream-cycle";
+import { attemptOrder, cycleIndex } from "../lib/stream-cycle";
 import { withState } from "../lib/marks";
 import { OFFLINE_COPY, feedsToWarm, keptPage, parseKept, serializeKept } from "../lib/offline-copy";
 import { StreamLoads, type StreamLoad } from "../lib/stream-loads";
@@ -3965,6 +3965,30 @@ export class ReaderState {
   }
 
   /**
+   * Warm the feed a finger is most likely to open next.
+   *
+   * A mouse prefetches on hover; a finger has no hover, so on a phone the next
+   * feed in the tree is fetched while the reader is still on this one and the tap
+   * that follows is a cache hit — the switch then costs a paint, not a round trip.
+   * Coarse pointers only, one stream, and never a merged column (its page is one
+   * account's answer and must be asked for). Bounded by the same in-flight cap as
+   * a hover, so a phone is not made to fetch a library.
+   */
+  private warmNextFeed(): void {
+    if (typeof matchMedia !== "function") return;
+    if (!matchMedia("(pointer: coarse)").matches) return;
+    if (this.activeStream === "" || this.mergesStream(this.activeStream)) return;
+    const ordered = this.feedOrder.length > 0 ? this.feedOrder : this.subscriptions.map((feed) => feed.id);
+    const feeds = ordered.filter((id) => id.startsWith("feed/"));
+    const at = feeds.indexOf(this.activeStream);
+    if (at < 0) return;
+    const next = cycleIndex(feeds.length, at, 1);
+    if (next === null) return;
+    const id = feeds[next];
+    if (id !== this.activeStream) this.prefetchStream(id);
+  }
+
+  /**
    * How long the visible update took.
    *
    * Started at the assignment and ended on the frame that draws it, which is the
@@ -4366,6 +4390,7 @@ export class ReaderState {
       // A cache hit is a paint and nothing else: no request, no wait, no spinner.
       this.measurePaint("cache");
       settle("land");
+      this.warmNextFeed();
       this.reportSwitch();
       this.loads.settle(load);
       return;
@@ -4417,6 +4442,7 @@ export class ReaderState {
         this.continuation = page.continuation;
         this.measurePaint("network");
       }
+      this.warmNextFeed();
       this.reportSwitch();
     } catch (error) {
       // Whatever the reason — a dead server or a stream the user moved on from —
