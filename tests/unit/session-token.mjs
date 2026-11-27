@@ -1,17 +1,20 @@
 /**
- * The session token is not in the session record any more.
+ * The session token is in the OS store, with a copy in the record.
  *
  *   node --experimental-strip-types --import ./register-ts.mjs session-token.mjs
  *
  * What this pins, because each of them would be a bug a reader feels:
  *
- * - an **upgrade** (a record with the token inline) moves the token to the store,
- *   rewrites the record without it, and still signs the reader in;
- * - a **current** record (token moved) comes back with its token after the boot's
- *   hydrate, which is what every sync reader in the app relies on;
- * - a record whose **secret is missing** is dropped rather than offered as a
+ * - an **upgrade** (a record with the token inline) moves the token to the store
+ *   and keeps a copy in the record, so it still signs the reader in;
+ * - a **current** record comes back with its token after the boot's hydrate;
+ * - a **store that lost its values** (a re-signed sideload reads a different
+ *   Keychain) must NOT end the sign-in: the record's copy answers, the store is
+ *   healed and the account stays listed;
+ * - a record with **no copy anywhere** is dropped rather than offered as a
  *   sign-in that always fails;
- * - a **write** never leaves the token in storage, and a **delete** takes both.
+ * - a **write** puts the token in the store and keeps the record's copy, and a
+ *   **delete** takes both.
  *
  * The device store is what is exercised here: `lib/secrets` picks it whenever the
  * page has no shell, which is exactly this suite.
@@ -61,12 +64,11 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
   const usable = await hydrateSessions();
   check("an upgrade leaves one usable session", usable === 1, String(usable));
   check("the token is in the store", secretOf(legacy) === "token-legacy", String(secretOf(legacy)));
-  check("...and gone from the record", recordOf(SESSION_KEY).token === "", JSON.stringify(recordOf(SESSION_KEY)));
-  check("...marked as moved", recordOf(SESSION_KEY).tokenStored === true);
-  check("...and gone from the list too", recordOf(ACCOUNTS_KEY)[0].token === "");
+  check("...and kept in the record", recordOf(SESSION_KEY).token === "token-legacy", JSON.stringify(recordOf(SESSION_KEY)));
+  check("...marked as stored", recordOf(SESSION_KEY).tokenStored === true);
+  check("...and kept in the list too", recordOf(ACCOUNTS_KEY)[0].token === "token-legacy");
   check("the reader is still signed in", loadSession()?.token === "token-legacy", JSON.stringify(loadSession()));
   check("the account is still listed", readSessions().length === 1 && readSessions()[0].token === "token-legacy");
-  check("nothing plain is left under the old key", !JSON.stringify(recordOf(SESSION_KEY)).includes("token-legacy"));
 }
 
 // ---------------------------------------------------------------------------
@@ -78,12 +80,12 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
   map.set(SESSION_KEY, JSON.stringify({ ...current, token: "", tokenStored: true }));
   map.set(`${DEVICE_PREFIX}${tokenKey(current)}`, "token-current");
   check("before hydrating there is no usable session", loadSession() === null);
-  await hydrateSessions();
-  check("after hydrating the session is back", loadSession()?.token === "token-current");
+  const usable = await hydrateSessions();
+  check("after hydrating the session is usable", usable === 1 && loadSession()?.token === "token-current", JSON.stringify(loadSession()));
 }
 
 // ---------------------------------------------------------------------------
-// 3. A record whose secret is gone: dropped, not offered as a broken sign-in
+// 3. A record with no copy anywhere: dropped, not offered as a broken sign-in
 // ---------------------------------------------------------------------------
 {
   map.clear();
@@ -95,26 +97,73 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 // ---------------------------------------------------------------------------
-// 4. Writing: the record never carries the token, the store does
+// 4. A store that lost its values must not end the sign-in
+//
+// A sideloaded iOS build reads the Keychain under its own signing identity, so a
+// re-signed install finds an empty store while the app's own records are still
+// there. The launch after it must keep the reader signed in, heal the store and
+// leave the account listed: an update that asks for the password again is the bug
+// this pins.
+// ---------------------------------------------------------------------------
+{
+  map.clear();
+  const kept = session("token-kept", "kept@example.test");
+  const record = { ...kept, token: "token-kept", tokenStored: true };
+  map.set(SESSION_KEY, JSON.stringify(record));
+  map.set(ACCOUNTS_KEY, JSON.stringify([record]));
+  const usable = await hydrateSessions();
+  check("a lost store still signs the reader in", usable === 1 && loadSession()?.token === "token-kept", JSON.stringify(loadSession()));
+  check("the account is still listed", readSessions().length === 1, String(readSessions().length));
+  check("the store is healed", secretOf(kept) === "token-kept", String(secretOf(kept)));
+  check("the record is still there", map.get(SESSION_KEY) !== undefined);
+}
+
+// ---------------------------------------------------------------------------
+// 4b. The same launch through the shell's own command channel
+//
+// This is the iPhone's path: `secret_get` is `hr_keychain_get`, and a re-signed
+// app finds an empty Keychain while the record still carries its copy.
+// ---------------------------------------------------------------------------
+{
+  map.clear();
+  const native = new Map();
+  const invoke = async (command, args) => {
+    if (command === "secret_get") return native.get(args.key) ?? null;
+    if (command === "secret_set") {
+      native.set(args.key, args.value);
+      return null;
+    }
+    if (command === "secret_delete") native.delete(args.key);
+    return null;
+  };
+  const phone = session("token-phone", "phone@example.test");
+  map.set(SESSION_KEY, JSON.stringify({ ...phone, token: "token-phone", tokenStored: true }));
+  const usable = await hydrateSessions({ invoke });
+  check("a native store that answers nothing still signs in", usable === 1 && loadSession()?.token === "token-phone", JSON.stringify(loadSession()));
+  check("...and the native store is written back", native.get(tokenKey(phone)) === "token-phone", String(native.get(tokenKey(phone))));
+}
+
+// ---------------------------------------------------------------------------
+// 5. Writing: the store holds the token, and the record keeps a fallback copy
 // ---------------------------------------------------------------------------
 {
   map.clear();
   const fresh = session("token-fresh", "new@example.test");
   saveSession(fresh);
   await tick();
-  check("the record has no token", recordOf(SESSION_KEY).token === "", JSON.stringify(recordOf(SESSION_KEY)));
-  check("...but says where it went", recordOf(SESSION_KEY).tokenStored === true);
   check("the store has it", secretOf(fresh) === "token-fresh");
+  check("...marked as stored", recordOf(SESSION_KEY).tokenStored === true);
+  check("...and the record keeps its own copy", recordOf(SESSION_KEY).token === "token-fresh", JSON.stringify(recordOf(SESSION_KEY)));
   check("this launch can still read it", loadSession()?.token === "token-fresh");
 
   writeSessions([fresh]);
   await tick();
-  check("a written list carries no tokens", recordOf(ACCOUNTS_KEY)[0].token === "", JSON.stringify(recordOf(ACCOUNTS_KEY)));
+  check("a written list keeps the copy too", recordOf(ACCOUNTS_KEY)[0].token === "token-fresh", JSON.stringify(recordOf(ACCOUNTS_KEY)));
   check("...and the store does", secretOf(fresh) === "token-fresh");
 }
 
 // ---------------------------------------------------------------------------
-// 5. Signing out: both halves go
+// 6. Signing out: both halves go
 // ---------------------------------------------------------------------------
 {
   map.clear();
@@ -129,7 +178,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 // ---------------------------------------------------------------------------
-// 6. A malformed record is discarded rather than thrown over
+// 7. A malformed record is discarded rather than thrown over
 // ---------------------------------------------------------------------------
 {
   map.clear();

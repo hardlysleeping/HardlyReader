@@ -17,14 +17,23 @@ export const SESSION_KEY = "hardlyreader.session";
 export const ACCOUNTS_KEY = "hardlyreader.session.accounts";
 
 /**
- * The server-issued token is NOT in either record.
+ * The server-issued token is stored in the OS store where there is one, and a copy
+ * rides in the record as well.
  *
  * Those two records keep everything a reader can be shown — the server, the name,
- * the API prefix — and the token lives in `lib/secrets` instead: the OS's own
- * store where there is one (Keychain, Keystore-backed preferences, Secret
- * Service), this device's storage where there is not. `tokenStored` marks a
- * record whose token has moved, so an upgrade can tell a legacy record (token
- * inline) from a current one without guessing.
+ * the API prefix — and the token goes to `lib/secrets` first: the OS's own store
+ * where there is one (Keychain, Keystore-backed preferences, Secret Service), this
+ * device's storage where there is not. `tokenStored` marks a record whose token has
+ * also moved, so an upgrade can tell a legacy record (token inline) from a current
+ * one without guessing.
+ *
+ * **The copy in the record is deliberate.** The OS store belongs to the app's
+ * signing identity: on a sideloaded phone, re-signing the IPA (a free Apple ID is
+ * re-signed every week) leaves a Keychain this build cannot read, while the records
+ * it wrote are untouched. Without the copy, the first launch after every re-sign
+ * signs the reader out; with it, `hydrateSessions` reads the copy back, rewrites the
+ * store and nobody sees a login screen. Losing a sign-in costs more than a token in
+ * this device's storage.
  *
  * A token hydrated this launch is kept in memory, keyed by server + name, so the
  * sync `loadSession()`/`sessionFor()` the rest of the app calls still answer with
@@ -61,21 +70,21 @@ export function tokenKey(session: Pick<Session, "serverUrl" | "email">): string 
  * Moves every stored token into the secret store, and remembers it for this launch.
  *
  * Awaited once at boot, before anything reads a session (`main.ts`), because a
- * record whose token has moved cannot answer without it. Three shapes are handled,
- * and all three turn up on a device:
+ * record whose token has moved cannot answer without the store. Three shapes are
+ * handled, and all three turn up on a device:
  *
- * - **a legacy record** with the token inline: it is written to the store, the
- *   record is rewritten without it, and the plain copy is gone — an upgrade signs
- *   nobody out and leaves nothing behind;
- * - **a current record** with `tokenStored`: its token is read back into memory;
- * - **a record whose secret is missing** (the store was wiped, or the app died in
- *   the millisecond between the two writes): the record is dropped, because a
- *   session with no token cannot be used and keeping it would offer a sign-in that
- *   always fails. The account's feeds stay; only the sign-in goes.
+ * - **a legacy record** with the token inline: it is written to the store and the
+ *   record keeps its copy — an upgrade signs nobody out;
+ * - **a current record** with `tokenStored`: the store's answer is read back into
+ *   memory, and the record's own copy is used when the store has nothing (a
+ *   re-signed install, a wiped store), which is then written back to the store;
+ * - **a record with no copy anywhere**: dropped, because a session with no token
+ *   cannot be used and keeping it would offer a sign-in that always fails. The
+ *   account's feeds stay; only the sign-in goes.
  *
- * A store that refuses the write is not fatal: the record is left exactly as it
- * was and the token is remembered for this launch, so a browser with blocked
- * storage behaves as it always did instead of losing the account.
+ * A store that refuses the write is not fatal: the record's copy still answers, so
+ * a browser with blocked storage behaves as it always did instead of losing the
+ * account.
  *
  * Returns how many sessions are usable afterwards, which is what a launch can log.
  */
@@ -89,20 +98,24 @@ export async function hydrateSessions(deps?: SecretDeps): Promise<number> {
   const migrate = async (record: StoredSession | null): Promise<StoredSession | null> => {
     if (record === null) return null;
     const key = tokenKey(record);
-    if (record.tokenStored !== true && record.token !== "") {
-      const kept = await secretSet(key, record.token, deps);
-      hydrated.set(key, record.token);
-      found.add(key);
-      count = found.size;
-      // Nowhere to put it: keep the record as it is rather than lose the sign-in.
-      return kept ? { ...record, token: "", tokenStored: true } : record;
-    }
-    const secret = await secretGet(key, deps);
-    if (secret === null) return null;
-    hydrated.set(key, secret);
+    // The store answers first, the record's own copy is the fallback. A phone that
+    // was re-signed (a sideload with a free Apple ID is re-signed every week) reads
+    // a *different* Keychain, so a store that was fine yesterday answers nothing
+    // today while the records are still here. The launch after it must sign the
+    // reader in, not delete the account: "sign in again after an update" is the
+    // symptom this copy exists to prevent.
+    const stored = record.tokenStored === true ? await secretGet(key, deps) : null;
+    const token = stored ?? (record.token !== "" ? record.token : null);
+    // No copy anywhere: a session with no token cannot be used, and keeping it would
+    // offer a sign-in that always fails. The account's feeds stay; only the sign-in goes.
+    if (token === null) return null;
+    hydrated.set(key, token);
     found.add(key);
     count = found.size;
-    return { ...record, token: "", tokenStored: true };
+    // The store lost it (or never had it): write it back so the next launch reads
+    // the OS store again, and keep the record's copy either way.
+    if (stored === null) await secretSet(key, token, deps);
+    return { ...record, token, tokenStored: true };
   };
 
   const active = await migrate(readRecord(SESSION_KEY));
@@ -153,9 +166,13 @@ export function saveSession(session: Session): void {
   const key = tokenKey(session);
   hydrated.set(key, session.token);
   void secretSet(key, session.token);
+  // The record keeps a copy of the token as well as the store holding it: the
+  // store is the better place for it, but it is also the half a re-signed install
+  // cannot read, and losing a sign-in costs more than a copy in this device's
+  // storage. `hydrateSessions` heals the store from it.
   localStorage.setItem(
     SESSION_KEY,
-    JSON.stringify({ ...serializable(session), token: "", tokenStored: true }),
+    JSON.stringify({ ...serializable(session), token: session.token, tokenStored: true }),
   );
 }
 
@@ -205,7 +222,7 @@ export function writeSessions(sessions: Session[]): void {
       const key = tokenKey(session);
       hydrated.set(key, session.token);
       void secretSet(key, session.token);
-      return { ...serializable(session), token: "", tokenStored: true };
+      return { ...serializable(session), token: session.token, tokenStored: true };
     });
     localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(records));
   } catch {
